@@ -1087,6 +1087,7 @@ int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name)
 	    cluster_target_port_mac_notify, (void *)ctp);
 	mutex_init(&port_mac->mac_tx_mtx, NULL, MUTEX_DRIVER, NULL);
 	cv_init(&port_mac->mac_tx_cv, NULL, CV_DRIVER, NULL);
+	kmem_free(cli_name, MAXNAMELEN);
 #else
 	port_mac->dev = dev_get_by_name(&init_net, link_name);
 	if (NULL == port_mac->dev) {
@@ -1117,7 +1118,6 @@ int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name)
 	}
 #endif
 
-	kmem_free(cli_name, MAXNAMELEN);
 
 	ctp->f_send_msg = cluster_target_mac_send;
 	ctp->f_tran_free = cluster_target_mac_tran_data_free;
