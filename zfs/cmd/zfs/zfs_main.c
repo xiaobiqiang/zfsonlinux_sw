@@ -102,6 +102,7 @@ static int zfs_do_holds(int argc, char **argv);
 static int zfs_do_release(int argc, char **argv);
 static int zfs_do_diff(int argc, char **argv);
 static int zfs_do_bookmark(int argc, char **argv);
+static int zfs_do_clustersan(int argc, char **argv);
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -149,6 +150,7 @@ typedef enum {
 	HELP_RELEASE,
 	HELP_DIFF,
 	HELP_BOOKMARK,
+	HELP_CLUSTERSAN
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -202,6 +204,7 @@ static zfs_command_t command_table[] = {
 	{ "holds",	zfs_do_holds,		HELP_HOLDS		},
 	{ "release",	zfs_do_release,		HELP_RELEASE		},
 	{ "diff",	zfs_do_diff,		HELP_DIFF		},
+	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -6652,6 +6655,722 @@ zfs_do_bookmark(int argc, char **argv)
 usage:
 	usage(B_FALSE);
 	return (-1);
+}
+
+#define	LVL1_FORMAT					"    %s"
+#define	LVL1_PROP_FORMAT			"    %-14s: "
+#define	LVL2_FORMAT					"        %s"
+#define	LVL2_PROP_FORMAT			"        %-14s: "
+#define	LVL3_FORMAT					"            %s"
+#define	LVL3_PROP_FORMAT			"            %-14s: "
+#define	LVL4_FORMAT					"                %s"
+#define	LVL4_PROP_FORMAT			"                %-14s: "
+
+static int zfs_do_clustersan_enable(int argc, char **argv)
+{
+	int c;
+	int ret;
+	char *clustername = NULL;
+	char *linkname = NULL;
+	int linkpri = 0;
+	int allflag = 0;
+	int debugflg = 0;
+	int max_conns_allowed = -1;
+	int listen_backlog = 10;
+	int cpid;
+	char *trans_provider = (char *)NULL;
+	nvlist_t *nvl_targetinfo;
+	nvlist_t *nvl_conf = NULL;
+
+	while ((c = getopt(argc, argv, "n:l:am:t:db:p:")) != -1) {
+		switch (c) {
+		case 'n':
+			clustername = optarg;
+			break;
+		case 'l':
+			linkname = optarg;
+			break;
+		case 'a':
+			allflag = 1;
+			break;
+		case 'm':
+			max_conns_allowed = atoi(optarg);
+			if (max_conns_allowed <= 0) {
+				max_conns_allowed = 16;
+			}
+			break;
+		case 'd':
+			debugflg++;
+			break;
+		case 't':
+			trans_provider = optarg;
+			break;
+		case 'b':
+			listen_backlog = atoi(optarg);
+			if (listen_backlog < 0) {
+				listen_backlog = 32;
+			}
+			break;
+		case 'p':
+			linkpri = atoi(optarg);
+			if (linkpri < 0) {
+				linkpri = 0;
+			}
+			break;
+		default:
+			(void) fprintf(stderr,
+				gettext("invalid option '%c'\n"), optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	if (linkname != NULL) {
+		if (nvlist_alloc(&nvl_conf, NV_UNIQUE_NAME, 0) != 0) {
+			(void) fprintf(stderr,
+				gettext("internal error: out of memory\n"));
+			return (1);
+		}
+		if (nvlist_add_int32(nvl_conf, "link_pri", linkpri) != 0) {
+			(void) fprintf(stderr,
+				gettext("internal error: out of memory\n"));
+			ret = 1;
+			goto out;
+		}
+	}
+
+	if ((linkname != NULL) && (strcmp(linkname, "rdma_rpc") == 0)) {
+		if (clustername != NULL) {
+			ret = zfs_enable_clustersan(g_zfs, clustername, NULL, NULL, 0);
+			if (ret != 0) {
+				goto out;
+			}
+		}
+		nvl_targetinfo = zfs_clustersan_get_nvlist(g_zfs,
+			ZFS_CLUSTERSAN_GET_TARGETINFO, (void *)"rdma_rpc", 0);
+		if (nvl_targetinfo != NULL) {
+			nvlist_free(nvl_targetinfo);
+			(void) fprintf(stderr,
+				gettext("rdma_rpc already enabled\n"));
+			ret = -1;
+			goto out;
+		}
+		ret = -1;
+		/* ret = zfs_cluster_rpc_rdma_svc_start(g_zfs, allflag, debugflg,
+			max_conns_allowed, listen_backlog, trans_provider, &cpid); */
+		if (ret == 0) {
+			if (nvlist_add_int32(nvl_conf, "srv_pid", cpid) != 0) {
+				(void) fprintf(stderr,
+					gettext("internal error: out of memory\n"));
+				ret = 1;
+				kill(cpid, SIGKILL);
+				goto out;
+			}
+			ret = zfs_enable_clustersan(g_zfs, NULL, linkname, nvl_conf, 0);
+			if (ret != 0) {
+				kill(cpid, SIGKILL);
+			}
+		}
+	} else {
+		ret = zfs_enable_clustersan(g_zfs, clustername, linkname, nvl_conf, 0);
+	}
+
+out:
+	if (nvl_conf != NULL) {
+		nvlist_free(nvl_conf);
+	}
+
+	return (ret);
+}
+
+static int zfs_do_clustersan_disable(int argc, char **argv)
+{
+	char *linkname = NULL;
+	int c;
+	int ret = 0;
+	boolean_t force = B_FALSE;
+	boolean_t diable_cluster = B_FALSE;
+
+	while ((c = getopt(argc, argv, "cfl:")) != -1) {
+		switch (c) {
+		case 'c':
+			diable_cluster = B_TRUE;
+			break;
+		case 'f':
+			force = B_TRUE;
+			break;
+		case 'l':
+			linkname = optarg;
+			break;
+		default:
+			(void) fprintf(stderr,
+			    gettext("invalid option '%c'\n"), optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	if (diable_cluster) {
+		if (force) {
+			ret = zfs_disable_clustersan(g_zfs, 0);
+		} else {
+			(void) fprintf(stderr,
+			    gettext("disable option unallowed, please reconfig and"
+					" restart, or force disable user -f option\n"));
+		}
+	} else {
+		if (linkname != NULL) {
+			ret = zfs_disable_clustersan_target(g_zfs, linkname, 0);
+		}
+	}
+
+	return (ret);
+}
+
+static void print_cs_sesslist(nvlist_t *sesslist)
+{
+	nvpair_t *nvp_sess = NULL;
+	nvlist_t *nvl_sess = NULL;
+	char *sessname;
+	uint32_t link_state;
+	uint32_t link_pri;
+	char *sessaddr;
+	char *ip_addr;
+	short port;
+	char *rpc_protocol;
+
+	(void) printf(LVL1_PROP_FORMAT"\n", "session list");
+	while ((nvp_sess = nvlist_next_nvpair(sesslist, nvp_sess)) != NULL) {
+		sessname = nvpair_name(nvp_sess);
+		(void) printf(LVL2_FORMAT"\n", sessname);
+		verify(0 == nvpair_value_nvlist(nvp_sess, &nvl_sess));
+		if (nvlist_lookup_uint32(nvl_sess, CS_NVL_LINK_PRI, &link_pri) == 0) {
+			(void) printf(LVL3_PROP_FORMAT"%d\n", "priority", link_pri);
+		}
+		verify(nvlist_lookup_uint32(nvl_sess, CS_NVL_SESS_LINK_STATE, &link_state) == 0);
+		(void) printf(LVL3_PROP_FORMAT, "link state");
+		if (link_state == 0) {
+			(void) printf("down\n");
+		} else {
+			(void) printf("up\n");
+		}
+		if (nvlist_lookup_string(nvl_sess, CS_NVL_MAC_ADDR, &sessaddr) == 0) {
+			(void) printf(LVL3_PROP_FORMAT"%s\n", "mac addr", sessaddr);
+		}
+		if (nvlist_lookup_string(nvl_sess, CS_NVL_RPC_IP, &ip_addr) == 0) {
+			(void) printf(LVL3_PROP_FORMAT"%s\n", "ip addr", ip_addr);
+		}
+		if (nvlist_lookup_int16(nvl_sess, CS_NVL_RPC_PORT, (int16_t *)&port) == 0) {
+			(void) printf(LVL3_PROP_FORMAT"%d\n", "port", port);
+		}
+		if (nvlist_lookup_string(nvl_sess, CS_NVL_RPC_TYPE, &rpc_protocol) == 0) {
+			(void) printf(LVL3_PROP_FORMAT"%s\n", "protocol", rpc_protocol);
+		}
+	}
+}
+
+static void print_cs_poollist(nvlist_t *poollist)
+{
+	nvlist_t *nvl_pool = NULL;
+	nvpair_t *nvp_pool = NULL;
+	char *pool_name;
+	uint64_t pool_guid;
+
+	(void) printf(LVL1_PROP_FORMAT"\n", "pool list");
+	while ((nvp_pool = nvlist_next_nvpair(poollist, nvp_pool)) != NULL) {
+		pool_name = nvpair_name(nvp_pool);
+		(void) printf(LVL2_FORMAT"\n", pool_name);
+		verify(0 == nvpair_value_nvlist(nvp_pool, &nvl_pool));
+		verify(0 == nvlist_lookup_string(nvl_pool, ZPOOL_CONFIG_POOL_NAME, &pool_name));
+		(void) printf(LVL3_PROP_FORMAT"%s\n", "pool name", pool_name);
+		verify(0 == nvlist_lookup_uint64(nvl_pool, ZPOOL_CONFIG_POOL_GUID, &pool_guid));
+		(void) printf(LVL3_PROP_FORMAT"%"PRIu64"\n", "pool guid", pool_guid);
+	}
+}
+
+static void print_cluster_hostinfo(nvlist_t *nvl_hostinfo, uint32_t flags)
+{
+	nvlist_t *sesslist = NULL;
+	nvlist_t *poollist = NULL;
+	uint32_t temp32 = 0;
+	char *ipmi_addr = NULL;
+	char *host_ip = NULL;
+
+	if ((flags & ZFS_CLUSTER_GET_HOST_EXTINFO) != 0) {
+		if (nvlist_lookup_string(nvl_hostinfo, CS_NVL_HOST_IP, &host_ip) == 0) {
+			(void) printf(LVL1_PROP_FORMAT"%s\n", "host ip", host_ip);
+		}
+	}
+	if ((flags & ZFS_CLUSTER_GET_FAILOVER_FLAG) != 0) {
+		if (nvlist_lookup_uint32(nvl_hostinfo, CS_NVL_FAILOVER_HOST, &temp32) == 0) {
+			(void) printf(LVL1_PROP_FORMAT"%d\n", "failover host", temp32);
+		}
+		if (nvlist_lookup_uint32(nvl_hostinfo, CS_NVL_NEED_FAILOVER, &temp32) == 0) {
+			if (temp32 == 0) {
+				(void) printf(LVL1_PROP_FORMAT"%s\n", "need failover", "no");
+			} else {
+				(void) printf(LVL1_PROP_FORMAT"%s\n", "nedd failover", "yes");
+			}
+		}
+		if (nvlist_lookup_string(nvl_hostinfo, CS_NVL_IPMI_ADDR, &ipmi_addr) == 0) {
+			(void) printf(LVL1_PROP_FORMAT"%s\n", "ipmi addr", ipmi_addr);
+		} else {
+			(void) printf(LVL1_FORMAT"\n", "haven't get the ipmi addr.");
+		}
+	}
+
+	if ((flags & ZFS_CLUSTER_SESSION_LIST_FLAG) != 0) {
+		if (nvlist_lookup_uint32(nvl_hostinfo, CS_NVL_STATE, &temp32) == 0) {
+			(void) printf(LVL1_PROP_FORMAT, "state");
+			if (temp32 == 0) {
+				(void) printf("down\n");
+			} else {
+				(void) printf("up\n");
+			}
+		}
+		if (nvlist_lookup_nvlist(nvl_hostinfo, CS_NVL_SESS_LIST, &sesslist) == 0) {
+			print_cs_sesslist(sesslist);
+		} else {
+			(void) printf(LVL1_FORMAT"\n", "there is no session.");
+		}
+	}
+
+	if ((flags & ZFS_CLUSTER_POOL_LIST_FLAG) != 0) {
+		if (nvlist_lookup_nvlist(nvl_hostinfo, CS_NVL_POOL_LIST, &poollist) == 0) {
+			print_cs_poollist(poollist);
+		} else {
+			(void) printf(LVL1_FORMAT"\n", "there is no pool.");
+		}
+	}
+	nvlist_free(nvl_hostinfo);
+}
+
+static void print_cs_this_host(nvlist_t *host, uint32_t flags)
+{
+	nvlist_t *nvl_hostinfo;
+	char *hostname;
+	uint32_t hostid;
+
+	(void) printf("This host:\n");
+	verify(nvlist_lookup_string(host, CS_NVL_HOST_NAME, &hostname) == 0);
+	verify(nvlist_lookup_uint32(host, CS_NVL_HOST_ID, &hostid) == 0);
+	(void) printf(LVL1_PROP_FORMAT"%s\n", "hostname", hostname);
+	(void) printf(LVL1_PROP_FORMAT"%d\n", "hostid", hostid);
+
+	if (flags != 0) {
+		nvl_hostinfo = zfs_clustersan_get_nvlist(g_zfs,
+			ZFS_CLUSTERSAN_GET_HOSTINFO, (void *)(uintptr_t)hostid, flags);
+		if (nvl_hostinfo == 0) {
+			(void) printf(LVL2_FORMAT, "get hostinfo failed.");
+		} else {
+			print_cluster_hostinfo(nvl_hostinfo, flags);
+		}
+	}
+}
+
+static void print_cs_remote_hostlist(nvlist_t *remote, uint32_t flags)
+{
+	nvpair_t *nvp_host = NULL;
+	nvlist_t *nvl_host = NULL;
+	nvlist_t *nvl_hostinfo = NULL;
+	char *hostnameid;
+	char *hostname;
+	uint32_t hostid;
+
+	(void) printf("\nRemote host list:\n");
+	while ((nvp_host = nvlist_next_nvpair(remote, nvp_host)) != NULL) {
+		hostnameid = nvpair_name(nvp_host);
+
+		verify(0 == nvpair_value_nvlist(nvp_host, &nvl_host));
+		verify(0 == nvlist_lookup_string(nvl_host, CS_NVL_HOST_NAME, &hostname));
+		verify(0 == nvlist_lookup_uint32(nvl_host, CS_NVL_HOST_ID, &hostid));
+	
+		(void) printf(LVL1_PROP_FORMAT"%s\n", "hostname", hostname);
+		(void) printf(LVL1_PROP_FORMAT"%d\n", "hostid", hostid);
+		if (flags != 0) {
+			/* get hostinfo */
+			nvl_hostinfo = zfs_clustersan_get_nvlist(g_zfs,
+				ZFS_CLUSTERSAN_GET_HOSTINFO, (void *)(uintptr_t)hostid, flags);
+			if (nvl_hostinfo == 0) {
+				(void) printf(LVL2_FORMAT, "get hostinfo failed.");
+			} else {
+				print_cluster_hostinfo(nvl_hostinfo, flags);
+			}
+		}
+		(void) printf("\n");
+	}
+}
+
+static int zfs_do_clustersan_list_host(int argc, char **argv)
+{
+	nvlist_t *nvl_hostlist;
+	nvlist_t *nvl_host;
+	nvlist_t *nvl_remote;
+	int c;
+	int ret = 0;
+	uint32_t flags = 0;
+	uint32_t local_flags = 0;
+
+	while ((c = getopt(argc, argv, "spfi")) != -1) {
+		switch (c) {
+		case 's':
+			flags |= ZFS_CLUSTER_SESSION_LIST_FLAG;
+			break;
+		case 'p':
+			flags |= ZFS_CLUSTER_POOL_LIST_FLAG;
+			break;
+		case 'f':
+			flags |= ZFS_CLUSTER_GET_FAILOVER_FLAG;
+			break;
+		case 'i':
+			flags |= ZFS_CLUSTER_GET_HOST_EXTINFO;
+			break;
+		default:
+			(void) fprintf(stderr,
+			    gettext("invalid option '%c'\n"), optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	nvl_hostlist = zfs_clustersan_get_hostlist(g_zfs, flags);
+
+	if (nvl_hostlist == NULL) {
+		(void) fprintf(stderr, gettext("get hostlist failed\n"));
+		return (-1);
+	}
+
+	if (nvlist_lookup_nvlist(nvl_hostlist, CS_NVL_THIS_HOST, &nvl_host) == 0) {
+		local_flags = flags & (~ZFS_CLUSTER_SESSION_LIST_FLAG);
+		print_cs_this_host(nvl_host, local_flags);
+	}
+
+	if (nvlist_lookup_nvlist(nvl_hostlist, CS_NVL_REMOTE_HOST, &nvl_remote) == 0) {
+		print_cs_remote_hostlist(nvl_remote, flags);
+	} else {
+		(void) printf("\nThere is no Remote host.\n");
+	}
+
+	nvlist_free(nvl_hostlist);
+	return (ret);
+}
+
+static int print_clustersan_targetlist(nvlist_t *nvl_targetlist, boolean_t verbose)
+{
+	nvlist_t *nvl_target;
+	nvpair_t *nvp_target = NULL;
+	nvlist_t *nvl_sesslist;
+	char *link_name;
+	char *mac_addr;
+	uint32_t link_pri = 0;
+
+	if (nvl_targetlist == NULL) {
+		(void) fprintf(stderr, gettext("get targetlist failed\n"));
+		return (-1);
+	}
+
+	while ((nvp_target = nvlist_next_nvpair(nvl_targetlist, nvp_target)) != NULL) {
+		link_name = nvpair_name(nvp_target);
+		(void) printf("Target: %s\n", link_name);
+		if (!verbose) {
+			continue;
+		}
+		verify(0 == nvpair_value_nvlist(nvp_target, &nvl_target));
+		if (nvlist_lookup_uint32(nvl_target, CS_NVL_LINK_PRI, &link_pri) == 0) {
+			(void) printf(LVL1_PROP_FORMAT"%d\n", "priority", link_pri);
+		}
+		if (nvlist_lookup_string(nvl_target, CS_NVL_MAC_ADDR, &mac_addr) == 0) {
+			(void) printf(LVL1_PROP_FORMAT"%s\n", "mac addr", mac_addr);
+		}
+		if (nvlist_lookup_nvlist(nvl_target, CS_NVL_SESS_LIST, &nvl_sesslist) == 0) {
+			print_cs_sesslist(nvl_sesslist);
+		}
+	}
+
+	nvlist_free(nvl_targetlist);
+
+	return (0);
+}
+
+static int zfs_do_clustersan_list_target(int argc, char **argv)
+{
+	nvlist_t *nvl_targetlist;
+	int c;
+	int ret = 0;
+	boolean_t verbose = B_FALSE;
+
+	while ((c = getopt(argc, argv, "v")) != -1) {
+		switch (c) {
+		case 'v':
+			verbose = B_TRUE;
+			break;
+		default:
+			(void) fprintf(stderr,
+			    gettext("invalid option '%c'\n"), optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	nvl_targetlist = zfs_clustersan_get_targetlist(g_zfs, 0);
+	ret = print_clustersan_targetlist(nvl_targetlist, verbose);
+
+	return (ret);
+}
+
+static int zfs_do_clustersan_state(int argc, char **argv)
+{
+	nvlist_t *nvl_state;
+	char *cs_name;
+	char *sess_failover;
+	uint32_t cs_state;
+	uint32_t ipmi_on_off;
+	int ret = -1;
+
+	if (argc > 1) {
+		(void) fprintf(stderr, gettext("invalid option '%s'\n"), argv[1]);
+		usage(B_FALSE);
+	}
+	nvl_state = zfs_clustersan_get_nvlist(g_zfs, ZFS_CLUSTERSAN_STATE, NULL, 0);
+	if (nvl_state != NULL) {
+		(void) printf("cluster san:\n");
+		verify(nvlist_lookup_uint32(nvl_state, CS_NVL_STATE, &cs_state) == 0);
+		(void) printf(LVL1_PROP_FORMAT, "state");
+		if (cs_state == 0) {
+			(void) printf("disable\n");
+		} else {
+			verify(nvlist_lookup_string(nvl_state, CS_NVL_NAME, &cs_name) == 0);
+			(void) printf("enable\n");
+			(void) printf(LVL1_PROP_FORMAT"%s\n", "name", cs_name);
+			if (nvlist_lookup_string(nvl_state, CS_NVL_FAILOVER, &sess_failover) == 0) {
+				(void) printf(LVL1_PROP_FORMAT"%s\n", "failover", sess_failover);
+			}
+			if (nvlist_lookup_uint32(nvl_state, CS_NVL_IPMI_SWITCH, &ipmi_on_off) == 0) {
+				if (ipmi_on_off == 0) {
+					(void) printf(LVL1_PROP_FORMAT"%s\n", "ipmi", "off");
+				} else {
+					(void) printf(LVL1_PROP_FORMAT"%s\n", "ipmi", "on");
+				}
+			}
+		}
+		ret = 0;
+	}
+
+	return (ret);
+}
+
+static int check_clustersan_prop_set(const char *prop, const char *value)
+{
+	int ret = -1;
+	if (strcmp(prop, CLUSTER_PROP_FAILOVER) == 0) {
+		if ((strcmp(value, "loadbalance") == 0) ||
+			(strcmp(value, "roundrobin") == 0)) {
+			ret = 0;
+		} else {
+			(void) fprintf(stderr, gettext("%s value must "
+				"loadbalance|roundrobin\n"), CLUSTER_PROP_FAILOVER);
+		}
+	} else if (strcmp(prop, CLUSTER_PROP_IPMI_SWITCH) == 0) {
+		if ((strcmp(value, "on") == 0) ||
+			(strcmp(value, "off") == 0)) {
+			ret = 0;
+		} else {
+			(void) fprintf(stderr, gettext("%s value must "
+				"on|off\n"), CLUSTER_PROP_IPMI_SWITCH);
+		}
+	} else {
+		(void) fprintf(stderr, gettext("invalid property=value argument\n"));
+	}
+	return (ret);
+}
+
+static int zfs_do_clustersan_set(int argc, char **argv)
+{
+	set_cbdata_t cb;
+	int ret;
+	if (argc < 2) {
+		(void) fprintf(stderr, gettext("missing property=value "
+		    "argument\n"));
+		usage(B_FALSE);
+	}
+	cb.cb_propname = argv[1];
+	if (((cb.cb_value = strchr(cb.cb_propname, '=')) == NULL) ||
+	    (cb.cb_value[1] == '\0')) {
+		(void) fprintf(stderr, gettext("missing value in "
+		    "property=value argument\n"));
+		usage(B_FALSE);
+	}
+	*cb.cb_value = '\0';
+	cb.cb_value++;
+
+	if (*cb.cb_propname == '\0') {
+		(void) fprintf(stderr,
+		    gettext("missing property in property=value argument\n"));
+		usage(B_FALSE);
+	}
+
+	if (check_clustersan_prop_set(cb.cb_propname, cb.cb_value) != 0) {
+		usage(B_FALSE);
+	}
+
+	ret = zfs_clustersan_set_prop(g_zfs, cb.cb_propname, cb.cb_value);
+
+	return (ret);
+}
+
+/*
+static int zfs_do_clustersan_rpcto(int argc, char **argv)
+{
+	int i;
+	char *hostname = NULL;
+	uint32_t hostid = 0;
+	char *ip = NULL;
+	short port = CLUSTER_RDMA_RPC_SVC_BIND_PORT;
+	char *name;
+	char *value;
+	int use_rdma = 1;
+	int link_pri = 0;
+	int ret;
+
+	for (i = 1; i < argc; i++) {
+		name = argv[i];
+		if (((value = strchr(name, '=')) == NULL) ||
+			(value[1] == '\0')) {
+			(void) fprintf(stderr, gettext("missing value in "
+				"%s=value argument\n"), name);
+			usage(B_FALSE);
+		}
+		*value = '\0';
+		value++;
+		if (strcmp(name, "hostname") == 0) {
+			hostname = value;
+		} else if (strcmp(name, "hostid") == 0) {
+			hostid = atoi(value);
+		} else if (strcmp(name, "ip") == 0) {
+			ip = value;
+		} else if (strcmp(name, "port") == 0) {
+			port = atoi(value);
+		} else if (strcmp(name, "rdma") == 0) {
+			if (strcmp(value, "on") == 0) {
+				use_rdma = 1;
+			} else if (strcmp(value, "off") == 0) {
+				use_rdma = 0;
+			} else {
+				(void) fprintf(stderr, gettext("don't support: "
+					"%s=%s\n"), name, value);
+				usage(B_FALSE);
+			}
+		} else if (strcmp(name, "priority") == 0) {
+			link_pri = atoi(value);
+			if (link_pri < 0) {
+				link_pri = 0;
+			}
+		} else {
+			(void) fprintf(stderr, gettext("don't support: "
+				"%s=%s\n"), name, value);
+			usage(B_FALSE);
+		}
+	}
+
+	if (hostname == NULL) {
+		(void) fprintf(stderr, gettext("must specify hostname\n"));
+		usage(B_FALSE);
+	}
+	if (hostid == 0) {
+		(void) fprintf(stderr, gettext("must specify hostid\n"));
+		usage(B_FALSE);
+	}
+	if (ip == NULL) {
+		(void) fprintf(stderr, gettext("must specify ip address\n"));
+		usage(B_FALSE);
+	}
+
+	ret = zfs_cluster_rpc_to_do(g_zfs, hostname, hostid, ip, port,
+		link_pri, use_rdma);
+	return (ret);
+}
+*/
+
+static int
+zfs_do_clustersan(int argc, char **argv)
+{
+	uint32_t cmd = 0;
+	int ret;
+
+	if (argc > 1 && !strcmp(argv[1], "enable")) {
+		cmd= ZFS_CLUSTERSAN_ENABLE;
+		ret = zfs_do_clustersan_enable(argc - 1, argv + 1);
+	} else if (argc > 1 && !strcmp(argv[1], "disable")) {
+		cmd = ZFS_CLUSTERSAN_DISABLE;
+		ret = zfs_do_clustersan_disable(argc - 1, argv + 1);
+	} else if(argc > 1 && !strcmp(argv[1], "state")) {
+		cmd = ZFS_CLUSTERSAN_STATE;
+		ret = zfs_do_clustersan_state(argc - 1, argv + 1);
+	} else if (argc > 1 && !strcmp(argv[1], "set")) {
+		cmd = ZFS_CLUSTERSAN_SET;
+		ret = zfs_do_clustersan_set(argc -1, argv + 1);
+	} else if(argc > 1 && !strcmp(argv[1], "list-host")) {
+		cmd = ZFS_CLUSTERSAN_LIST_HOST;
+		ret = zfs_do_clustersan_list_host(argc - 1, argv + 1);
+	} else if(argc > 1 && !strcmp(argv[1], "list-target")) {
+		cmd = ZFS_CLUSTERSAN_LIST_TARGET;
+		ret = zfs_do_clustersan_list_target(argc - 1, argv + 1);
+	} else if (argc > 1 && !strcmp(argv[1], "rpcto")) {
+		ret = -1;
+		/* ret = zfs_do_clustersan_rpcto(argc - 1, argv + 1); */
+	} else {
+		(void) fprintf(stderr, gettext("invalid option\n"));
+		usage(B_FALSE);
+	}
+#if 0
+	int c;
+	char *clustername = NULL;
+	char *linkname = NULL;
+	boolean_t force = B_FALSE;
+	boolean_t verbose = B_FALSE;
+
+	argc -= 1;
+	argv += 1;
+
+	while ((c = getopt(argc, argv, "n:l:fv")) != -1) {
+		switch (c) {
+			case 'n':
+				clustername = optarg;
+				break;
+			case 'l':
+				linkname = optarg;
+				break;
+			case 'f':
+				force = B_TRUE;
+				break;
+			case 'v':
+				verbose = B_TRUE;
+				break;
+			default:
+				(void) fprintf(stderr,
+						gettext("invalid option '%c'\n"), optopt);
+				usage(B_FALSE);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+	switch (cmd) {
+		case ZFS_CLUSTERSAN_ENABLE:
+			ret = zfs_enable_clustersan(g_zfs, clustername, linkname, 0);
+			break;
+		case ZFS_CLUSTERSAN_DISABLE:
+			if (force) {
+				ret = zfs_disable_clustersan(g_zfs, 0);
+			} else {
+				(void) fprintf(stderr,
+						gettext("disable option unallowed, please reconfig and restart\n"));
+			}
+			break;
+		case ZFS_CLUSTERSAN_LIST_HOST:
+			ret = zfs_do_clustersan_list_host(g_zfs, verbose, 0);
+			break;
+		default:
+			break;
+	}
+#endif
+	return (ret);
 }
 
 int

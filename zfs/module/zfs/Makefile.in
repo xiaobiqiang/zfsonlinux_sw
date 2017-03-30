@@ -106,3 +106,4 @@ $(MODULE)-objs += zrlock.o
 $(MODULE)-objs += zvol.o
 $(MODULE)-objs += dsl_destroy.o
 $(MODULE)-objs += dsl_userhold.o
+$(MODULE)-objs += cluster_san.o

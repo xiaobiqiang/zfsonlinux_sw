@@ -38,7 +38,8 @@ extern "C" {
 
 #ifdef _KERNEL
 
-#include <sys/ksynch.h>
+/* #include <sys/ksynch.h> */
+#include <sys/rwlock.h>
 #include <sys/modhash.h>
 
 struct mod_hash_entry {

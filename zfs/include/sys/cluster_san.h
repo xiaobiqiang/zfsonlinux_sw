@@ -440,8 +440,8 @@ typedef void (*cs_rx_cb_t)(cs_rx_data_t *cs_data, void *arg);
 typedef void (*cs_link_evt_cb_t)(void *private,
 	cts_link_evt_t link_evt, void *arg);
 
-int cluster_san_init();
-void cluster_san_fini();
+int cluster_san_init(void);
+void cluster_san_fini(void);
 void *cs_kmem_alloc(size_t size);
 void cs_kmem_free(void *buf, size_t size);
 cluster_target_port_t *
@@ -457,13 +457,13 @@ int cluster_target_send_wait(cluster_target_port_t *ctp,
 int cluster_target_session_send(cluster_target_session_t *cts,
 	cluster_tran_data_origin_t *origin_data, int pri);
 int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf);
-int cluster_san_disable();
+int cluster_san_disable(void);
 int cluster_san_disable_target(char *link_name);
 nvlist_t *cluster_san_get_hostlist(uint32_t flags);
 nvlist_t *cluster_san_get_hostinfo(uint32_t hostid, uint32_t flags);
-nvlist_t *cluster_san_get_targetlist();
+nvlist_t *cluster_san_get_targetlist(void);
 nvlist_t *cluster_san_get_targetinfo(char *name, uint32_t flags);
-nvlist_t *cluster_san_get_state();
+nvlist_t *cluster_san_get_state(void);
 int cluster_san_set_prop(const char *prop, const char *value);
 nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str, int timeout, int remote_hostid);
 void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
@@ -514,7 +514,7 @@ cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para);
 void cs_join_msg_handle(void *arg);
 
 int cluster_change_failover_host(cluster_san_hostinfo_t *cshi);
-uint32_t cluster_get_failover_hostid();
+uint32_t cluster_get_failover_hostid(void);
 void cluster_host_cancle_failover(uint32_t hostid);
 boolean_t cluster_host_need_failover(uint32_t hostid);
 void cluster_san_broadcast_send(

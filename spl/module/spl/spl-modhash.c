@@ -141,6 +141,7 @@
 #include <sys/debug.h>
 #include <sys/kmem.h>
 #include <sys/sunddi.h>
+#include <sys/kmem_cache.h>
 
 #include <sys/modhash_impl.h>
 
@@ -170,21 +171,60 @@ mod_hash_t *mh_head = NULL;
 kmutex_t mh_head_lock;
 
 /*
+ *  * Find highest one bit set.
+ *  *	Returns bit number + 1 of highest bit that is set, otherwise returns 0.
+ *  * High order bit is 31 (or 63 in _LP64 kernel).
+ *  */
+int
+highbit(ulong_t i)
+{
+	register int h = 1;
+
+	if (i == 0)
+		return (0);
+#ifdef _LP64
+	if (i & 0xffffffff00000000ul) {
+		h += 32; i >>= 32;
+	}
+#endif
+	if (i & 0xffff0000) {
+		h += 16; i >>= 16;
+	}
+	if (i & 0xff00) {
+		h += 8; i >>= 8;
+	}
+	if (i & 0xf0) {
+		h += 4; i >>= 4;
+	}
+	if (i & 0xc) {
+		h += 2; i >>= 2;
+	}
+	if (i & 0x2) {
+		h += 1;
+	}
+	return (h);
+}
+
+/*
  * mod_hash_null_keydtor()
  * mod_hash_null_valdtor()
  * 	no-op key and value destructors.
  */
 /*ARGSUSED*/
-void
+	void
 mod_hash_null_keydtor(mod_hash_key_t key)
 {
 }
 
+EXPORT_SYMBOL(mod_hash_null_keydtor);
+
 /*ARGSUSED*/
-void
+	void
 mod_hash_null_valdtor(mod_hash_val_t val)
 {
 }
+
+EXPORT_SYMBOL(mod_hash_null_valdtor);
 
 /*
  * mod_hash_bystr()
@@ -201,7 +241,7 @@ mod_hash_null_valdtor(mod_hash_val_t val)
  */
 
 /*ARGSUSED*/
-uint_t
+	uint_t
 mod_hash_bystr(void *hash_data, mod_hash_key_t key)
 {
 	uint_t hash = 0;
@@ -219,41 +259,52 @@ mod_hash_bystr(void *hash_data, mod_hash_key_t key)
 	return (hash);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_bystr);
+
+	int
 mod_hash_strkey_cmp(mod_hash_key_t key1, mod_hash_key_t key2)
 {
 	return (strcmp((char *)key1, (char *)key2));
 }
 
-void
+EXPORT_SYMBOL(mod_hash_strkey_cmp);
+
+	void
 mod_hash_strkey_dtor(mod_hash_key_t key)
 {
 	char *c = (char *)key;
 	kmem_free(c, strlen(c) + 1);
 }
 
-void
+EXPORT_SYMBOL(mod_hash_strkey_dtor);
+
+	void
 mod_hash_strval_dtor(mod_hash_val_t val)
 {
 	char *c = (char *)val;
 	kmem_free(c, strlen(c) + 1);
 }
 
-mod_hash_t *
+EXPORT_SYMBOL(mod_hash_strval_dtor);
+
+	mod_hash_t *
 mod_hash_create_strhash(char *name, size_t nchains,
-    void (*val_dtor)(mod_hash_val_t))
+		void (*val_dtor)(mod_hash_val_t))
 {
 	return mod_hash_create_extended(name, nchains, mod_hash_strkey_dtor,
-	    val_dtor, mod_hash_bystr, NULL, mod_hash_strkey_cmp, KM_SLEEP);
+			val_dtor, mod_hash_bystr, NULL, mod_hash_strkey_cmp, KM_SLEEP);
 }
 
-void
+EXPORT_SYMBOL(mod_hash_create_strhash);
+
+	void
 mod_hash_destroy_strhash(mod_hash_t *strhash)
 {
 	ASSERT(strhash);
 	mod_hash_destroy_hash(strhash);
 }
 
+EXPORT_SYMBOL(mod_hash_destroy_strhash);
 
 /*
  * mod_hash_byptr()
@@ -267,7 +318,7 @@ mod_hash_destroy_strhash(mod_hash_t *strhash)
  * 	based on the size of the hash table and a hint about the size of
  * 	the items pointed at.
  */
-uint_t
+	uint_t
 mod_hash_byptr(void *hash_data, mod_hash_key_t key)
 {
 	uintptr_t k = (uintptr_t)key;
@@ -276,7 +327,9 @@ mod_hash_byptr(void *hash_data, mod_hash_key_t key)
 	return ((uint_t)k);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_byptr);
+
+	int
 mod_hash_ptrkey_cmp(mod_hash_key_t key1, mod_hash_key_t key2)
 {
 	uintptr_t k1 = (uintptr_t)key1;
@@ -289,9 +342,11 @@ mod_hash_ptrkey_cmp(mod_hash_key_t key1, mod_hash_key_t key2)
 		return (0);
 }
 
-mod_hash_t *
+EXPORT_SYMBOL(mod_hash_ptrkey_cmp);
+
+	mod_hash_t *
 mod_hash_create_ptrhash(char *name, size_t nchains,
-    void (*val_dtor)(mod_hash_val_t), size_t key_elem_size)
+		void (*val_dtor)(mod_hash_val_t), size_t key_elem_size)
 {
 	size_t rshift;
 
@@ -309,16 +364,20 @@ mod_hash_create_ptrhash(char *name, size_t nchains,
 	rshift = highbit(key_elem_size);
 
 	return mod_hash_create_extended(name, nchains, mod_hash_null_keydtor,
-	    val_dtor, mod_hash_byptr, (void *)rshift, mod_hash_ptrkey_cmp,
-	    KM_SLEEP);
+			val_dtor, mod_hash_byptr, (void *)rshift, mod_hash_ptrkey_cmp,
+			KM_SLEEP);
 }
 
-void
+EXPORT_SYMBOL(mod_hash_create_ptrhash);
+
+	void
 mod_hash_destroy_ptrhash(mod_hash_t *hash)
 {
 	ASSERT(hash);
 	mod_hash_destroy_hash(hash);
 }
+
+EXPORT_SYMBOL(mod_hash_destroy_ptrhash);
 
 /*
  * mod_hash_byid()
@@ -336,25 +395,29 @@ mod_hash_destroy_ptrhash(mod_hash_t *hash)
  *	slots.  The hash index is then this number times the key modulo
  *	the hash size, or (key * prime) % nchains.
  */
-uint_t
+	uint_t
 mod_hash_byid(void *hash_data, mod_hash_key_t key)
 {
 	uint_t kval = (uint_t)(uintptr_t)hash_data;
 	return ((uint_t)(uintptr_t)key * (uint_t)kval);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_byid);
+
+	int
 mod_hash_idkey_cmp(mod_hash_key_t key1, mod_hash_key_t key2)
 {
 	return ((uint_t)(uintptr_t)key1 - (uint_t)(uintptr_t)key2);
 }
+
+EXPORT_SYMBOL(mod_hash_idkey_cmp);
 
 /*
  * Generate the next largest prime number greater than nchains; this value
  * is intended to be later passed in to mod_hash_create_extended() as the
  * hash_data.
  */
-uint_t
+	uint_t
 mod_hash_iddata_gen(size_t nchains)
 {
 	uint_t kval, i, prime;
@@ -378,36 +441,44 @@ mod_hash_iddata_gen(size_t nchains)
 	return (kval);
 }
 
-mod_hash_t *
+EXPORT_SYMBOL(mod_hash_iddata_gen);
+
+	mod_hash_t *
 mod_hash_create_idhash(char *name, size_t nchains,
-    void (*val_dtor)(mod_hash_val_t))
+		void (*val_dtor)(mod_hash_val_t))
 {
 	uint_t kval = mod_hash_iddata_gen(nchains);
 
 	return (mod_hash_create_extended(name, nchains, mod_hash_null_keydtor,
-	    val_dtor, mod_hash_byid, (void *)(uintptr_t)kval,
-	    mod_hash_idkey_cmp, KM_SLEEP));
+				val_dtor, mod_hash_byid, (void *)(uintptr_t)kval,
+				mod_hash_idkey_cmp, KM_SLEEP));
 }
 
-void
+EXPORT_SYMBOL(mod_hash_create_idhash);
+
+	void
 mod_hash_destroy_idhash(mod_hash_t *hash)
 {
 	ASSERT(hash);
 	mod_hash_destroy_hash(hash);
 }
 
+EXPORT_SYMBOL(mod_hash_destroy_idhash);
+
 /*
  * mod_hash_init()
  * 	sets up globals, etc for mod_hash_*
  */
-void
+	void
 mod_hash_init(void)
 {
 	ASSERT(mh_e_cache == NULL);
 	mh_e_cache = kmem_cache_create("mod_hash_entries",
-	    sizeof (struct mod_hash_entry), 0, NULL, NULL, NULL, NULL,
-	    NULL, 0);
+			sizeof (struct mod_hash_entry), 0, NULL, NULL, NULL, NULL,
+			NULL, 0);
 }
+
+EXPORT_SYMBOL(mod_hash_init);
 
 /*
  * mod_hash_create_extended()
@@ -422,16 +493,16 @@ mod_hash_init(void)
  *
  * 	Fails only if KM_NOSLEEP was specified, and no memory was available.
  */
-mod_hash_t *
+	mod_hash_t *
 mod_hash_create_extended(
-    char *hname,			/* descriptive name for hash */
-    size_t nchains,			/* number of hash slots */
-    void (*kdtor)(mod_hash_key_t),	/* key destructor */
-    void (*vdtor)(mod_hash_val_t),	/* value destructor */
-    uint_t (*hash_alg)(void *, mod_hash_key_t), /* hash algorithm */
-    void *hash_alg_data,		/* pass-thru arg for hash_alg */
-    int (*keycmp)(mod_hash_key_t, mod_hash_key_t), /* key comparator */
-    int sleep)				/* whether to sleep for mem */
+		char *hname,			/* descriptive name for hash */
+		size_t nchains,			/* number of hash slots */
+		void (*kdtor)(mod_hash_key_t),	/* key destructor */
+		void (*vdtor)(mod_hash_val_t),	/* value destructor */
+		uint_t (*hash_alg)(void *, mod_hash_key_t), /* hash algorithm */
+		void *hash_alg_data,		/* pass-thru arg for hash_alg */
+		int (*keycmp)(mod_hash_key_t, mod_hash_key_t), /* key comparator */
+		int sleep)				/* whether to sleep for mem */
 {
 	mod_hash_t *mod_hash;
 	ASSERT(hname && keycmp && hash_alg && vdtor && kdtor);
@@ -465,12 +536,14 @@ mod_hash_create_extended(
 	return (mod_hash);
 }
 
+EXPORT_SYMBOL(mod_hash_create_extended);
+
 /*
  * mod_hash_destroy_hash()
  * 	destroy a hash table, destroying all of its stored keys and values
  * 	as well.
  */
-void
+	void
 mod_hash_destroy_hash(mod_hash_t *hash)
 {
 	mod_hash_t *mhp, *mhpp;
@@ -506,11 +579,13 @@ mod_hash_destroy_hash(mod_hash_t *hash)
 	kmem_free(hash, MH_SIZE(hash->mh_nchains));
 }
 
+EXPORT_SYMBOL(mod_hash_destroy_hash);
+
 /*
  * i_mod_hash()
  * 	Call the hashing algorithm for this hash table, with the given key.
  */
-uint_t
+	uint_t
 i_mod_hash(mod_hash_t *hash, mod_hash_key_t key)
 {
 	uint_t h;
@@ -537,9 +612,9 @@ i_mod_hash(mod_hash_t *hash, mod_hash_key_t key)
  * 	structure in situations where mod_hash_insert() with a KM_SLEEP
  * 	allocation policy would otherwise be unsafe.
  */
-int
+	int
 i_mod_hash_insert_nosync(mod_hash_t *hash, mod_hash_key_t key,
-    mod_hash_val_t val, mod_hash_hndl_t handle)
+		mod_hash_val_t val, mod_hash_hndl_t handle)
 {
 	uint_t hashidx;
 	struct mod_hash_entry *entry;
@@ -571,7 +646,7 @@ i_mod_hash_insert_nosync(mod_hash_t *hash, mod_hash_key_t key,
 	return (0);
 }
 
-int
+	int
 mod_hash_insert(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t val)
 {
 	int res;
@@ -594,9 +669,11 @@ mod_hash_insert(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t val)
 	return (res);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_insert);
+
+	int
 mod_hash_insert_reserve(mod_hash_t *hash, mod_hash_key_t key,
-    mod_hash_val_t val, mod_hash_hndl_t handle)
+		mod_hash_val_t val, mod_hash_hndl_t handle)
 {
 	int res;
 	mod_hash_val_t v;
@@ -617,6 +694,8 @@ mod_hash_insert_reserve(mod_hash_t *hash, mod_hash_key_t key,
 	return (res);
 }
 
+EXPORT_SYMBOL(mod_hash_insert_reserve);
+
 /*
  * mod_hash_reserve()
  * mod_hash_reserve_nosleep()
@@ -624,7 +703,7 @@ mod_hash_insert_reserve(mod_hash_t *hash, mod_hash_key_t key,
  *   Make or cancel a mod_hash_entry_t reservation.  Reservations are used in
  *   mod_hash_insert_reserve() above.
  */
-int
+	int
 mod_hash_reserve(mod_hash_t *hash, mod_hash_hndl_t *handlep)
 {
 	*handlep = kmem_cache_alloc(mh_e_cache, hash->mh_sleep);
@@ -636,7 +715,9 @@ mod_hash_reserve(mod_hash_t *hash, mod_hash_hndl_t *handlep)
 	return (0);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_reserve);
+
+	int
 mod_hash_reserve_nosleep(mod_hash_t *hash, mod_hash_hndl_t *handlep)
 {
 	*handlep = kmem_cache_alloc(mh_e_cache, KM_NOSLEEP);
@@ -649,22 +730,25 @@ mod_hash_reserve_nosleep(mod_hash_t *hash, mod_hash_hndl_t *handlep)
 
 }
 
+EXPORT_SYMBOL(mod_hash_reserve_nosleep);
+
 /*ARGSUSED*/
-void
+	void
 mod_hash_cancel(mod_hash_t *hash, mod_hash_hndl_t *handlep)
 {
 	kmem_cache_free(mh_e_cache, *handlep);
 	*handlep = (mod_hash_hndl_t)0;
 }
 
+EXPORT_SYMBOL(mod_hash_cancel);
 /*
  * i_mod_hash_remove_nosync()
  * mod_hash_remove()
  * 	Remove an element from the hash table.
  */
-int
+	int
 i_mod_hash_remove_nosync(mod_hash_t *hash, mod_hash_key_t key,
-    mod_hash_val_t *val)
+		mod_hash_val_t *val)
 {
 	int hashidx;
 	struct mod_hash_entry *e, *ep;
@@ -699,7 +783,7 @@ i_mod_hash_remove_nosync(mod_hash_t *hash, mod_hash_key_t key,
 	return (0);
 }
 
-int
+	int
 mod_hash_remove(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val)
 {
 	int res;
@@ -711,13 +795,15 @@ mod_hash_remove(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val)
 	return (res);
 }
 
+EXPORT_SYMBOL(mod_hash_remove);
+
 /*
  * mod_hash_replace()
  * 	atomically remove an existing key-value pair from a hash, and replace
  * 	the key and value with the ones supplied.  The removed key and value
  * 	(if any) are destroyed.
  */
-int
+	int
 mod_hash_replace(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t val)
 {
 	int res;
@@ -738,11 +824,13 @@ mod_hash_replace(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t val)
 	return (res);
 }
 
+EXPORT_SYMBOL(mod_hash_replace);
+
 /*
  * mod_hash_destroy()
  * 	Remove an element from the hash table matching 'key', and destroy it.
  */
-int
+	int
 mod_hash_destroy(mod_hash_t *hash, mod_hash_key_t key)
 {
 	mod_hash_val_t val;
@@ -761,14 +849,16 @@ mod_hash_destroy(mod_hash_t *hash, mod_hash_key_t key)
 	return (rv);
 }
 
+EXPORT_SYMBOL(mod_hash_destroy);
+
 /*
  * i_mod_hash_find_nosync()
  * mod_hash_find()
  * 	Find a value in the hash table corresponding to the given key.
  */
-int
+	int
 i_mod_hash_find_nosync(mod_hash_t *hash, mod_hash_key_t key,
-    mod_hash_val_t *val)
+		mod_hash_val_t *val)
 {
 	uint_t hashidx;
 	struct mod_hash_entry *e;
@@ -786,7 +876,7 @@ i_mod_hash_find_nosync(mod_hash_t *hash, mod_hash_key_t key,
 	return (MH_ERR_NOTFOUND);
 }
 
-int
+	int
 mod_hash_find(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val)
 {
 	int res;
@@ -798,9 +888,11 @@ mod_hash_find(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val)
 	return (res);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_find);
+
+	int
 mod_hash_find_cb(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val,
-    void (*find_cb)(mod_hash_key_t, mod_hash_val_t))
+		void (*find_cb)(mod_hash_key_t, mod_hash_val_t))
 {
 	int res;
 
@@ -814,9 +906,11 @@ mod_hash_find_cb(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val,
 	return (res);
 }
 
-int
+EXPORT_SYMBOL(mod_hash_find_cb);
+
+	int
 mod_hash_find_cb_rval(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val,
-    int (*find_cb)(mod_hash_key_t, mod_hash_val_t), int *cb_rval)
+		int (*find_cb)(mod_hash_key_t, mod_hash_val_t), int *cb_rval)
 {
 	int res;
 
@@ -830,17 +924,19 @@ mod_hash_find_cb_rval(mod_hash_t *hash, mod_hash_key_t key, mod_hash_val_t *val,
 	return (res);
 }
 
-void
+EXPORT_SYMBOL(mod_hash_find_cb_rval);
+
+	void
 i_mod_hash_walk_nosync(mod_hash_t *hash,
-    uint_t (*callback)(mod_hash_key_t, mod_hash_val_t *, void *), void *arg)
+		uint_t (*callback)(mod_hash_key_t, mod_hash_val_t *, void *), void *arg)
 {
 	struct mod_hash_entry	*e;
 	uint_t			hashidx;
 	int			res = MH_WALK_CONTINUE;
 
 	for (hashidx = 0;
-	    (hashidx < (hash->mh_nchains - 1)) && (res == MH_WALK_CONTINUE);
-	    hashidx++) {
+			(hashidx < (hash->mh_nchains - 1)) && (res == MH_WALK_CONTINUE);
+			hashidx++) {
 		e = hash->mh_entries[hashidx];
 		while ((e != NULL) && (res == MH_WALK_CONTINUE)) {
 			res = callback(e->mhe_key, e->mhe_val, arg);
@@ -858,15 +954,16 @@ i_mod_hash_walk_nosync(mod_hash_t *hash,
  * 	return MH_WALK_CONTINUE to continue walking the hashtable or
  * 	MH_WALK_TERMINATE to abort the walk of the hashtable.
  */
-void
+	void
 mod_hash_walk(mod_hash_t *hash,
-    uint_t (*callback)(mod_hash_key_t, mod_hash_val_t *, void *), void *arg)
+		uint_t (*callback)(mod_hash_key_t, mod_hash_val_t *, void *), void *arg)
 {
 	rw_enter(&hash->mh_contents, RW_READER);
 	i_mod_hash_walk_nosync(hash, callback, arg);
 	rw_exit(&hash->mh_contents);
 }
 
+EXPORT_SYMBOL(mod_hash_walk);
 
 /*
  * i_mod_hash_clear_nosync()
@@ -874,7 +971,7 @@ mod_hash_walk(mod_hash_t *hash,
  *	Clears the given hash table by calling the destructor of every hash
  *	element and freeing up all mod_hash_entry's.
  */
-void
+	void
 i_mod_hash_clear_nosync(mod_hash_t *hash)
 {
 	int i;
@@ -894,7 +991,7 @@ i_mod_hash_clear_nosync(mod_hash_t *hash)
 	hash->mh_stat.mhs_nelems = 0;
 }
 
-void
+	void
 mod_hash_clear(mod_hash_t *hash)
 {
 	ASSERT(hash);
@@ -902,3 +999,5 @@ mod_hash_clear(mod_hash_t *hash)
 	i_mod_hash_clear_nosync(hash);
 	rw_exit(&hash->mh_contents);
 }
+
+EXPORT_SYMBOL(mod_hash_clear);
