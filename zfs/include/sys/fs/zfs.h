@@ -993,6 +993,13 @@ typedef enum {
 #define	ZFS_EV_VDEV_PATH	"vdev_path"
 #define	ZFS_EV_VDEV_GUID	"vdev_guid"
 
+
+
+
+#define	CS_NVL_MAC_ADDR				"mac addr"
+
+
+
 #ifdef	__cplusplus
 }
 #endif
