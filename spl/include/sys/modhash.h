@@ -140,6 +140,9 @@ void mod_hash_cancel(mod_hash_t *, mod_hash_hndl_t *);
 int mod_hash_insert_reserve(mod_hash_t *, mod_hash_key_t, mod_hash_val_t,
     mod_hash_hndl_t);
 
+int spl_modhash_init(void);
+void spl_modhash_fini(void);
+
 #endif /* _KERNEL */
 
 #ifdef __cplusplus

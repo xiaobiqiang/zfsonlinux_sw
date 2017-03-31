@@ -40,6 +40,7 @@
 #include <sys/proc.h>
 #include <sys/kstat.h>
 #include <sys/file.h>
+#include <sys/modhash.h>
 #include <linux/ctype.h>
 #include <linux/kmod.h>
 #include <linux/math64_compat.h>
@@ -552,10 +553,14 @@ spl_init(void)
 	if ((rc = spl_zlib_init()))
 		goto out9;
 
+	if ((rc = spl_modhash_init()))
+		goto out10;
+
 	printk(KERN_NOTICE "SPL: Loaded module v%s-%s%s\n", SPL_META_VERSION,
 	       SPL_META_RELEASE, SPL_DEBUG_STR);
 	return (rc);
-
+out10:
+	spl_modhash_fini();
 out9:
 	spl_tsd_fini();
 out8:

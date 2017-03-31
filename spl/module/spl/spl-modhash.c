@@ -1001,3 +1001,18 @@ mod_hash_clear(mod_hash_t *hash)
 }
 
 EXPORT_SYMBOL(mod_hash_clear);
+
+int
+spl_modhash_init()
+{
+	mutex_init(&mh_head_lock, NULL, MUTEX_DEFAULT, NULL);
+	mod_hash_init();
+	return (0);
+}
+
+void
+spl_modhash_fini()
+{
+	mutex_destroy(&mh_head_lock);
+	kmem_cache_destroy(mh_e_cache);	
+}
