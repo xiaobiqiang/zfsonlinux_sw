@@ -52,6 +52,7 @@
 #include <sys/spa_impl.h>
 #include <sys/zvol.h>
 #include <linux/blkdev_compat.h>
+#include <sys/cluster_san.h>
 
 unsigned int zvol_inhibit_dev = 0;
 unsigned int zvol_major = ZVOL_MAJOR;
