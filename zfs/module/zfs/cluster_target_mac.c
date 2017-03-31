@@ -62,8 +62,24 @@ static void freemsg(mblk_t *mp)
 static int cluster_inetdev_event(struct notifier_block *this, unsigned long event,
                          void *ptr)
 {
-        //struct net_device *notify_dev = netdev_notifier_info_to_dev(ptr);
-        return (0);
+	struct net_device *notify_dev = netdev_notifier_info_to_dev(ptr);
+	cluster_target_port_mac_t* ctp = NULL;
+		
+	if (target_port_array[0].ctp && target_port_array[0].ctp->target_private &&
+		((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->dev == notify_dev) {
+		ctp = target_port_array[0].ctp->target_private;
+	} else if (target_port_array[1].ctp && target_port_array[1].ctp->target_private &&
+		((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->dev == notify_dev) {
+		ctp = target_port_array[1].ctp->target_private;
+	}
+	if (ctp) {
+		if (event == NETDEV_UP)
+			ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_UP;
+		else if (event == NETDEV_DOWN)
+			ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
+	}
+	
+	return (0);
 }
 #endif
 static cts_fragment_data_t *
@@ -159,8 +175,8 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 	cluster_target_port_mac_t *port_mac = ctp->target_private;
 	int repeat, ret = -1;
 	uint32_t tx_failed_times = 0;
-	mblk_t *ret_mblk;
 #ifdef SOLARIS
+	mblk_t *ret_mblk;
 	mac_tx_cookie_t ret_cookie;
 #else
 	int ret_cookie;
@@ -195,7 +211,7 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 		if (ret_cookie != NULL) {
 #else
 		ret_cookie = dev_queue_xmit(mblk->skb);
-		if (ret_cookie < 0) {
+		if (unlikely(ret_cookie != 0)) {
 #endif
 			tx_failed_times = atomic_inc_32_nv(&port_mac->tx_failed_times);
 			if ((tx_failed_times % 100) == 0) {
@@ -224,6 +240,9 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 			}
 		} else {
 			atomic_swap_32(&port_mac->tx_failed_times, 0);
+#ifndef 	SOLARIS
+			kfree(mblk);
+#endif
 			ret = 0;
 			break;
 		}
@@ -234,7 +253,11 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 			cmn_err(CE_WARN, "cluster target port(%s) send msg failed, times(%d)",
 				ctp->link_name, tx_failed_times);
 		}
+#ifdef SOLARIS
 		freemsg(ret_mblk);
+#else
+		freemsg(mblk);
+#endif
 	}
 	return (ret);
 }
@@ -449,6 +472,8 @@ static int cluster_target_mac_tran_data_fragment(
 		}
 		eth_head->ether_type = htons(ETHERTYPE_CLUSTERSAN);
 #else
+		head_mp->skb->dev = port_mac->dev;
+		head_mp->skb->priority = 0;
 		if ((ex_len != 0) && (origin_data->header != NULL)) {
 			memcpy(skb_push(head_mp->skb, ex_len), origin_data->header, ex_len);
 		}
@@ -799,6 +824,8 @@ static void cts_mac_send_direct_impl(cluster_target_session_t *cts,
 		ETHERADDRL);
 	eth_head->ether_type = htons(ETHERTYPE_CLUSTERSAN);
 #else
+	mp->skb->dev = port_mac->dev;
+	mp->skb->priority = 0;
 	ct_head = (cluster_target_msg_header_t*)skb_push(mp->skb, sizeof(cluster_target_msg_header_t));
 	eth_head = (struct ether_header *)skb_push(mp->skb, sizeof(struct ether_header));
 	bcopy(port_mac->dev->dev_addr, eth_head->h_source, ETHERADDRL);
@@ -1030,7 +1057,9 @@ static void cts_mac_get_info(cluster_target_session_t *cts, nvlist_t *nvl_sess)
 int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name)
 {
 	cluster_target_port_mac_t *port_mac;
+#ifdef SOLARIS
 	char *cli_name = NULL;
+#endif
 	int ret;
 
 	port_mac = kmem_zalloc(sizeof(cluster_target_port_mac_t), KM_SLEEP);
