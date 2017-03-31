@@ -530,7 +530,7 @@ static void cts_rx_hook_init(void)
 
 int cts_rx_hook_add(uint32_t msg_type, cs_rx_cb_t rx_cb, void *arg)
 {
-	int ret;
+	int ret = 0;
 
 	cts_rx_hook_node_t *rx_cb_node = kmem_zalloc(sizeof(cts_rx_hook_node_t), KM_SLEEP);
 	rx_cb_node->rx_cb = rx_cb;
@@ -549,7 +549,7 @@ int cts_rx_hook_add(uint32_t msg_type, cs_rx_cb_t rx_cb, void *arg)
 int cts_rx_hook_remove(uint32_t msg_type)
 {
 	cts_rx_hook_node_t *rx_cb_node;
-	int ret;
+	int ret = 0;
 
 	if (cts_rx_cb_hash == NULL) {
 		return (-1);
@@ -562,6 +562,7 @@ int cts_rx_hook_remove(uint32_t msg_type)
 		cmn_err(CE_WARN, "%s: not found the rx hook, msg_type:0x%x",
 			__func__, msg_type);
 	}
+
 	return (ret);
 }
 
@@ -570,7 +571,7 @@ cts_rx_handle_ext(cs_rx_data_t *cs_data)
 {
 	cts_rx_hook_node_t *rx_cb_node;
 	/* uint32_t msg_type = cs_data->msg_type; */
-	int ret;
+	int ret = 0;
 
 	ret = mod_hash_find(cts_rx_cb_hash,
 		(mod_hash_key_t)(uintptr_t)cs_data->msg_type,
@@ -707,8 +708,8 @@ static void csh_rx_hook_init(void)
 
 int csh_rx_hook_add(uint32_t msg_type, cs_rx_cb_t rx_cb, void *arg)
 {
-	int ret;
-
+	int ret = 0;
+	
 	cts_rx_hook_node_t *rx_cb_node = kmem_zalloc(sizeof(cts_rx_hook_node_t), KM_SLEEP);
 	rx_cb_node->rx_cb = rx_cb;
 	rx_cb_node->arg = arg;
@@ -726,7 +727,7 @@ int csh_rx_hook_add(uint32_t msg_type, cs_rx_cb_t rx_cb, void *arg)
 int csh_rx_hook_remove(uint32_t msg_type)
 {
 	cts_rx_hook_node_t *rx_cb_node;
-	int ret;
+	int ret = 0;
 
 	if (csh_rx_cb_hash == NULL) {
 		return (-1);
@@ -739,6 +740,7 @@ int csh_rx_hook_remove(uint32_t msg_type)
 		cmn_err(CE_WARN, "%s: not found the rx hook, msg_type:0x%x",
 			__func__, msg_type);
 	}
+
 	return (ret);
 }
 
@@ -747,7 +749,7 @@ csh_rx_handle_ext(cs_rx_data_t *cs_data)
 {
 	cts_rx_hook_node_t *rx_cb_node;
 	/* uint32_t msg_type = cs_data->msg_type; */
-	int ret;
+	int ret = 0;
 
 	ret = mod_hash_find(csh_rx_cb_hash,
 		(mod_hash_key_t)(uintptr_t)cs_data->msg_type,
@@ -1311,7 +1313,7 @@ void cluster_label_failover_host(cs_rx_data_t *cs_data, uint32_t need_failover)
 	cluster_san_host_sync_msg_ret(cshi, evt_header->msg_id,
 		CLUSTER_SAN_MSGTYPE_CLUSTER, 0);
 	if (need_failover == 0) {
-		zfs_mirror_cancel_check_spa_txg(cshi->hostid);
+		/* zfs_mirror_cancel_check_spa_txg(cshi->hostid); */
 	}
 	csh_rx_data_free(cs_data, B_TRUE);
 }
@@ -3919,7 +3921,7 @@ static void cluster_target_tran_fini(cluster_target_port_t *ctp)
 	cluster_target_tran_worker_fini(ctp);
 }
 
-extern cluster_target_port_t *cluster_rdma_target_port;
+/* extern cluster_target_port_t *cluster_rdma_target_port; */
 
 cluster_target_port_t *
 cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
@@ -3995,7 +3997,7 @@ cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
 	delay(drv_usectohz((clock_t)1000000));/* link unstable in the begining*/
 	if (is_rdma_rpc) {
 		ctp->ctp_state = CLUSTER_SAN_STATE_ENABLE;
-		cluster_rdma_target_port = ctp;
+		/* cluster_rdma_target_port = ctp; */
 		goto finish;
 	}
 
@@ -4110,7 +4112,7 @@ static void cluster_target_port_destroy(cluster_target_port_t *ctp)
 	} else if (ctp->target_type == CLUSTER_TARGET_NTB) {
 		/* cluster_target_ntb_port_destroy(ctp); */
 	} else if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
-		cluster_rdma_target_port = NULL;
+		/* cluster_rdma_target_port = NULL; */
 		/* cluster_target_rpc_rdma_destroy(ctp); */
 	} else {
 		cmn_err(CE_WARN, "%s: unkonwn target: %d", __func__, ctp->target_type);
