@@ -187,6 +187,7 @@
 #include <sys/zfeature.h>
 
 #include <linux/miscdevice.h>
+#include <sys/cluster_san.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -4860,6 +4861,167 @@ zfs_ioc_smb_acl(zfs_cmd_t *zc)
 #endif /* HAVE_SMB_SHARE */
 }
 
+static int zfs_ioc_do_clustersan_get_hostlist(zfs_cmd_t *zc)
+{
+	int ret = -1;
+	nvlist_t *hostlist;
+
+	hostlist = cluster_san_get_hostlist(zc->zc_guid);
+	if (hostlist != NULL) {
+		ret = put_nvlist(zc, hostlist);
+		nvlist_free(hostlist);
+	}
+	return (ret);
+}
+
+static int zfs_ioc_do_clustersan_get_hostinfo(zfs_cmd_t *zc)
+{
+	int ret = -1;
+	nvlist_t *hostinfo;
+
+	hostinfo = cluster_san_get_hostinfo(zc->zc_perm_action, zc->zc_guid);
+	if (hostinfo != NULL) {
+		ret = put_nvlist(zc, hostinfo);
+		nvlist_free(hostinfo);
+	}
+	return (ret);
+}
+
+static int zfs_ioc_do_clustersan_get_targetlist(zfs_cmd_t *zc)
+{
+	int ret = -1;
+	nvlist_t *hostlist;
+
+	hostlist = cluster_san_get_targetlist();
+	if (hostlist != NULL) {
+		ret = put_nvlist(zc, hostlist);
+		nvlist_free(hostlist);
+	}
+	return (ret);
+}
+
+static int zfs_ioc_do_clustersan_get_targetinfo(zfs_cmd_t *zc)
+{
+	int ret = -1;
+	nvlist_t *targetinfo;
+	char target_name[MAXNAMELEN];
+	size_t len;
+
+	target_name[0] = '\0';
+	ret = copyinstr((void *)(uintptr_t)zc->zc_perm_action,
+		target_name, MAXNAMELEN, &len);
+	if ((ret != 0) || (target_name[0] == '\0')) {
+		return (-1);
+	}
+	targetinfo = cluster_san_get_targetinfo(target_name, zc->zc_guid);
+	if (targetinfo != NULL) {
+		ret = put_nvlist(zc, targetinfo);
+		nvlist_free(targetinfo);
+	} else {
+		ret = -1;
+	}
+	return (ret);
+}
+
+static int zfs_ioc_do_clustersan_get_state(zfs_cmd_t *zc)
+{
+	int ret = -1;
+	nvlist_t *state;
+
+	state = cluster_san_get_state();
+	if (state != NULL) {
+		ret = put_nvlist(zc, state);
+		nvlist_free(state);
+	}
+	return (ret);
+}
+
+static int zfs_ioc_do_clustersan_set_prop(zfs_cmd_t *zc)
+{
+	int ret;
+
+	ret = cluster_san_set_prop(zc->zc_name, zc->zc_value);
+
+	return (ret);
+}
+
+static int zfs_ioc_do_clustersan_sync_cmd(zfs_cmd_t *zc)
+{
+	int ret = -1;
+	nvlist_t *result;
+
+	result = cluster_san_sync_cmd(zc->zc_guid, zc->zc_value,
+		zc->zc_objset_type, zc->zc_perm_action);
+	if (result != NULL) {
+		ret = put_nvlist(zc, result);
+		nvlist_free(result);
+	}
+	return (ret);
+}
+
+static int
+zfs_ioc_do_clustersan(zfs_cmd_t *zc)
+{
+	int ret = 0;
+	nvlist_t *nvl_conf = NULL;
+
+	switch (zc->zc_cookie) {
+		case ZFS_CLUSTERSAN_ENABLE:
+			if (zc->zc_nvlist_conf_size != 0) {
+				ret = get_nvlist(zc->zc_nvlist_conf, zc->zc_nvlist_conf_size,
+						zc->zc_iflags, &nvl_conf);
+				if (ret != 0) {
+					break;
+				}
+			}
+			ret = cluster_san_enable(zc->zc_name, zc->zc_value, nvl_conf);
+			break;
+		case ZFS_CLUSTERSAN_DISABLE:
+			ret = cluster_san_disable();
+			break;
+		case ZFS_CLUSTERSAN_TARGET_DISABLE:
+			ret = cluster_san_disable_target(zc->zc_value);
+			break;
+		case ZFS_CLUSTERSAN_LIST_HOST:
+			ret = zfs_ioc_do_clustersan_get_hostlist(zc);
+			break;
+		case ZFS_CLUSTERSAN_GET_HOSTINFO:
+			ret = zfs_ioc_do_clustersan_get_hostinfo(zc);
+			break;
+		case ZFS_CLUSTERSAN_GET_TARGETINFO:
+			ret = zfs_ioc_do_clustersan_get_targetinfo(zc);
+			break;
+		case ZFS_CLUSTERSAN_LIST_TARGET:
+			ret = zfs_ioc_do_clustersan_get_targetlist(zc);
+			break;
+		case ZFS_CLUSTERSAN_STATE:
+			ret = zfs_ioc_do_clustersan_get_state(zc);
+			break;
+		case ZFS_CLUSTERSAN_SET:
+			ret = zfs_ioc_do_clustersan_set_prop(zc);
+			break;
+		case ZFS_CLUSTERSAN_SYNC_CMD:
+			ret = zfs_ioc_do_clustersan_sync_cmd(zc);
+			break;
+		case ZFS_CLUSTERSAN_IOC_RPC_SVC:
+			ret = -1;
+			/* ret = zfs_ioc_do_cluster_rpc_svc(zc); */
+			break;
+		case ZFS_CLUSTERSAN_IOC_RPC_CLNT:
+			ret = -1;
+			/* ret = zfs_ioc_do_cluster_rpc_clnt(zc); */
+			break;
+		default:
+			break;
+	}
+
+	if (nvl_conf != NULL) {
+		nvlist_free(nvl_conf);
+	}
+
+	return (ret);
+}
+
 /*
  * innvl: {
  *     "holds" -> { snapname -> holdname (string), ... }
@@ -5344,6 +5506,14 @@ zfs_ioctl_register_dataset_modify(zfs_ioc_t ioc, zfs_ioc_legacy_func_t *func,
 }
 
 static void
+zfs_ioctl_register_clustersan(zfs_ioc_t ioc, zfs_ioc_legacy_func_t *func,
+		zfs_secpolicy_func_t *secpolicy)
+{
+	zfs_ioctl_register_legacy(ioc, func, secpolicy,
+			NO_NAME, B_FALSE, POOL_CHECK_NONE);
+}
+
+static void
 zfs_ioctl_init(void)
 {
 	zfs_ioctl_register("snapshot", ZFS_IOC_SNAPSHOT,
@@ -5538,6 +5708,9 @@ zfs_ioctl_init(void)
 	zfs_ioctl_register_dataset_nolog(ZFS_IOC_TMP_SNAPSHOT,
 	    zfs_ioc_tmp_snapshot, zfs_secpolicy_tmp_snapshot,
 	    POOL_CHECK_SUSPENDED | POOL_CHECK_READONLY);
+
+	zfs_ioctl_register_clustersan(ZFS_IOC_CLUSTERSAN, zfs_ioc_do_clustersan,
+			zfs_secpolicy_none);
 
 	/*
 	 * ZoL functions

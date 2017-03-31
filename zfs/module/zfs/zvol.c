@@ -1891,6 +1891,7 @@ zvol_init(void)
 	blk_register_region(MKDEV(zvol_major, 0), 1UL << MINORBITS,
 	    THIS_MODULE, zvol_probe, NULL, NULL);
 
+	cluster_san_init();
 	return (0);
 
 out:

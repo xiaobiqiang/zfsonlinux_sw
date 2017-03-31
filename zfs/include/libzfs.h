@@ -798,6 +798,21 @@ extern boolean_t libzfs_fru_compare(libzfs_handle_t *, const char *,
 extern boolean_t libzfs_fru_notself(libzfs_handle_t *, const char *);
 extern int zpool_fru_set(zpool_handle_t *, uint64_t, const char *);
 
+extern int zfs_enable_clustersan(libzfs_handle_t *hd, char *clustername,
+	char *linkname, nvlist_t *conf, uint64_t flags);
+extern int zfs_disable_clustersan(libzfs_handle_t *hdl, uint64_t flags);
+int zfs_disable_clustersan_target(libzfs_handle_t *hdl, char *linkname,
+	uint64_t flags);
+nvlist_t *zfs_clustersan_get_hostlist(libzfs_handle_t *hdl, uint64_t flags);
+nvlist_t *zfs_clustersan_get_targetlist(libzfs_handle_t *hdl, uint64_t flags);
+int zfs_clustersan_set_prop(libzfs_handle_t *hdl,
+	const char *prop, const char *value);
+nvlist_t *zfs_clustersan_get_nvlist(libzfs_handle_t *hdl, uint32_t cmd,
+	void *arg, uint64_t flags);
+nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
+	char *cmd_str, int timeout, int remote_hostid);
+int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
+
 #ifdef	__cplusplus
 }
 #endif

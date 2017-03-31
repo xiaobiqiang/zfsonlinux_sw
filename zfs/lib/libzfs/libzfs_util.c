@@ -1832,3 +1832,191 @@ zprop_iter(zprop_func func, void *cb, boolean_t show_all, boolean_t ordered,
 {
 	return (zprop_iter_common(func, cb, show_all, ordered, type));
 }
+
+int zfs_enable_clustersan(libzfs_handle_t *hdl, char *clustername,
+	char *linkname, nvlist_t *conf, uint64_t flags)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+
+	if ((clustername == NULL) && (linkname == NULL)) {
+		(void) printf("must give the -n or -l option\n");
+		return (-1);
+	}
+	bzero(&zc, sizeof(zfs_cmd_t));
+	if (clustername != NULL) {
+		strcpy(zc.zc_name, clustername);
+	}
+	if (linkname != NULL) {
+		strcpy(zc.zc_value, linkname);
+	}
+	zc.zc_cookie = ZFS_CLUSTERSAN_ENABLE;
+	zc.zc_guid = flags;
+	zc.zc_nvlist_conf = 0;
+	zc.zc_nvlist_conf_size = 0;
+	if (conf != NULL) {
+		if (zcmd_write_conf_nvlist(hdl, &zc, conf) != 0) {
+			(void) fprintf(stderr,
+				gettext("internal error: out of memory\n"));
+			return (1);
+		}
+	}
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("clustersan enable failed\n");
+	}
+
+	if (zc.zc_nvlist_conf != 0) {
+		zcmd_free_nvlists(&zc);
+	}
+	return (err);
+}
+
+int zfs_disable_clustersan(libzfs_handle_t *hdl, uint64_t flags)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+	zc.zc_cookie = ZFS_CLUSTERSAN_DISABLE;
+	zc.zc_guid = flags;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("clustersan not enabled\n");
+	}
+	
+	return (err);
+}
+
+int zfs_disable_clustersan_target(libzfs_handle_t *hdl, char *linkname, uint64_t flags)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+
+	if (linkname == NULL) {
+		(void) printf("linkname is NULL\n");
+		return (-1);
+	} else {
+		strcpy(zc.zc_value, linkname);
+	}
+	
+	zc.zc_cookie = ZFS_CLUSTERSAN_TARGET_DISABLE;
+	zc.zc_guid = flags;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("clustersan target: %s not enabled\n",
+			linkname);
+	}
+	
+	return (err);
+}
+
+nvlist_t *zfs_clustersan_get_nvlist(libzfs_handle_t *hdl, uint32_t cmd,
+	void *arg, uint64_t flags)
+{
+	int err;
+	nvlist_t *nvl;
+	zfs_cmd_t zc = { 0 };
+	zc.zc_cookie = cmd;
+	zc.zc_perm_action = (uintptr_t)arg;
+	zc.zc_guid = flags;
+
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+	while ((err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN,
+	    &zc)) != 0 && errno == ENOMEM) {
+		if (zcmd_expand_dst_nvlist(hdl, &zc) != 0) {
+			zcmd_free_nvlists(&zc);
+			return (NULL);
+		}
+	}
+
+	if (err) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	if (zcmd_read_dst_nvlist(hdl, &zc, &nvl) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	zcmd_free_nvlists(&zc);
+	return (nvl);
+}
+
+nvlist_t *zfs_clustersan_get_hostlist(libzfs_handle_t *hdl, uint64_t flags)
+{
+	return (zfs_clustersan_get_nvlist(hdl, ZFS_CLUSTERSAN_LIST_HOST, NULL, flags));
+}
+
+nvlist_t *zfs_clustersan_get_targetlist(libzfs_handle_t *hdl, uint64_t flags)
+{
+	return (zfs_clustersan_get_nvlist(hdl, ZFS_CLUSTERSAN_LIST_TARGET, NULL, flags));
+}
+
+int zfs_clustersan_set_prop(libzfs_handle_t *hdl,
+	const char *prop, const char *value)
+{
+	zfs_cmd_t zc = { 0 };
+	int err;
+	strcpy(zc.zc_name, prop);
+	strcpy(zc.zc_value, value);
+	zc.zc_cookie = ZFS_CLUSTERSAN_SET;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("clustersan set %s=%s failed\n", prop, value);
+	}
+	
+	return (err);
+}
+
+int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg)
+{
+	zfs_cmd_t zc = {0};
+	int err;
+	zc.zc_cookie = ZFS_CLUSTERSAN_IOC_RPC_CLNT;
+	zc.zc_guid = cmd;
+	zc.zc_perm_action = (uintptr_t)arg;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+
+	return (err);
+}
+
+nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
+	char *cmd_str, int timeout, int remote_hostid)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+	nvlist_t *nvl;
+
+	if (cmd_str == NULL) {
+		(void) printf("command is NULL");
+		return (NULL);
+	}
+
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 512 * 1024) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+	
+	strcpy(zc.zc_value, cmd_str);
+	zc.zc_cookie = ZFS_CLUSTERSAN_SYNC_CMD;
+	zc.zc_guid = cmd_id;
+	zc.zc_objset_type = timeout;
+	zc.zc_perm_action = remote_hostid;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("clustersan sync cmd failed\n");
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	if (zcmd_read_dst_nvlist(hdl, &zc, &nvl) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	zcmd_free_nvlists(&zc);
+	return (nvl);
+}
