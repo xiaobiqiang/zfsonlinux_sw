@@ -736,7 +736,7 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	ct_head = (cluster_target_msg_header_t *)(skb->head + skb->mac_header + sizeof(struct ether_header));
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
 	mp = kzalloc(sizeof(mblk_t), GFP_KERNEL);
-	
+	mp->skb = skb;
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
 		
 out:
