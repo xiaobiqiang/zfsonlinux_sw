@@ -12,8 +12,8 @@
 /* #include <sys/fs/zfs_hbx.h> */
 #include <sys/fs/zfs.h>
 #include <sys/cluster_san.h>
-/*#include <sys/cluster_target_mac.h>
-#include <sys/cluster_target_ntb.h>
+#include <sys/cluster_target_mac.h>
+/*#include <sys/cluster_target_ntb.h>
 #include <sys/cluster_target_rpc_rdma.h>
 #include <sys/cluster_target_rpc_rdma_svc.h>
 #include <sys/cluster_target_rpc_rdma_clnt.h>
