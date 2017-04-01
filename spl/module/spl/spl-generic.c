@@ -45,6 +45,10 @@
 #include <linux/math64_compat.h>
 #include <linux/proc_compat.h>
 
+
+extern void mod_hash_init(void);
+extern void mod_hash_finit(void);
+
 char spl_version[32] = "SPL v" SPL_META_VERSION "-" SPL_META_RELEASE;
 EXPORT_SYMBOL(spl_version);
 
@@ -551,7 +555,7 @@ spl_init(void)
 
 	if ((rc = spl_zlib_init()))
 		goto out9;
-
+	mod_hash_init();
 	printk(KERN_NOTICE "SPL: Loaded module v%s-%s%s\n", SPL_META_VERSION,
 	       SPL_META_RELEASE, SPL_DEBUG_STR);
 	return (rc);
@@ -594,6 +598,7 @@ spl_fini(void)
 	spl_rw_fini();
 	spl_mutex_fini();
 	spl_kvmem_fini();
+	mod_hash_finit();
 }
 
 module_init(spl_init);

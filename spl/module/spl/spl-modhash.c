@@ -476,10 +476,17 @@ mod_hash_init(void)
 	mh_e_cache = kmem_cache_create("mod_hash_entries",
 			sizeof (struct mod_hash_entry), 0, NULL, NULL, NULL, NULL,
 			NULL, 0);
+	mutex_init(&mh_head_lock, NULL, MUTEX_DEFAULT, NULL);
 }
 
 EXPORT_SYMBOL(mod_hash_init);
 
+void mod_hash_finit(void)
+{
+	kmem_cache_destroy(mh_e_cache);
+	mutex_destroy(&mh_head_lock);
+}
+EXPORT_SYMBOL(mod_hash_finit);
 /*
  * mod_hash_create_extended()
  * 	The full-blown hash creation function.
