@@ -1052,10 +1052,11 @@ static void cts_mac_get_info(cluster_target_session_t *cts, nvlist_t *nvl_sess)
 	kmem_free(temp_name, MAXNAMELEN);
 }
 
-
-int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name)
+int cluster_target_mac_port_init(
+	cluster_target_port_t *ctp, char *link_name, nvlist_t *nvl_conf)
 {
 	cluster_target_port_mac_t *port_mac;
+	int link_pri = 0;
 #ifdef SOLARIS
 	char *cli_name = NULL;
 #endif
@@ -1145,7 +1146,13 @@ int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name)
 		goto get_dev_by_name_failed;
 	}
 #endif
-
+	if (nvl_conf != NULL) {
+		if (nvlist_lookup_int32(nvl_conf, "link_pri", &link_pri) == 0) {
+			if (link_pri != 0) {
+				ctp->pri = link_pri;
+			}
+		}
+	}
 
 	ctp->f_send_msg = cluster_target_mac_send;
 	ctp->f_tran_free = cluster_target_mac_tran_data_free;

@@ -85,7 +85,8 @@ typedef struct cluster_target_session_mac {
 	uint32_t sess_fc_throttle_rx;
 } cluster_target_session_mac_t;
 
-int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name);
+int cluster_target_mac_port_init(cluster_target_port_t *ctp, char *link_name,
+	nvlist_t *nvl_conf);
 void cluster_target_mac_port_fini(cluster_target_port_t *ctp);
 void cluster_target_mac_port_destroy(cluster_target_port_t *ctp);
 
