@@ -5,7 +5,6 @@
 #include <linux/netdevice.h>
 #include <sys/taskq.h>
 #include <sys/list.h>
-#include <sys/strsubr.h>
 #include <sys/cluster_san.h>
 #include <sys/cluster_target_mac.h>
 #include <sys/fs/zfs.h>

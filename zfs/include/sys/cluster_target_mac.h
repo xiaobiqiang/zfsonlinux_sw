@@ -1,8 +1,6 @@
 #ifndef	_SYS_CLUSTER_TARGET_MAC_H
 #define	_SYS_CLUSTER_TARGET_MAC_H
 
-#include <sys/ethernet.h>
-#include <sys/mac_client.h>
 
 #define	CLUSTER_TARGET_MAC_LINK_STATE_DOWN		0x00
 #define	CLUSTER_TARGET_MAC_LINK_STATE_UP		0x01
