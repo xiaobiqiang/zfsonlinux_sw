@@ -3980,7 +3980,7 @@ cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
 		/* default is ixgbe */
 		ctp->target_type = CLUSTER_TARGET_MAC;
 		ctp->pri = CLUSTER_TARGET_PRI_MAC;
-		/* ret = cluster_target_mac_port_init(ctp, name, nvl_conf); */
+		ret = cluster_target_mac_port_init(ctp, name, nvl_conf);
 	}
 	if (ret != 0) {
 		cmn_err(CE_WARN, "cluster target port (%s) init failed", name);
