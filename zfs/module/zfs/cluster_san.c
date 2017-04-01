@@ -3967,6 +3967,9 @@ cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
 	atomic_inc_64(&ctp->ref_count);
 	strncpy(ctp->link_name, name, MAXNAMELEN);
 
+	mutex_init(&ctp->ctp_lock, NULL, MUTEX_DEFAULT, NULL);
+	list_create(&ctp->ctp_sesslist, sizeof(cluster_target_session_t),
+		offsetof(cluster_target_session_t, target_node));
 	if (strncmp(name, "ntb", 3) == 0) {
 		ctp->target_type = CLUSTER_TARGET_NTB;
 		ctp->pri = CLUSTER_TARGET_PRI_NTB;
@@ -3989,9 +3992,6 @@ cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
 
 	ctp->tran_worker_n = cluster_target_tran_work_ndefault;
 	cluster_target_tran_init(ctp);
-	mutex_init(&ctp->ctp_lock, NULL, MUTEX_DEFAULT, NULL);
-	list_create(&ctp->ctp_sesslist, sizeof(cluster_target_session_t),
-		offsetof(cluster_target_session_t, target_node));
 
 	ctp->protocol |= protocol;
 	delay(drv_usectohz((clock_t)1000000));/* link unstable in the begining*/
