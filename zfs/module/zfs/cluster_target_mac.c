@@ -16,6 +16,7 @@ typedef struct TARGET_PORT_ARRAY
 	struct net_device * dev;
 	cluster_target_port_t *ctp;
 }TARGET_PORT_ARRAY_t;
+kmutex_t target_port_lock;
 TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]= 
 {
 	{
@@ -709,15 +710,16 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	mblk_t *mp;
 	int ret;
 	
+	mutex_enter(&target_port_lock);
 	if (target_port_array[0].dev == dev) {
 		 ctp = target_port_array[0].ctp;
 	} else if (target_port_array[1].dev == dev) {
 		 ctp = target_port_array[1].ctp;
 	} else {
-		if (target_port_array[0].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->mac_addr, dev->dev_addr) == 0) {
+		if (target_port_array[0].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->mac_addr, dev->dev_addr, ETHERADDRL) == 0) {
 			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[0].dev, dev);
 			ctp = target_port_array[0].ctp;
-		} else if (target_port_array[1].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->mac_addr, dev->dev_addr) == 0) {
+		} else if (target_port_array[1].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->mac_addr, dev->dev_addr, ETHERADDRL) == 0) {
 			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[1].dev, dev);
 			ctp = target_port_array[1].ctp;
 		} else {
@@ -725,9 +727,11 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 				*(dev->dev_addr), *(dev->dev_addr+1),*(dev->dev_addr+2),
 				*(dev->dev_addr+3),*(dev->dev_addr+4),*(dev->dev_addr+5));
 			kfree_skb(skb);
+			mutex_exit(&target_port_lock);
 			return (0);
 		}
 	}
+	mutex_exit(&target_port_lock);
 	port_mac = ctp->target_private;
 	
 	ret = cluster_target_port_hold(ctp);
@@ -980,7 +984,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 		}
 		mutex_enter(&w->worker_mtx);
 		if (w->worker_ntasks == 0) {
-			cv_wait(&w->worker_cv, &w->worker_mtx);
+			cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(5000));
 		} else {
 			ctp_mac_mplist_t *mplist;
 			mplist = w->mplist_r;
@@ -1140,6 +1144,7 @@ int cluster_target_mac_port_init(
 	
 	mutex_init(&port_mac->mac_tx_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&port_mac->mac_tx_cv, NULL, CV_DEFAULT, NULL);
+	mutex_exit(&target_port_lock);
 	if (target_port_array[0].ctp == NULL) {
 		target_port_array[0].ctp = ctp;
 		target_port_array[0].dev = port_mac->dev;
@@ -1150,9 +1155,11 @@ int cluster_target_mac_port_init(
 		dev_put(port_mac->dev);
 		mutex_destroy(&port_mac->mac_tx_mtx);
 		cv_destroy(&port_mac->mac_tx_cv);
+		mutex_exit(&target_port_lock);
 		ret = -EPERM;
 		goto get_dev_by_name_failed;
 	}
+	mutex_exit(&target_port_lock);
 #endif
 	if (nvl_conf != NULL) {
 		if (nvlist_lookup_int32(nvl_conf, "link_pri", &link_pri) == 0) {
@@ -1202,6 +1209,7 @@ get_dev_by_name_failed:
 }
 int cluster_proto_register(void)
 {
+	mutex_init(&target_port_lock, NULL, MUTEX_DEFAULT, NULL);
 	dev_add_pack(&cluster_packet_type);
 	register_netdevice_notifier_rh(&cluster_netdev_notifier);
 	return (0);
@@ -1210,6 +1218,7 @@ int cluster_proto_unregister(void)
 {
 	unregister_netdevice_notifier_rh(&cluster_netdev_notifier);
 	dev_remove_pack(&cluster_packet_type);
+	mutex_destroy(&target_port_lock);
 	return (0);
 }
 static void ctp_mac_rx_worker_thread_exit(cluster_target_port_mac_t *port_mac)
@@ -1267,7 +1276,7 @@ void cluster_target_mac_port_fini(cluster_target_port_t *ctp)
 #else
 	dev_put(port_mac->dev);
 #endif
-
+	mutex_enter(&target_port_lock);
 	if (target_port_array[0].ctp == ctp) {
 		target_port_array[0].ctp = NULL;
 		target_port_array[0].dev = NULL;
@@ -1275,6 +1284,7 @@ void cluster_target_mac_port_fini(cluster_target_port_t *ctp)
 		target_port_array[1].ctp = NULL;
 		target_port_array[1].dev = NULL;
 	}
+	mutex_exit(&target_port_lock);
 }
 
 void cluster_target_mac_port_destroy(cluster_target_port_t *ctp)

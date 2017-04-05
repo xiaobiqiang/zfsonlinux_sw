@@ -3756,7 +3756,7 @@ static void cluster_target_port_broadcase_thread(void *arg)
 		ctp_send_join_in_msg(ctp, CLUSTER_SAN_BROADCAST_SESS);
 		mutex_enter(&ctp->brosan_mtx);
 		cv_timedwait(&ctp->brosan_cv, &ctp->brosan_mtx,
-			ddi_get_lbolt() + drv_usectohz(60 * 1000 * 1000));
+			ddi_get_lbolt() + drv_usectohz(1000 * 1000));
 	}
 
 	ctp->brosan_state = 0;
@@ -4078,7 +4078,7 @@ void cluster_target_port_remove(
 	}
 
 	if (ctp->target_type == CLUSTER_TARGET_MAC) {
-		/* cluster_target_mac_port_fini(ctp); */
+		cluster_target_mac_port_fini(ctp);
 	} else if (ctp->target_type == CLUSTER_TARGET_NTB) {
 		/* cluster_target_ntb_port_fini(ctp); */
 	} else if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
@@ -4108,7 +4108,7 @@ static void cluster_target_port_destroy(cluster_target_port_t *ctp)
 
 	cluster_target_tran_fini(ctp);
 	if (ctp->target_type == CLUSTER_TARGET_MAC) {
-		/* cluster_target_mac_port_destroy(ctp); */
+		cluster_target_mac_port_destroy(ctp);
 	} else if (ctp->target_type == CLUSTER_TARGET_NTB) {
 		/* cluster_target_ntb_port_destroy(ctp); */
 	} else if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
