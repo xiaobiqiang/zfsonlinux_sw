@@ -709,18 +709,24 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	mblk_t *mp;
 	int ret;
 	
-	if (target_port_array[0].ctp && target_port_array[0].ctp->target_private &&
-		((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->dev == dev) {
+	if (target_port_array[0].dev == dev) {
 		 ctp = target_port_array[0].ctp;
-	} else if (target_port_array[1].ctp && target_port_array[1].ctp->target_private &&
-		((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->dev == dev) {
+	} else if (target_port_array[1].dev == dev) {
 		 ctp = target_port_array[1].ctp;
 	} else {
-		printk("receive package. mac(%x%x %x%x %x%x)\n", 
-			*(dev->dev_addr), *(dev->dev_addr+1),*(dev->dev_addr+2),
-			*(dev->dev_addr+3),*(dev->dev_addr+4),*(dev->dev_addr+5));
-		kfree_skb(skb);
-		return (0);
+		if (target_port_array[0].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->mac_addr, dev->dev_addr) == 0) {
+			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[0].dev, dev);
+			ctp = target_port_array[0].ctp;
+		} else if (target_port_array[1].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->mac_addr, dev->dev_addr) == 0) {
+			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[1].dev, dev);
+			ctp = target_port_array[1].ctp;
+		} else {
+			printk("receive package. mac(%x%x %x%x %x%x)\n", 
+				*(dev->dev_addr), *(dev->dev_addr+1),*(dev->dev_addr+2),
+				*(dev->dev_addr+3),*(dev->dev_addr+4),*(dev->dev_addr+5));
+			kfree_skb(skb);
+			return (0);
+		}
 	}
 	port_mac = ctp->target_private;
 	
@@ -1136,8 +1142,10 @@ int cluster_target_mac_port_init(
 	cv_init(&port_mac->mac_tx_cv, NULL, CV_DEFAULT, NULL);
 	if (target_port_array[0].ctp == NULL) {
 		target_port_array[0].ctp = ctp;
+		target_port_array[0].dev = port_mac->dev;
 	} else if (target_port_array[1].ctp == NULL) {
 		target_port_array[1].ctp = ctp;
+		target_port_array[1].dev = port_mac->dev;
 	} else {
 		dev_put(port_mac->dev);
 		mutex_destroy(&port_mac->mac_tx_mtx);
@@ -1259,6 +1267,14 @@ void cluster_target_mac_port_fini(cluster_target_port_t *ctp)
 #else
 	dev_put(port_mac->dev);
 #endif
+
+	if (target_port_array[0].ctp == ctp) {
+		target_port_array[0].ctp = NULL;
+		target_port_array[0].dev = NULL;
+	} else if (target_port_array[1].ctp == ctp) {
+		target_port_array[1].ctp = NULL;
+		target_port_array[1].dev = NULL;
+	}
 }
 
 void cluster_target_mac_port_destroy(cluster_target_port_t *ctp)
