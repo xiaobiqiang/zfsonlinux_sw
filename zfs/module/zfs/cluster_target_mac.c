@@ -108,7 +108,7 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	eth_head = (struct ether_header *)(mp->skb->head + mp->skb->mac_header);
 	ct_head = (cluster_target_msg_header_t *)
 		(mp->skb->head + mp->skb->mac_header + mp->skb->mac_len);
-	len = mp->skb->len;
+	len = mp->skb->len - sizeof(cluster_target_msg_header_t) - ct_head->ex_len;
 	if (len < ct_head->len) {
 #endif
 		cmn_err(CE_WARN, "cluster target session rx data err,"
