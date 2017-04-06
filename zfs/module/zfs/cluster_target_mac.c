@@ -3,6 +3,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/netdevice.h>
+#include <linux/spinlock.h>
 #include <sys/taskq.h>
 #include <sys/list.h>
 #include <sys/cluster_san.h>
@@ -18,7 +19,7 @@ typedef struct TARGET_PORT_ARRAY
 }TARGET_PORT_ARRAY_t;
 
 #ifndef SOLARIS
-spinlock_t target_port_lock = SPIN_LOCK_UNLOCKED;
+spinlock_t target_port_lock;
 #endif
 TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]= 
 {
@@ -749,7 +750,7 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	ct_head = (cluster_target_msg_header_t *)(skb->head + skb->mac_header + sizeof(struct ether_header));
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
-	mp = kzalloc(sizeof(mblk_t), GFP_KERNEL);
+	mp = kzalloc(sizeof(mblk_t), GFP_ATOMIC);
 	mp->skb = skb;
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
 		
@@ -988,7 +989,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 		}
 		mutex_enter(&w->worker_mtx);
 		if (w->worker_ntasks == 0) {
-			cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(5000));
+			cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			ctp_mac_mplist_t *mplist;
 			mplist = w->mplist_r;
@@ -1019,13 +1020,8 @@ static void ctp_mac_rx_worker_init(cluster_target_port_t *ctp)
 		KM_SLEEP);
 	for (i = 0; i < cluster_target_mac_nrxworker; i++) {
 		ctp_mac_rx_worker_t *w = &port_mac->rx_worker[i];
-#ifdef SOLARIS
 		mutex_init(&w->worker_mtx, NULL, MUTEX_DRIVER, NULL);
 		cv_init(&w->worker_cv, NULL, CV_DRIVER, NULL);
-#else
-		mutex_init(&w->worker_mtx, NULL, MUTEX_DEFAULT, NULL);
-		cv_init(&w->worker_cv, NULL, CV_DEFAULT, NULL);
-#endif
 		w->worker_flags = 0;
 		w->mplist1.head = NULL;
 		w->mplist1.tail = NULL;
@@ -1128,8 +1124,6 @@ int cluster_target_mac_port_init(
 	 */
 	port_mac->mac_notify_handle = mac_notify_add(port_mac->mac_handle,
 	    cluster_target_port_mac_notify, (void *)ctp);
-	mutex_init(&port_mac->mac_tx_mtx, NULL, MUTEX_DRIVER, NULL);
-	cv_init(&port_mac->mac_tx_cv, NULL, CV_DRIVER, NULL);
 	kmem_free(cli_name, MAXNAMELEN);
 #else
 	port_mac->dev = dev_get_by_name(&init_net, link_name);
@@ -1146,8 +1140,6 @@ int cluster_target_mac_port_init(
 	else
 		memcpy(port_mac->mac_addr, port_mac->dev->dev_addr, ETHERADDRL);
 	
-	mutex_init(&port_mac->mac_tx_mtx, NULL, MUTEX_DEFAULT, NULL);
-	cv_init(&port_mac->mac_tx_cv, NULL, CV_DEFAULT, NULL);
 	spin_lock_irq(&target_port_lock);
 	if (target_port_array[0].ctp == NULL) {
 		target_port_array[0].ctp = ctp;
@@ -1165,6 +1157,8 @@ int cluster_target_mac_port_init(
 	}
 	spin_unlock_irq(&target_port_lock);
 #endif
+	mutex_init(&port_mac->mac_tx_mtx, NULL, MUTEX_DRIVER, NULL);
+	cv_init(&port_mac->mac_tx_cv, NULL, CV_DRIVER, NULL);
 	if (nvl_conf != NULL) {
 		if (nvlist_lookup_int32(nvl_conf, "link_pri", &link_pri) == 0) {
 			if (link_pri != 0) {
@@ -1213,6 +1207,7 @@ get_dev_by_name_failed:
 }
 int cluster_proto_register(void)
 {
+	spin_lock_init(&target_port_lock);
 	dev_add_pack(&cluster_packet_type);
 	register_netdevice_notifier_rh(&cluster_netdev_notifier);
 	return (0);

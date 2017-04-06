@@ -2308,7 +2308,7 @@ cluster_target_session_worker_handle(void *arg)
 		}
 		mutex_enter(&w->worker_mtx);
 		if (w->worker_ntasks == 0) {
-			cv_wait(&w->worker_cv, &w->worker_mtx);
+			cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			list_t *temp_list;
 			temp_list = w->worker_list_r;
@@ -2812,7 +2812,7 @@ cluster_san_host_rxworker_handle(void *arg)
 		}
 		mutex_enter(&w->worker_mtx);
 		if (w->worker_ntasks == 0) {
-			cv_wait(&w->worker_cv, &w->worker_mtx);
+			cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			list_t *temp_list;
 			temp_list = w->worker_list_r;
@@ -3204,7 +3204,7 @@ static void cts_tran_worker_thread(void *arg)
 		mutex_enter(&tran_work->mtx);
 		if (tran_work->node_numbers == 0) {
 			/* wait for exit or tran task come */
-			cv_wait(&tran_work->cv, &tran_work->mtx);
+			cv_timedwait(&tran_work->cv, &tran_work->mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			/* switch queue */
 			list_t *queue_t;
@@ -3806,7 +3806,7 @@ static void cluster_target_tran_worker_thread(void *arg)
 		mutex_enter(&tran_work->mtx);
 		if (tran_work->node_numbers == 0) {
 			/* wait for exit or tran task come */
-			cv_wait(&tran_work->cv, &tran_work->mtx);
+			cv_timedwait(&tran_work->cv, &tran_work->mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			/* switch queue */
 			list_t *queue_t;
@@ -4520,7 +4520,7 @@ static void csh_asyn_tx_task_handle(void *arg)
 			asyn_tx = asyn_tx_next;
 		}
 		if (list_is_empty(&cshi->host_asyn_tx_tasks)) {
-			cv_wait(&cshi->host_asyn_tx_cv, &cshi->host_asyn_tx_mtx);
+			cv_timedwait(&cshi->host_asyn_tx_cv, &cshi->host_asyn_tx_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			cv_timedwait(&cshi->host_asyn_tx_cv, &cshi->host_asyn_tx_mtx,
 				ddi_get_lbolt() + drv_usectohz(CLUSTER_SAN_HOST_ASYN_TX_GAP));
