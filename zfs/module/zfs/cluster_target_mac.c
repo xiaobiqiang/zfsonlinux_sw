@@ -29,7 +29,7 @@ TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]=
 	}
 };
 //extern pri_t minclsyspri, maxclsyspri;
-
+uint32_t mac_package_fill=0;
 uint32_t cts_mac_throttle_max = 512 * 1024;
 uint32_t cts_mac_throttle_default = 128 * 1024;
 
@@ -93,7 +93,7 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	cluster_target_msg_header_t *ct_head;
 	uint64_t len;
 	size_t head_len = sizeof(struct ether_header) +
-		sizeof(cluster_target_msg_header_t);
+		sizeof(cluster_target_msg_header_t) + mac_package_fill;
 	int ret;
 
 
@@ -143,6 +143,7 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	if (len != 0) {
 		fragment->offset = ct_head->offset;
 		fragment->data = (char *)(mp->skb->head + mp->skb->mac_header + head_len + ct_head->ex_len);
+		mac_package_fill = ((ulong_t)fragment->data) & 3;
 	}
 	if (ct_head->ex_len != 0) {
 		fragment->ex_head = (char *)(mp->skb->head + mp->skb->mac_header + head_len);
@@ -398,7 +399,7 @@ static int cluster_target_mac_tran_data_fragment(
 	struct ether_header *eth_head;
 	cluster_target_msg_header_t *ct_head;
 	size_t head_len = sizeof(struct ether_header) +
-		sizeof(cluster_target_msg_header_t);
+		sizeof(cluster_target_msg_header_t) + mac_package_fill;
 #ifdef SOLARIS
 	void *ex_head;
 #endif
@@ -477,7 +478,7 @@ static int cluster_target_mac_tran_data_fragment(
 		if ((ex_len != 0) && (origin_data->header != NULL)) {
 			memcpy(skb_push(head_mp->skb, ex_len), origin_data->header, ex_len);
 		}
-		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, sizeof(cluster_target_msg_header_t));
+		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, mac_package_fill + sizeof(cluster_target_msg_header_t));
 		eth_head = (struct ether_header *)skb_push(head_mp->skb, sizeof(struct ether_header));
 		memcpy(eth_head->h_source, port_mac->dev->dev_addr, ETH_ALEN);
 		if (dst == CLUSTER_SAN_BROADCAST_SESS) {
