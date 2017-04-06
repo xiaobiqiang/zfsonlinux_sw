@@ -1,6 +1,7 @@
 #ifndef	_SYS_CLUSTER_TARGET_MAC_H
 #define	_SYS_CLUSTER_TARGET_MAC_H
 
+#include <linux/spinlock.h>
 
 #define	CLUSTER_TARGET_MAC_LINK_STATE_DOWN		0x00
 #define	CLUSTER_TARGET_MAC_LINK_STATE_UP		0x01
@@ -44,6 +45,9 @@ typedef struct ctp_mac_rx_worker {
 	ctp_mac_mplist_t	mplist2;
 	kmutex_t		worker_mtx;
 	kcondvar_t		worker_cv;
+#ifndef SOLARIS
+	spinlock_t		worker_spin;
+#endif
 	uint32_t		worker_flags;
 	uint32_t		worker_ntasks;
 	void 			*ctp_private;
