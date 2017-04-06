@@ -525,7 +525,7 @@ void cluster_set_host_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 void cluster_send_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 int cluster_get_host_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 
-void zfs_mirror_cancel_check_spa_txg(uint32_t hostid);
+/*void zfs_mirror_cancel_check_spa_txg(uint32_t hostid);*/
 
 #endif/* #ifndef	_SYS_CLUSTER_SAN_H */
 

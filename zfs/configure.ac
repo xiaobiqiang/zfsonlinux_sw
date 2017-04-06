@@ -118,6 +118,7 @@ AC_CONFIG_FILES([
 	contrib/initramfs/Makefile
 	module/Makefile
 	module/avl/Makefile
+	module/cn_hbx/Makefile
 	module/nvpair/Makefile
 	module/unicode/Makefile
 	module/zcommon/Makefile
