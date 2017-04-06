@@ -3415,8 +3415,8 @@ static void cluster_target_session_destroy(cluster_target_session_t *cts)
 static void ctp_send_join_in_msg(
 	cluster_target_port_t *ctp, void *dst)
 {
-	uint32_t hostid = zone_get_hostid(NULL);
-	char *hostname = hw_utsname.nodename;
+	uint32_t hostid = clustersan->cs_host.hostid;//zone_get_hostid(NULL);
+	char *hostname = clustersan->cs_host.hostname;//hw_utsname.nodename;
 	nvlist_t *hostinfo;
 	char *buf;
 	size_t buflen;
