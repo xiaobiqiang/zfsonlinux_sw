@@ -456,6 +456,8 @@ int cluster_target_send_wait(cluster_target_port_t *ctp,
 	cluster_target_tran_data_t *data_array, int cnt, int pri);
 int cluster_target_session_send(cluster_target_session_t *cts,
 	cluster_tran_data_origin_t *origin_data, int pri);
+int cluster_san_set_hostname(char *hostname);
+int cluster_san_set_hostid(uint32_t hostid);
 int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf);
 int cluster_san_disable(void);
 int cluster_san_disable_target(char *link_name);
