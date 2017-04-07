@@ -1071,7 +1071,8 @@ typedef  enum {
 	ZFS_CLUSTERSAN_IOC_RPC_SVC			= 0x10,
 	ZFS_CLUSTERSAN_IOC_RPC_CLNT			= 0x11,
 	ZFS_CLUSTERSAN_SET_HOSTNAME			= 0x12,
-	ZFS_CLUSTERSAN_SET_HOSTID			= 0x13
+	ZFS_CLUSTERSAN_SET_HOSTID			= 0x13,
+	ZFS_CLUSTERSAN_COMM_TEST			= 0x14
 }zfs_clustersan_ioc_t;
 
 #define	ZFS_CLUSTER_SESSION_LIST_FLAG		0x01
@@ -1103,6 +1104,11 @@ typedef  enum {
 
 #define	CLUSTER_PROP_FAILOVER		"failover"
 #define	CLUSTER_PROP_IPMI_SWITCH	"ipmi"
+
+
+
+#define COMM_TEST
+
 
 /* cluster end */
 

@@ -5018,6 +5018,11 @@ zfs_ioc_do_clustersan(zfs_cmd_t *zc)
 		case ZFS_CLUSTERSAN_SET_HOSTID:
 			ret = cluster_san_set_hostid(((uint32_t)zc->zc_pad[0]));
 			break;
+#ifdef COMM_TEST
+		case ZFS_CLUSTERSAN_COMM_TEST:
+			ret = cluster_comm_test(((uint32_t)zc->zc_pad[0]), zc->zc_sendobj, zc->zc_fromobj);
+			break;
+#endif
 		default:
 			break;
 	}

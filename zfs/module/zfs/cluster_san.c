@@ -150,6 +150,92 @@ typedef struct clustersan_kmem_vect {
 
 static clustersan_kmem_vect_t *cs_cache_buf[CLUSTERSAN_MAXBLOCKSIZE >> CLUSTERSAN_MINBLOCKSHIFT];
 
+
+#ifdef COMM_TEST
+struct COMM_ST {
+	char * databuf;
+	char * headbuf;
+	int wait_flag;
+	wait_queue_head_t wait_queue;
+	int ret_value;
+}comm_st;
+
+void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
+{
+	int ret = 0;
+	if (*(cs_data->data) == 0) {
+		*(cs_data->data) = 1;
+		cluster_san_host_send(cs_data->cs_private, cs_data->data, cs_data->data_len, 
+			cs_data->ex_head, cs_data->ex_len, CLUSTER_SAN_MSGTYPE_TEST, 0, B_TRUE, 2);
+		csh_rx_data_free(cs_data, B_TRUE);
+	} else {
+		if (cs_data->data) {
+			if (comm_st.databuf) {
+				if (memcmp(cs_data->data, comm_st.databuf, cs_data->data_len) != 0)
+					ret++;
+			} else {
+				ret++;
+			}
+		}
+
+		if (cs_data->ex_head) {
+			if (comm_st.headbuf) {
+				if (memcmp(cs_data->ex_head, comm_st.headbuf, cs_data->ex_len) != 0)
+					ret++;
+			} else {
+				ret++;
+			}
+		}
+		comm_st.ret_value = ret;
+		comm_st.wait_flag = 1;
+		wake_up(&comm_st.wait_queue);
+	}
+}
+int cluster_comm_test(int hostid, int datalen, int headlen)
+{
+	int ret ;
+	cluster_san_hostinfo_t	*cshi = NULL;
+
+	if ((cshi = cluster_remote_hostinfo_hold((uint32_t)hostid)) == NULL) {
+		printk("%s, %d, hold hostinfo(hostid: %d) failed!\n", 
+			__func__, __LINE__, hostid);
+		ret = -EINVAL;
+		goto out1;
+	}
+
+	if ((comm_st.databuf = kmem_alloc(datalen, KM_SLEEP)) == NULL) {
+		ret = -ENOMEM;
+		goto out2;
+	}
+
+	if ((comm_st.headbuf = kmem_alloc(headlen, KM_SLEEP)) == NULL) {
+		ret = -ENOMEN;
+		goto out3;
+	}
+	
+	get_random_bytes(comm_st.databuf, datalen);
+	get_random_bytes(comm_st.headbuf, headlen);
+
+	*(comm_st.databuf) = 0;
+	comm_st.wait_flag = 0;
+	comm_st.ret_value = -1;
+	ret = cluster_san_host_send(cshi, (void *)comm_st.databuf, datalen, (void *)comm_st.headbuf, 
+		headlen, CLUSTER_SAN_MSGTYPE_TEST, 0, B_TRUE, 2);
+	wait_event_timeout(&comm_st.wait_queue, comm_st.wait_flag == 1, HZ);
+	ret = comm_st.ret_value;
+
+	kmem_free(comm_st.headbuf, headlen);
+	comm_st.headbuf = NULL;
+out3:
+	kmem_free(comm_st.databuf, datalen);
+	comm_st.databuf = NULL;
+out2:
+	cluster_san_hostinfo_rele(cshi);
+out1:
+	return ret;
+}
+#endif
+
 void cs_cache_buf_init(void)
 {
 	int i;
@@ -940,7 +1026,11 @@ int cluster_san_init()
 	/* zfs_hbx_init(); */
 	/* cluster_target_rpc_rdma_svc_init(); */
 	/* cluster_target_rpc_rdma_clnt_init(); */
-	
+
+#ifdef COMM_TEST
+	init_waitqueue_head(&comm_st.wait_queue);
+	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_TEST, cluster_comm_test_rx, NULL);
+#endif
 	return (0);
 }
 
@@ -968,6 +1058,9 @@ void cluster_san_fini()
 	cs_cache_buf_fini();
 	/* cluster_target_rpc_rdma_svc_fini(); */
 	/* cluster_target_rpc_rdma_clnt_fini(); */
+#ifdef COMM_TEST
+	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_TEST);
+#endif
 }
 
 void cluster_sync_spa_config(nvlist_t *nvl, uint32_t remote_hostid)

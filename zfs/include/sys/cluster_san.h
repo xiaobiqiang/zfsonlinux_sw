@@ -5,7 +5,7 @@
 #include <sys/avl.h>
 #include <sys/modhash.h>
 #include <sys/modhash_impl.h>
-
+#include <sys/fs/zfs.h>
 #define	CLUSTER_SAN_MEMFREE_DEALAY				0
 
 #define	TARGET_PROTOCOL_MIRROR					0x1
@@ -49,6 +49,7 @@
 #define	CLUSTER_SAN_MSGTYPE_HB					0x81
 #define	CLUSTER_SAN_MSGTYPE_REPLY				0x82
 #define	CLUSTER_SAN_MSGTYPE_CLUSTER				0x83
+#define CLUSTER_SAN_MSGTYPE_TEST				0x90
 #define	CLUSTER_SAN_MSGTYPE_NOP					0xff
 
 #define	CLUSTER_EVT_SYNC_CMD					0x01
@@ -457,6 +458,9 @@ int cluster_target_send_wait(cluster_target_port_t *ctp,
 int cluster_target_session_send(cluster_target_session_t *cts,
 	cluster_tran_data_origin_t *origin_data, int pri);
 int cluster_san_set_hostname(char *hostname);
+#ifdef COMM_TEST
+int cluster_comm_test(int hostid, int datalen, int headlen);
+#endif
 int cluster_san_set_hostid(uint32_t hostid);
 int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf);
 int cluster_san_disable(void);

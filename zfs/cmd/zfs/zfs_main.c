@@ -7335,10 +7335,12 @@ zfs_do_clustersan(int argc, char **argv)
 	} else if (argc > 1 && !strcmp(argv[1], "rpcto")) {
 		ret = -1;
 		/* ret = zfs_do_clustersan_rpcto(argc - 1, argv + 1); */
-	} else if (argc > 1 && !strcmp(argv[1], "hostname")) {
+	} else if (argc == 3 && !strcmp(argv[1], "hostname")) {
 		ret = zfs_set_hostname(g_zfs, argv[2]);
-	} else if (argc > 1 && !strcmp(argv[1], "hostid")) {
+	} else if (argc == 3 && !strcmp(argv[1], "hostid")) {
 		ret = zfs_set_hostid(g_zfs, argv[2]);
+	} else if (argc ==5 && !strcmp(argv[1], "comm")) {
+		ret = zfs_comm_test(g_zfs, argv[2], argv[3], argv[4]);
 	} else {
 		(void) fprintf(stderr, gettext("invalid option\n"));
 		usage(B_FALSE);
