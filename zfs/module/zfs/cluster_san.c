@@ -163,6 +163,11 @@ struct COMM_ST {
 void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 {
 	int ret = 0;
+	printk("%s len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+	if (cs_data->data==NULL) {
+		printk("cs_data->data=NULL\n");
+		return;
+	}
 	if (*(cs_data->data) == 0) {
 		*(cs_data->data) = 1;
 		cluster_san_host_send(cs_data->cs_private, cs_data->data, cs_data->data_len, 
@@ -171,7 +176,7 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 	} else {
 		if (cs_data->data) {
 			if (comm_st.databuf) {
-				if (memcmp(cs_data->data, comm_st.databuf, cs_data->data_len) != 0)
+				if (memcmp(cs_data->data+1, comm_st.databuf+1, cs_data->data_len-1) != 0)
 					ret++;
 			} else {
 				ret++;
@@ -189,6 +194,7 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 		comm_st.ret_value = ret;
 		comm_st.wait_flag = 1;
 		wake_up(&comm_st.wait_queue);
+		csh_rx_data_free(cs_data, B_TRUE);
 	}
 }
 int cluster_comm_test(int hostid, int datalen, int headlen)
@@ -209,7 +215,7 @@ int cluster_comm_test(int hostid, int datalen, int headlen)
 	}
 
 	if ((comm_st.headbuf = kmem_alloc(headlen, KM_SLEEP)) == NULL) {
-		ret = -ENOMEN;
+		ret = -ENOMEM;
 		goto out3;
 	}
 	
@@ -221,7 +227,7 @@ int cluster_comm_test(int hostid, int datalen, int headlen)
 	comm_st.ret_value = -1;
 	ret = cluster_san_host_send(cshi, (void *)comm_st.databuf, datalen, (void *)comm_st.headbuf, 
 		headlen, CLUSTER_SAN_MSGTYPE_TEST, 0, B_TRUE, 2);
-	wait_event_timeout(&comm_st.wait_queue, comm_st.wait_flag == 1, HZ);
+	wait_event_timeout(comm_st.wait_queue, comm_st.wait_flag == 1, HZ);
 	ret = comm_st.ret_value;
 
 	kmem_free(comm_st.headbuf, headlen);

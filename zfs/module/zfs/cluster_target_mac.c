@@ -33,7 +33,7 @@ TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]=
 	}
 };
 //extern pri_t minclsyspri, maxclsyspri;
-uint32_t mac_package_fill=0;
+uint32_t mac_package_fill=2;
 uint32_t cts_mac_throttle_max = 512 * 1024;
 uint32_t cts_mac_throttle_default = 128 * 1024;
 
@@ -112,7 +112,7 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	eth_head = (struct ether_header *)(mp->skb->head + mp->skb->mac_header);
 	ct_head = (cluster_target_msg_header_t *)
 		(mp->skb->head + mp->skb->mac_header + mp->skb->mac_len);
-	len = mp->skb->len - sizeof(cluster_target_msg_header_t) - ct_head->ex_len;
+	len = mp->skb->len - sizeof(cluster_target_msg_header_t) - ct_head->ex_len - mac_package_fill;
 	if (len < ct_head->len) {
 #endif
 		cmn_err(CE_WARN, "cluster target session rx data err,"
@@ -147,7 +147,6 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	if (len != 0) {
 		fragment->offset = ct_head->offset;
 		fragment->data = (char *)(mp->skb->head + mp->skb->mac_header + head_len + ct_head->ex_len);
-		mac_package_fill = ((ulong_t)fragment->data) & 3;
 	}
 	if (ct_head->ex_len != 0) {
 		fragment->ex_head = (char *)(mp->skb->head + mp->skb->mac_header + head_len);
