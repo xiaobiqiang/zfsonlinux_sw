@@ -1425,11 +1425,12 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	uint_t c, children;
 	pool_scan_stat_t *ps = NULL;
 	vdev_stat_t *vs;
-	char rbuf[6], wbuf[6], cbuf[6];
+	char rbuf[6], wbuf[6], cbuf[6], quantum_buf[8];
 	char *vname;
 	uint64_t notpresent;
 	spare_cbdata_t cb;
 	char *state;
+	uint64_t quantum;
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) != 0)
@@ -1453,11 +1454,17 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	(void) printf("\t%*s%-*s  %-8s", depth, "", namewidth - depth,
 	    name, state);
 
+	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &quantum) == 0 &&
+		quantum == 1)
+		strcpy(quantum_buf, "quantum");
+	else
+		strcpy(quantum_buf, "--");
+
 	if (!isspare) {
 		zfs_nicenum(vs->vs_read_errors, rbuf, sizeof (rbuf));
 		zfs_nicenum(vs->vs_write_errors, wbuf, sizeof (wbuf));
 		zfs_nicenum(vs->vs_checksum_errors, cbuf, sizeof (cbuf));
-		(void) printf(" %5s %5s %5s", rbuf, wbuf, cbuf);
+		(void) printf(" %5s %5s %5s %-7s", rbuf, wbuf, cbuf, quantum_buf);
 	}
 
 	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NOT_PRESENT,

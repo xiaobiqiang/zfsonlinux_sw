@@ -116,6 +116,23 @@ typedef struct spa_taskqs {
 	taskq_t **stqs_taskq;
 } spa_taskqs_t;
 
+#define	SPA_NUM_OF_QUANTUM	2
+
+typedef enum quantum_proc_state {
+	QUANTUM_PROC_NONE,
+	QUANTUM_PROC_ACTIVE,
+	QUANTUM_PROC_DEACTIVATE,
+} quantum_proc_state_t;
+
+typedef struct spa_quantum {
+	kthread_t *spa_quantum_pthread;
+	kcondvar_t	spa_quantum_exit_cv;
+	kmutex_t	 spa_quantum_lock;
+	vdev_t *spa_quantum_dev;
+	uint64_t spa_quantum_index;
+	quantum_proc_state_t spa_quantum_state;
+} spa_quantum_t;
+
 struct spa {
 	/*
 	 * Fields protected by spa_namespace_lock.
@@ -255,6 +272,10 @@ struct spa {
 	spa_stats_t	spa_stats;		/* assorted spa statistics */
 	taskq_t		*spa_zvol_taskq;	/* Taskq for minor managment */
 
+	/* spa quantum */
+	spa_quantum_t spa_quantums[SPA_NUM_OF_QUANTUM];
+	uint8_t spa_num_of_quantums;
+
 	/*
 	 * spa_refcount & spa_config_lock must be the last elements
 	 * because refcount_t changes size based on compilation options.
@@ -271,7 +292,12 @@ extern void spa_taskq_dispatch_ent(spa_t *spa, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent);
 extern void spa_taskq_dispatch_sync(spa_t *, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags);
-
+extern void spa_quantum_init(spa_t *spa);
+extern void spa_quantum_fini(spa_t *spa);
+extern void spa_quantum_stop(spa_quantum_t *quantum);
+extern void spa_quantum_stop_all(spa_t *spa);
+extern void spa_choose_quantum_dev(spa_t *spa);
+extern void spa_quantum_start(spa_quantum_t *quantum);
 
 #ifdef	__cplusplus
 }

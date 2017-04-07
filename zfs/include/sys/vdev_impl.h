@@ -176,6 +176,7 @@ struct vdev {
 	uint64_t	vdev_islog;	/* is an intent log device	*/
 	uint64_t	vdev_removing;	/* device is being removed?	*/
 	boolean_t	vdev_ishole;	/* is a hole in the namespace 	*/
+	uint64_t	vdev_isquantum;
 
 	/*
 	 * Leaf vdev state.
@@ -257,6 +258,21 @@ typedef struct vdev_label {
 	vdev_phys_t	vl_vdev_phys;				/* 112K	*/
 	char		vl_uberblock[VDEV_UBERBLOCK_RING];	/* 128K	*/
 } vdev_label_t;							/* 256K total */
+
+#define	VDEV_STAMP_LABEL_NO	1
+#define	VDEV_USED_OFFSET		VDEV_PAD_SIZE/2 
+#define	VDEV_USED_SIZE		VDEV_PAD_SIZE/2
+
+typedef struct vdev_use_index {
+	uint64_t index;
+	uint64_t timestamp;
+	char reserve[VDEV_PAD_SIZE/2 - 16];
+}vdev_use_index_t;
+
+typedef struct vdev_use {
+	char use_reserve1[VDEV_PAD_SIZE/2];
+	vdev_use_index_t use_index;
+}vdev_use_t;
 
 /*
  * vdev_dirty() flags

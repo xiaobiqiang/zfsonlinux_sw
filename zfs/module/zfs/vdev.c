@@ -377,7 +377,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 {
 	vdev_ops_t *ops;
 	char *type;
-	uint64_t guid = 0, islog, nparity;
+	uint64_t guid = 0, islog, isquantum, nparity;
 	vdev_t *vd;
 
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
@@ -426,6 +426,9 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	if (islog && spa_version(spa) < SPA_VERSION_SLOGS)
 		return (SET_ERROR(ENOTSUP));
 
+	isquantum = 0;
+	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &islog);
+
 	if (ops == &vdev_hole_ops && spa_version(spa) < SPA_VERSION_HOLES)
 		return (SET_ERROR(ENOTSUP));
 
@@ -469,6 +472,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 
 	vd->vdev_islog = islog;
 	vd->vdev_nparity = nparity;
+	vd->vdev_isquantum = isquantum;
 
 	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, &vd->vdev_path) == 0)
 		vd->vdev_path = spa_strdup(vd->vdev_path);

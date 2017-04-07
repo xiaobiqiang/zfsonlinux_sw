@@ -566,6 +566,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_FEATURES_FOR_READ	"features_for_read"
 #define	ZPOOL_CONFIG_FEATURE_STATS	"feature_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ERRATA		"errata"	/* not stored on disk */
+#define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"	/* not stored on disk */
 /*
  * The persistent vdev state is stored as separate values rather than a single
  * 'vdev_state' entry.  This is because a device can be in multiple states, such
@@ -1078,6 +1079,8 @@ typedef  enum {
 #define	CLUSTER_PROP_IPMI_SWITCH	"ipmi"
 
 /* cluster end */
+
+#define	ZFS_QUANTUM_INTERVAL_TICK	5
 
 #ifdef	__cplusplus
 }

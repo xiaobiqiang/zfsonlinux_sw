@@ -813,6 +813,16 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid);
 int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
 
+typedef struct spa_quantum_index {
+	uint64_t index;
+	char *dev_name;
+}spa_quantum_index_t;
+
+extern uint64_t zpool_read_used(nvlist_t *pool_root, spa_quantum_index_t *index,
+	uint64_t nquantum);
+extern boolean_t zpool_used_index_changed(spa_quantum_index_t *last_index,
+	uint64_t nquantum, spa_quantum_index_t *current_index, uint64_t *read_nquantum);
+
 #ifdef	__cplusplus
 }
 #endif
