@@ -483,6 +483,7 @@ static int cluster_target_mac_tran_data_fragment(
 		}
 		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, mac_package_fill + sizeof(cluster_target_msg_header_t));
 		eth_head = (struct ether_header *)skb_push(head_mp->skb, sizeof(struct ether_header));
+		skb_reset_mac_header(head_mp->skb);
 		memcpy(eth_head->h_source, port_mac->dev->dev_addr, ETH_ALEN);
 		if (dst == CLUSTER_SAN_BROADCAST_SESS) {
 			memcpy(eth_head->h_dest, mac_broadcast_addr, ETH_ALEN);
@@ -498,6 +499,7 @@ static int cluster_target_mac_tran_data_fragment(
 		ct_head->offset = fragment_offset;
 		ct_head->need_reply = (uint8_t)(origin_data->need_reply == B_TRUE);
 		ct_head->ex_len = ex_len;
+		memset(ct_head->reserved, 0x55, 8);
 #ifdef SOLARIS
 		head_mp->b_wptr = head_mp->b_rptr + head_len + ex_len;
 #endif
@@ -716,6 +718,8 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	mblk_t *mp;
 	int ret;
 	
+	skb_linearize(skb);
+
 	spin_lock_irq(&target_port_lock);
 	if (target_port_array[0].dev == dev) {
 		 ctp = target_port_array[0].ctp;

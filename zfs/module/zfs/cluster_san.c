@@ -163,12 +163,33 @@ struct COMM_ST {
 void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 {
 	int ret = 0;
-	printk("%s len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+	int i=0;
 	if (cs_data->data==NULL) {
 		printk("cs_data->data=NULL\n");
 		return;
 	}
 	if (*(cs_data->data) == 0) {
+		for(i=0; i<cs_data->data_len; i++) {
+			if (*(unsigned char*)(cs_data->data+i) != i%256)
+				ret = 1;
+		}
+		for(i=0; i<cs_data->ex_len; i++) {
+			if (*((unsigned char*)(cs_data->ex_head+i)) != i%256)
+				ret = 1;
+		}
+		if (ret == 0)
+			printk("%s success len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+		else {
+			printk("%s failed len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+			for(i=0; i<cs_data->data_len; i++) {
+				printk("%x ", *((unsigned char*)cs_data->data+i));
+			}
+			printk("exdata\n");
+			for(i=0; i<cs_data->ex_len; i++) {
+				printk("%x ", *((unsigned char*)cs_data->ex_head+i));
+			}
+			printk("\n");
+		}
 		*(cs_data->data) = 1;
 		cluster_san_host_send(cs_data->cs_private, cs_data->data, cs_data->data_len, 
 			cs_data->ex_head, cs_data->ex_len, CLUSTER_SAN_MSGTYPE_TEST, 0, B_TRUE, 2);
@@ -195,11 +216,16 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 		comm_st.wait_flag = 1;
 		wake_up(&comm_st.wait_queue);
 		csh_rx_data_free(cs_data, B_TRUE);
+		if (ret == 0)
+			printk("%s success len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+		else
+			printk("%s failed len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
 	}
 }
 int cluster_comm_test(int hostid, int datalen, int headlen)
 {
 	int ret ;
+	int i=0;
 	cluster_san_hostinfo_t	*cshi = NULL;
 
 	if ((cshi = cluster_remote_hostinfo_hold((uint32_t)hostid)) == NULL) {
@@ -219,15 +245,21 @@ int cluster_comm_test(int hostid, int datalen, int headlen)
 		goto out3;
 	}
 	
-	get_random_bytes(comm_st.databuf, datalen);
-	get_random_bytes(comm_st.headbuf, headlen);
+	for(i=0; i<datalen; i++) {
+		*(unsigned char*)(comm_st.databuf+i) = i%256;
+	}
+	for(i=0; i<headlen; i++) {
+		*(unsigned char*)(comm_st.headbuf+i) = i%256;
+	}
+	//get_random_bytes(comm_st.databuf, datalen);
+	//get_random_bytes(comm_st.headbuf, headlen);
 
 	*(comm_st.databuf) = 0;
 	comm_st.wait_flag = 0;
 	comm_st.ret_value = -1;
 	ret = cluster_san_host_send(cshi, (void *)comm_st.databuf, datalen, (void *)comm_st.headbuf, 
 		headlen, CLUSTER_SAN_MSGTYPE_TEST, 0, B_TRUE, 2);
-	wait_event_timeout(comm_st.wait_queue, comm_st.wait_flag == 1, HZ);
+	wait_event_timeout(comm_st.wait_queue, comm_st.wait_flag == 1, 5 * HZ);
 	ret = comm_st.ret_value;
 
 	kmem_free(comm_st.headbuf, headlen);
@@ -3243,7 +3275,7 @@ static void cts_hb_thread(void *arg)
 		}
 		mutex_enter(&cts->sess_lock);
 		cv_timedwait(&cts->sess_cv, &cts->sess_lock,
-			ddi_get_lbolt() + drv_usectohz(CLUSTER_TARGET_SESS_HB_TIMEGAP * 1000));
+			ddi_get_lbolt() + drv_usectohz(CLUSTER_TARGET_SESS_HB_TIMEGAP * 1000 * 600));
 	}
 	mutex_exit(&cts->sess_lock);
 }
@@ -3881,7 +3913,7 @@ static void cluster_target_port_broadcase_thread(void *arg)
 		ctp_send_join_in_msg(ctp, CLUSTER_SAN_BROADCAST_SESS);
 		mutex_enter(&ctp->brosan_mtx);
 		cv_timedwait(&ctp->brosan_cv, &ctp->brosan_mtx,
-			ddi_get_lbolt() + drv_usectohz(1000 * 1000));
+			ddi_get_lbolt() + drv_usectohz(60 * 1000 * 1000));
 	}
 
 	ctp->brosan_state = 0;
