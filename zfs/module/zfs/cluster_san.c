@@ -1761,7 +1761,7 @@ static void cluster_san_hostinfo_remove(cluster_san_hostinfo_t *cshi)
 	}
 	mutex_exit(&cshi->lock);
 	do {
-		cluster_san_hostinfo_rele(cshi);
+		ret = cluster_san_hostinfo_rele(cshi);
 	}while(ret != 0);
 }
 

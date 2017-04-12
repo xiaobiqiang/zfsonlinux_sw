@@ -657,10 +657,10 @@ ctp_mac_rx_worker_wakeup(ctp_mac_rx_worker_t *w, mblk_t *mp)
 	spin_lock_irq(&w->worker_spin);
 	ctp_mac_mplist_insert_tail(w->mplist_w, mp);
 	atomic_inc_32(&w->worker_ntasks);
-	if (w->worker_ntasks == 1) {
-		cv_broadcast(&w->worker_cv);
-	}
 	spin_unlock_irq(&w->worker_spin);
+	//if (w->worker_ntasks == 1) {
+		cv_broadcast(&w->worker_cv);
+	//}
 	//mutex_exit(&w->worker_mtx);
 }
 #ifdef SOLARIS
