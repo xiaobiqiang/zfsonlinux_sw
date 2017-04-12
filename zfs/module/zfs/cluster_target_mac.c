@@ -653,15 +653,11 @@ static mblk_t *ctp_mac_mplist_remove_head(ctp_mac_mplist_t *mplist)
 static void
 ctp_mac_rx_worker_wakeup(ctp_mac_rx_worker_t *w, mblk_t *mp)
 {
-	//mutex_enter(&w->worker_mtx);
-	spin_lock_irq(&w->worker_spin);
 	ctp_mac_mplist_insert_tail(w->mplist_w, mp);
 	atomic_inc_32(&w->worker_ntasks);
-	spin_unlock_irq(&w->worker_spin);
-	//if (w->worker_ntasks == 1) {
-		cv_broadcast(&w->worker_cv);
-	//}
-	//mutex_exit(&w->worker_mtx);
+
+	wake_up(&w->worker_queue);
+	//cv_broadcast(&w->worker_cv);
 }
 #ifdef SOLARIS
 static void
@@ -916,12 +912,10 @@ static void ctp_mac_rx_worker_handle(void *arg)
 	
 
 	atomic_inc_32(&port_mac->rx_worker_n);
-	mutex_enter(&w->worker_mtx);
-	spin_lock_irq(&w->worker_spin);
+	
 	w->worker_flags |= CLUSTER_TARGET_TH_STATE_ACTIVE;
 	while ((w->worker_flags & CLUSTER_TARGET_TH_STATE_STOP) == 0) {
-		spin_unlock_irq(&w->worker_spin);
-		mutex_exit(&w->worker_mtx);
+		
 		while (1) {
 			mp = ctp_mac_mplist_remove_head(w->mplist_r);
 			if (mp != NULL) {
@@ -994,12 +988,10 @@ static void ctp_mac_rx_worker_handle(void *arg)
 		if (w->worker_ntasks == 0) { /* can't hold w->worker_mtx */
 			ctp_mac_rx_throttle_handle(ctp);
 		}
-		mutex_enter(&w->worker_mtx);
-		spin_lock_irq(&w->worker_spin);
+		
 		if (w->worker_ntasks == 0) {
-			spin_unlock_irq(&w->worker_spin);
-			cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
-			spin_lock_irq(&w->worker_spin);
+			wait_event_timeout(w->worker_queue, (w->worker_ntasks != 0 || w->worker_flags & CLUSTER_TARGET_TH_STATE_STOP), 60 * HZ);
+			//cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
 			ctp_mac_mplist_t *mplist;
 			mplist = w->mplist_r;
@@ -1007,8 +999,6 @@ static void ctp_mac_rx_worker_handle(void *arg)
 			w->mplist_w = mplist;
 		}
 	}
-	spin_unlock_irq(&w->worker_spin);
-	mutex_exit(&w->worker_mtx);
 
 	w->worker_flags = 0;
 	atomic_dec_32(&port_mac->rx_worker_n);
@@ -1031,9 +1021,10 @@ static void ctp_mac_rx_worker_init(cluster_target_port_t *ctp)
 		KM_SLEEP);
 	for (i = 0; i < cluster_target_mac_nrxworker; i++) {
 		ctp_mac_rx_worker_t *w = &port_mac->rx_worker[i];
-		mutex_init(&w->worker_mtx, NULL, MUTEX_DRIVER, NULL);
-		cv_init(&w->worker_cv, NULL, CV_DRIVER, NULL);
+		//mutex_init(&w->worker_mtx, NULL, MUTEX_DRIVER, NULL);
+		//cv_init(&w->worker_cv, NULL, CV_DRIVER, NULL);
 		spin_lock_init(&w->worker_spin);
+		init_waitqueue_head(&w->worker_queue);
 		w->worker_flags = 0;
 		w->mplist1.head = NULL;
 		w->mplist1.tail = NULL;
@@ -1236,12 +1227,13 @@ static void ctp_mac_rx_worker_thread_exit(cluster_target_port_mac_t *port_mac)
 	int i;
 	for (i = 0; i < cluster_target_mac_nrxworker; i++) {
 		w = &port_mac->rx_worker[i];
-		mutex_enter(&w->worker_mtx);
+		//mutex_enter(&w->worker_mtx);
 		spin_lock_irq(&w->worker_spin);
 		w->worker_flags |= CLUSTER_TARGET_TH_STATE_STOP;
 		spin_unlock_irq(&w->worker_spin);
-		cv_signal(&w->worker_cv);
-		mutex_exit(&w->worker_mtx);
+		//cv_signal(&w->worker_cv);
+		//mutex_exit(&w->worker_mtx);
+		wake_up_interruptible(&w->worker_queue);
 	}
 
 	taskq_destroy(port_mac->rx_worker_tq);
@@ -1256,8 +1248,8 @@ static void ctp_mac_rx_worker_fini(cluster_target_port_mac_t *port_mac)
 		w = &port_mac->rx_worker[i];
 		ctp_mac_mplist_clear(w->mplist_r);
 		ctp_mac_mplist_clear(w->mplist_w);
-		mutex_destroy(&w->worker_mtx);
-		cv_destroy(&w->worker_cv);
+		//mutex_destroy(&w->worker_mtx);
+		//cv_destroy(&w->worker_cv);
 	}
 
 	kmem_free(port_mac->rx_worker,

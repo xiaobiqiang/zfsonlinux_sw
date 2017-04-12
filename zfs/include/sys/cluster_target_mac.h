@@ -43,10 +43,11 @@ typedef struct ctp_mac_rx_worker {
 	ctp_mac_mplist_t	*mplist_w;
 	ctp_mac_mplist_t	mplist1;
 	ctp_mac_mplist_t	mplist2;
-	kmutex_t		worker_mtx;
-	kcondvar_t		worker_cv;
+	//kmutex_t		worker_mtx;
+	//kcondvar_t		worker_cv;
 #ifndef SOLARIS
 	spinlock_t		worker_spin;
+	wait_queue_head_t	worker_queue;
 #endif
 	uint32_t		worker_flags;
 	uint32_t		worker_ntasks;
