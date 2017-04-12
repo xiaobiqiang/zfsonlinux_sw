@@ -3279,7 +3279,7 @@ static void cts_hb_thread(void *arg)
 		}
 		mutex_enter(&cts->sess_lock);
 		cv_timedwait(&cts->sess_cv, &cts->sess_lock,
-			ddi_get_lbolt() + drv_usectohz(CLUSTER_TARGET_SESS_HB_TIMEGAP * 1000 * 600));
+			ddi_get_lbolt() + drv_usectohz(CLUSTER_TARGET_SESS_HB_TIMEGAP * 1000));
 	}
 	mutex_exit(&cts->sess_lock);
 }
@@ -3917,7 +3917,7 @@ static void cluster_target_port_broadcase_thread(void *arg)
 		ctp_send_join_in_msg(ctp, CLUSTER_SAN_BROADCAST_SESS);
 		mutex_enter(&ctp->brosan_mtx);
 		cv_timedwait(&ctp->brosan_cv, &ctp->brosan_mtx,
-			ddi_get_lbolt() + drv_usectohz(60 * 1000 * 1000));
+			ddi_get_lbolt() + drv_usectohz(1000 * 1000));
 	}
 
 	ctp->brosan_state = 0;

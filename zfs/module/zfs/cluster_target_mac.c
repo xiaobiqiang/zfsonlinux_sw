@@ -227,7 +227,7 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 		    	drv_usectohz(100000), TR_CLOCK_TICK);
 #else
 			cv_timedwait(&port_mac->mac_tx_cv, &port_mac->mac_tx_mtx,
-						ddi_get_lbolt() + usecs_to_jiffies(100000));
+						ddi_get_lbolt() + drv_usectohz(100000));
 #endif
 			mutex_exit(&port_mac->mac_tx_mtx);
 			if (port_mac->mac_link_state == CLUSTER_TARGET_MAC_LINK_STATE_DOWN) {
@@ -282,13 +282,8 @@ static void cts_mac_tran_throttle_wait(cluster_target_session_t *cts)
 {
 	cluster_target_session_mac_t *sess_mac = cts->sess_target_private;
 	clock_t ret;
-#ifdef SOALRIS
 	ret = cv_timedwait(&sess_mac->sess_fc_cv, &sess_mac->sess_fc_mtx,
 		ddi_get_lbolt() + drv_usectohz(20000));
-#else
-	ret = cv_timedwait(&sess_mac->sess_fc_cv, &sess_mac->sess_fc_mtx,
-		ddi_get_lbolt() + usecs_to_jiffies(20000));
-#endif
 	if (ret == -1) {
 		sess_mac->sess_fc_throttle = sess_mac->sess_fc_throttle_max >> 1;
 	}
