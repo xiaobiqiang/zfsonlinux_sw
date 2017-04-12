@@ -508,6 +508,9 @@ static int cluster_target_mac_tran_data_fragment(
 			bcopy(origin_data->header, ex_head, ex_len);
 			ex_len = 0;
 		}
+#else		
+		if (ex_len != 0)
+			ex_len = 0;
 #endif
 		fragment_offset += fragment_len;
 		fragment_total_len += fragment_len;
