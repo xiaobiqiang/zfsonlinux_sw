@@ -178,9 +178,9 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 				ret = 1;
 		}
 		if (ret == 0)
-			printk("%s success len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+			printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 		else {
-			printk("%s failed len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+			printk("%s failed len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 			for(i=0; i<cs_data->data_len; i++) {
 				printk("%x ", *((unsigned char*)cs_data->data+i));
 			}
@@ -217,9 +217,9 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 		wake_up(&comm_st.wait_queue);
 		csh_rx_data_free(cs_data, B_TRUE);
 		if (ret == 0)
-			printk("%s success len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+			printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 		else
-			printk("%s failed len=%d ex_len=%d\n", __func__, cs_data->data_len, cs_data->ex_len);
+			printk("%s failed len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 	}
 }
 int cluster_comm_test(int hostid, int datalen, int headlen)
@@ -1638,7 +1638,7 @@ static void cluster_san_watchdog_fini(void)
 int cluster_san_set_hostname(char *hostname)
 {
 	if (strlen(hostname) > 64) {
-		printk("hostname is too large\n", hostname);
+		printk("hostname(%s) is too large\n", hostname);
 		return (-EINVAL);
 	}
 	memcpy(clustersan->cs_host.hostname, hostname, strlen(hostname));

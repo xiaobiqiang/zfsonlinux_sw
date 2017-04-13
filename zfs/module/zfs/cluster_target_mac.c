@@ -33,7 +33,6 @@ TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]=
 	}
 };
 //extern pri_t minclsyspri, maxclsyspri;
-uint32_t mac_package_fill=2;
 uint32_t cts_mac_throttle_max = 512 * 1024;
 uint32_t cts_mac_throttle_default = 128 * 1024;
 
@@ -43,7 +42,17 @@ uint32_t cluster_target_mac_nrxworker = 1;
 
 #ifndef SOLARIS
 #define	ETHERTYPE_CLUSTERSAN	(0x8908)	/* cluster san */
-#define	ether_header	ethhdr
+
+#define NET_IP_ALIGN_C	2
+struct ether_header
+{
+	unsigned char	h_dest[ETH_ALEN];	/* destination eth addr	*/
+	unsigned char	h_source[ETH_ALEN];	/* source ether addr	*/
+	__be16		h_proto;		/* packet type ID field	*/
+#if NET_IP_ALIGN_C > 0
+	__be16		reserve;
+#endif
+};
 
 static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
                    struct packet_type *pt, struct net_device *orig_dev);
@@ -97,7 +106,7 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	cluster_target_msg_header_t *ct_head;
 	uint64_t len;
 	size_t head_len = sizeof(struct ether_header) +
-		sizeof(cluster_target_msg_header_t) + mac_package_fill;
+		sizeof(cluster_target_msg_header_t);
 	int ret;
 
 
@@ -109,10 +118,10 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 	len = MBLKL(mp) - head_len - ct_head->ex_len;
 	if (len != ct_head->len) {
 #else
-	eth_head = (struct ether_header *)(mp->skb->head + mp->skb->mac_header);
+	eth_head = (struct ether_header *)skb_mac_header(mp->skb);
 	ct_head = (cluster_target_msg_header_t *)
-		(mp->skb->head + mp->skb->mac_header + mp->skb->mac_len);
-	len = mp->skb->len - sizeof(cluster_target_msg_header_t) - ct_head->ex_len - mac_package_fill;
+		(skb_mac_header(mp->skb) + sizeof(struct ether_header));
+	len = mp->skb->len - NET_IP_ALIGN_C - sizeof(cluster_target_msg_header_t) - ct_head->ex_len;
 	if (len < ct_head->len) {
 #endif
 		cmn_err(CE_WARN, "cluster target session rx data err,"
@@ -146,10 +155,10 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 #else
 	if (len != 0) {
 		fragment->offset = ct_head->offset;
-		fragment->data = (char *)(mp->skb->head + mp->skb->mac_header + head_len + ct_head->ex_len);
+		fragment->data = (char *)(skb_mac_header(mp->skb) + head_len + ct_head->ex_len);
 	}
 	if (ct_head->ex_len != 0) {
-		fragment->ex_head = (char *)(mp->skb->head + mp->skb->mac_header + head_len);
+		fragment->ex_head = (char *)(skb_mac_header(mp->skb) + head_len);
 	}
 #endif
 	return (fragment);
@@ -303,7 +312,7 @@ static int cts_mac_tran_start(cluster_target_session_t *cts, void *fragmentation
 		(mp->b_rptr + sizeof(struct ether_header));
 #else
 	cluster_target_msg_header_t *ct_head = (cluster_target_msg_header_t *)
-		(mp->skb->head+mp->skb->mac_header+sizeof(struct ether_header));
+		(skb_mac_header(mp->skb) + sizeof(struct ether_header));
 #endif
 
 	mutex_enter(&sess_mac->sess_fc_mtx);
@@ -397,7 +406,7 @@ static int cluster_target_mac_tran_data_fragment(
 	struct ether_header *eth_head;
 	cluster_target_msg_header_t *ct_head;
 	size_t head_len = sizeof(struct ether_header) +
-		sizeof(cluster_target_msg_header_t) + mac_package_fill;
+		sizeof(cluster_target_msg_header_t);
 #ifdef SOLARIS
 	void *ex_head;
 #endif
@@ -476,7 +485,7 @@ static int cluster_target_mac_tran_data_fragment(
 		if ((ex_len != 0) && (origin_data->header != NULL)) {
 			memcpy(skb_push(head_mp->skb, ex_len), origin_data->header, ex_len);
 		}
-		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, mac_package_fill + sizeof(cluster_target_msg_header_t));
+		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, sizeof(cluster_target_msg_header_t));
 		eth_head = (struct ether_header *)skb_push(head_mp->skb, sizeof(struct ether_header));
 		skb_reset_mac_header(head_mp->skb);
 		memcpy(eth_head->h_source, port_mac->dev->dev_addr, ETH_ALEN);
@@ -651,9 +660,10 @@ static mblk_t *ctp_mac_mplist_remove_head(ctp_mac_mplist_t *mplist)
 static void
 ctp_mac_rx_worker_wakeup(ctp_mac_rx_worker_t *w, mblk_t *mp)
 {
+	spin_lock_irq(&w->worker_spin);
 	ctp_mac_mplist_insert_tail(w->mplist_w, mp);
 	atomic_inc_32(&w->worker_ntasks);
-
+	spin_unlock_irq(&w->worker_spin);
 	wake_up(&w->worker_queue);
 	//cv_broadcast(&w->worker_cv);
 }
@@ -740,14 +750,14 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	
 	ret = cluster_target_port_hold(ctp);
 	
-	frm_type = ntohs(*(uint16_t *)(skb->head + skb->mac_header + 
+	frm_type = ntohs(*(uint16_t *)(skb_mac_header(skb) + 
 		offsetof(struct ether_header, h_proto)));
 	if (frm_type != ETHERTYPE_CLUSTERSAN) {
 		kfree_skb(skb);
 		goto out;
 	}
 
-	ct_head = (cluster_target_msg_header_t *)(skb->head + skb->mac_header + sizeof(struct ether_header));
+	ct_head = (cluster_target_msg_header_t *)(skb_mac_header(skb) + sizeof(struct ether_header));
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
 	mp = kzalloc(sizeof(mblk_t), GFP_ATOMIC);
 	mp->skb = skb;
@@ -907,7 +917,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 	cts_fragment_data_t *fragment;
 	struct ether_header *eth_head;
 	cluster_target_msg_header_t *ct_head;
-	
+	ctp_mac_mplist_t *mplist;
 
 	atomic_inc_32(&port_mac->rx_worker_n);
 	
@@ -991,10 +1001,11 @@ static void ctp_mac_rx_worker_handle(void *arg)
 			wait_event_timeout(w->worker_queue, (w->worker_ntasks != 0 || w->worker_flags & CLUSTER_TARGET_TH_STATE_STOP), 60 * HZ);
 			//cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));
 		} else {
-			ctp_mac_mplist_t *mplist;
+			spin_lock_irq(&w->worker_spin);
 			mplist = w->mplist_r;
 			w->mplist_r = w->mplist_w;
 			w->mplist_w = mplist;
+			spin_unlock_irq(&w->worker_spin);
 		}
 	}
 
