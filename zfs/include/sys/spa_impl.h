@@ -274,7 +274,7 @@ struct spa {
 
 	/* spa quantum */
 	spa_quantum_t spa_quantums[SPA_NUM_OF_QUANTUM];
-	uint8_t spa_num_of_quantums;
+	uint32_t spa_num_of_quantums;
 
 	/*
 	 * spa_refcount & spa_config_lock must be the last elements

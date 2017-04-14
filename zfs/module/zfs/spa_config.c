@@ -602,11 +602,6 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 	VERIFY0(nvlist_add_string(config, ZPOOL_CONFIG_HOSTNAME,
 	    utsname()->nodename));
 
-	if (vd->vdev_isquantum) {
-		VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_QUANTUM_DEV,
-		    1ULL) == 0);
-	}
-
 	if (vd != rvd) {
 		VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_TOP_GUID,
 		    vd->vdev_top->vdev_guid) == 0);

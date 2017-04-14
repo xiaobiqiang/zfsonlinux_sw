@@ -427,7 +427,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 		return (SET_ERROR(ENOTSUP));
 
 	isquantum = 0;
-	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &islog);
+	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &isquantum);
 
 	if (ops == &vdev_hole_ops && spa_version(spa) < SPA_VERSION_HOLES)
 		return (SET_ERROR(ENOTSUP));

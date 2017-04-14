@@ -1968,3 +1968,19 @@ zpool_used_index_changed(spa_quantum_index_t *last_index, uint64_t nquantum,
 
 	return (B_FALSE);
 }
+
+int
+zpool_remove_partner(libzfs_handle_t *hdl, char *name, uint32_t remote_hostid)
+{
+	zfs_cmd_t zc;
+	int err;
+	if (name != NULL) {
+		strcpy(zc.zc_name, name);
+	} else {
+		zc.zc_name[0] = '\0';
+	}
+	zc.zc_perm_action = remote_hostid;
+	zc.zc_cookie = ZFS_HBX_REMOVE_PARTNER_POOL;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX, &zc);
+	return (err);
+}

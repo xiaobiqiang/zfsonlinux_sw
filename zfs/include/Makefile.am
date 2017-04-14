@@ -13,6 +13,7 @@ KERNEL_H = \
 	$(top_srcdir)/include/zpios-internal.h
 
 USER_H = \
+	$(top_srcdir)/include/libcluster.h \
 	$(top_srcdir)/include/libnvpair.h \
 	$(top_srcdir)/include/libuutil_common.h \
 	$(top_srcdir)/include/libuutil.h \

@@ -823,6 +823,16 @@ extern uint64_t zpool_read_used(nvlist_t *pool_root, spa_quantum_index_t *index,
 extern boolean_t zpool_used_index_changed(spa_quantum_index_t *last_index,
 	uint64_t nquantum, spa_quantum_index_t *current_index, uint64_t *read_nquantum);
 
+extern int zpool_remove_partner(libzfs_handle_t *hdl, char *name,
+	uint32_t remote_hostid);
+
+extern void zfs_do_hbx_process(libzfs_handle_t *hdl, char *buffer, int size,
+	uint64_t flags);
+extern void zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
+	uint64_t flags, int remote_id);
+extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
+	uint32_t hostid, nvlist_t **nv_ptr);
+
 #ifdef	__cplusplus
 }
 #endif
