@@ -1,9 +1,9 @@
-src = @abs_top_srcdir@/module/zfs
-obj = @abs_builddir@
+src = /root/zfsonlinux/zfs/module/zfs
+obj = /root/zfsonlinux/zfs/module/zfs
 
 MODULE := zfs
 
-EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS)  -Wno-unused-but-set-variable  -DHAVE_SPL -D_KERNEL -DTEXT_DOMAIN=\"zfs-linux-kernel\" -DNDEBUG 
 
 obj-$(CONFIG_ZFS) := $(MODULE).o
 

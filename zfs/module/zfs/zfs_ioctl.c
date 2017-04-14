@@ -199,7 +199,8 @@ zfsdev_state_t *zfsdev_state_list;
 
 extern void zfs_init(void);
 extern void zfs_fini(void);
-
+extern int cluster_proto_register(void);
+extern int cluster_proto_unregister(void);
 uint_t zfs_fsyncer_key;
 extern uint_t rrw_tsd_key;
 static uint_t zfs_allow_log_key;
@@ -5011,6 +5012,17 @@ zfs_ioc_do_clustersan(zfs_cmd_t *zc)
 			ret = -1;
 			/* ret = zfs_ioc_do_cluster_rpc_clnt(zc); */
 			break;
+		case ZFS_CLUSTERSAN_SET_HOSTNAME:
+			ret = cluster_san_set_hostname(zc->zc_name);
+			break;
+		case ZFS_CLUSTERSAN_SET_HOSTID:
+			ret = cluster_san_set_hostid(((uint32_t)zc->zc_pad[0]));
+			break;
+#ifdef COMM_TEST
+		case ZFS_CLUSTERSAN_COMM_TEST:
+			ret = cluster_comm_test(((uint32_t)zc->zc_pad[0]), zc->zc_sendobj, zc->zc_fromobj);
+			break;
+#endif
 		default:
 			break;
 	}
@@ -6183,6 +6195,7 @@ _init(void)
 	tsd_create(&zfs_fsyncer_key, NULL);
 	tsd_create(&rrw_tsd_key, rrw_tsd_destroy);
 	tsd_create(&zfs_allow_log_key, zfs_allow_log_destroy);
+	cluster_proto_register();
 
 	printk(KERN_NOTICE "ZFS: Loaded module v%s-%s%s, "
 	    "ZFS pool version %s, ZFS filesystem version %s\n",
@@ -6212,6 +6225,7 @@ _fini(void)
 	zfs_fini();
 	spa_fini();
 	zvol_fini();
+	cluster_proto_unregister();
 
 	tsd_destroy(&zfs_fsyncer_key);
 	tsd_destroy(&rrw_tsd_key);

@@ -1832,7 +1832,97 @@ zprop_iter(zprop_func func, void *cb, boolean_t show_all, boolean_t ordered,
 {
 	return (zprop_iter_common(func, cb, show_all, ordered, type));
 }
+int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen)
+{
+	int err;
+	uint32_t id;
+	uint32_t len;
+	uint32_t exlen;
+	zfs_cmd_t zc = { 0 };
+	
+	if (hostid == NULL) {
+		(void) printf("must give the hostid\n");
+		return (-1);
+	}
+	id = atoi(hostid);
+	if (id < 1 || id > 255) {
+		printf("hostid >= 1 and hostid <= 255\n");
+		return (-1);
+	}
+	
+	if (datalen==NULL || headlen==NULL){
+		printf("usage: zfs clustersan comm <hostid> <datalen> <headlen>\n");
+		return (-1);
+	}
+	len = atoi(datalen);
+	if (len>2097152)/*2M*/ {
+		printf("datalen >0 and datalen <= 2M\n");
+		return (-1);
+	}
+	exlen = atoi(headlen);
+	if (exlen>8192) {
+		printf("headlen >= 0 and headlen <= 8KB\n");
+		return (-1);
+	}
+	zc.zc_pad[0] = (char)id;
+	zc.zc_sendobj = len;
+	zc.zc_fromobj = exlen;
+	zc.zc_cookie = ZFS_CLUSTERSAN_COMM_TEST;
+	
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("cluster comm test failed\n");
+	} else {
+		(void) printf("cluster comm test success\n");
+	}
+	return (err);
+}
+int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid)
+{
+	int err;
+	uint32_t id;
+	zfs_cmd_t zc = { 0 };
 
+	if (hostid == NULL) {
+		(void) printf("must give the hostid\n");
+		return (-1);
+	}
+	id = atoi(hostid);
+	if (id < 1 || id > 255) {
+		printf("hostid >= 1 and hostid <= 255\n");
+		return (-1);
+	}
+	zc.zc_pad[0] = (char)id;
+	zc.zc_cookie = ZFS_CLUSTERSAN_SET_HOSTID;
+	
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("hostid set failed\n");
+	}
+	return (err);
+}
+int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+
+	if (hostname == NULL) {
+		(void) printf("must give the hostname\n");
+		return (-1);
+	}
+	if (strlen(hostname) > 64) {
+		printf("the hostname is too long\n");
+		return (-1);
+	}
+	strcpy(zc.zc_name, hostname);
+	zc.zc_cookie = ZFS_CLUSTERSAN_SET_HOSTNAME;
+
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+	if (err != 0) {
+		(void) printf("hostname set failed\n");
+	}
+	return (err);
+}
 int zfs_enable_clustersan(libzfs_handle_t *hdl, char *clustername,
 	char *linkname, nvlist_t *conf, uint64_t flags)
 {

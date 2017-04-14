@@ -1912,6 +1912,7 @@ zvol_fini(void)
 
 	list_destroy(&zvol_state_list);
 	mutex_destroy(&zvol_state_lock);
+	cluster_san_fini();
 }
 
 module_param(zvol_inhibit_dev, uint, 0644);

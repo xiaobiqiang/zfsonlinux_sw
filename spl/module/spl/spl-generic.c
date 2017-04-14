@@ -46,6 +46,8 @@
 #include <linux/math64_compat.h>
 #include <linux/proc_compat.h>
 
+
+
 char spl_version[32] = "SPL v" SPL_META_VERSION "-" SPL_META_RELEASE;
 EXPORT_SYMBOL(spl_version);
 
@@ -599,6 +601,7 @@ spl_fini(void)
 	spl_rw_fini();
 	spl_mutex_fini();
 	spl_kvmem_fini();
+	spl_modhash_fini();
 }
 
 module_init(spl_init);

@@ -337,7 +337,9 @@ get_usage(zfs_help_t idx)
 			"\t    -p: show the host's pools\n"
 			"\t    -f: show ipmi addr and is or not need failover etc.\n"
 			"\t    -i: show the other info, such as host ip etc.\n"
-			"\tclustersan list-target [-v]\n"));
+			"\tclustersan list-target [-v]\n"
+			"\tclustersan hostname <hostname>\n"
+			"\tclustersan hostid <hostid>\n"));
 				
 	}
 
@@ -7333,6 +7335,12 @@ zfs_do_clustersan(int argc, char **argv)
 	} else if (argc > 1 && !strcmp(argv[1], "rpcto")) {
 		ret = -1;
 		/* ret = zfs_do_clustersan_rpcto(argc - 1, argv + 1); */
+	} else if (argc == 3 && !strcmp(argv[1], "hostname")) {
+		ret = zfs_set_hostname(g_zfs, argv[2]);
+	} else if (argc == 3 && !strcmp(argv[1], "hostid")) {
+		ret = zfs_set_hostid(g_zfs, argv[2]);
+	} else if (argc ==5 && !strcmp(argv[1], "comm")) {
+		ret = zfs_comm_test(g_zfs, argv[2], argv[3], argv[4]);
 	} else {
 		(void) fprintf(stderr, gettext("invalid option\n"));
 		usage(B_FALSE);

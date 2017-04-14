@@ -480,6 +480,11 @@ mod_hash_init(void)
 
 EXPORT_SYMBOL(mod_hash_init);
 
+void mod_hash_finit(void)
+{
+	kmem_cache_destroy(mh_e_cache);
+}
+EXPORT_SYMBOL(mod_hash_finit);
 /*
  * mod_hash_create_extended()
  * 	The full-blown hash creation function.
