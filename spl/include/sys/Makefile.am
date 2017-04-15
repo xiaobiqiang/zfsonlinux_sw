@@ -52,6 +52,8 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/mntent.h \
 	$(top_srcdir)/include/sys/modctl.h \
 	$(top_srcdir)/include/sys/mode.h \
+	$(top_srcdir)/include/sys/modhash.h \
+	$(top_srcdir)/include/sys/modhash_impl.h \
 	$(top_srcdir)/include/sys/mount.h \
 	$(top_srcdir)/include/sys/mutex.h \
 	$(top_srcdir)/include/sys/note.h \

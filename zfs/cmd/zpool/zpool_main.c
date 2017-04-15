@@ -42,6 +42,8 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <mqueue.h>
+#include <syslog.h>
 #include <priv.h>
 #include <pwd.h>
 #include <zone.h>
@@ -53,12 +55,17 @@
 #include <sys/zfs_ioctl.h>
 
 #include <libzfs.h>
+#include <libcluster.h>
 
 #include "zpool_util.h"
 #include "zfs_comutil.h"
 #include "zfeature_common.h"
 
 #include "statcommon.h"
+
+#ifndef	SPA_NUM_OF_QUANTUM
+#define	SPA_NUM_OF_QUANTUM	2
+#endif
 
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
@@ -95,6 +102,9 @@ static int zpool_do_events(int, char **);
 
 static int zpool_do_get(int, char **);
 static int zpool_do_set(int, char **);
+
+static int zpool_do_release(int, char **);
+
 
 /*
  * These libumem hooks provide a reasonable set of defaults for the allocator's
@@ -140,7 +150,8 @@ typedef enum {
 	HELP_SET,
 	HELP_SPLIT,
 	HELP_REGUID,
-	HELP_REOPEN
+	HELP_REOPEN,
+	HELP_RELEASE
 } zpool_help_t;
 
 
@@ -194,6 +205,8 @@ static zpool_command_t command_table[] = {
 	{ NULL },
 	{ "get",	zpool_do_get,		HELP_GET		},
 	{ "set",	zpool_do_set,		HELP_SET		},
+	{ NULL },
+	{ "release",	zpool_do_release,		HELP_RELEASE		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -277,6 +290,8 @@ get_usage(zpool_help_t idx) {
 		    "[<device> ...]\n"));
 	case HELP_REGUID:
 		return (gettext("\treguid <pool>\n"));
+	case HELP_RELEASE:
+		return (gettext("\trelease [-a ] | <poolname>\n"));
 	}
 
 	abort();
@@ -1425,11 +1440,12 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	uint_t c, children;
 	pool_scan_stat_t *ps = NULL;
 	vdev_stat_t *vs;
-	char rbuf[6], wbuf[6], cbuf[6];
+	char rbuf[6], wbuf[6], cbuf[6], quantum_buf[8];
 	char *vname;
 	uint64_t notpresent;
 	spare_cbdata_t cb;
 	char *state;
+	uint64_t quantum;
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) != 0)
@@ -1453,11 +1469,17 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	(void) printf("\t%*s%-*s  %-8s", depth, "", namewidth - depth,
 	    name, state);
 
+	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &quantum) == 0 &&
+		quantum == 1)
+		strcpy(quantum_buf, "quantum");
+	else
+		strcpy(quantum_buf, "--");
+
 	if (!isspare) {
 		zfs_nicenum(vs->vs_read_errors, rbuf, sizeof (rbuf));
 		zfs_nicenum(vs->vs_write_errors, wbuf, sizeof (wbuf));
 		zfs_nicenum(vs->vs_checksum_errors, cbuf, sizeof (cbuf));
-		(void) printf(" %5s %5s %5s", rbuf, wbuf, cbuf);
+		(void) printf(" %5s %5s %5s %-7s", rbuf, wbuf, cbuf, quantum_buf);
 	}
 
 	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NOT_PRESENT,
@@ -1575,6 +1597,7 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth,
 	uint_t c, children;
 	vdev_stat_t *vs;
 	char *type, *vname;
+	uint64_t quantum;
 
 	verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type) == 0);
 	if (strcmp(type, VDEV_TYPE_MISSING) == 0 ||
@@ -1586,6 +1609,10 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth,
 
 	(void) printf("\t%*s%-*s", depth, "", namewidth - depth, name);
 	(void) printf("  %s", zpool_state_to_name(vs->vs_state, vs->vs_aux));
+
+	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &quantum) == 0 &&
+		quantum == 1)
+		printf(" quantum");
 
 	if (vs->vs_aux != 0) {
 		(void) printf("  ");
@@ -6028,6 +6055,324 @@ find_command_idx(char *command, int *idx)
 	}
 	return (1);
 }
+
+struct link_list {
+	void *ptr;
+	struct link_list *next;
+};
+
+static struct link_list *todo_release_pools = NULL;
+
+typedef struct release_cbdata {
+	boolean_t	cb_allpools;
+	boolean_t	cb_verbose;
+	boolean_t	cb_first;
+	boolean_t	cb_clusterd;	/* used for clusterd */
+	uint32_t	cb_rid;
+	char		cb_pool_name[ZPOOL_MAXNAMELEN];
+} release_cbdata_t;
+
+static void
+check_quantum(nvlist_t *config)
+{
+	spa_quantum_index_t used_index1[SPA_NUM_OF_QUANTUM];
+	spa_quantum_index_t used_index2[SPA_NUM_OF_QUANTUM];
+	uint64_t real_nquantum1 = 0;
+	uint64_t real_nquantum2 = 0;
+	uint64_t usec;
+	char *name;
+	nvlist_t *nvroot;
+
+	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
+	    &name) == 0);
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	while (1) {
+		bzero(used_index1, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
+		bzero(used_index2, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
+		
+		real_nquantum1 = zpool_read_used(nvroot, used_index1, SPA_NUM_OF_QUANTUM);
+		
+		/* wait a moment, then check index of quantum disk */
+		usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
+		usleep(usec);
+
+		zpool_used_index_changed(used_index1, real_nquantum1,
+			used_index2, &real_nquantum2);
+		(void) fprintf(stderr, gettext("pool '%s' index(%s) %lld:%lld\n"),
+				name, used_index1[real_nquantum2-1].dev_name,
+				(longlong_t)used_index1[real_nquantum2-1].index,
+				(longlong_t)used_index2[real_nquantum2-1].index);
+
+		sleep(2);
+	}
+}
+
+static int
+release_callback(zpool_handle_t *zhp, void *data)
+{
+	release_cbdata_t *cbp = data;
+	nvlist_t *config/*, *nvroot*/;
+	/*vdev_stat_t *vs;*/
+	/*int partner_id;*/
+	const char *pool_name;
+	struct link_list *node;
+	/*zpool_stamp_t *stamp;*/
+	/*int error;*/
+	/*char	buf[256];*/
+	uint64_t host_id;
+
+	if (cbp->cb_verbose) {
+		config = zpool_get_config(zhp, NULL);
+		check_quantum(config);
+	}
+
+#if	0
+	stamp = malloc(sizeof(zpool_stamp_t));
+	bzero(stamp, sizeof(zpool_stamp_t));
+	config = zpool_get_config(zhp, NULL);
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+	verify (zpool_read_stamp(nvroot, stamp) == 0);
+
+	error = sysinfo(SI_HW_SERIAL, buf, sizeof(buf));
+	if (error == NULL)
+		return (NULL);
+	host_id = strtoul(buf, NULL, 10);
+#endif
+	host_id = gethostid();
+
+	pool_name = zpool_get_name(zhp);
+#if	0
+	partner_id = get_partner_id(g_zfs, cbp->cb_rid);
+	if (partner_id == 0) {
+		fprintf(stderr, "don't known where to release, please give remote"
+			" hostid use option '-s hostid'\n");
+		return (1);
+	}
+	if (!cbp->cb_allpools) {
+		if (strcmp(pool_name, cbp->cb_pool_name) == 0) {
+			/*
+			 *  release pool to the partner
+			 */
+			stamp->para.pool_current_owener = partner_id;
+		} else {
+			if (stamp->para.pool_real_owener == host_id) {
+				/* local own pool, do nothing */
+				nvlist_free(nvroot);
+				return (0);
+			} else {
+				/* remote's pool, do release */
+				stamp->para.pool_current_owener = partner_id;
+			}
+		}
+	} else {
+		/* release all pools to partner */
+		stamp->para.pool_current_owener = partner_id;
+	}
+	
+	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
+	free(stamp);
+	nvlist_free(nvroot);
+#endif
+
+	if (cbp->cb_clusterd) {
+		node = malloc(sizeof(struct link_list));
+		if (node)
+			node->ptr = strdup(zpool_get_name(zhp));
+		if (!node || !node->ptr) {
+			fprintf(stderr, "out of memory\n");
+			return (1);
+		}
+		node->next = todo_release_pools;
+		todo_release_pools = node;
+		return (0);
+	}
+
+#if	0
+	zfs_narrow_dirty_mem();
+	syslog(LOG_NOTICE, "wait 10s to standby all luns");
+	sleep(10);
+	syslog(LOG_NOTICE, "wait 10s end");
+	zfs_enable_avs(g_zfs, (char *)zpool_get_name(zhp), 0);
+	zfs_standby_all_lus(g_zfs, (char *)zpool_get_name(zhp));
+#endif
+	if (zpool_disable_datasets(zhp, B_TRUE) != 0) {
+		/*zfs_restore_dirty_mem();*/
+		syslog(LOG_ERR, "zpool disable datasets failed, errno:%d", errno);
+		return (1);
+	}
+	
+	if (zpool_export_force(zhp, history_str) != 0) {
+		/*zfs_restore_dirty_mem();*/
+		syslog(LOG_ERR, "zpool export force failed, errno:%d", errno);
+		return (1);
+	}
+
+#if	0
+	zpool_release_pool(zhp, (char *)zpool_get_name(zhp),
+	    ZFS_HBX_CHANGE_POOL, partner_id);
+	zfs_restore_dirty_mem();
+#endif
+	return (0);
+}
+
+static int 
+send_cluster_message(cluster_mq_message_t *msg)
+{
+	mqd_t mqd;
+
+	mqd = mq_open(CLUSTER_MQ_NAME, O_WRONLY);
+	if (mqd == (mqd_t) -1) {
+		fprintf(stderr, "mq_open error - %d\n", errno);
+		return (-1);
+	}
+
+	if (mq_send(mqd, (const char *)msg, 
+			sizeof(int)*2 + msg->msglen, 0) == -1) {
+		fprintf(stderr, "mq_send error - %d\n", errno);
+		mq_close(mqd);
+		return (-1);
+	}
+	mq_close(mqd);
+	return (0);
+}
+
+static int
+pack_mq_release_pools_message(release_pools_message_t *r_msg,
+	cluster_mq_message_t *mq_msg)
+{
+	char *p = mq_msg->msg;
+	int msglen = 0, i;
+	size_t len;
+
+	memcpy(p + msglen, &r_msg->remote_id, sizeof(int));
+	msglen += sizeof(int);
+	memcpy(p + msglen, &r_msg->pools_num, sizeof(int));
+	msglen += sizeof(int);
+	for (i = 0; i < r_msg->pools_num; i++) {
+		len = strlen(r_msg->pools_list[i]);
+		if (msglen + len + sizeof(size_t) > CLUSTER_MQ_MSGSIZ)
+			return (-1);
+		memcpy(p + msglen, &len, sizeof(size_t));
+		msglen += sizeof(size_t);
+		memcpy(p + msglen, r_msg->pools_list[i], len);
+		msglen += len;
+	}
+	mq_msg->msglen = msglen;
+	mq_msg->msgtype = cluster_msgtype_release;
+	return (0);
+}
+
+static int
+release4clusterd(int remote_id)
+{
+	release_pools_message_t rmsg;
+	cluster_mq_message_t mq_msg;
+	char *buf;
+	struct link_list *p, **pp;
+
+	rmsg.remote_id = remote_id;
+	rmsg.pools_num = 0;
+	for (pp = &todo_release_pools; *pp; ) {
+		p = *pp;
+		if (p->ptr) {
+			buf = malloc(ZPOOL_MAXNAMELEN);
+			if (!buf) {
+				fprintf(stderr, "out of memory\n");
+				return (-1);
+			}
+			strlcpy(buf, (char *) p->ptr, ZPOOL_MAXNAMELEN);
+			rmsg.pools_list[rmsg.pools_num++] = buf;
+			free(p->ptr);
+		}
+		*pp = p->next;
+		free(p);
+	}
+ 	if (pack_mq_release_pools_message(&rmsg, &mq_msg) != 0) {
+		fprintf(stderr, "message too big\n");
+		return (-1);
+	}
+	return (send_cluster_message(&mq_msg));
+}
+
+static int
+zpool_do_release(int argc, char **argv)
+{
+	int c;
+	int ret;
+	release_cbdata_t cb = { 0 };
+	/*char buf[256];*/
+	/*uint64_t cluster_enable;*/
+	/*int error;*/
+	/*cluster_state_t state;*/
+	uint32_t remote_hostid;
+	char *endptr;
+
+	/* check options */
+	bzero(&cb, sizeof(status_cbdata_t));
+	while ((c = getopt(argc, argv, "avcs:")) != -1) {
+		switch (c) {
+		case 'v':
+			cb.cb_verbose = B_TRUE;
+			break;
+		case 'a':
+			cb.cb_allpools = B_TRUE;
+			break;
+		case 'c':	/* used for clusterd */
+			cb.cb_allpools = B_TRUE;
+			cb.cb_clusterd = B_TRUE;
+			break;
+		case 's':
+			errno = 0;
+			remote_hostid = strtoul(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("invalid hostid value\n"));
+				usage(B_FALSE);
+			} else {
+				cb.cb_rid = remote_hostid;
+			}
+			break;
+		case '?':
+			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
+			    optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	cb.cb_first = B_TRUE;
+	cb.cb_pool_name[0] = 0;
+	
+	if (argc != 0) {
+		strcpy(cb.cb_pool_name, argv[argc -1]);
+	} else if (cb.cb_clusterd)
+		return (0);
+
+#if	0
+	memset(buf, 0, sizeof(buf));
+	error = sysinfo(SI_HW_CLUSTER_ENABLE, buf, sizeof(buf));
+	if (error == NULL)
+		return (NULL);
+	cluster_enable = strtoul(buf, NULL, 10);
+	if (cluster_enable != 0) {
+		printf("the command only works in cluster mode");
+		return (0);
+	}
+#endif
+
+	todo_release_pools = NULL;		
+	ret = for_each_pool(argc, argv, B_TRUE, NULL, release_callback, &cb);
+	if (cb.cb_clusterd && ret == 0)
+		ret = release4clusterd(cb.cb_rid);
+	
+	return (ret ? 1 : 0);
+}
+
 
 int
 main(int argc, char **argv)

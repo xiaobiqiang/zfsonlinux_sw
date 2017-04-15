@@ -111,6 +111,7 @@ AC_CONFIG_FILES([
 	cmd/dbufstat/Makefile
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
+	cmd/clusterd/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
@@ -118,6 +119,7 @@ AC_CONFIG_FILES([
 	contrib/initramfs/Makefile
 	module/Makefile
 	module/avl/Makefile
+	module/cn_hbx/Makefile
 	module/nvpair/Makefile
 	module/unicode/Makefile
 	module/zcommon/Makefile

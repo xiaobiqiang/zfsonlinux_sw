@@ -59,6 +59,12 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 static int cluster_inetdev_event(struct notifier_block *this, unsigned long event,
                          void *ptr);
 
+#ifndef	netdev_notifier_info_to_dev
+#define	netdev_notifier_info_to_dev(x)	(x)
+#define	register_netdevice_notifier_rh	register_netdevice_notifier
+#define	unregister_netdevice_notifier_rh	unregister_netdevice_notifier
+#endif
+
 static struct notifier_block cluster_netdev_notifier = {
 	.notifier_call = cluster_inetdev_event,
 };

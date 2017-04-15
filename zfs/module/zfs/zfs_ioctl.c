@@ -5412,6 +5412,22 @@ out:
 	return (error);
 }
 
+extern int zfs_hbx_do_ioc(zfs_cmd_t *zc, nvlist_t **nv_ptr);
+
+static int
+zfs_ioc_do_hbx(zfs_cmd_t *zc)
+{
+	int err = 0;
+	nvlist_t *nv = NULL;
+	
+	err = zfs_hbx_do_ioc(zc, &nv);
+	if (nv != NULL) {
+		err =put_nvlist(zc, nv);
+		nvlist_free(nv);
+	}
+	return (err);
+}
+
 static zfs_ioc_vec_t zfs_ioc_vec[ZFS_IOC_LAST - ZFS_IOC_FIRST];
 
 static void
@@ -5733,6 +5749,9 @@ zfs_ioctl_init(void)
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 	zfs_ioctl_register_legacy(ZFS_IOC_EVENTS_SEEK, zfs_ioc_events_seek,
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_HBX, zfs_ioc_do_hbx,
+	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 }
 
 int
