@@ -1859,11 +1859,13 @@ zpool_read_used(nvlist_t *pool_root, spa_quantum_index_t *index,
 	uint64_t tmp_nquantum = 0;
 	char tmp_path[1024];
 	spa_quantum_index_t *pindex = index;
+	char *type;
 
 	if ((nquantum == 0) || (index == NULL) || (pool_root == NULL))
 		return (0);
 	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
 		&child, &children) == 0);
+	printf("children=%d\n", children);
 	for (i = 0; i < children; i ++) {
 		nvlist_t **tmp_child;
 		uint_t tmp_children = 0;
@@ -1879,12 +1881,17 @@ zpool_read_used(nvlist_t *pool_root, spa_quantum_index_t *index,
 			if (real_nquantum == nquantum)
 				break;
 		} else {
+			verify(nvlist_lookup_string(child[i], ZPOOL_CONFIG_TYPE, 
+				&type) == 0);
+			printf("type=%s\n", type);
 			ret = nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path);
 			if (ret != 0) {
 				syslog(LOG_ERR, "pool get config path failed");
 				continue;
 			}
+			printf("path=%s\n", path);
 			ret = nvlist_lookup_uint64(child[i], ZPOOL_CONFIG_QUANTUM_DEV, &quantum);
+			printf("ret=%d, quantum=%d\n", ret, quantum);
 			if (ret != 0 || quantum == 0)
 				continue;
 #if	0
@@ -1943,6 +1950,7 @@ zpool_used_index_changed(spa_quantum_index_t *last_index, uint64_t nquantum,
 		}
 		if (last_index[i].dev_name != NULL) {
 			/*sprintf(path, "/dev/rdsk/%s", last_index[i].dev_name);*/
+			strcpy(path, last_index[i].dev_name);
 			syslog(LOG_WARNING, "zpool_used_index_changed: path=%s", path);
 			fd = open(path, O_RDONLY|O_NDELAY);
 			if (fd > 0) {
@@ -1951,6 +1959,8 @@ zpool_used_index_changed(spa_quantum_index_t *last_index, uint64_t nquantum,
 					close(fd);
 					continue;
 				}
+				syslog(LOG_WARNING, "zpool_used_index_changed: used_offset=%lld",
+					(longlong_t)used_offset);
 				if (pread(fd, &used_buf, sizeof(vdev_use_index_t), used_offset)
 					== sizeof(vdev_use_index_t)) {
 					close(fd);
