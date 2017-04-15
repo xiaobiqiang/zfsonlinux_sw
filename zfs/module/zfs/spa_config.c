@@ -38,8 +38,12 @@
 #ifdef _KERNEL
 #include <sys/kobj.h>
 #include <sys/zone.h>
+#include <sys/cluster_san.h>
 #endif
 
+#ifndef	ETC_VAR_SYS_POOL_NAME
+#define	ETC_VAR_SYS_POOL_NAME	"syspool"
+#endif
 /*
  * Pool configuration repository.
  *
@@ -385,6 +389,39 @@ spa_choose_quantum_dev(spa_t *spa)
 	}
 }
 
+static void
+spa_config_sync_remote(spa_t *target, boolean_t removing,
+	boolean_t sync_remote)
+{
+	nvlist_t *nvl = NULL;
+	spa_t *spa = NULL;
+	
+	while ((spa = spa_next(spa)) != NULL) {
+		if (spa == target && removing)
+			continue;
+		if (strncmp(spa->spa_name, ETC_VAR_SYS_POOL_NAME, MAXNAMELEN) == 0) {
+			continue;
+		}
+
+		if (nvl == NULL) {
+			VERIFY(nvlist_alloc(&nvl, NV_UNIQUE_NAME,
+				  KM_SLEEP) == 0);
+		}
+		mutex_enter(&spa->spa_props_lock);
+		VERIFY(nvlist_add_nvlist(nvl, spa->spa_name,
+			  spa->spa_config) == 0);
+		mutex_exit(&spa->spa_props_lock);
+	}
+	
+#ifdef _KERNEL
+	cluster_update_spa_config(nvl, sync_remote);
+	cmn_err(CE_WARN, "spa_config_sync_remote: cluster_update_spa_config");
+#endif
+
+	if (nvl != NULL)
+		nvlist_free(nvl);
+}
+
 /*
  * Synchronize pool configuration to disk.  This must be called with the
  * namespace lock held. Synchronizing the pool cache is typically done after
@@ -405,6 +442,8 @@ spa_config_sync(spa_t *target, boolean_t removing, boolean_t postsysevent)
 
 	if (rootdir == NULL || !(spa_mode_global & FWRITE))
 		return;
+
+	spa_config_sync_remote(target, removing, B_TRUE);
 
 	/*
 	 * Iterate over all cachefiles for the pool, past or present.  When the
