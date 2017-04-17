@@ -999,7 +999,7 @@ static int cluster_import_pool_thread(cluster_pool_thread_t *pool_node)
 
 		/* snprintf(buf, 256, ZPOOL_CMD_CHANGE_POOL_OWNER,
 			cluster_failover_state->hostid, poolname); */
-		snprintf(buf, 256, "%s import -if %llu", ZPOOL_CMD,
+		snprintf(buf, 256, "%s import -bf %llu", ZPOOL_CMD,
 			(unsigned long long)pool_guid);
 		ret = excute_cmd_common(buf, B_TRUE);
 		if (ret != 0) {
@@ -1134,6 +1134,7 @@ static int cluster_remote_abnormal_handle(void *arg)
 	idata.cluster_ignore = 1;
 	idata.remote_hostid = cluster_failover_state->hostid;
 #endif
+	idata.no_blkid = B_TRUE;
 	pools = zpool_search_import(hdl, &idata);
 	elem = nvlist_next_nvpair(pools, NULL);
 
@@ -3015,7 +3016,7 @@ cluster_import_pools_thr(void *arg)
 			snprintf(cmd, 256, "%s import -if %llu", ZPOOL_CMD, 
 				(unsigned long long)pool->guid);
 #else
-			snprintf(cmd, 256, "%s import -f %llu", ZPOOL_CMD, 
+			snprintf(cmd, 256, "%s import -bf %llu", ZPOOL_CMD, 
 				(unsigned long long)pool->guid);
 #endif
 			if (excute_cmd_common(cmd, B_TRUE) != 0)
@@ -3714,6 +3715,7 @@ zpool_get_all_pools(libzfs_handle_t *hdl, int cluster_switch)
 	importargs_t args;
 
 	memset(&args, 0, sizeof(args));
+	args.no_blkid = B_TRUE;
 	return (zpool_search_import(hdl, &args));
 }
 
