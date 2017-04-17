@@ -1221,6 +1221,8 @@ zpool_find_import_impl(libzfs_handle_t *hdl, importargs_t *iarg)
 
 	if (dirs == 0) {
 #ifdef HAVE_LIBBLKID
+		if (iarg->no_blkid)
+			goto dont_use_blkid;
 		/* Use libblkid to scan all device for their type */
 		if (zpool_find_import_blkid(hdl, &pools) == 0)
 			goto skip_scanning;
@@ -1228,6 +1230,7 @@ zpool_find_import_impl(libzfs_handle_t *hdl, importargs_t *iarg)
 		(void) zfs_error_fmt(hdl, EZFS_BADCACHE,
 		    dgettext(TEXT_DOMAIN, "blkid failure falling back "
 		    "to manual probing"));
+dont_use_blkid:
 #endif /* HAVE_LIBBLKID */
 
 		dir = zpool_default_import_path;
