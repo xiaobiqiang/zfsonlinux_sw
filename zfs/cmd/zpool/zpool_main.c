@@ -1992,6 +1992,48 @@ show_import(nvlist_t *config)
 }
 
 /*
+ * If pool's quantum tick is exist, return B_FALSE, that's indicate
+ * the pool has been controlled, can't be imported. Otherwise
+ * return B_TRUE.
+ */
+static boolean_t
+check_quantum(nvlist_t *config)
+{
+	spa_quantum_index_t used_index1[SPA_NUM_OF_QUANTUM];
+	spa_quantum_index_t used_index2[SPA_NUM_OF_QUANTUM];
+	uint64_t real_nquantum1 = 0;
+	uint64_t real_nquantum2 = 0;
+	uint64_t usec;
+	char *name;
+	nvlist_t *nvroot;
+
+	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
+	    &name) == 0);
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	bzero(used_index1, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
+	bzero(used_index2, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
+	
+	real_nquantum1 = zpool_read_used(nvroot, used_index1, SPA_NUM_OF_QUANTUM);
+	
+	/* wait a moment, then check index of quantum disk */
+	usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
+	usleep(usec);
+
+	if (zpool_used_index_changed(used_index1, real_nquantum1,
+		used_index2, &real_nquantum2) == B_TRUE) {
+		(void) fprintf(stderr, gettext("pool '%s' quantum index(%s) %lld:%lld\n"),
+			name, used_index1[real_nquantum2-1].dev_name,
+			(longlong_t)used_index1[real_nquantum2-1].index,
+			(longlong_t)used_index2[real_nquantum2-1].index);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+/*
  * Perform the import for the given configuration.  This passes the heavy
  * lifting off to zpool_import_props(), and then mounts the datasets contained
  * within the pool.
@@ -2044,6 +2086,13 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 			    "import anyway\n"));
 			return (1);
 		}
+	}
+
+	if (!check_quantum(config)) {
+		(void) fprintf(stderr, gettext("cannot import "
+		    "'%s': pool may be in use from other "
+		    "system, the quantum index changed\n"), name);
+		return (1);
 	}
 
 	if (zpool_import_props(g_zfs, config, newname, props, flags) != 0)
@@ -6078,7 +6127,7 @@ typedef struct release_cbdata {
 } release_cbdata_t;
 
 static void
-check_quantum(nvlist_t *config)
+test_quantum(nvlist_t *config)
 {
 	spa_quantum_index_t used_index1[SPA_NUM_OF_QUANTUM];
 	spa_quantum_index_t used_index2[SPA_NUM_OF_QUANTUM];
@@ -6130,7 +6179,7 @@ release_callback(zpool_handle_t *zhp, void *data)
 
 	if (cbp->cb_verbose) {
 		config = zpool_get_config(zhp, NULL);
-		check_quantum(config);
+		test_quantum(config);
 	}
 
 #if	0
