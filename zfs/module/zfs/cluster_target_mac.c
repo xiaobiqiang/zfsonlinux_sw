@@ -92,10 +92,19 @@ static int cluster_inetdev_event(struct notifier_block *this, unsigned long even
 		ctp = target_port_array[1].ctp->target_private;
 	}
 	if (ctp) {
-		if (event == NETDEV_UP)
+		if (event == NETDEV_UP) {
 			ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_UP;
-		else if (event == NETDEV_DOWN)
+		} else if (event == NETDEV_DOWN) {
 			ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
+		} else if (event == NETDEV_CHANGE) {
+			if (netif_carrier_ok(notify_dev)) {
+				ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_UP;
+			} else {
+				ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
+			}
+		} else {
+			ctp->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
+		}
 	}
 	
 	return (0);
