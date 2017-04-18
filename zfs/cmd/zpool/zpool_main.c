@@ -1991,6 +1991,46 @@ show_import(nvlist_t *config)
 	}
 }
 
+static void
+test_quantum(nvlist_t *config)
+{
+	spa_quantum_index_t used_index1[SPA_NUM_OF_QUANTUM];
+	spa_quantum_index_t used_index2[SPA_NUM_OF_QUANTUM];
+	uint64_t real_nquantum1 = 0;
+	uint64_t real_nquantum2 = 0;
+	uint64_t usec;
+	char *name;
+	nvlist_t *nvroot;
+	boolean_t changed;
+
+	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
+	    &name) == 0);
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	while (1) {
+		bzero(used_index1, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
+		bzero(used_index2, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
+		
+		real_nquantum1 = zpool_read_used(nvroot, used_index1, SPA_NUM_OF_QUANTUM);
+		
+		/* wait a moment, then check index of quantum disk */
+		usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
+		usleep(usec);
+
+		changed = zpool_used_index_changed(used_index1, real_nquantum1,
+			used_index2, &real_nquantum2);
+		(void) fprintf(stderr, gettext("pool '%s' index(%s) %lld:%lld, "
+			"changed=%s\n"),
+			name, used_index1[real_nquantum2-1].dev_name,
+			(longlong_t)used_index1[real_nquantum2-1].index,
+			(longlong_t)used_index2[real_nquantum2-1].index,
+			changed ? "TRUE" : "FALSE");
+
+		sleep(2);
+	}
+}
+
 /*
  * If pool's quantum tick is exist, return B_FALSE, that's indicate
  * the pool has been controlled, can't be imported. Otherwise
@@ -2019,7 +2059,10 @@ check_quantum(nvlist_t *config)
 	
 	/* wait a moment, then check index of quantum disk */
 	usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
-	usleep(usec);
+	while (usleep(usec) != 0) {
+		if (errno != EINTR)
+			return (B_FALSE);
+	}
 
 	if (zpool_used_index_changed(used_index1, real_nquantum1,
 		used_index2, &real_nquantum2) == B_TRUE) {
@@ -2186,13 +2229,14 @@ zpool_do_import(int argc, char **argv)
 	boolean_t do_rewind = B_FALSE;
 	boolean_t xtreme_rewind = B_FALSE;
 	boolean_t no_blkid = B_FALSE;
+	boolean_t testquantum = B_FALSE;
 	uint64_t pool_state, txg = -1ULL;
 	char *cachefile = NULL;
 	importargs_t idata = { 0 };
 	char *endptr;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":abCc:d:DEfFmnNo:R:tT:VX")) != -1) {
+	while ((c = getopt(argc, argv, ":abCc:d:DEfFmnNo:qR:tT:VX")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
@@ -2244,6 +2288,9 @@ zpool_do_import(int argc, char **argv)
 			} else {
 				mntopts = optarg;
 			}
+			break;
+		case 'q':
+			testquantum = B_TRUE;
 			break;
 		case 'R':
 			if (add_prop_list(zpool_prop_to_name(
@@ -2517,6 +2564,8 @@ zpool_do_import(int argc, char **argv)
 			(void) fprintf(stderr, gettext("cannot import '%s': "
 			    "no such pool available\n"), argv[0]);
 			err = B_TRUE;
+		} else if (testquantum) {
+			test_quantum(found_config);
 		} else {
 			err |= do_import(found_config, argc == 1 ? NULL :
 			    argv[1], mntopts, props, flags);
@@ -6126,43 +6175,6 @@ typedef struct release_cbdata {
 	char		cb_pool_name[ZPOOL_MAXNAMELEN];
 } release_cbdata_t;
 
-static void
-test_quantum(nvlist_t *config)
-{
-	spa_quantum_index_t used_index1[SPA_NUM_OF_QUANTUM];
-	spa_quantum_index_t used_index2[SPA_NUM_OF_QUANTUM];
-	uint64_t real_nquantum1 = 0;
-	uint64_t real_nquantum2 = 0;
-	uint64_t usec;
-	char *name;
-	nvlist_t *nvroot;
-
-	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
-	    &name) == 0);
-	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
-	    &nvroot) == 0);
-
-	while (1) {
-		bzero(used_index1, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
-		bzero(used_index2, sizeof(spa_quantum_index_t) * SPA_NUM_OF_QUANTUM) ;
-		
-		real_nquantum1 = zpool_read_used(nvroot, used_index1, SPA_NUM_OF_QUANTUM);
-		
-		/* wait a moment, then check index of quantum disk */
-		usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
-		usleep(usec);
-
-		zpool_used_index_changed(used_index1, real_nquantum1,
-			used_index2, &real_nquantum2);
-		(void) fprintf(stderr, gettext("pool '%s' index(%s) %lld:%lld\n"),
-				name, used_index1[real_nquantum2-1].dev_name,
-				(longlong_t)used_index1[real_nquantum2-1].index,
-				(longlong_t)used_index2[real_nquantum2-1].index);
-
-		sleep(2);
-	}
-}
-
 static int
 release_callback(zpool_handle_t *zhp, void *data)
 {
@@ -6176,11 +6188,6 @@ release_callback(zpool_handle_t *zhp, void *data)
 	/*int error;*/
 	/*char	buf[256];*/
 	uint64_t host_id;
-
-	if (cbp->cb_verbose) {
-		config = zpool_get_config(zhp, NULL);
-		test_quantum(config);
-	}
 
 #if	0
 	stamp = malloc(sizeof(zpool_stamp_t));

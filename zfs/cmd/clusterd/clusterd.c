@@ -4032,7 +4032,10 @@ ready_import:
 		/* wait a moment, then check index of quantum disk */
 		usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
 		/*zpool_index_delay(usec);*/
-		usleep(usec);
+		while (usleep(usec) != 0) {
+			if (errno != EINTR)
+				goto exit_thr;
+		}
 
 		if (B_TRUE == zpool_used_index_changed(used_index1, real_nquantum1,
 			used_index2, &real_nquantum2)) {
