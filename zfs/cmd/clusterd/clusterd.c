@@ -682,11 +682,16 @@ static int clusterd_host_is_need_failover(
 		syslog(LOG_WARNING, "%s: get the host(%d) is or not need failover failed",
 			__func__, hostid);
 	} else {
+	/* need zfs_mirror */
+#if	0
 		if (zc.zc_guid == 0) {
 			*need_failover = B_FALSE;
 		} else {
 			*need_failover = B_TRUE;
 		}
+#else
+		*need_failover = B_TRUE;
+#endif
 	}
 	libzfs_fini(zfs_handle);
 
@@ -1168,13 +1173,17 @@ static int cluster_remote_abnormal_handle(void *arg)
 		pool_node->pool_config = config;
 		pool_node->uncontrolled = B_FALSE;
 
+		/* need zfs_mirror */
+#if	0
 		if ((nvlist_lookup_uint64(updated_pools, nvpair_name(elem), &temp64))
 			== 0) {
 			pool_node->is_updated = B_TRUE;
 		} else {
 			pool_node->is_updated = B_FALSE;
 		}
-
+#else
+		pool_node->is_updated = B_TRUE;
+#endif
 		list_insert_tail(&cluster_failover_state->pool_list, pool_node);
 		ret = pthread_create(&pool_node->pid, NULL,
 			(void *(*)(void *))cluster_import_pool_thread, (void *)pool_node);
@@ -3009,7 +3018,8 @@ cluster_import_pools_thr(void *arg)
 	todo_import_pool_node_t *pool;
 	char cmd[256];
 	
-	while (!import_thr_conf.exit_flag) {
+	while (!import_thr_conf.exit_flag ||
+		!list_is_empty(&import_thr_conf.todo_import_pools)) {
 		pool = list_head(&import_thr_conf.todo_import_pools);
 		if (pool) {
 #if	0
@@ -4574,7 +4584,7 @@ clusterd_cn_rcv(void *data, int len)
 {
 	hbx_door_para_t *para;
 
-	if (data == NULL || len != sizeof(hbx_door_para_t)) {
+	if (data == NULL || len < sizeof(hbx_door_para_t)) {
 		syslog(LOG_ERR, "clusterd_cn_rcv(): invalid args, data=%p, len=%d",
 			data, len);
 		return;
