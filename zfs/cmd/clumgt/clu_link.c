@@ -170,7 +170,7 @@ clumgt_hostname_get(char *hostname)
 	FILE * fp;
 	char *tmp = (char*)hostname;
 
-	fp = popen("hostname", "r");
+	fp = popen("zfs clustersan list-host | head -n 2 | grep hostname | cut -d: -f2 | sed 's/^ *//'", "r");
 	if (fp) {
 		if(fgets(tmp, BUF_MAX, fp) == NULL) {
 		 	syslog(LOG_ERR, "get hostname fail\n");
