@@ -2110,3 +2110,26 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	zcmd_free_nvlists(&zc);
 	return (nvl);
 }
+int
+get_clusnodename(char *buf, int len)
+{
+#define HOSTNAMELEN 64
+    int i=0;
+    FILE *fp;
+	len = len < HOSTNAMELEN ? len : HOSTNAMELEN;
+    fp = fopen("/etc/cluster_hostname", "r");
+    if (fp == NULL) {
+            return (-1);
+    }
+    fgets(buf, len, fp);
+    fclose(fp);
+    for (i=0; i<len; i++) {
+            if (*(buf+i) == ' ' || *(buf+i) == '\n') {
+                    break;
+            }
+    }
+    if (i == len)
+            i = len -1;
+    *(buf+i) = 0;
+    return 0;
+}
