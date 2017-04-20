@@ -6179,9 +6179,9 @@ static int
 release_callback(zpool_handle_t *zhp, void *data)
 {
 	release_cbdata_t *cbp = data;
-	nvlist_t *config/*, *nvroot*/;
+	/*nvlist_t *config, *nvroot*/;
 	/*vdev_stat_t *vs;*/
-	/*int partner_id;*/
+	int partner_id;
 	const char *pool_name;
 	struct link_list *node;
 	/*zpool_stamp_t *stamp;*/
@@ -6205,6 +6205,8 @@ release_callback(zpool_handle_t *zhp, void *data)
 	host_id = gethostid();
 
 	pool_name = zpool_get_name(zhp);
+	partner_id = cbp->cb_rid > 0 ? cbp->cb_rid :
+		((host_id + 2) % 2 + 1);
 #if	0
 	partner_id = get_partner_id(g_zfs, cbp->cb_rid);
 	if (partner_id == 0) {
@@ -6265,17 +6267,15 @@ release_callback(zpool_handle_t *zhp, void *data)
 		return (1);
 	}
 	
-	if (zpool_export_force(zhp, history_str) != 0) {
+	if (zpool_export(zhp, B_TRUE, history_str) != 0) {
 		/*zfs_restore_dirty_mem();*/
 		syslog(LOG_ERR, "zpool export force failed, errno:%d", errno);
 		return (1);
 	}
 
-#if	0
 	zpool_release_pool(zhp, (char *)zpool_get_name(zhp),
 	    ZFS_HBX_CHANGE_POOL, partner_id);
-	zfs_restore_dirty_mem();
-#endif
+	/*zfs_restore_dirty_mem();*/
 	return (0);
 }
 

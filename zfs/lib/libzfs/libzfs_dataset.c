@@ -64,6 +64,8 @@
 #include "libzfs_impl.h"
 #include "zfs_deleg.h"
 
+#define FAILOVER_PROP_PREFIX	"failover"
+
 static int userquota_propname_decode(const char *propname, boolean_t zoned,
     zfs_userquota_prop_t *typep, char *domain, int domainlen, uint64_t *ridp);
 
@@ -4675,4 +4677,13 @@ zvol_volsize_to_reservation(uint64_t volsize, nvlist_t *props)
 	numdb *= 1ULL << DN_MAX_INDBLKSHIFT;
 	volsize += numdb;
 	return (volsize);
+}
+
+int 
+zfs_is_failover_prop(const char *prop)
+{
+	if (strchr(prop, ':') == NULL || 
+		strncmp(prop, FAILOVER_PROP_PREFIX, strlen(FAILOVER_PROP_PREFIX)) != 0)
+		return (0);
+	return (1);
 }

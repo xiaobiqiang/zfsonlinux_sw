@@ -34,8 +34,13 @@ extern "C" {
 #define	ZPOOL_CMD_SCAN_SWITCH		"/usr/sbin/zpool scan -S"
 #define	ZPOOL_CMD_RELEASE		"/usr/sbin/zpool release "
 
+#if	0
 #define	ZPOOL_CMD_CHANGE_POOL_OWNER		"/usr/sbin/zpool import -ifs %d %s"
 #define	ZPOOL_CMD_CHANGE_POOL_OWNER_LOCAL		"/usr/sbin/zpool import -if %s"
+#else
+#define	ZPOOL_CMD_CHANGE_POOL_OWNER		"/usr/local/sbin/zpool import -bfs %d %s"
+#define	ZPOOL_CMD_CHANGE_POOL_OWNER_LOCAL		"/usr/local/sbin/zpool import -bf %s"
+#endif
 
 #if	0
 #define	ALUA_CMD_RESTART_PPPT			"/usr/sbin/aluaadm pppt disconnect"

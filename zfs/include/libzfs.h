@@ -828,6 +828,8 @@ extern boolean_t zpool_used_index_changed(spa_quantum_index_t *last_index,
 
 extern int zpool_remove_partner(libzfs_handle_t *hdl, char *name,
 	uint32_t remote_hostid);
+extern void zpool_release_pool(zpool_handle_t *hdl, char *name,
+	zfs_hbx_ioc_t command, uint32_t rid);
 
 extern void zfs_do_hbx_process(libzfs_handle_t *hdl, char *buffer, int size,
 	uint64_t flags);
@@ -835,6 +837,8 @@ extern void zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size
 	uint64_t flags, int remote_id);
 extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
 	uint32_t hostid, nvlist_t **nv_ptr);
+
+extern int zfs_is_failover_prop(const char * prop);
 
 #ifdef	__cplusplus
 }

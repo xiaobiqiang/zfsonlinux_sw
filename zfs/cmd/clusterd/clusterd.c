@@ -61,6 +61,7 @@
 #include <sys/spa_impl.h>
 #include "deflt.h"
 #include "cn_cluster.h"
+#include "if_util/if_util.h"
 #include "clusterd.h"
 /*#include <libzfs_sm.h>*/
 
@@ -118,6 +119,8 @@ char ipmi_passwd[16];
 #define	ZPOOL_CMD		"/sbin/zpool"
 #else
 #define	ZPOOL_CMD		"/usr/local/sbin/zpool"
+#define	ZPOOL_IMPORT	"/usr/local/sbin/zpool import -bf"
+#define	ZPOOL_EXPORT	"/usr/local/sbin/zpool export -f"
 #endif
 
 typedef struct cluster_event_s {
@@ -151,12 +154,13 @@ monitor_dev_t monitor_fail_devs[MAX_MONITOR_DEVS];
 int fail_event_id = EVT_END;
 
 typedef struct failover_conf {
-	char zpool_name[ZPOOL_MAXNAMELEN];
+	char zpool_name[ZFS_MAXNAMELEN];
 	int af;
+	int mtu;
+	int prefixlen;
 	char eth[ETH_MAXNAMELEN];
 	char ip_addr[INET6_ADDRSTRLEN];
-	char netmask[INET6_ADDRSTRLEN];
-	int mtu;
+	char prop_id[ZFS_MAXPROPLEN];
 } failover_conf_t;
 
 struct link_list {
@@ -166,10 +170,12 @@ struct link_list {
 
 typedef struct service_if {
 	char ip_addr[INET6_ADDRSTRLEN];
+	int prefixlen;
 	int refs;
 	list_node_t list;
 
 	char eth[MAXLINKNAMELEN];
+	char alias[IFALIASZ];
 	struct link_list *zpool_list;
 
 	int flag;
@@ -326,6 +332,18 @@ typedef struct release_pool_param {
 } release_pool_param_t;
 
 pthread_mutex_t handle_release_lock;
+
+struct shielding_failover_pools {
+	pthread_mutex_t	lock;
+	struct link_list *head;	/* point a struct release_pool_param list */
+};
+
+/*
+ * These pools are ready to import/export by release message handler or
+ * mac offline event handler, do_ip_failover()/do_ip_restore() shuold
+ * skip them.
+ */
+static struct shielding_failover_pools shielding_failover_pools;
 
 static int excute_cmd_common(const char *cmd, boolean_t dup2log);
 static int excute_cmd(const char *cmd);
@@ -1002,9 +1020,7 @@ static int cluster_import_pool_thread(cluster_pool_thread_t *pool_node)
 		}
 		pthread_mutex_unlock(&import_state.mtx);
 
-		/* snprintf(buf, 256, ZPOOL_CMD_CHANGE_POOL_OWNER,
-			cluster_failover_state->hostid, poolname); */
-		snprintf(buf, 256, "%s import -bf %llu", ZPOOL_CMD,
+		snprintf(buf, 256, "%s %llu", ZPOOL_IMPORT,
 			(unsigned long long)pool_guid);
 		ret = excute_cmd_common(buf, B_TRUE);
 		if (ret != 0) {
@@ -1085,7 +1101,7 @@ static int cluster_remote_abnormal_handle(void *arg)
 	nvlist_t *config;
 	nvpair_t *elem = NULL;
 	nvlist_t *updated_pools = NULL;
-	uint64_t temp64;
+	/*uint64_t temp64;*/
 	libzfs_handle_t *hdl;
 	cluster_pool_thread_t *pool_node;
 	int ret;
@@ -1878,6 +1894,7 @@ cluster_change_pool_owner(char *buf, size_t buflen)
 		return;
 	}
 
+#if	0
 	sprintf(cmd, ZPOOL_CMD_CHANGE_POOL_OWNER, hostid, spa_name);
 	syslog(LOG_NOTICE, "%s: %s", __func__, cmd);
 	ret = system(cmd);
@@ -1898,6 +1915,13 @@ cluster_change_pool_owner(char *buf, size_t buflen)
 			}
 		}
 	}
+#else
+	sprintf(cmd, "%s %s", ZPOOL_IMPORT, spa_name);
+	if ((ret = excute_cmd_common(cmd, B_TRUE)) != 0) {
+		syslog(LOG_ERR, "%s: import '%s' failed, exit_code=%d",
+			__func__, spa_name, ret);
+	}
+#endif
 	nvlist_free(ripool);
 }
 
@@ -1914,7 +1938,7 @@ cluster_clear_hbx_event(cluster_event_t *event)
 }
 
 static void
-cluster_clear_all_hbx_event()
+cluster_clear_all_hbx_event(void)
 {
 	cluster_event_t *event, *free_event;
 
@@ -1929,7 +1953,7 @@ cluster_clear_all_hbx_event()
 }
 
 static cluster_event_t *
-cluster_get_hbx_event()
+cluster_get_hbx_event(void)
 {
 	cluster_event_t *event = NULL;
 
@@ -2087,7 +2111,7 @@ response_timeout_handler(int sig)
 }
 
 static int
-set_remote_mac_state_response_timer()
+set_remote_mac_state_response_timer(void)
 {
 	struct sigaction sa;
 	struct itimerval itv;
@@ -2112,7 +2136,7 @@ set_remote_mac_state_response_timer()
 }
 
 static int
-clear_remote_mac_state_response_timer()
+clear_remote_mac_state_response_timer(void)
 {
 	struct itimerval itv;
 
@@ -2269,7 +2293,7 @@ pre_release_ip(service_if_t *ifp, struct link_list **eth_list,
 }
 
 static void
-init_cluster_failover_conf()
+init_cluster_failover_conf(void)
 {
 	cf_conf.remote_down = 0;
 	cf_conf.wait_resp = 0;
@@ -2279,7 +2303,7 @@ init_cluster_failover_conf()
 }
 
 static void
-clear_cluster_failover_conf()
+clear_cluster_failover_conf(void)
 {
 	cf_conf.wait_resp = 0;
 	free_link_list(cf_conf.todo_mac_offline_event, 1);
@@ -2586,12 +2610,6 @@ cluster_import_response(uint64_t pool_guid, uint64_t hostid, uint64_t remoteid)
 }
 
 static int
-zfs_is_failover_prop(const char *prop)
-{
-	return (0);
-}
-
-static int
 zfs_iter_cb(zfs_handle_t *zhp, void *data)
 {
 	int err = 0;
@@ -2670,7 +2688,7 @@ zfs_iter_cb(zfs_handle_t *zhp, void *data)
  * reboot clusterd
  */
 static int
-init_zpool_failover_conf()
+init_zpool_failover_conf(void)
 {
 	libzfs_handle_t *hdl;
 	int err;
@@ -2837,7 +2855,7 @@ clusternas_failover_ctl(const void *buffer, int bufsize)
 #endif
 
 static void
-cluster_task_wait_event()
+cluster_task_wait_event(void)
 {
 	/*int ret;*/
 	boolean_t wait = B_TRUE;
@@ -3022,13 +3040,8 @@ cluster_import_pools_thr(void *arg)
 		!list_is_empty(&import_thr_conf.todo_import_pools)) {
 		pool = list_head(&import_thr_conf.todo_import_pools);
 		if (pool) {
-#if	0
-			snprintf(cmd, 256, "%s import -if %llu", ZPOOL_CMD, 
+			snprintf(cmd, 256, "%s %llu", ZPOOL_IMPORT, 
 				(unsigned long long)pool->guid);
-#else
-			snprintf(cmd, 256, "%s import -bf %llu", ZPOOL_CMD, 
-				(unsigned long long)pool->guid);
-#endif
 			if (excute_cmd_common(cmd, B_TRUE) != 0)
 				syslog(LOG_ERR, "%s: import pool '%s' failed", __func__,
 					pool->poolname);
@@ -4946,11 +4959,15 @@ static int
 parse_failover_conf(const char *msg, failover_conf_t *conf)
 {
 	char buf[ZFS_MAXNAMELEN + ZFS_MAXPROPLEN];
-	char *token, *subtok, *prop_name;
+	char *token, *subtok;
+	char *prop_name, *prop_val;
+	long val;
 
+	printf("parse_failover_conf: %s\n", msg);
 	/*
 	 * msg format: zfs_name,prop_name,prop_val
 	 * prop_name format: failover:eth_name[:id]
+	 * propval format: ipaddr[/prefixlen]
 	 */
 	memset(conf, 0, sizeof(failover_conf_t));
 	strlcpy(buf, msg, sizeof(buf));
@@ -4969,10 +4986,15 @@ parse_failover_conf(const char *msg, failover_conf_t *conf)
 	token = strtok(NULL, ",");
 	if (!token)
 		return (-1);
-	if ((conf->af = check_ip_addr(token, conf->ip_addr)) == -1)
-		return (-1);
-	token = strtok(NULL, ",");
-	if (token && (check_ip_addr(token, conf->netmask) != conf->af))
+	prop_val = token;
+	token = strchr(prop_val, '/');
+	if (token) {
+		*token++ = '\0';
+		val = strtol(token, NULL, 10);
+		if (val > 0 && val <= 32)
+			conf->prefixlen = val;
+	}
+	if ((conf->af = check_ip_addr(prop_val, conf->ip_addr)) == -1)
 		return (-1);
 
 	subtok = strtok(prop_name, ":");
@@ -4984,6 +5006,9 @@ parse_failover_conf(const char *msg, failover_conf_t *conf)
 	if (strlen(subtok) > ETH_MAXNAMELEN)
 		return -1;
 	strlcpy(conf->eth, subtok, ETH_MAXNAMELEN);
+	subtok = strtok(NULL, ":");
+	if (subtok)
+		strlcpy(conf->prop_id, subtok, ZFS_MAXPROPLEN);
 	
 	return (0);
 }
@@ -4992,9 +5017,25 @@ static int
 handle_failover_set(cluster_mq_message_t *msg)
 {
 	failover_conf_t conf;
+	struct shielding_failover_pools *p = &shielding_failover_pools;
+	struct link_list *l;
+	release_pool_param_t *r;
 
 	msg->msg[msg->msglen] = 0;
 	if (parse_failover_conf(msg->msg, &conf) == 0) {
+		pthread_mutex_lock(&p->lock);
+		for (l = p->head; l != NULL; l = l->next) {
+			r = l->ptr;
+			if (strncmp(r->pool_name, conf.zpool_name, ZPOOL_MAXNAMELEN) == 0) {
+				syslog(LOG_WARNING, "handle_failover_set: skip pool failover,"
+					" poolname=%s, ip=%s, msgtype=%d",
+					conf.zpool_name, conf.ip_addr, msg->msgtype);
+				pthread_mutex_unlock(&p->lock);
+				return (0);
+			}
+		}
+		pthread_mutex_unlock(&p->lock);
+
 		switch (msg->msgtype) {
 		case cluster_msgtype_set_failover:
 		case cluster_msgtype_mount:
@@ -5016,47 +5057,34 @@ handle_failover_set(cluster_mq_message_t *msg)
 static int
 check_ip_exist(int af, const char *eth, const char *ip)
 {
-#if	0
-	char *buf;
-	unsigned buflen;
-	int n;
-	struct lifreq *lifrp;
+	struct ifs_chain *ifs;
+	struct ifs_node *ifn;
+	struct ifs_addr *addr;
 	char ipaddr[INET6_ADDRSTRLEN];
-	struct sockaddr_storage *ss;
 	const char *p;
 
-	if ((n = get_all_ifs(&buf, &buflen)) <= 0)
+	if ((ifs = get_all_ifs()) == NULL)
 		return (0);
-	lifrp = (struct lifreq *)buf;
-	for (; n > 0; n--, lifrp++) {
-		ss = &(lifrp->lifr_addr);
-		if (ss->ss_family != af)
+
+	for (ifn = ifs->head; ifn != NULL; ifn = ifn->next) {
+		if (strncmp(ifn->link, eth, IFNAMSIZ) != 0)
 			continue;
-		p = strchr(lifrp->lifr_name, ':');
-		if (strncmp(lifrp->lifr_name, eth, 
-			p ? p - lifrp->lifr_name : strlen(lifrp->lifr_name)) != 0)
-			continue;
-		if (ss->ss_family == AF_INET) {
-			p = inet_ntop(AF_INET, &(((struct sockaddr_in *)ss)->sin_addr), 
-					ipaddr, INET_ADDRSTRLEN);
-		} else if (ss->ss_family == AF_INET6) {
-			p = inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)ss)->sin6_addr), 
-					ipaddr, INET6_ADDRSTRLEN);
-		} else {
-			syslog(LOG_ERR, "Unsupported protocol: %d", ss->ss_family);
-			continue;
-		}
-		if (p == NULL) {
-			syslog(LOG_ERR, "inet_ntop error: %d", errno);
-			continue;
-		}
-		if (strncmp(ip, ipaddr, INET6_ADDRSTRLEN) == 0) {
-			free(buf);
-			return (1);
+
+		for (addr = ifn->addrs; addr != NULL; addr = addr->next) {
+			if (addr->af != af)
+				continue;
+
+			p = inet_ntop(addr->af, addr->addr, ipaddr, INET6_ADDRSTRLEN);
+			if (p) {
+				if (strncmp(ip, ipaddr, INET6_ADDRSTRLEN) == 0) {
+					free_ifs_chain(ifs);
+					return (1);
+				}
+			}
 		}
 	}
-	free(buf);
-#endif
+
+	free_ifs_chain(ifs);
 	return (0);
 }
 
@@ -5111,8 +5139,10 @@ check_ip_enable(int af, const char *if_name, const char *ip_addr,
 		}
 	}
 	free(buf);
-#endif
 	return (0);
+#else
+	return (1);
+#endif
 }
 
 /*
@@ -5122,8 +5152,8 @@ static int
 ifconfig_up(const char *cmd, int af, const char *ifname, const char *ipaddr,
 	int trycnt)
 {
-	char r_ifname[MAXLINKNAMELEN];
-	char upcmd[128];
+	/*char r_ifname[MAXLINKNAMELEN];*/
+	/*char upcmd[128];*/
 	int ret = 0;
 
 	ret = excute_ifconfig(cmd);
@@ -5131,6 +5161,7 @@ ifconfig_up(const char *cmd, int af, const char *ifname, const char *ipaddr,
 		syslog(LOG_ERR, "excute_ifconfig return %d", ret);
 		return -1;
 	}
+#if	0
 	sleep(1);
 
 	r_ifname[0] = '\0';
@@ -5161,16 +5192,16 @@ ifconfig_up(const char *cmd, int af, const char *ifname, const char *ipaddr,
 			return (ret == 1 ? 1 : 0);
 		}
 	}
-
-	return (0);
+#endif
+	return (1);
 }
 
 static int 
 do_ip_failover(failover_conf_t *conf, int restore_flag)
 {
-	char cmd[128];
+	char cmd[BUFSIZ];
+	char alias[IFALIASZ];
 	service_if_t *ifp;
-	char aftype[] = "inet6";
 	int ip_on_link = 0;
 	service_zpool_t *zp;
 	struct link_list *node;
@@ -5196,15 +5227,12 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 	}
 
 	if (!ip_on_link) {
-		if (conf->af == AF_INET)
-			aftype[0] = '\0';
-		if (strlen(conf->netmask) == 0) {
-			snprintf(cmd, 128, "%s %s %s plumb addif %s up", IFCONFIG_CMD,
-				conf->eth, aftype, conf->ip_addr);
-		} else {
-			snprintf(cmd, 128, "%s %s %s plumb addif %s netmask %s up", IFCONFIG_CMD,
-				conf->eth, aftype, conf->ip_addr, conf->netmask);
-		}	
+		snprintf(alias, IFALIASZ, "%s:%s:%s",
+			conf->eth, conf->prop_id, conf->zpool_name);
+		snprintf(cmd, BUFSIZ, "%s addr add %s/%d brd + label %s dev %s",
+			IP_CMD, conf->ip_addr,
+			conf->prefixlen > 0 ? conf->prefixlen : 24,
+			alias, conf->eth);
 		if ((err = ifconfig_up(cmd, conf->af, conf->eth, conf->ip_addr,
 				3)) < 0) {
 			syslog(LOG_ERR, "%s: excute ifconfig addif error: %d",
@@ -5217,14 +5245,6 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 		}
 	}
 
-#if	0
-	if (!clusterd_old_ip_failover_enable) {
-		memset(cmd, 0, sizeof(cmd));
-		strlcpy(cmd, conf->eth, MAXLINKNAMELEN);
-		sysinfo(SI_SET_MONITOR_DEV, cmd, sizeof(cmd));
-	}
-#endif
-
 	ifp = (service_if_t *) malloc(sizeof(service_if_t));
 	if (ifp == NULL) {
 		syslog(LOG_ERR, "alloc service_if_t failed");
@@ -5232,7 +5252,9 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 		goto exit_func;
 	}
 	strlcpy(ifp->eth, conf->eth, MAXLINKNAMELEN);
+	strlcpy(ifp->alias, alias, IFALIASZ);
 	strlcpy(ifp->ip_addr, conf->ip_addr, INET6_ADDRSTRLEN);
+	ifp->prefixlen = conf->prefixlen;
 	/* 
 	 * if restore_flag is set and ip_on_link == 1,
 	 * so the ip may set by clusterd
@@ -5284,37 +5306,17 @@ exit_func:
 	return (err);
 }
 
-static void
-remove_monitor_dev(const char *dev)
-{
-	service_if_t *ifp;
-	char buf[MAXLINKNAMELEN];
-
-	for (ifp = list_head(&failover_ip_list); 
-			ifp; 
-			ifp = list_next(&failover_ip_list, ifp)) {
-		if (strncmp(ifp->eth, dev, MAXLINKNAMELEN) == 0)
-			return;
-	}
-	memset(buf, 0, sizeof(buf));
-	strlcpy(buf, dev, MAXLINKNAMELEN);
-	/*sysinfo(SI_UNSET_MONITOR_DEV, buf, sizeof(buf));*/
-}
-
 static int 
 do_ip_restore(failover_conf_t *conf)
 {
 	char cmd[128];
 	service_if_t *ifp, *tmp;
-	char aftype[] = "inet6";
 	service_zpool_t *zp;
 	struct link_list *p, **pp;
 	int err = 0;
 
 	if (!conf || strlen(conf->eth) == 0 || strlen(conf->ip_addr) == 0)
 		return (EINVAL);
-	if (conf->af == AF_INET)
-		aftype[0] = '\0';
 	pthread_mutex_lock(&failover_list_lock);
 	for (ifp = list_head(&failover_ip_list); 
 			ifp; 
@@ -5333,8 +5335,10 @@ do_ip_restore(failover_conf_t *conf)
 
 			ifp->refs--;
 			if (ifp->refs == 0) {
-				snprintf(cmd, 128, "%s %s %s removeif %s ", IFCONFIG_CMD,
-					conf->eth, aftype, conf->ip_addr);
+				snprintf(cmd, 128, "%s addr del %s/%d dev %s",
+					IP_CMD, conf->ip_addr,
+					conf->prefixlen > 0 ? conf->prefixlen : 24,
+					conf->eth);
 				if ((err = excute_ifconfig(cmd)) != 0) {
 					syslog(LOG_ERR, "removeif error - %d", err);
 					ifp->refs++;
@@ -5347,9 +5351,6 @@ do_ip_restore(failover_conf_t *conf)
 				list_remove(&failover_ip_list, ifp);
 				free(ifp);
 				ifp = tmp;
-
-				if (!clusterd_old_ip_failover_enable)
-					remove_monitor_dev(conf->eth);
 			}
 			goto update_zpool;
 		}
@@ -5716,255 +5717,45 @@ free_release_pool_param(release_pool_param_t *param)
 	}
 }
 
-static int
-get_ip_if(int af, const char *if_name, const char *ip_addr,
-	char *ret_if, size_t ifsize)
+static void
+init_shielding_failover_poollist(void)
 {
-#if	0
-	char *buf;
-	unsigned buflen;
-	int n;
-	struct lifreq *lifrp;
-	char ipaddr[INET6_ADDRSTRLEN];
-	struct sockaddr_storage *ss;
-	const char *p;
+	struct shielding_failover_pools *p = &shielding_failover_pools;
 
-	if ((n = get_all_ifs(&buf, &buflen)) <= 0)
-		return (-1);
-	lifrp = (struct lifreq *)buf;
-	for (; n > 0; n--, lifrp++) {
-		ss = &(lifrp->lifr_addr);
-		if ((af != AF_UNSPEC) && (ss->ss_family != af))
-			continue;
-		p = strchr(lifrp->lifr_name, ':');
-		if ((if_name != NULL) &&
-			(strncmp(lifrp->lifr_name, if_name, 
-			p ? p - lifrp->lifr_name : strlen(lifrp->lifr_name)) != 0))
-			continue;
-		if (ss->ss_family == AF_INET) {
-			p = inet_ntop(AF_INET, &(((struct sockaddr_in *)ss)->sin_addr), 
-					ipaddr, INET_ADDRSTRLEN);
-		} else if (ss->ss_family == AF_INET6) {
-			p = inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)ss)->sin6_addr), 
-					ipaddr, INET6_ADDRSTRLEN);
-		} else {
-			syslog(LOG_ERR, "Unsupported protocol: %d", ss->ss_family);
-			continue;
-		}
-		if (p == NULL) {
-			syslog(LOG_ERR, "inet_ntop error: %d", errno);
-			continue;
-		}
-		if (strncmp(ip_addr, ipaddr, INET6_ADDRSTRLEN) == 0) {
-			if (ret_if != NULL)
-				strlcpy(ret_if, lifrp->lifr_name, ifsize);
-			free(buf);
-			return (1);
-		}
-	}
-	free(buf);
-#endif
-	return (0);
+	pthread_mutex_init(&p->lock, NULL);
+	p->head = NULL;
 }
 
-static int
-down_ip(const char *ip)
+static boolean_t
+shielding_failover_poollist(struct link_list *list)
 {
-#if	0
-	char *buf;
-	unsigned buflen;
-	int n;
-	struct lifreq *lifrp;
-	char ipaddr[INET6_ADDRSTRLEN];
-	struct sockaddr_storage *ss;
-	const char *p;
-	int found = 0;
-	char cmdstr[128];
+	struct shielding_failover_pools *p = &shielding_failover_pools;
+	boolean_t success = B_FALSE;
 
-	if ((n = get_all_ifs(&buf, &buflen)) <= 0)
-		return (-1);
-	lifrp = (struct lifreq *)buf;
-	for (; n > 0; n--, lifrp++) {
-		ss = &(lifrp->lifr_addr);
-		if (ss->ss_family == AF_INET) {
-			p = inet_ntop(AF_INET, &(((struct sockaddr_in *)ss)->sin_addr), 
-					ipaddr, INET_ADDRSTRLEN);
-		} else if (ss->ss_family == AF_INET6) {
-			p = inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)ss)->sin6_addr), 
-					ipaddr, INET6_ADDRSTRLEN);
-		} else {
-			syslog(LOG_ERR, "Unsupported protocol: %d", ss->ss_family);
-			continue;
-		}
-		if (p == NULL) {
-			syslog(LOG_ERR, "inet_ntop error: %d", errno);
-			continue;
-		}
-		if (strncmp(ip, ipaddr, INET6_ADDRSTRLEN) == 0) {
-			found = 1;
-			sprintf(cmdstr, "%s %s %s down", IFCONFIG_CMD, lifrp->lifr_name,
-				ss->ss_family == AF_INET6 ? "inet6" : "");
-			break;
-		}
+	pthread_mutex_lock(&p->lock);
+	if (p->head == NULL) {
+		p->head = list;
+		success = B_TRUE;
 	}
-	free(buf);
+	pthread_mutex_unlock(&p->lock);
 
-	if (found) {
-		if ((n = excute_ifconfig(cmdstr)) != 0) {
-			syslog(LOG_ERR, "%s: excute down ip error - %d", __func__, n);
-			return (-1);
-		}
-	}
-#endif
-	return (0);
+	return (success);
 }
 
-struct failover_if_struct {
-	int af;
-	char if_name[MAXLINKNAMELEN];
-	char ip_addr[INET6_ADDRSTRLEN];
-	char netmask[INET6_ADDRSTRLEN];
-};
-
-static int
-config_failover_ip(struct failover_if_struct *fip)
+static boolean_t
+unshielding_failover_poollist(struct link_list *list)
 {
-	char cmd[128];
-	service_if_t *ifp;
-	int ip_on_link = 0;
-	int err;
+	struct shielding_failover_pools *p = &shielding_failover_pools;
+	boolean_t success = B_FALSE;
 
-	pthread_mutex_lock(&failover_list_lock);
-	for (ifp = list_head(&failover_ip_list); 
-			ifp; 
-			ifp = list_next(&failover_ip_list, ifp)) {
-		if (strcmp(ifp->ip_addr, fip->ip_addr) == 0) {
-			syslog(LOG_WARNING, "%s: ip %s is exist on host", __func__, ifp->ip_addr);
-			ifp->refs++;
-			pthread_mutex_unlock(&failover_list_lock);
-			return (0);
-		}
+	pthread_mutex_lock(&p->lock);
+	if (p->head == list) {
+		p->head = NULL;
+		success = B_TRUE;
 	}
+	pthread_mutex_unlock(&p->lock);
 
-	if (check_ip_exist(fip->af, fip->if_name, fip->ip_addr)) {
-		syslog(LOG_WARNING, "%s: ip %s is exist on if %s", __func__,
-			fip->ip_addr, fip->if_name);
-		ip_on_link = 1;
-	}
-
-	if (!ip_on_link) {
-#if	0
-		sprintf(cmd, "%s %s %s plumb addif %s %s %s", IFCONFIG_CMD,
-			fip->if_name,
-			fip->af == AF_INET6 ? "inet6" : "",
-			fip->ip_addr,
-			fip->netmask[0] == '\0' ? "" : "netmask",
-			fip->netmask);
-#else
-		sprintf(cmd, "%s addr add %s dev %s", IP_CMD,
-			fip->ip_addr, fip->if_name);
-#endif
-		if ((err = excute_ifconfig(cmd)) != 0) {
-			syslog(LOG_ERR, "%s: excute ifconfig addif error - %d",
-				__func__, err);
-			pthread_mutex_unlock(&failover_list_lock);
-			return (-1);
-		}
-	}
-
-#if	0
-	if (!clusterd_old_ip_failover_enable) {
-		memset(cmd, 0, sizeof(cmd));
-		strlcpy(cmd, fip->if_name, MAXLINKNAMELEN);
-		sysinfo(SI_SET_MONITOR_DEV, cmd, sizeof(cmd));
-	}
-#endif
-
-	ifp = (service_if_t *) malloc(sizeof(service_if_t));
-	if (ifp == NULL) {
-		syslog(LOG_ERR, "alloc service_if_t failed");
-		pthread_mutex_unlock(&failover_list_lock);
-		return (-1);
-	}
-	strlcpy(ifp->eth, fip->if_name, MAXLINKNAMELEN);
-	strlcpy(ifp->ip_addr, fip->ip_addr, INET6_ADDRSTRLEN);
-	ifp->refs = ip_on_link ? 2 : 1;
-	ifp->zpool_list = NULL;
-	ifp->flag = 0;
-	list_insert_head(&failover_ip_list, ifp);
-	pthread_mutex_unlock(&failover_list_lock);
-
-	return (0);
-}
-
-static int
-enable_failover_ip(struct failover_if_struct *fip)
-{
-	char cmd[128];
-	service_if_t *ifp, *tmp;
-	char ifname[MAXLINKNAMELEN];
-	int err = 0;
-
-	pthread_mutex_lock(&failover_list_lock);
-	for (ifp = list_head(&failover_ip_list); 
-			ifp; 
-			ifp = list_next(&failover_ip_list, ifp)) {
-		if (strcmp(ifp->ip_addr, fip->ip_addr) == 0) {
-
-			ifp->refs--;
-			if (ifp->refs == 0) {
-#if	0
-				snprintf(cmd, 128, "%s %s %s removeif %s ", IFCONFIG_CMD,
-					fip->if_name,
-					fip->af == AF_INET6 ? "inet6" : "",
-					fip->ip_addr);
-#else
-				snprintf(cmd, 128, "%s addr del %s dev %s", IP_CMD,
-					fip->ip_addr, fip->if_name);
-#endif
-				if ((err = excute_ifconfig(cmd)) != 0) {
-					syslog(LOG_ERR, "%s: removeif error - %d", __func__, err);
-					ifp->refs++;
-					pthread_mutex_unlock(&failover_list_lock);
-					return (-1);
-				}
-			} else {
-				if (get_ip_if(fip->af, fip->if_name, fip->ip_addr, 
-					ifname, MAXLINKNAMELEN) != 1) {
-					syslog(LOG_ERR, "%s: not found %s:%s", __func__,
-						fip->if_name, fip->ip_addr);
-					pthread_mutex_unlock(&failover_list_lock);
-					return (-1);
-				}
-#if	0
-				sprintf(cmd, "%s %s %s up", IFCONFIG_CMD,
-					ifname, fip->af == AF_INET6 ? "inet6" : "");
-				if ((err = ifconfig_up(cmd, fip->af, fip->if_name, fip->ip_addr,
-						1)) != 1) {
-					syslog(LOG_ERR, "%s: ifconfig up error - %d", __func__, err);
-					pthread_mutex_unlock(&failover_list_lock);
-					return (-1);
-				}
-#endif
-			}
-			if (ifp->zpool_list == NULL) {
-				tmp = list_prev(&failover_ip_list, ifp);
-				list_remove(&failover_ip_list, ifp);
-				free(ifp);
-				ifp = tmp;
-
-#if	0
-				if (!clusterd_old_ip_failover_enable)
-					remove_monitor_dev(fip->if_name);
-#endif
-			}
-			break;
-		}
-	}
-	if (ifp == NULL)
-		syslog(LOG_WARNING, "%s: ip %s not exist", __func__, fip->ip_addr);
-	pthread_mutex_unlock(&failover_list_lock);
-	return (0);
+	return (success);
 }
 
 /*
@@ -5977,10 +5768,8 @@ handle_release_pools_event(const void *buffer, int bufsiz)
 	struct link_list *pool_list = NULL;
 	release_pool_param_t *param;
 	failover_conf_t fconf;
-	struct failover_if_struct *failover_if, *fip;
-	struct link_list *failover_if_list = NULL;
-	struct link_list *p, **pp, *node;
-	int i, err = 0, cmp;
+	struct link_list *p;
+	int i, err = 0;
 	char cmdstr[128];
 
 	/* get the todo import pools */
@@ -5988,75 +5777,22 @@ handle_release_pools_event(const void *buffer, int bufsiz)
 		syslog(LOG_ERR, "%s: unpack event message failed", __func__);
 		return (-1);
 	}
-	/* extract the failover IPs */
-	for (p = pool_list; (p != NULL) && (p->ptr != NULL); p = p->next) {
-		param = (release_pool_param_t *) p->ptr;
-		for (i = 0; i < param->failover_num; i++) {
-			if (parse_failover_conf(param->failover[i], &fconf) != 0) {
-				err = -1;
-				goto exit_func;
-			}
-			failover_if = malloc(sizeof(struct failover_if_struct));
-			if (!failover_if) {
-				err = -1;
-				goto exit_func;
-			}
-			failover_if->af = fconf.af;
-			strlcpy(failover_if->if_name, fconf.eth, MAXLINKNAMELEN);
-			strlcpy(failover_if->ip_addr, fconf.ip_addr, INET6_ADDRSTRLEN);
-			if (fconf.netmask[0] != '\0')
-				strlcpy(failover_if->netmask, fconf.netmask, INET6_ADDRSTRLEN);
-			else
-				failover_if->netmask[0] = '\0';
-			node = create_link(failover_if);
-			if (!node) {
-				free(failover_if);
-				err = -1;
-				goto exit_func;
-			}
-			for (pp = &failover_if_list; *pp;) {
-				fip = (struct failover_if_struct *) (*pp)->ptr;
-				cmp = strcmp(fip->if_name, fconf.eth);
-				if (cmp == 0)
-					cmp = strcmp(fip->ip_addr, fconf.ip_addr);
-				if (cmp == 0) {
-					free(failover_if);
-					free(node);
-					break;
-				} else if (cmp < 0) {
-					node->next = *pp;
-					*pp = node;
-					break;
-				}
-				pp = &(*pp)->next;
-			}
-			if (*pp == NULL) {
-				node->next = NULL;
-				*pp = node;
-			}
-		}
-	}
-	if (p != NULL) {
-		syslog(LOG_ERR, "%s: invalid event message", __func__);
+
+	/*
+	 * Shielding the pools let do_ip_failover() skip them, we will
+	 * do ip failover in this function.
+	 */
+	if (!shielding_failover_poollist(pool_list)) {
+		syslog(LOG_ERR, "%s: shielding failover pools failed,"
+			" ensure no concurrent release process.", __func__);
 		err = -1;
 		goto exit_func;
-	}
-
-	/* step 1: pre config the failover IPs, but donot up it */
-	node = NULL;
-	for (p = failover_if_list; p != NULL; p = p->next) {
-		if (config_failover_ip((struct failover_if_struct *) p->ptr) != 0) {
-			syslog(LOG_ERR, "%s: config failover ip failed", __func__);
-			err = -1;
-			node = p;
-			goto clear_conf;
-		}
 	}
 
 	/* step 2: import the pools */
 	for (p = pool_list; p != NULL; p = p->next) {
 		param = (release_pool_param_t *) p->ptr;
-		sprintf(cmdstr, "%s import -if %s", ZPOOL_CMD, param->pool_name);
+		sprintf(cmdstr, "%s %s", ZPOOL_IMPORT, param->pool_name);
 		if ((err = excute_cmd(cmdstr)) != 0) {
 			syslog(LOG_ERR, "%s: import pool error - %d",
 				__func__, err);
@@ -6065,28 +5801,26 @@ handle_release_pools_event(const void *buffer, int bufsiz)
 		}
 	}
 
-clear_conf:
-	/* step 3: up the failover IPs */
-	for (p = failover_if_list; p != node; p = p->next) {
-		if (enable_failover_ip((struct failover_if_struct *) p->ptr) != 0) {
-			syslog(LOG_ERR, "%s: enable or clear failover ip failed", __func__);
-			err = -1;
+	for (p = pool_list; (p != NULL) && (p->ptr != NULL); p = p->next) {
+		param = (release_pool_param_t *) p->ptr;
+		for (i = 0; i < param->failover_num; i++) {
+			if (parse_failover_conf(param->failover[i], &fconf) != 0) {
+				syslog(LOG_WARNING, "%s: invalid failover prop '%s'",
+					__func__, param->failover[i]);
+				continue;
+			}
+
+			do_ip_failover(&fconf, 0);
 		}
 	}
 
+	unshielding_failover_poollist(pool_list);
 exit_func:
-	free_link_list(failover_if_list, 1);
 	for (p = pool_list; p != NULL; p = p->next)
 		free_release_pool_param((release_pool_param_t *) p->ptr);
 	free_link_list(pool_list, 0);
 	return (err);
 }
-
-struct release_if_struct {
-	int af;
-	char if_name[MAXLINKNAMELEN];
-	char ip_addr[INET6_ADDRSTRLEN];
-};
 
 /*
  * Recv the MSGs from mqueue or mac state change handler in clusterd, 
@@ -6097,10 +5831,8 @@ handle_release_message_common(release_pools_message_t *r_msg)
 {
 	release_pool_param_t *param;
 	struct link_list * pool_list = NULL, *node, **pp;
-	struct link_list * release_if_list = NULL;
 	failover_conf_t fconf;
-	struct release_if_struct *release_if, *rip;
-	int err = 0, i, j, cmp;
+	int err = 0, i, j;
 	char cmdstr[128];
 	char *buffer;
 	int bufsize;
@@ -6127,42 +5859,7 @@ handle_release_message_common(release_pools_message_t *r_msg)
 				break;
 			}
 
-			release_if = malloc(sizeof(struct release_if_struct));
-			if (!release_if) {
-				free_release_pool_param(param);
-				err = -1;
-				break;
-			}
-			/* extract the ip of todo release */
-			release_if->af = fconf.af;
-			strlcpy(release_if->if_name, fconf.eth, MAXLINKNAMELEN);
-			strlcpy(release_if->ip_addr, fconf.ip_addr, INET6_ADDRSTRLEN);
-
-			node = create_link(release_if);
-			if (!node) {
-				free(release_if);
-				free_release_pool_param(param);
-				err = -1;
-				break;
-			}
-			for (pp = &release_if_list; *pp;) {
-				rip = (struct release_if_struct *) (*pp)->ptr;
-				cmp = strcmp(release_if->ip_addr, rip->ip_addr);
-				if (cmp < 0) {
-					node->next = *pp;
-					*pp = node;
-					break;
-				} else if (cmp == 0) {
-					free(release_if);
-					free(node);
-					break;
-				}
-				pp = &(*pp)->next;
-			}
-			if (*pp == NULL) {
-				node->next = NULL;
-				*pp = node;
-			}
+			do_ip_restore(&fconf);
 		}
 		if (err != 0)
 			break;
@@ -6180,13 +5877,17 @@ handle_release_message_common(release_pools_message_t *r_msg)
 	if (err != 0) {
 		syslog(LOG_ERR, "%s: handle release message failed", __func__);
 	} else {
-		/* step 1: pre down the IPs */
-		for (node = release_if_list; node != NULL; node = node->next) {
-			rip = (struct release_if_struct *) node->ptr;
-			err = down_ip(rip->ip_addr);
-			if (err != 0)
-				break;
+		/*
+		 * We have released the failover ips, now shielding the pools,
+		 * then we export them later and do_ip_restore() will skip them.
+		 */
+		if (!shielding_failover_poollist(pool_list)) {
+			syslog(LOG_ERR, "%s: shielding failover pools failed,"
+				" ensure no concurrent release process.", __func__);
+			err = -1;
+			goto exit_release;
 		}
+
 		/* step 2: export the pools */
 		if (err == 0) {
 			uint32_t	hostid = 0;
@@ -6198,7 +5899,7 @@ handle_release_message_common(release_pools_message_t *r_msg)
 #endif
 			for (node = pool_list; node != NULL; node = node->next) {
 				param = (release_pool_param_t *) node->ptr;
-				sprintf(cmdstr, "%s export -f %s", ZPOOL_CMD, param->pool_name);
+				sprintf(cmdstr, "%s %s", ZPOOL_EXPORT, param->pool_name);
 				if ((err = excute_cmd_common(cmdstr, B_TRUE)) != 0) {
 					syslog(LOG_ERR, "%s: excute export pool error - %d",
 						__func__, err);
@@ -6212,6 +5913,7 @@ handle_release_message_common(release_pools_message_t *r_msg)
 			hbx_do_cluster_cmd((char *) &hostid, sizeof (hostid),
 				ZFS_HBX_SYNC_POOL);
 		}
+
 		/* step 3: send the todo release pools to remote */
 		if (err == 0) {
 			buffer = malloc(MAX_RELEASE_POOLS_MSGSIZE);
@@ -6231,6 +5933,8 @@ handle_release_message_common(release_pools_message_t *r_msg)
 		}
 	}
 
+	unshielding_failover_poollist(pool_list);
+exit_release:
 	if (pool_list != NULL) {
 		for (pp = &pool_list; *pp; ) {
 			node = *pp;
@@ -6378,7 +6082,7 @@ initialize_cluster_mqueue(void)
 }
 
 static void
-cluster_thread_exit()
+cluster_thread_exit(void)
 {
 	int ret;
 
@@ -6397,7 +6101,7 @@ cluster_thread_exit()
 }
 
 static int
-cluster_thread_create()
+cluster_thread_create(void)
 {
 	int err;
 
@@ -6408,7 +6112,7 @@ cluster_thread_create()
 }
 
 static void
-usage()
+usage(void)
 {
 	syslog(LOG_ERR, "Usage: %s", MyName);
 	syslog(LOG_ERR, "\t[-v]\t\tverbose error messages");
@@ -6580,6 +6284,8 @@ main(int argc, char *argv[])
 
 	pthread_mutex_init(&cluster_import_replicas_lock, NULL);
 	pthread_cond_init(&cluster_import_replicas_cv, NULL);
+
+	init_shielding_failover_poollist();
 
 	error = initialize_cluster_mqueue();
 	if (error != 0) {
