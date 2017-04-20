@@ -146,8 +146,8 @@ typedef struct clu_status {
 	char ip[BUF_MAX];
 	char version[BUF_MAX];
 	char uptime[BUF_MAX];
-	char stat[BUF_MAX];
-	char hostid[BUF_MAX];
+	//char stat[BUF_MAX];
+	//char hostid[BUF_MAX];
 	char systime[BUF_MAX];
 	char mem[BUF_MAX];
 	char gui_ver[BUF_MAX];

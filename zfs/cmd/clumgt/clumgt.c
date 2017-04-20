@@ -117,7 +117,7 @@ main(int argc, char *argv[])
 		putenv("CLUMGT=2");
 		
 		/* set directory to / so it coredumps there */
-		if (chdir("/etc/root/") == -1) {
+		if (chdir("/") == -1) {
 			clumgt_errprint(CHROOT_FAILED, strerror(errno));
 		}
 		
@@ -131,7 +131,7 @@ main(int argc, char *argv[])
 		if ((pid = enter_daemon_lock()) == getpid()) {
 			detachfromtty();
 
-			if (gethostname(c_hostname, sizeof(c_hostname)) < 0) {
+			if (get_local_hostname(c_hostname, sizeof(c_hostname)) < 0) {
 				clumgt_errprint("get hostname failed\n");
 				clumgt_exit(1);
 			}
@@ -415,6 +415,28 @@ clumgt_exit(int status)
 	/*NOTREACHED*/
 }
 
+int get_local_hostname(char *buf, int reserved)
+{
+        int i=0;
+        FILE *fp;
+        fp = fopen("/etc/cluster_hostname", "r");
+        if (fp == NULL) {
+                return (-1);
+        }
+        fgets(buf, HOSTNAMELEN, fp);
+        fclose(fp);
+        for (i=0; i<HOSTNAMELEN; i++) {
+                if (*(buf+i) == ' ' || *(buf+i) == '\n') {
+                        break;
+                }
+        }
+        if (i == HOSTNAMELEN)
+                i = HOSTNAMELEN -1;
+        *(buf+i) = 0;
+        return 0;
+}
+
+
 int
 clumgt_get_hosturl(char *url)
 {
@@ -433,7 +455,7 @@ clumgt_get_hosturl(char *url)
 		return (-1);
 	}
 
-	if (gethostname(hostname, HOSTNAMELEN) < 0) {
+	if (get_local_hostname(hostname, HOSTNAMELEN) < 0) {
 			clumgt_errprint("get host name failed.\n");
 			return (-1);
 	}
@@ -481,7 +503,7 @@ void *clumgt_worker (void *arg)
 		hdr.msg_control = &control;
 		hdr.msg_controllen = NN_MSG;
 
-		if (gethostname(hostname, sizeof(hostname)) < 0) {
+		if (get_local_hostname(hostname, sizeof(hostname)) < 0) {
 			clumgt_errprint("get hostname failed\n");
 			continue;
 		}

@@ -335,8 +335,8 @@ clu_cmd_handle_status_req(boolean_t need_xml)
 			fprintf(stdout, "ip:%s\n", clu_stat_p->ip);
 			fprintf(stdout, "version:%s\n", clu_stat_p->version);
 			fprintf(stdout, "uptime:%s\n", clu_stat_p->uptime);
-			fprintf(stdout, "stat:%s\n", clu_stat_p->stat);
-			fprintf(stdout, "hostid:%s\n", clu_stat_p->hostid);
+			//fprintf(stdout, "stat:%s\n", clu_stat_p->stat);
+			//fprintf(stdout, "hostid:%s\n", clu_stat_p->hostid);
 			fprintf(stdout, "systime:%s\n", clu_stat_p->systime);
 			fprintf(stdout, "mem:%s\n", clu_stat_p->mem);
 			fprintf(stdout, "gui_ver:%s\n", clu_stat_p->gui_ver);
@@ -371,10 +371,10 @@ clu_cmd_handle_status_req(boolean_t need_xml)
 				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->version);
 				child_node = xmlNewChild(node, NULL, (xmlChar *)"uptime", NULL);
 				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->uptime);
-				child_node = xmlNewChild(node, NULL, (xmlChar *)"stat", NULL);
-				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->stat);
-				child_node = xmlNewChild(node, NULL, (xmlChar *)"hostid", NULL);
-				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->hostid);
+				//child_node = xmlNewChild(node, NULL, (xmlChar *)"stat", NULL);
+				//xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->stat);
+				//child_node = xmlNewChild(node, NULL, (xmlChar *)"hostid", NULL);
+				//xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->hostid);
 				child_node = xmlNewChild(node, NULL, (xmlChar *)"systime", NULL);
 				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->systime);
 				child_node = xmlNewChild(node, NULL, (xmlChar *)"mem", NULL);
@@ -1406,7 +1406,7 @@ clu_get_master(char *master)
 	req->req_len = sizeof(clumgt_request_t);
 
 	memset(host, 0x0, sizeof(host));
-	gethostname(host, sizeof(host));
+	get_local_hostname(host, sizeof(host));
 	
 	ret = clumgt_send_request(req, (void *)&resp, host, &node_num);
 	if (0 != ret) {
