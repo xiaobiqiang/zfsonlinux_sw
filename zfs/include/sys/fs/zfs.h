@@ -685,6 +685,7 @@ typedef enum pool_scan_func {
 	POOL_SCAN_NONE,
 	POOL_SCAN_SCRUB,
 	POOL_SCAN_RESILVER,
+	POOL_SCAN_LOW,
 	POOL_SCAN_FUNCS
 } pool_scan_func_t;
 
@@ -716,6 +717,8 @@ typedef struct pool_scan_stat {
 	uint64_t	pss_to_process; /* total bytes to process */
 	uint64_t	pss_processed;	/* total processed bytes */
 	uint64_t	pss_errors;	/* scan errors	*/
+	uint64_t	pss_wrc_total_to_migrate; /* bytes */
+	uint64_t	pss_wrc_total_migrated; /* bytes */
 
 	/* values not stored on disk */
 	uint64_t	pss_pass_exam;	/* examined bytes per scan pass */

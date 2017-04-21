@@ -66,7 +66,18 @@ extern "C" {
 
 #define	DEFAULT_IMPORT_PATH_SIZE	7
 extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
-
+typedef struct zpool_stamp_para {
+	uint32_t pool_magic;
+	uint32_t pool_real_owener;
+	uint32_t pool_current_owener;
+	uint32_t pool_progress[2];
+	uint32_t pool_checksum;
+	uint32_t company_name;
+}zpool_stamp_para_t;
+typedef struct zpool_stamp {
+	zpool_stamp_para_t 	para;
+	uint8_t	reserved[ZPOOL_STAMP_SIZE - sizeof (zpool_stamp_para_t)];
+} zpool_stamp_t;
 /*
  * libzfs errors
  */

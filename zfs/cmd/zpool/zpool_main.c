@@ -60,6 +60,9 @@
 
 #include "statcommon.h"
 
+#define	POOL_XML_PATH "/tmp/pool.xml"
+
+
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
 
@@ -95,6 +98,10 @@ static int zpool_do_events(int, char **);
 
 static int zpool_do_get(int, char **);
 static int zpool_do_set(int, char **);
+
+
+xmlDocPtr pool_doc;
+xmlNodePtr pool_root_node;
 
 /*
  * These libumem hooks provide a reasonable set of defaults for the allocator's
@@ -4546,6 +4553,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 	const char *health;
 	uint_t c;
 	vdev_stat_t *vs;
+	zpool_stamp_t *stamp;
 
 	config = zpool_get_config(zhp, NULL);
 	reason = zpool_get_status(zhp, &msgid, &errata);
