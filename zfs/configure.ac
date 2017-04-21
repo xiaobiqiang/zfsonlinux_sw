@@ -83,6 +83,7 @@ AC_CONFIG_FILES([
 	lib/libspl/include/sys/sysevent/Makefile
 	lib/libspl/include/sys/dktp/Makefile
 	lib/libspl/include/util/Makefile
+	lib/libdiskmgt/Makefile
 	lib/libavl/Makefile
 	lib/libefi/Makefile
 	lib/libnvpair/Makefile
@@ -111,6 +112,7 @@ AC_CONFIG_FILES([
 	cmd/dbufstat/Makefile
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
+	cmd/disk/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile

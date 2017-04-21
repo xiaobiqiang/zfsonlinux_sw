@@ -45,12 +45,14 @@
 #include <priv.h>
 #include <pwd.h>
 #include <zone.h>
+#include <syslog.h>
 #include <zfs_prop.h>
 #include <sys/fs/zfs.h>
 #include <sys/stat.h>
 #include <sys/fm/util.h>
 #include <sys/fm/protocol.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/spa_impl.h>
 
 #include <libzfs.h>
 
@@ -96,6 +98,8 @@ static int zpool_do_events(int, char **);
 static int zpool_do_get(int, char **);
 static int zpool_do_set(int, char **);
 
+static int zpool_do_cluster(int argc, char **argv);
+
 /*
  * These libumem hooks provide a reasonable set of defaults for the allocator's
  * debugging facilities.
@@ -139,6 +143,7 @@ typedef enum {
 	HELP_GET,
 	HELP_SET,
 	HELP_SPLIT,
+	HELP_CLUSTER,
 	HELP_REGUID,
 	HELP_REOPEN
 } zpool_help_t;
@@ -194,6 +199,7 @@ static zpool_command_t command_table[] = {
 	{ NULL },
 	{ "get",	zpool_do_get,		HELP_GET		},
 	{ "set",	zpool_do_set,		HELP_SET		},
+	{ "cluster",	zpool_do_cluster,		HELP_CLUSTER		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -275,6 +281,8 @@ get_usage(zpool_help_t idx) {
 		return (gettext("\tsplit [-gLnP] [-R altroot] [-o mntopts]\n"
 		    "\t    [-o property=value] <pool> <newpool> "
 		    "[<device> ...]\n"));
+	case HELP_CLUSTER:
+		return (gettext("\tcluster [-r rid] [-c cid] [-p progress]\n"));
 	case HELP_REGUID:
 		return (gettext("\treguid <pool>\n"));
 	}
@@ -868,6 +876,12 @@ zpool_do_create(int argc, char **argv)
 	nvlist_t *props = NULL;
 	char *propval;
 
+	/* write stamp */
+	uint64_t host_id;
+	int error;
+	zpool_stamp_t *stamp;
+	int pool_success = 0;
+
 	/* check options */
 	while ((c = getopt(argc, argv, ":fndR:m:o:O:t:")) != -1) {
 		switch (c) {
@@ -1139,11 +1153,39 @@ zpool_do_create(int argc, char **argv)
 			if (pool != NULL) {
 				if (zfs_mount(pool, NULL, 0) == 0)
 					ret = zfs_shareall(pool);
+				pool_success = 1;
 				zfs_close(pool);
 			}
 		} else if (libzfs_errno(g_zfs) == EZFS_INVALIDNAME) {
 			(void) fprintf(stderr, gettext("pool name may have "
 			    "been omitted\n"));
+		}
+	}
+
+	/* write stamp */
+	if (pool_success == 1) {
+		zpool_handle_t *zhp;
+		nvlist_t *config = NULL, *pool_nv = NULL;
+
+		host_id = gethostid();
+		stamp = malloc(sizeof(zpool_stamp_t));
+		if (stamp != NULL) {
+			if (zhp = zpool_open_canfail(g_zfs, poolname)) {
+				config = zpool_get_config(zhp, NULL);
+				verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+		    			&pool_nv) == 0);
+				bzero(stamp, sizeof(zpool_stamp_t));
+				stamp->para.pool_magic = ZPOOL_MAGIC;
+				stamp->para.pool_current_owener = host_id;
+				stamp->para.pool_real_owener = host_id;
+				stamp->para.pool_progress[0] = ZPOOL_NO_PROGRESS;
+				stamp->para.pool_progress[1] = ZPOOL_NO_PROGRESS;
+				verify(zpool_write_stamp(pool_nv, stamp, SPA_NUM_OF_QUANTUM) != 0);
+				zpool_close(zhp);
+			}
+			free(stamp);
+		} else {
+			syslog(LOG_ERR, "pool create, stamp malloc failed");
 		}
 	}
 
@@ -1978,6 +2020,38 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	uint64_t state;
 	uint64_t version;
 
+#if 1
+	/* write stamp */
+	int error;
+	char buf[256] = {"\0"};
+	int host_id;
+	nvlist_t *nvroot;
+	zpool_stamp_t *stamp;
+
+	stamp = malloc(sizeof(zpool_stamp_t));
+	if (stamp == NULL) {
+		syslog(LOG_ERR, "do import mallco stamp failed");
+		return (1);
+	}
+	bzero(stamp, sizeof(zpool_stamp_t));
+	host_id = gethostid();
+
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	if (!(flags&ZFS_IMPORT_IGNORE_CLUSTER)) {
+		verify (zpool_read_stamp(nvroot, stamp) == 0);
+
+		if (stamp->para.pool_current_owener != host_id) {
+			(void) fprintf(stderr, gettext("cannot import '%s': pool "
+			    "the pool's cid is not this host\n"), name);
+			free(stamp);
+			return (1);
+		}
+	}
+	/* write stamp end */
+#endif
+
 	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
 	    &name) == 0);
 
@@ -2034,7 +2108,12 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		zpool_close(zhp);
 		return (1);
 	}
-
+#if 1
+	stamp->para.pool_current_owener = host_id;
+	stamp->para.pool_magic = ZPOOL_MAGIC;
+	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
+	free(stamp);
+#endif
 	zpool_close(zhp);
 	return (0);
 }
@@ -4393,10 +4472,17 @@ status_callback(zpool_handle_t *zhp, void *data)
 	zpool_errata_t errata;
 	const char *health;
 	uint_t c;
+	uint64_t host_id;
+	uint64_t real_id;
+	uint64_t cur_id;
 	vdev_stat_t *vs;
+	zpool_stamp_t *stamp;
 
 	config = zpool_get_config(zhp, NULL);
 	reason = zpool_get_status(zhp, &msgid, &errata);
+
+	stamp = malloc(sizeof(zpool_stamp_t));
+	bzero(stamp, sizeof(zpool_stamp_t));
 
 	cbp->cb_count++;
 
@@ -4427,6 +4513,12 @@ status_callback(zpool_handle_t *zhp, void *data)
 	verify(nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_VDEV_STATS,
 	    (uint64_t **)&vs, &c) == 0);
 	health = zpool_state_to_name(vs->vs_state, vs->vs_aux);
+
+	if (zpool_read_stamp(nvroot, stamp) == 0) {
+		(void) printf(gettext(" real owner: %d\n"), stamp->para.pool_real_owener);
+		(void) printf(gettext(" current owner: %d\n"), stamp->para.pool_current_owener);
+		(void) printf(gettext(" cluster status: %d\n"), stamp->para.pool_progress[(host_id + 1) % 2]);
+	}
 
 	(void) printf(gettext("  pool: %s\n"), zpool_get_name(zhp));
 	(void) printf(gettext(" state: %s\n"), health);
@@ -6111,3 +6203,102 @@ main(int argc, char **argv)
 
 	return (ret);
 }
+
+struct cluster_para {
+	boolean_t set_all;
+	uint64_t cid;
+	uint64_t rid;
+	uint64_t progress;
+	char *pool_name;
+};
+
+static int zpool_do_cluster(int argc, char **argv)
+{
+	int c;
+	uint64_t cid;
+	uint64_t rid;
+	uint64_t progress;
+	char *endptr;
+	struct cluster_para para;
+	boolean_t cluster_switch = B_FALSE;
+	uint32_t remote_hostid = 0;
+	bzero(&para, sizeof(struct cluster_para));
+	para.cid = 256;
+	para.rid = 256;
+	while ((c = getopt(argc, argv, ":ac:r:p:s:")) != -1) {
+		switch (c) {
+		case 'a':
+			para.set_all = B_TRUE;;
+			break;
+		case 'c':
+			errno = 0;
+			cid = strtoull(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || (cid != 1 && cid !=2)) {
+				(void) fprintf(stderr,
+				    gettext("invalid cid value\n"));
+			}
+			para.cid = cid;
+			break;
+		case 'r':
+			errno = 0;
+			rid = strtoull(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("invalid rid value\n"));
+			}
+			para.rid = rid;
+			break;
+		case 'p':
+			errno = 0;
+			progress = strtoull(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || 
+			    (progress != ZPOOL_ON_PROGRESS && progress != ZPOOL_NO_PROGRESS &&
+			    progress != ZPOOL_INIT_PROGRESS) ) {
+				(void) fprintf(stderr,
+				    gettext("invalid rid value\n"));
+			}
+			para.progress = progress;
+			break;
+		case 's':
+			cluster_switch  = B_TRUE;
+			errno = 0;
+			remote_hostid = strtoul(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("invalid hostid value\n"));
+				usage(B_FALSE);
+			}
+			break;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+	if (para.set_all) {
+		if (argc != 0) {
+			(void) fprintf(stderr, gettext("too many arguments \n"));
+			usage(B_FALSE);
+		}
+	} else {
+		if (argc > 2) {
+			(void) fprintf(stderr, gettext("too many arguments \n"));
+			usage(B_FALSE);
+		}
+		if (argc == 0 && !priv_ineffect(PRIV_SYS_CONFIG)) {
+			(void) fprintf(stderr, gettext("cannot "
+			    "set  pools: permission denied\n"));
+			return (1);
+		}
+	}
+	if (argc != 0) {
+		char *endptr;
+		uint64_t searchguid;
+		errno = 0;
+		searchguid = strtoull(argv[0], &endptr, 10);
+		if (errno != 0 || *endptr != '\0')
+			para.pool_name = argv[0];
+	}
+	zpool_cluster_set_disks(g_zfs, para.pool_name, para.cid, para.rid,
+		para.progress, cluster_switch, remote_hostid);
+	return (0);
+}
+

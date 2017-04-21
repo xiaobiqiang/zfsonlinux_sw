@@ -192,7 +192,7 @@ LTLIBRARIES = $(noinst_LTLIBRARIES)
 libspl_la_DEPENDENCIES =
 am__objects_1 = getexecname.lo gethrtime.lo gethrestime.lo \
 	getmntany.lo list.lo mkdirp.lo strlcat.lo strlcpy.lo \
-	strnlen.lo timestamp.lo zone.lo xdr.lo
+	strnlen.lo timestamp.lo zone.lo kstat.lo xdr.lo
 am__objects_2 = atomic.lo
 am__objects_3 =
 nodist_libspl_la_OBJECTS = $(am__objects_1) $(am__objects_2) \
@@ -547,6 +547,7 @@ USER_C = \
 	strnlen.c \
 	timestamp.c \
 	zone.c \
+	kstat.c \
 	xdr.c \
 	include/sys/list.h \
 	include/sys/list_impl.h
@@ -628,6 +629,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/timestamp.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xdr.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/zone.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/kstat.Plo@am__quote@
 
 .S.o:
 @am__fastdepCCAS_TRUE@	$(AM_V_CPPAS)$(CPPASCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
