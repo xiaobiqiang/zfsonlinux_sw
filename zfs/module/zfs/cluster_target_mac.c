@@ -1152,9 +1152,14 @@ int cluster_target_mac_port_init(
 		cmn_err(CE_WARN, "cluster target port get_dev_by_name %s failed", link_name);
 		goto get_dev_by_name_failed;
 	}
-	port_mac->mac_link_state = (dev_get_flags(port_mac->dev) & IFF_UP) ? 
-	    CLUSTER_TARGET_MAC_LINK_STATE_UP:CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
+	//port_mac->mac_link_state = (dev_get_flags(port_mac->dev) & IFF_UP) ? 
+	//    CLUSTER_TARGET_MAC_LINK_STATE_UP:CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
 
+	if (netif_carrier_ok(port_mac->dev)) {
+		port_mac->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_UP;
+	} else {
+		port_mac->mac_link_state = CLUSTER_TARGET_MAC_LINK_STATE_DOWN;
+	}
 	
 	if (!port_mac->dev->addr_len)
 		memset(port_mac->mac_addr, 0, ETHERADDRL);
