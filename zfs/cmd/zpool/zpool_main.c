@@ -104,6 +104,9 @@ static int zpool_do_set(int, char **);
 
 static int zpool_do_cluster(int argc, char **argv);
 
+static uint_t clumgt_flag = B_FALSE;
+static int need_print_status = B_TRUE;
+
 xmlDocPtr pool_doc;
 xmlNodePtr pool_root_node;
 /*
@@ -3416,7 +3419,10 @@ zpool_do_list(int argc, char **argv)
 	static char default_props[] =
 	    "name,size,allocated,free,expandsize,fragmentation,capacity,"
 	    "dedupratio,health,altroot";
-	char *props = default_props;
+	static char default_clus_props[] =
+	    "name,size,allocated,free,expandsize,fragmentation,capacity,"
+	    "dedupratio,health,altroot, clusnodename";
+	char *props = clumgt_flag ? default_clus_props : default_props;
 	unsigned long interval = 0, count = 0;
 	zpool_list_t *list;
 	boolean_t first = B_TRUE;
@@ -5079,6 +5085,8 @@ zpool_do_status(int argc, char **argv)
 		cb.cb_allpools = B_TRUE;
 
 	cb.cb_first = B_TRUE;
+	if (cb.cb_xml && clumgt_flag)
+		need_print_status = B_FALSE;
 
 	for (;;) {
 		if (timestamp_fmt != NODATE)
@@ -6355,7 +6363,10 @@ main(int argc, char **argv)
 	libzfs_print_on_error(g_zfs, B_TRUE);
 
 	zfs_save_arguments(argc, argv, history_str, sizeof (history_str));
-
+	
+	if (NULL != getenv("CLUMGT")) {
+		clumgt_flag = B_TRUE;
+	}
 	/*
 	 * Run the appropriate command.
 	 */
