@@ -45,12 +45,16 @@
 #include <priv.h>
 #include <pwd.h>
 #include <zone.h>
+#include <syslog.h>
 #include <zfs_prop.h>
 #include <sys/fs/zfs.h>
 #include <sys/stat.h>
 #include <sys/fm/util.h>
 #include <sys/fm/protocol.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/spa_impl.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 
 #include <libzfs.h>
 
@@ -61,7 +65,6 @@
 #include "statcommon.h"
 
 #define	POOL_XML_PATH "/tmp/pool.xml"
-
 
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
@@ -100,9 +103,13 @@ static int zpool_do_get(int, char **);
 static int zpool_do_set(int, char **);
 
 
+static int zpool_do_cluster(int argc, char **argv);
+
+static uint_t clumgt_flag = B_FALSE;
+static int need_print_status = B_TRUE;
+
 xmlDocPtr pool_doc;
 xmlNodePtr pool_root_node;
-
 /*
  * These libumem hooks provide a reasonable set of defaults for the allocator's
  * debugging facilities.
@@ -146,6 +153,7 @@ typedef enum {
 	HELP_GET,
 	HELP_SET,
 	HELP_SPLIT,
+	HELP_CLUSTER,
 	HELP_REGUID,
 	HELP_REOPEN
 } zpool_help_t;
@@ -201,6 +209,7 @@ static zpool_command_t command_table[] = {
 	{ NULL },
 	{ "get",	zpool_do_get,		HELP_GET		},
 	{ "set",	zpool_do_set,		HELP_SET		},
+	{ "cluster",	zpool_do_cluster,		HELP_CLUSTER		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -284,6 +293,8 @@ get_usage(zpool_help_t idx) {
 		return (gettext("\tsplit [-gLnP] [-R altroot] [-o mntopts]\n"
 		    "\t    [-o property=value] <pool> <newpool> "
 		    "[<device> ...]\n"));
+	case HELP_CLUSTER:
+		return (gettext("\tcluster [-r rid] [-c cid] [-p progress]\n"));
 	case HELP_REGUID:
 		return (gettext("\treguid <pool>\n"));
 	}
@@ -877,6 +888,12 @@ zpool_do_create(int argc, char **argv)
 	nvlist_t *props = NULL;
 	char *propval;
 
+	/* write stamp */
+	uint64_t host_id;
+	int error;
+	zpool_stamp_t *stamp;
+	int pool_success = 0;
+
 	/* check options */
 	while ((c = getopt(argc, argv, ":fndR:m:o:O:t:")) != -1) {
 		switch (c) {
@@ -1148,11 +1165,39 @@ zpool_do_create(int argc, char **argv)
 			if (pool != NULL) {
 				if (zfs_mount(pool, NULL, 0) == 0)
 					ret = zfs_shareall(pool);
+				pool_success = 1;
 				zfs_close(pool);
 			}
 		} else if (libzfs_errno(g_zfs) == EZFS_INVALIDNAME) {
 			(void) fprintf(stderr, gettext("pool name may have "
 			    "been omitted\n"));
+		}
+	}
+
+	/* write stamp */
+	if (pool_success == 1) {
+		zpool_handle_t *zhp;
+		nvlist_t *config = NULL, *pool_nv = NULL;
+
+		host_id = gethostid();
+		stamp = malloc(sizeof(zpool_stamp_t));
+		if (stamp != NULL) {
+			if (zhp = zpool_open_canfail(g_zfs, poolname)) {
+				config = zpool_get_config(zhp, NULL);
+				verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+		    			&pool_nv) == 0);
+				bzero(stamp, sizeof(zpool_stamp_t));
+				stamp->para.pool_magic = ZPOOL_MAGIC;
+				stamp->para.pool_current_owener = host_id;
+				stamp->para.pool_real_owener = host_id;
+				stamp->para.pool_progress[0] = ZPOOL_NO_PROGRESS;
+				stamp->para.pool_progress[1] = ZPOOL_NO_PROGRESS;
+				verify(zpool_write_stamp(pool_nv, stamp, SPA_NUM_OF_QUANTUM) != 0);
+				zpool_close(zhp);
+			}
+			free(stamp);
+		} else {
+			syslog(LOG_ERR, "pool create, stamp malloc failed");
 		}
 	}
 
@@ -1987,6 +2032,38 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	uint64_t state;
 	uint64_t version;
 
+#if 1
+	/* write stamp */
+	int error;
+	char buf[256] = {"\0"};
+	int host_id;
+	nvlist_t *nvroot;
+	zpool_stamp_t *stamp;
+
+	stamp = malloc(sizeof(zpool_stamp_t));
+	if (stamp == NULL) {
+		syslog(LOG_ERR, "do import mallco stamp failed");
+		return (1);
+	}
+	bzero(stamp, sizeof(zpool_stamp_t));
+	host_id = gethostid();
+
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	if (!(flags&ZFS_IMPORT_IGNORE_CLUSTER)) {
+		verify (zpool_read_stamp(nvroot, stamp) == 0);
+
+		if (stamp->para.pool_current_owener != host_id) {
+			(void) fprintf(stderr, gettext("cannot import '%s': pool "
+			    "the pool's cid is not this host\n"), name);
+			free(stamp);
+			return (1);
+		}
+	}
+	/* write stamp end */
+#endif
+
 	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
 	    &name) == 0);
 
@@ -2043,7 +2120,12 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		zpool_close(zhp);
 		return (1);
 	}
-
+#if 1
+	stamp->para.pool_current_owener = host_id;
+	stamp->para.pool_magic = ZPOOL_MAGIC;
+	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
+	free(stamp);
+#endif
 	zpool_close(zhp);
 	return (0);
 }
@@ -3340,7 +3422,10 @@ zpool_do_list(int argc, char **argv)
 	static char default_props[] =
 	    "name,size,allocated,free,expandsize,fragmentation,capacity,"
 	    "dedupratio,health,altroot";
-	char *props = default_props;
+	static char default_clus_props[] =
+	    "name,size,allocated,free,expandsize,fragmentation,capacity,"
+	    "dedupratio,health,altroot, clusnodename";
+	char *props = clumgt_flag ? default_clus_props : default_props;
 	unsigned long interval = 0, count = 0;
 	zpool_list_t *list;
 	boolean_t first = B_TRUE;
@@ -4152,7 +4237,6 @@ typedef struct status_cbdata {
 	boolean_t	cb_explain;
 	boolean_t	cb_first;
 	boolean_t	cb_dedup_stats;
-	boolean_t	cb_xml;
 } status_cbdata_t;
 
 /*
@@ -4552,11 +4636,17 @@ status_callback(zpool_handle_t *zhp, void *data)
 	zpool_errata_t errata;
 	const char *health;
 	uint_t c;
+	uint64_t host_id;
+	uint64_t real_id;
+	uint64_t cur_id;
 	vdev_stat_t *vs;
 	zpool_stamp_t *stamp;
 
 	config = zpool_get_config(zhp, NULL);
 	reason = zpool_get_status(zhp, &msgid, &errata);
+
+	stamp = malloc(sizeof(zpool_stamp_t));
+	bzero(stamp, sizeof(zpool_stamp_t));
 
 	cbp->cb_count++;
 
@@ -4588,10 +4678,16 @@ status_callback(zpool_handle_t *zhp, void *data)
 	    (uint64_t **)&vs, &c) == 0);
 	health = zpool_state_to_name(vs->vs_state, vs->vs_aux);
 
+	if (zpool_read_stamp(nvroot, stamp) == 0) {
+		(void) printf(gettext(" real owner: %d\n"), stamp->para.pool_real_owener);
+		(void) printf(gettext(" current owner: %d\n"), stamp->para.pool_current_owener);
+		(void) printf(gettext(" cluster status: %d\n"), stamp->para.pool_progress[(host_id + 1) % 2]);
+	}
+
 	(void) printf(gettext("  pool: %s\n"), zpool_get_name(zhp));
 	(void) printf(gettext(" state: %s\n"), health);
 	
-	if (cbp->cb_xml) {
+	if (cbp->cb_explain) {
 		node = create_pool_node(zhp, zpool_get_name(zhp), nvroot, health,
 		    stamp->para.pool_real_owener, stamp->para.pool_current_owener);
 	}
@@ -4912,7 +5008,6 @@ xmlNodePtr create_xml_file()
 
 }
 
-
 void close_xml_file()
 {
 	xmlChar *xmlbuff;
@@ -4966,7 +5061,6 @@ zpool_do_status(int argc, char **argv)
 			break;
 		case 'x':
 			cb.cb_explain = B_TRUE;
-			cb.cb_xml = B_TRUE;
 			break;
 		case 'D':
 			cb.cb_dedup_stats = B_TRUE;
@@ -4990,17 +5084,18 @@ zpool_do_status(int argc, char **argv)
 		cb.cb_allpools = B_TRUE;
 
 	cb.cb_first = B_TRUE;
-	
-	if (cb.cb_xml && clumgt_flag)
+
+	if (cb.cb_explain && clumgt_flag)
 		need_print_status = B_FALSE;
 
 	for (;;) {
 		if (timestamp_fmt != NODATE)
 			print_timestamp(timestamp_fmt);
-		
-		if (cb.cb_xml)
-			create_xml_file();
+	
 
+		if (cb.cb_explain)
+			create_xml_file();
+		
 		ret = for_each_pool(argc, argv, B_TRUE, NULL,
 		    status_callback, &cb);
 
@@ -5009,7 +5104,8 @@ zpool_do_status(int argc, char **argv)
 		else if (cb.cb_explain && cb.cb_first && cb.cb_allpools)
 			(void) printf(gettext("all pools are healthy\n"));
 
-		if (cb.cb_xml)
+
+		if (cb.cb_explain)
 			close_xml_file();
 		
 		if (ret != 0)
@@ -6269,7 +6365,10 @@ main(int argc, char **argv)
 	libzfs_print_on_error(g_zfs, B_TRUE);
 
 	zfs_save_arguments(argc, argv, history_str, sizeof (history_str));
-
+	
+	if (NULL != getenv("CLUMGT")) {
+		clumgt_flag = B_TRUE;
+	}
 	/*
 	 * Run the appropriate command.
 	 */
@@ -6312,3 +6411,102 @@ main(int argc, char **argv)
 
 	return (ret);
 }
+
+struct cluster_para {
+	boolean_t set_all;
+	uint64_t cid;
+	uint64_t rid;
+	uint64_t progress;
+	char *pool_name;
+};
+
+static int zpool_do_cluster(int argc, char **argv)
+{
+	int c;
+	uint64_t cid;
+	uint64_t rid;
+	uint64_t progress;
+	char *endptr;
+	struct cluster_para para;
+	boolean_t cluster_switch = B_FALSE;
+	uint32_t remote_hostid = 0;
+	bzero(&para, sizeof(struct cluster_para));
+	para.cid = 256;
+	para.rid = 256;
+	while ((c = getopt(argc, argv, ":ac:r:p:s:")) != -1) {
+		switch (c) {
+		case 'a':
+			para.set_all = B_TRUE;;
+			break;
+		case 'c':
+			errno = 0;
+			cid = strtoull(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || (cid != 1 && cid !=2)) {
+				(void) fprintf(stderr,
+				    gettext("invalid cid value\n"));
+			}
+			para.cid = cid;
+			break;
+		case 'r':
+			errno = 0;
+			rid = strtoull(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("invalid rid value\n"));
+			}
+			para.rid = rid;
+			break;
+		case 'p':
+			errno = 0;
+			progress = strtoull(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || 
+			    (progress != ZPOOL_ON_PROGRESS && progress != ZPOOL_NO_PROGRESS &&
+			    progress != ZPOOL_INIT_PROGRESS) ) {
+				(void) fprintf(stderr,
+				    gettext("invalid rid value\n"));
+			}
+			para.progress = progress;
+			break;
+		case 's':
+			cluster_switch  = B_TRUE;
+			errno = 0;
+			remote_hostid = strtoul(optarg, &endptr, 10);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("invalid hostid value\n"));
+				usage(B_FALSE);
+			}
+			break;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+	if (para.set_all) {
+		if (argc != 0) {
+			(void) fprintf(stderr, gettext("too many arguments \n"));
+			usage(B_FALSE);
+		}
+	} else {
+		if (argc > 2) {
+			(void) fprintf(stderr, gettext("too many arguments \n"));
+			usage(B_FALSE);
+		}
+		if (argc == 0 && !priv_ineffect(PRIV_SYS_CONFIG)) {
+			(void) fprintf(stderr, gettext("cannot "
+			    "set  pools: permission denied\n"));
+			return (1);
+		}
+	}
+	if (argc != 0) {
+		char *endptr;
+		uint64_t searchguid;
+		errno = 0;
+		searchguid = strtoull(argv[0], &endptr, 10);
+		if (errno != 0 || *endptr != '\0')
+			para.pool_name = argv[0];
+	}
+	zpool_cluster_set_disks(g_zfs, para.pool_name, para.cid, para.rid,
+		para.progress, cluster_switch, remote_hostid);
+	return (0);
+}
+
