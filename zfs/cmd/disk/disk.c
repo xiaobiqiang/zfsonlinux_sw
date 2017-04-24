@@ -18,12 +18,15 @@
 #include <ctype.h>
 #include <disklist.h>
 #include <slices.h>
-
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 #include <sys/vfs.h>
 #include <sys/stat.h>
 #include <scsi/sg.h>
 #include <linux/ioctl.h>
 #include <linux/hdreg.h>
+
+
 
 /*
  * linux disk info interface
@@ -53,6 +56,11 @@ typedef struct disk_info {
 	long	dk_blocks;
 } disk_info_t;
 
+static xmlNodePtr create_xml_file();
+static void close_xml_file();
+static void create_lun_node(disk_info_t *di);
+
+	
 static void
 get_scsi_gsize(uint64_t blocks)
 {
@@ -230,6 +238,7 @@ int list_disks()
 
 	FILE *fd = fopen(DEFAULT_DISK_INFO_PATH, "r");
 	if (fd > 0) {
+		create_xml_file();
 		while (fgets(line, sizeof(line), fd)) {
 			if (line[0] == '\n' || line[0] == '\r')
 				continue;
@@ -244,12 +253,14 @@ int list_disks()
 				if (get_scsi_vendor(&di) && get_scsi_serial(&di) &&
 						get_scsi_pool(&di)) {
 					print_info(&di, count);
+					create_lun_node(&di);
 					count++;
 				}
 			} else if (strncmp(name, "hd", 2) == 0) {
 			} else {
 			}
 		}
+		close_xml_file();
 	} else {
 		printf("open <%s> fail!\n", DEFAULT_DISK_INFO_PATH);
 	}
@@ -296,10 +307,8 @@ int list_disks()
 /*
  *  Forward declarations
  */
-#if 0
 static xmlDocPtr disk_doc;
 static xmlNodePtr disk_root_node;
-#endif
 int disk_list_slices(slice_req_t *, int);
 int disk_init(slice_req_t *);
 int disk_restore_init(slice_req_t *);
@@ -1180,8 +1189,8 @@ QSORT:
 		qsort((caddr_t)luns, tot_luns, sizeof(dmg_lun_t), lun_sort_compare);
 	}
 }
-#if 0
-static xmlNodePtr create_xml_file()
+
+static xmlNodePtr create_xml_file(void)
 {
 	xmlDocPtr doc = xmlNewDoc((xmlChar *)"1.0");
 	xmlNodePtr root_node = xmlNewNode(NULL, (xmlChar *)"luns");
@@ -1192,7 +1201,7 @@ static xmlNodePtr create_xml_file()
 	return (root_node);
 }
 
-static void close_xml_file()
+static void close_xml_file(void)
 {
 	   xmlChar *xmlbuff;
 	  int buffersize;
@@ -1201,62 +1210,64 @@ static void close_xml_file()
 	  xmlSaveFormatFileEnc(DISK_XML_PATH, disk_doc, "UTF-8", 1);
 	  xmlFreeDoc(disk_doc);
 }
-#endif
 
-static void  create_lun_node(dmg_lun_t *luns)
+
+
+static void  create_lun_node(disk_info_t *di)
 {
-#if 0
-		int i;
-		char buf[256];
-		xmlNodePtr node, name_node, size_node, blksize_node, status_node,
-			vendorid_node, prodid_node, enid_node, slotid_node, rpm_node, 
-			saswwid_node;
-		xmlNodePtr mpathinfoNode, portNode; 
-			
-		 node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
-		 
-		 name_node=xmlNewChild(node, NULL, (xmlChar *)"name", NULL);
-		 xmlNodeSetContent(name_node, (xmlChar *)luns->name);
+	char buf[256];
+	xmlNodePtr node, name_node,  blksize_node, status_node,
+		vendorid_node, enid_node, slotid_node;
 
-		  saswwid_node =xmlNewChild(node, NULL, (xmlChar *)"sas_wwid", NULL);
-		 sprintf(buf, "%llx", luns->sas_wwn);
-		 xmlNodeSetContent(saswwid_node, (xmlChar *)buf);
-		 memset(buf, 0, 256);
-		 
-		 size_node=xmlNewChild(node, NULL, (xmlChar *)"size", NULL);
-		 sprintf(buf, "%lld", luns->blocks);
-		 xmlNodeSetContent(size_node, (xmlChar *)buf);
-		 memset(buf, 0, 256);
-		  
-		blksize_node=xmlNewChild(node, NULL,  (xmlChar *)"blksize", NULL);
-		sprintf(buf, "%d", luns->bytes_per_block);
-		xmlNodeSetContent(blksize_node, (xmlChar *)buf);
-		memset(buf, 0, 256);
-		  
-		status_node=xmlNewChild(node, NULL, (xmlChar *)"status", NULL);
-		xmlNodeSetContent(status_node, (xmlChar *)luns->status);
-		
-		vendorid_node=xmlNewChild(node, NULL, (xmlChar *)"prodid", NULL);
-		xmlNodeSetContent(vendorid_node, (xmlChar *)luns->vendor);
-		
-		prodid_node=xmlNewChild(node, NULL,  (xmlChar *)"vendorid", NULL);
-		xmlNodeSetContent(prodid_node, (xmlChar *)luns->model);
+	node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
 
-		enid_node=xmlNewChild(node, NULL, (xmlChar *)"enid", NULL);
-		sprintf(buf, "%lld", luns->en_no);
-		xmlNodeSetContent(enid_node, (xmlChar *)buf);
-		 memset(buf, 0, 256);
-		  
-		slotid_node=xmlNewChild(node,NULL,  (xmlChar *)"slotid", NULL);
-		sprintf(buf, "%lld", luns->lun_no);
-		xmlNodeSetContent(slotid_node, (xmlChar *)buf);
-		 memset(buf, 0, 256);
+	name_node=xmlNewChild(node, NULL, (xmlChar *)"name", NULL);
+	xmlNodeSetContent(name_node, (xmlChar *)di->dk_name);
+/*
+	saswwid_node =xmlNewChild(node, NULL, (xmlChar *)"sas_wwid", NULL);
+	sprintf(buf, "%llx", luns->sas_wwn);
+	xmlNodeSetContent(saswwid_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
 
-		 rpm_node=xmlNewChild(node,NULL,  (xmlChar *)"rpm", NULL);
-		sprintf(buf, "%d", luns->rpm);
-		xmlNodeSetContent(rpm_node, (xmlChar *)buf);
-		 memset(buf, 0, 256);
-#endif
+	size_node=xmlNewChild(node, NULL, (xmlChar *)"size", NULL);
+	sprintf(buf, "%lld", luns->blocks);
+	xmlNodeSetContent(size_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+*/
+	blksize_node=xmlNewChild(node, NULL,  (xmlChar *)"blksize", NULL);
+	sprintf(buf, "%ld", di->dk_blocks);
+	xmlNodeSetContent(blksize_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+
+	status_node=xmlNewChild(node, NULL, (xmlChar *)"status", NULL);
+	xmlNodeSetContent(status_node, (xmlChar *)di->dk_busy);
+
+	vendorid_node=xmlNewChild(node, NULL, (xmlChar *)"vendor", NULL);
+	xmlNodeSetContent(vendorid_node, (xmlChar *)di->dk_vendor);
+
+	
+	vendorid_node=xmlNewChild(node, NULL, (xmlChar *)"serial", NULL);
+	xmlNodeSetContent(vendorid_node, (xmlChar *)di->dk_serial);
+	
+/*
+	prodid_node=xmlNewChild(node, NULL,  (xmlChar *)"vendorid", NULL);
+	xmlNodeSetContent(prodid_node, (xmlChar *)luns->model);
+*/
+	enid_node=xmlNewChild(node, NULL, (xmlChar *)"major", NULL);
+	sprintf(buf, "%d", di->dk_major);
+	xmlNodeSetContent(enid_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+
+	slotid_node=xmlNewChild(node,NULL,  (xmlChar *)"minor", NULL);
+	sprintf(buf, "%d", di->dk_minor);
+	xmlNodeSetContent(slotid_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+/*
+	rpm_node=xmlNewChild(node,NULL,  (xmlChar *)"rpm", NULL);
+	sprintf(buf, "%d", luns->rpm);
+	xmlNodeSetContent(rpm_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+*/
 }
 
 #if 0
@@ -1424,10 +1435,7 @@ print_slices(char *diskname, dmg_map_t map, dmg_lun_t *lun)
 int
 disk_init(slice_req_t *req)
 {
-	int ii, status, fd, len=0;
-	dmg_map_t map;
-	int ret;
-	char buffer[256] = {"\0"};
+	int status;
 	zpool_stamp_t *stamp = NULL;
 	zpool_stamp_t *stamp_tmp = NULL;
 	

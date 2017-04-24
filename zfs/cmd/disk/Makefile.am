@@ -3,7 +3,8 @@ include $(top_srcdir)/config/Rules.am
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
 	-I$(top_srcdir)/lib/libspl/include \
-	-I$(top_srcdir)/lib/libdiskmgt/include
+	-I$(top_srcdir)/lib/libdiskmgt/include \
+	-I/usr/include/libxml2
 
 sbin_PROGRAMS = disk
 
@@ -18,5 +19,5 @@ disk_LDADD = \
 	$(top_builddir)/lib/libdiskmgt/libdiskmgt.la \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la
 
-disk_LDADD += $(ZLIB)
+disk_LDADD += $(ZLIB) -lxml2
 disk_LDFLAGS = -pthread
