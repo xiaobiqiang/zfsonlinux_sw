@@ -288,6 +288,9 @@ zpool_get_prop_literal(zpool_handle_t *zhp, zpool_prop_t prop, char *buf,
 				return (0);
 			}
 			/* FALLTHROUGH */
+		case ZPOOL_PROP_CLUSTER_NODE_NAME:
+			get_clusnodename(buf, len);
+			return (0);
 		default:
 			(void) strlcpy(buf, "-", len);
 			break;
@@ -304,8 +307,12 @@ zpool_get_prop_literal(zpool_handle_t *zhp, zpool_prop_t prop, char *buf,
 
 	switch (zpool_prop_get_type(prop)) {
 	case PROP_TYPE_STRING:
-		(void) strlcpy(buf, zpool_get_prop_string(zhp, prop, &src),
-		    len);
+		if (ZPOOL_PROP_CLUSTER_NODE_NAME == prop) {
+			get_clusnodename(buf, len);			
+		} else {
+			(void) strlcpy(buf, zpool_get_prop_string(zhp, prop, &src),
+			    len);
+		}
 		break;
 
 	case PROP_TYPE_NUMBER:

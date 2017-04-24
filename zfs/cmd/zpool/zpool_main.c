@@ -105,9 +105,6 @@ static int zpool_do_set(int, char **);
 
 static int zpool_do_cluster(int argc, char **argv);
 
-static uint_t clumgt_flag = B_FALSE;
-static int need_print_status = B_TRUE;
-
 xmlDocPtr pool_doc;
 xmlNodePtr pool_root_node;
 /*
@@ -4654,7 +4651,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 	 * If we were given 'zpool status -x', only report those pools with
 	 * problems.
 	 */
-	if (cbp->cb_explain &&
+	/*if (cbp->cb_explain &&
 	    (reason == ZPOOL_STATUS_OK ||
 	    reason == ZPOOL_STATUS_VERSION_OLDER ||
 	    reason == ZPOOL_STATUS_FEAT_DISABLED)) {
@@ -4665,7 +4662,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 				cbp->cb_first = B_FALSE;
 		}
 		return (0);
-	}
+	}*/
 
 	if (cbp->cb_first)
 		cbp->cb_first = B_FALSE;
