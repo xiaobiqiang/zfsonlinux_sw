@@ -44,6 +44,10 @@
 #endif
 #include <sys/spa_impl.h>
 #include <sys/cluster_san.h>
+/*#include <sys/cn_hbx.h>*/
+/*#include <sys/timer.h>*/
+
+extern int cn_hbx_msg_send(const char *buf, size_t len);
 
 static zfs_hbx_t zfs_hbx = {B_FALSE, };
 static hb_event_list_t hb_para;
@@ -606,10 +610,18 @@ zfs_hbx_send(int hostid, void *data, uint64_t len, enum hbx_event_type event,
 {
 	cluster_san_hostinfo_t *cshi;
 	zfs_hbx_msg_header_t msg_header;
+	unsigned long myhostid;
 	int ret = 0;
 
-	if (hostid == 0)
-		hostid = cluster_get_failover_hostid();
+	if (hostid == 0) {
+		/*hostid = cluster_get_failover_hostid();*/
+#ifdef	_KERNEL
+		myhostid = zone_get_hostid(NULL);
+#else	/* _KERNEL */
+		(void) ddi_strtoul(hw_serial, NULL, 10, &myhostid);
+#endif	/* _KERNEL */
+		hostid = (myhostid % 2) + 1;
+	}
 	cshi = cluster_remote_hostinfo_hold(hostid);
 	if (cshi == NULL) {
 		cmn_err(CE_WARN, "%s: Can't find host %d in cluster",
@@ -1065,7 +1077,7 @@ zfs_hbx_init(void)
 	zfs_hbx.hb_host_id = zone_get_hostid(NULL);
 	zfs_hbx.hb_initialized = B_TRUE;
 	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_ZFS_HBX, zfs_hbx_rx_cb, NULL);
-	
+
 	return (0);
 }
 
@@ -1132,4 +1144,3 @@ zfs_hbx_poweron_host(uint32_t hostid)
 }
 
 #endif/* #ifdef _KERNEL */
-

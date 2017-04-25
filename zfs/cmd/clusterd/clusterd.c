@@ -43,7 +43,7 @@
 #include <sys/zfs_ioctl.h>
 /*#include <rpcsvc/daemon_utils.h>*/
 /*#include <inet/ip.h>*/
-#include <net/if.h>
+/*#include <net/if.h>*/
 /*#include <sys/sockio.h>*/
 #include <time.h>
 #include <stropts.h>
@@ -318,7 +318,7 @@ typedef struct mac_state_param {
 	int flag;
 	int mac_num;
 	char mac_list[MAX_MAC_STATE_REQ_NUM][MAXLINKNAMELEN];
-	/*link_state_t linkstate[MAX_MAC_STATE_REQ_NUM];*/
+	unsigned linkstate[MAX_MAC_STATE_REQ_NUM];
 } mac_state_param_t;
 
 int clusterd_old_ip_failover_enable = 0;
@@ -1870,7 +1870,6 @@ cluster_change_pool_owner(char *buf, size_t buflen)
 	uint32_t hostid;
 	char *spa_name;
 	char cmd[256] = {"\0"};
-	libzfs_handle_t *hdl;
 	int ret;
 
 	ret = nvlist_unpack(buf, buflen, &ripool, KM_SLEEP);
@@ -2151,54 +2150,26 @@ clear_remote_mac_state_response_timer(void)
 	return (0);
 }
 
-#if	0
-static link_state_t
-cluster_link_state(char *link)
+static unsigned
+cluster_link_state(const char *link)
 {
-	kstat_ctl_t	*kcp;
-	kstat_t		*ksp;
-	link_state_t linkstate;
-	int rv;
-	int redone = 0;
+	unsigned linkstate = ils_unknown;
+	struct ifs_chain *ifs;
+	struct ifs_node *ifn;
 
-redo:
-	if ((kcp = kstat_open()) == NULL) {
-		syslog(LOG_ERR, "kstat open operation failed");
-		return (LINK_STATE_UNKNOWN);
-	}
+	if ((ifs = get_all_ifs()) == NULL)
+		return (linkstate);
 
-	if ((ksp = kstat_lookup(kcp, "link", 0, link)) == NULL) {
-		/*
-		 * The kstat query could fail if the underlying MAC
-		 * driver was already detached.
-		 */
-		syslog(LOG_ERR, "kstat query failed");
-		kstat_close(kcp);
-		return (LINK_STATE_UNKNOWN);
-	}
-
-	if (kstat_read(kcp, ksp, NULL) == -1) {
-		syslog(LOG_ERR, "kstat read failed");
-		kstat_close(kcp);
-		return (LINK_STATE_UNKNOWN);
-	}
-
-	if (dladm_kstat_value(ksp, "link_state", KSTAT_DATA_UINT32, &linkstate) < 0)
-		syslog(LOG_ERR, "dladm_kstat_value error");
-	else if (linkstate == LINK_STATE_UNKNOWN && !redone) {
-		redone = 1;
-		rv = ifplumb(link, link, AF_INET);
-		if (rv != -1) {
-			kstat_close(kcp);
-			sleep(2);
-			goto redo;
+	for (ifn = ifs->head; ifn; ifn = ifn->next) {
+		if (strncmp(ifn->link, link, IFNAMSIZ) == 0) {
+			linkstate = ifn->state;
+			break;
 		}
 	}
 
-	kstat_close(kcp);
+	free_ifs_chain(ifs);
 	return (linkstate);
 }
-#endif
 
 static int __pre_release_zpool(service_zpool_t *zp, 
 	struct link_list **eth_list, struct link_list **zpool_list);
@@ -2208,7 +2179,7 @@ __pre_release_ip(service_if_t *ifp, struct link_list **eth_list,
 	struct link_list **zpool_list)
 {
 	struct link_list *p, **pp, *node;
-	int cmp;
+	int cmp = 0;
 	char *eth;
 
 	if (!ifp->flag) {
@@ -2358,58 +2329,11 @@ zpool_iter_cb(zpool_handle_t *zhp, void *data)
 static void
 req_remote_mac_state(const char *mac_name)
 {
-#if	0
 	service_if_t *ifp;
 	struct link_list *eth_list = NULL, *zpool_list = NULL;
 	struct link_list *p;
 	mac_state_param_t request;
-	int i, reenter = 0, err;
-	libzfs_handle_t *hdl;
-
-	if (clusterd_old_ip_failover_enable) {
-		struct link_list	*node, **list;
-		zpool_iter_data_t	*pool;
-		char	*name;
-
-		list = &cf_conf.todo_release_zpool;
-		*list = NULL;
-
-		zpool_list = cluster_get_local_pools();
-		for (p = zpool_list; p; p = p->next) {
-			pool = (zpool_iter_data_t *) p->ptr;
-			name = strdup(pool->poolname);
-			if (name == NULL)
-				break;
-
-			node = create_link(name);
-			if (node == NULL) {
-				free(name);
-				break;
-			}
-			node->next = *list;
-			*list = node;
-		}
-
-		if (zpool_list != NULL && p != NULL) {
-			free_link_list(cf_conf.todo_release_zpool, 1);
-			cf_conf.todo_release_zpool = NULL;
-		}
-
-		if (cf_conf.todo_release_zpool == NULL) {
-			syslog(LOG_WARNING, "there is no pool");
-			return;
-		}
-
-		request.flag = FLAG_MAC_STATE_GET_REMOTE;
-		strlcpy(request.mac_list[0], mac_name, MAXLINKNAMELEN);
-		request.mac_num = 1;
-		hbx_do_cluster_cmd((char *)&request, 
-				sizeof(mac_state_param_t), ZFS_HBX_MAC_STAT);
-
-		cf_conf.wait_resp = 1;
-		set_remote_mac_state_response_timer();
-		return;
-	}
+	int i, reenter = 0;
 
 	pthread_mutex_lock(&failover_list_lock);
 	for (ifp = list_head(&failover_ip_list); 
@@ -2443,13 +2367,13 @@ req_remote_mac_state(const char *mac_name)
 		free_link_list(eth_list, 1);
 	if (zpool_list)
 		free_link_list(zpool_list, 1);
-#endif
 }
 
 static int
 cluster_failover_conf_handler(int flag, const void *data)
 {
-#if	0
+	syslog(LOG_WARNING, "%s(%d, %s)", __func__, flag, (char *)data);
+
 	pthread_mutex_lock(&cf_conf.lock);
 	switch (flag) {
 	case FLAG_CF_MAC_OFFLINE:
@@ -2488,9 +2412,8 @@ cluster_failover_conf_handler(int flag, const void *data)
 	}
 	case FLAG_CF_RESPONSE:
 	{
-		char cmd[256];
 		struct link_list *p;
-		mac_state_param_t *msp, request;
+		mac_state_param_t *msp;
 		int i;
 		release_pools_message_t rmsg;
 		char *buf;
@@ -2501,18 +2424,13 @@ cluster_failover_conf_handler(int flag, const void *data)
 			msp = (mac_state_param_t *) data;
 
 			for (i = 0; i < msp->mac_num; i++) {
-				if (msp->linkstate[i] != LINK_STATE_UP) {
+				if (msp->linkstate[i] != ils_up) {
 					syslog(LOG_WARNING, "remote link %s state: %d",
 						msp->mac_list[i], msp->linkstate[i]);
 					break;
 				}
 			}
 			if (i > 0 && i == msp->mac_num) {
-				if (clusterd_old_ip_failover_enable) {
-					cluster_task_app_release();
-					excute_cmd("hanet -R");
-				}
-
 				rmsg.remote_id = 0;
 				rmsg.pools_num = 0;
 				for (p = cf_conf.todo_release_zpool; p; p = p->next) {
@@ -2528,12 +2446,6 @@ cluster_failover_conf_handler(int flag, const void *data)
 					handle_release_message_common(&rmsg);
 				for (i = 0; i < rmsg.pools_num; i++)
 					free(rmsg.pools_list[i]);
-
-				if (clusterd_old_ip_failover_enable) {
-					request.flag = FLAG_MAC_STATE_IP_RELEASED;
-					hbx_do_cluster_cmd((char *)&request, 
-						sizeof(mac_state_param_t), ZFS_HBX_MAC_STAT);
-				}
 			}
 
 			free_link_list(cf_conf.todo_release_zpool, 1);
@@ -2579,7 +2491,6 @@ cluster_failover_conf_handler(int flag, const void *data)
 		break;
 	}
 	pthread_mutex_unlock(&cf_conf.lock);
-#endif
 	return (0);
 }
 
@@ -2896,7 +2807,7 @@ cluster_task_wait_event(void)
 		case EVT_REMOTE_HOST_UP:
 			hostid = *((uint32_t *)event->data);
 			syslog(LOG_ERR, "cluster event remote host:%d up", hostid);
-			/* cluster_failover_conf_handler(FLAG_CF_REMOTE_UP, NULL); */
+			cluster_failover_conf_handler(FLAG_CF_REMOTE_UP, NULL);
 			hbx_do_cluster_cmd(event->data, event->size, ZFS_HBX_SYNC_POOL);
 			/*cluster_task_pool_scan();*/
 			cluster_remote_hbx_recover(hostid);
@@ -2905,7 +2816,7 @@ cluster_task_wait_event(void)
 		case EVT_REMOTE_HOST_DOWN:
 			hostid = *((uint32_t *)event->data);
 			syslog(LOG_ERR, "cluster event remote host:%d down", hostid);
-			/* cluster_failover_conf_handler(FLAG_CF_REMOTE_DOWN, NULL); */
+			cluster_failover_conf_handler(FLAG_CF_REMOTE_DOWN, NULL);
 			cluster_remote_hbx_timeout(hostid);
 			break;
 
@@ -2934,7 +2845,6 @@ cluster_task_wait_event(void)
 			}
 			break;
 		case EVT_MAC_STATE: {
-#if	0
 			mac_state_param_t mac_state, *msp;
 			int i;
 			
@@ -2948,22 +2858,21 @@ cluster_task_wait_event(void)
 					mac_state.flag = FLAG_MAC_STATE_REMOTE_STATE;
 					mac_state.mac_num = msp->mac_num;
 					for (i = 0; i < msp->mac_num; i++) {
-						if (cluster_link_state(msp->mac_list[i]) != LINK_STATE_UP) {
+						if (cluster_link_state(msp->mac_list[i]) != ils_up) {
 							syslog(LOG_WARNING, "link %s dwon", msp->mac_list[i]);
 							mac_state.mac_num = 0;
 							break;
 						}
 						strlcpy(mac_state.mac_list[i], msp->mac_list[i], MAXLINKNAMELEN);
-						mac_state.linkstate[i] = LINK_STATE_UP;
+						mac_state.linkstate[i] = ils_up;
 					}
 					hbx_do_cluster_cmd((char *)&mac_state, 
 						sizeof(mac_state_param_t), ZFS_HBX_MAC_STAT);
 				} else if (msp->flag == FLAG_MAC_STATE_IP_RELEASED) {
 					/* remote released the IPs, we do ip failover now */
-					cluster_task_app_failover();
+					/* old ip failover */
 				}
 			}
-#endif
 			break;
 		}
 		case EVT_MAC_OFFLINE:
@@ -5088,63 +4997,6 @@ check_ip_exist(int af, const char *eth, const char *ip)
 	return (0);
 }
 
-static int
-check_ip_enable(int af, const char *if_name, const char *ip_addr,
-	char *ret_if, size_t ifsize)
-{
-#if	0
-	char *buf;
-	unsigned buflen;
-	int n;
-	struct lifreq *lifrp;
-	char ipaddr[INET6_ADDRSTRLEN];
-	struct sockaddr_storage *ss;
-	const char *p;
-
-	if ((n = get_all_ifs(&buf, &buflen)) <= 0)
-		return (-1);
-	lifrp = (struct lifreq *)buf;
-	for (; n > 0; n--, lifrp++) {
-		ss = &(lifrp->lifr_addr);
-		if ((af != AF_UNSPEC) && (ss->ss_family != af))
-			continue;
-		p = strchr(lifrp->lifr_name, ':');
-		if ((if_name != NULL) &&
-			(strncmp(lifrp->lifr_name, if_name, 
-			p ? p - lifrp->lifr_name : strlen(lifrp->lifr_name)) != 0))
-			continue;
-		if (ss->ss_family == AF_INET) {
-			p = inet_ntop(AF_INET, &(((struct sockaddr_in *)ss)->sin_addr), 
-					ipaddr, INET_ADDRSTRLEN);
-		} else if (ss->ss_family == AF_INET6) {
-			p = inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)ss)->sin6_addr), 
-					ipaddr, INET6_ADDRSTRLEN);
-		} else {
-			syslog(LOG_ERR, "Unsupported protocol: %d", ss->ss_family);
-			continue;
-		}
-		if (p == NULL) {
-			syslog(LOG_ERR, "inet_ntop error: %d", errno);
-			continue;
-		}
-		if (strncmp(ip_addr, ipaddr, INET6_ADDRSTRLEN) == 0) {
-			if (ret_if != NULL)
-				strlcpy(ret_if, lifrp->lifr_name, ifsize);
-			if (get_if_flags(lifrp) < 0)
-				continue;
-			if (lifrp->lifr_flags & IFF_UP) {
-				free(buf);
-				return (1);
-			}
-		}
-	}
-	free(buf);
-	return (0);
-#else
-	return (1);
-#endif
-}
-
 /*
  * return 1 if ip up, return 0 if ip down, otherwise return -1
  */
@@ -5245,6 +5097,11 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 		}
 	}
 
+	if ((err = add_monitor_ifs(conf->eth)) != 0) {
+		syslog(LOG_WARNING, "add_monitor_ifs() failed: %s",
+			strerror(-err));
+	}
+
 	ifp = (service_if_t *) malloc(sizeof(service_if_t));
 	if (ifp == NULL) {
 		syslog(LOG_ERR, "alloc service_if_t failed");
@@ -5306,6 +5163,20 @@ exit_func:
 	return (err);
 }
 
+static void
+remove_monitor_dev(const char *dev)
+{
+	service_if_t *ifp;
+
+	for (ifp = list_head(&failover_ip_list); 
+			ifp; 
+			ifp = list_next(&failover_ip_list, ifp)) {
+		if (strncmp(ifp->eth, dev, MAXLINKNAMELEN) == 0)
+			return;
+	}
+	remove_monitor_ifs(dev);
+}
+
 static int 
 do_ip_restore(failover_conf_t *conf)
 {
@@ -5341,9 +5212,11 @@ do_ip_restore(failover_conf_t *conf)
 					conf->eth);
 				if ((err = excute_ifconfig(cmd)) != 0) {
 					syslog(LOG_ERR, "removeif error - %d", err);
+#if	0
 					ifp->refs++;
 					pthread_mutex_unlock(&failover_list_lock);
 					return (-1);
+#endif
 				}
 			}
 			if (ifp->zpool_list == NULL) {
@@ -5351,6 +5224,8 @@ do_ip_restore(failover_conf_t *conf)
 				list_remove(&failover_ip_list, ifp);
 				free(ifp);
 				ifp = tmp;
+
+				remove_monitor_dev(conf->eth);
 			}
 			goto update_zpool;
 		}
@@ -5387,6 +5262,161 @@ update_zpool:
 	return (0);
 }
 
+struct cluster_link_down_timer {
+	struct cluster_link_down_timer *next;
+	char linkname[IFNAMSIZ];
+	int expired;
+	int cancel;
+
+	pthread_t tid;
+	pthread_mutex_t lock;
+	pthread_cond_t cv;
+};
+
+static struct cluster_link_down_timer *cluster_link_down_timers = NULL;
+static pthread_mutex_t cluster_link_down_timers_lock;
+static int cluster_link_down_timeout = 60;	/* seconds */
+
+static void
+cluster_link_down_timer_free(pthread_t tid)
+{
+	struct cluster_link_down_timer *p, **pp;
+
+	pthread_mutex_lock(&cluster_link_down_timers_lock);
+	for (pp = &cluster_link_down_timers; *pp; pp = &(*pp)->next) {
+		p = *pp;
+ 		if (p->tid == tid) {
+			pthread_cond_destroy(&p->cv);
+			pthread_mutex_destroy(&p->lock);
+			*pp = p->next;
+			free(p);
+			break;
+		}
+	}
+	pthread_mutex_unlock(&cluster_link_down_timers_lock);
+}
+
+static void *
+cluster_link_down_timer_thread(void *arg)
+{
+	struct cluster_link_down_timer *p;
+	pthread_t tid;
+	timespec_t ts;
+	int err;
+
+	tid = pthread_self();
+	pthread_detach(tid);
+
+	pthread_mutex_lock(&cluster_link_down_timers_lock);
+	for (p = cluster_link_down_timers; p; p = p->next) {
+		if (p->tid == tid)
+			break;
+	}
+	pthread_mutex_unlock(&cluster_link_down_timers_lock);
+ 	if (!p) return (NULL);
+
+	pthread_mutex_lock(&p->lock);
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += cluster_link_down_timeout;
+	while (p->cancel == 0) {
+		err = pthread_cond_timedwait(&p->cv, &p->lock, &ts);
+		if (err == ETIMEDOUT)
+			break;
+	}
+	if (p->cancel == 0)
+		cluster_failover_conf_handler(FLAG_CF_MAC_OFFLINE, p->linkname);
+	p->expired = 1;
+	pthread_mutex_unlock(&p->lock);
+
+	cluster_link_down_timer_free(tid);
+
+	return (NULL);
+}
+
+static int
+cluster_link_down_timer_add(const char *linkname)
+{
+	struct cluster_link_down_timer *p;
+
+	pthread_mutex_lock(&cluster_link_down_timers_lock);
+
+	for (p = cluster_link_down_timers; p; p = p->next) {
+		if (strncmp(p->linkname, linkname, IFNAMSIZ) == 0) {
+			syslog(LOG_ERR, "%s: link %s is exists", __func__, linkname);
+			pthread_mutex_unlock(&cluster_link_down_timers_lock);
+			return (-1);
+		}
+	}
+
+	p = malloc(sizeof(struct cluster_link_down_timer));
+	if (!p) {
+		syslog(LOG_ERR, "%s: out of memory", __func__);
+		pthread_mutex_unlock(&cluster_link_down_timers_lock);
+		return (-1);
+	}
+
+	memset(p, 0, sizeof(struct cluster_link_down_timer));
+	strncpy(p->linkname, linkname, IFNAMSIZ);
+
+	pthread_mutex_init(&p->lock, NULL);
+	pthread_cond_init(&p->cv, NULL);
+	if (pthread_create(&p->tid, NULL,
+		&cluster_link_down_timer_thread, NULL) != 0) {
+		syslog(LOG_ERR, "%s: create thread failed - %d", __func__, errno);
+		free(p);
+		pthread_mutex_unlock(&cluster_link_down_timers_lock);
+		return (-1);
+	}
+
+	p->next = cluster_link_down_timers;
+	cluster_link_down_timers = p;
+
+	pthread_mutex_unlock(&cluster_link_down_timers_lock);
+	return (0);
+}
+
+static int
+cluster_link_down_timer_del(const char *linkname)
+{
+	struct cluster_link_down_timer *p;
+
+	pthread_mutex_lock(&cluster_link_down_timers_lock);
+	for (p = cluster_link_down_timers; p; p = p->next) {
+		if (strncmp(p->linkname, linkname, IFNAMSIZ) == 0) {
+			pthread_mutex_lock(&p->lock);
+			p->cancel = 1;
+			pthread_cond_signal(&p->cv);
+			pthread_mutex_unlock(&p->lock);
+
+			pthread_mutex_unlock(&cluster_link_down_timers_lock);
+			return (0);
+		}
+	}
+	pthread_mutex_unlock(&cluster_link_down_timers_lock);
+
+	return (-1);
+}
+
+static void
+cluster_monitor_dev_state_change(const char *dev,
+	unsigned state, unsigned oldstate)
+{
+	syslog(LOG_WARNING, "%s: dev=%s, state=%d, oldstate=%d",
+		__func__, dev, state, oldstate);
+	if (state == ils_down && oldstate != ils_down)
+		cluster_link_down_timer_add(dev);
+	else if (state == ils_up && oldstate != ils_up)
+		cluster_link_down_timer_del(dev);
+}
+
+static void
+init_cluster_link_down_timer(void)
+{
+	pthread_mutex_init(&cluster_link_down_timers_lock, NULL);
+	init_monitor_ifs(&cluster_monitor_dev_state_change);
+}
+
+#if	0
 static int
 pack_mq_release_pools_message(release_pools_message_t *r_msg,
 	cluster_mq_message_t *mq_msg)
@@ -5412,6 +5442,7 @@ pack_mq_release_pools_message(release_pools_message_t *r_msg,
 	mq_msg->msgtype = cluster_msgtype_release;
 	return (0);
 }
+#endif
 
 static int
 unpack_mq_release_pools_message(cluster_mq_message_t *mq_msg,
@@ -6004,7 +6035,7 @@ handle_mq_notify(union sigval sv)
 	struct mq_attr attr;
 	ssize_t nr;
 	void *buf;
-	mqd_t mqdes = (mqd_t)sv.sival_ptr;
+	mqd_t mqdes = *((mqd_t *) sv.sival_ptr);
 	pthread_t tid;
 	struct mq_message_args *arg;
 
@@ -6046,10 +6077,11 @@ handle_mq_notify(union sigval sv)
 	}
 }
 
+static mqd_t mqd;
+
 static int 
 initialize_cluster_mqueue(void)
 {
-	mqd_t mqd;
 	struct mq_attr attr;
 	struct sigevent sev;
 
@@ -6073,7 +6105,7 @@ initialize_cluster_mqueue(void)
 	sev.sigev_notify = SIGEV_THREAD;
    	sev.sigev_notify_function = handle_mq_notify;
    	sev.sigev_notify_attributes = NULL;
-   	sev.sigev_value.sival_ptr = (void *)mqd;	 /* Arg. to thread func. */
+   	sev.sigev_value.sival_ptr = &mqd;	 /* Arg. to thread func. */
    	if (mq_notify(mqd, &sev) == -1) {
 		syslog(LOG_ERR, "mq_notify error: %d", errno);
 		return (errno);
@@ -6217,6 +6249,12 @@ main(int argc, char *argv[])
 				}
 			}
 		}
+		if ((defval = defread("LINK_DOWN_TIMEOUT=")) != NULL) {
+			errno = 0;
+			cluster_link_down_timeout = strtol(defval, (char **)NULL, 10);
+			if (errno != 0)
+				syslog(LOG_ERR, "Invalid LINK_DOWN_TIMEOUT=");
+		}
 
 		defopen(NULL);
 	}
@@ -6285,6 +6323,7 @@ main(int argc, char *argv[])
 	pthread_mutex_init(&cluster_import_replicas_lock, NULL);
 	pthread_cond_init(&cluster_import_replicas_cv, NULL);
 
+	init_cluster_link_down_timer();
 	init_shielding_failover_poollist();
 
 	error = initialize_cluster_mqueue();

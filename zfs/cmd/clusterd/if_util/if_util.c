@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
-#include <net/if.h>
+#include <pthread.h>
 #include <string.h>
 #include <errno.h>
 
@@ -175,6 +175,9 @@ static int store_linkinfo(struct nlmsghdr *n, void *arg)
 	memset(ifn, 0, sizeof(struct ifs_node));
 	strcpy(ifn->link,
 		tb[IFLA_IFNAME] ? rta_getattr_str(tb[IFLA_IFNAME]) : "<nil>");
+	ifn->flags = ifi->ifi_flags;
+	if (tb[IFLA_OPERSTATE])
+		ifn->state = (unsigned) rta_getattr_u8(tb[IFLA_OPERSTATE]);
 	if (tb[IFLA_MTU])
 		ifn->mtu = *(int*)RTA_DATA(tb[IFLA_MTU]);
 
@@ -265,6 +268,7 @@ out2:
 	return ifs;
 }
 
+#if	0
 void print_ifs_chain(struct ifs_chain *ifs)
 {
 	struct ifs_node *ifn;
@@ -282,18 +286,164 @@ void print_ifs_chain(struct ifs_chain *ifs)
 		}
 	}
 }
+#endif
 
-#if	0
-int main(int argc, char *argv)
+struct monitor_ifs_link {
+	struct monitor_ifs_link	*next;
+	char	linkname[IFNAMSIZ];
+	unsigned	flags;
+	unsigned	state;
+	unsigned	oldstate;
+};
+
+static struct monitor_ifs_link *monitor_ifs = NULL;
+static pthread_mutex_t monitor_ifs_lock;
+static link_change_callback link_change_cb = NULL;
+
+static int start_monitor_ifs_thread(void);
+
+static const char *oper_states[] = {
+	"UNKNOWN", "NOTPRESENT", "DOWN", "LOWERLAYERDOWN",
+	"TESTING", "DORMANT",	 "UP"
+};
+
+static const char * oper_state_string(unsigned state)
+{
+	return state >= sizeof(oper_states)/sizeof(oper_states[0]) ?
+		"unkown" : oper_states[state];
+}
+
+int add_monitor_ifs(const char *linkname)
 {
 	struct ifs_chain *ifs;
+	struct ifs_node *ifn;
+	struct monitor_ifs_link *ml;
 
-	ifs = get_all_ifs();
-	if (ifs != NULL) {
-		print_ifs_chain(ifs);
-		free_ifs_chain(ifs);
+	pthread_mutex_lock(&monitor_ifs_lock);
+
+	for (ml = monitor_ifs; ml; ml = ml->next) {
+		if (strncmp(ml->linkname, linkname, IFNAMSIZ) == 0) {
+			pthread_mutex_unlock(&monitor_ifs_lock);
+			return -EEXIST;
+		}
 	}
 
+	if ((ifs = get_all_ifs()) == NULL) {
+		pthread_mutex_unlock(&monitor_ifs_lock);
+		return -ENODEV;
+	}
+	for (ifn = ifs->head; ifn; ifn = ifn->next) {
+		if (strncmp(ifn->link, linkname, IFNAMSIZ) == 0)
+			break;
+	}
+	if (!ifn) {
+		free_ifs_chain(ifs);
+		pthread_mutex_unlock(&monitor_ifs_lock);
+		return -ENODEV;
+	}
+
+	ml = malloc(sizeof(struct monitor_ifs_link));
+	if (!ml) {
+		free_ifs_chain(ifs);
+		pthread_mutex_unlock(&monitor_ifs_lock);
+		return -ENOMEM;
+	}
+	strncpy(ml->linkname, ifn->link, IFNAMSIZ);
+	ml->flags = ifn->flags;
+	ml->state = ml->oldstate = ifn->state;
+
+	ml->next = monitor_ifs;
+	monitor_ifs = ml;
+
+	free_ifs_chain(ifs);
+	pthread_mutex_unlock(&monitor_ifs_lock);
+
+	if (ml->next == NULL)
+		start_monitor_ifs_thread();
 	return 0;
 }
-#endif
+
+int remove_monitor_ifs(const char *linkname)
+{
+	struct monitor_ifs_link *ml, **pp;
+
+	pthread_mutex_lock(&monitor_ifs_lock);
+	for (pp = &monitor_ifs; *pp;) {
+		ml = *pp;
+		if (strncmp(ml->linkname, linkname, IFNAMSIZ) == 0) {
+			*pp = ml->next;
+			free(ml);
+			pthread_mutex_unlock(&monitor_ifs_lock);
+			return 0;
+		}
+		pp = &ml->next;
+	}
+	pthread_mutex_unlock(&monitor_ifs_lock);
+	return -ENODEV;
+}
+
+static void * monitor_ifs_thread(void *arg)
+{
+	struct ifs_chain *ifs;
+	struct ifs_node	*ifn;
+	struct monitor_ifs_link *ml;
+
+	pthread_detach(pthread_self());
+
+	while (monitor_ifs != NULL) {
+		sleep(1);
+
+		pthread_mutex_lock(&monitor_ifs_lock);
+
+		if ((ifs = get_all_ifs()) == NULL) {
+			pthread_mutex_unlock(&monitor_ifs_lock);
+			continue;
+		}
+
+		for (ml = monitor_ifs; ml; ml = ml->next) {
+			for (ifn = ifs->head; ifn; ifn = ifn->next) {
+				if (strncmp(ifn->link, ml->linkname, IFNAMSIZ) == 0)
+					break;
+			}
+
+			if (ifn) {
+				ml->flags = ifn->flags;
+				if (ml->state != ifn->state) {
+					fprintf(stderr, "link %s state change: %s->%s, oldstate=%s\n",
+						ml->linkname, oper_state_string(ml->state),
+						oper_state_string(ifn->state),
+						oper_state_string(ml->oldstate));
+					if (link_change_cb)
+						link_change_cb(ml->linkname, ifn->state, ml->state);
+					ml->oldstate = ml->state;
+					ml->state = ifn->state;
+				}
+			} else {
+				c_err("link %s may removed, state=%s, oldstate=%s\n",
+					ml->linkname, oper_state_string(ml->state),
+					oper_state_string(ml->oldstate));
+				ml->oldstate = ml->state;
+				ml->state = 0;
+			}
+		}
+
+		free_ifs_chain(ifs);
+		pthread_mutex_unlock(&monitor_ifs_lock);
+	}
+
+	c_err("monitor_ifs_thread exit\n");
+	return NULL;
+}
+
+static int start_monitor_ifs_thread(void)
+{
+	pthread_t pid;
+
+	return pthread_create(&pid, NULL, &monitor_ifs_thread, NULL);
+}
+
+void init_monitor_ifs(link_change_callback func)
+{
+	pthread_mutex_init(&monitor_ifs_lock, NULL);
+	link_change_cb = func;
+}

@@ -5,16 +5,8 @@
 #ifndef	_SYS_ZFS_HBX_H
 #define	_SYS_ZFS_HBX_H
 
-#if	0
-#include <sys/cyclic.h>
-#include <sys/door.h>
-#include <sys/ethernet.h>
-#endif
 #include <sys/nvpair.h>
-#if	0
-#include <sys/stream.h>
-#endif
-#include "../cn_hbx.h"
+#include <sys/list.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -166,93 +158,6 @@ typedef struct hb_event_list_s {
 	kmutex_t event_mutex;
 } hb_event_list_t;
 
-#if	0
-typedef struct zfs_hbx_mac_layer_header {
-	struct ether_header eth_head;
-	uint8_t msg_type;
-	uint8_t	pad[1];
-	uint64_t index;
-	uint64_t len;
-} zfs_hbx_mac_layer_header_t;
-
-typedef struct zfs_hbx_frame_header {
-	zfs_hbx_mac_layer_header_t tran_head;
-	uint64_t			data_index;
-	uint64_t			total_len;
-	uint64_t			offset;
-	uint64_t			len;
-	uint64_t			link_state;
-	uint64_t			major;
-	uint64_t			minor;
-	uint64_t			event;
-	uint64_t			need_reply;
-	uint64_t			tx_time;
-	uint64_t			wait_point;
-	uint64_t			hash_key;
-	mblk_t 			*mp;
-} zfs_hbx_frame_header_t;
-
-typedef struct zfs_hbx_frame {
-	zfs_hbx_frame_header_t	*head;
-	void					*arcbuf;
-	char					*data;
-	uint64_t				len;
-} zfs_hbx_frame_t;
-
-#define	ZFS_HBX_WORKER_TERMINATE	0x01
-#define	ZFS_HBX_WORKER_STARTED		0x02
-#define	ZFS_HBX_WORKER_ACTIVE		0x04
-typedef struct zfs_hbx_rx_worker {
-	mod_hash_t		*fragment_hash;
-	list_t			fragment_list; /* time sort */
-	kmutex_t		fragment_lock;
-	list_t			wait_list; /* wait for handle */
-	kmutex_t		mtx;
-	kcondvar_t		cv;
-	uint_t			flag;
-}zfs_hbx_rx_worker_t;
-
-typedef struct zfs_hbx_rx_worker_para {
-	list_node_t		wait_node;
-	zfs_hbx_rx_worker_t		*worker;
-	mblk_t			*mp;
-}zfs_hbx_rx_worker_para_t;
-
-typedef struct zfs_hbx_tx_wait {
-	uint32_t 		segment;
-	kmutex_t		hb_reply_lock;
-} zfs_hbx_tx_wait_t;
-
-typedef struct zfs_hbx_reply_hash {
-	uint64_t 		hb_hash_key;
-	kmutex_t		hb_reply_hash_lock;
-	kcondvar_t		hb_reply_hash_cv;
-	zfs_hbx_tx_wait_t *hb_hash_wait;
-} zfs_hbx_reply_hash_t;
-
-typedef struct zfs_mirror_hb_data_node {
-	list_node_t data_node;
-	zfs_hbx_frame_t *data_frame;
-} zfs_mirror_hb_data_node_t;
-
-typedef struct zfs_mirror_hb_data_list {
-	list_t data_list;
-	list_node_t node; /* time sort */
-	uint64_t data_index;
-	uint64_t active_time;
-} zfs_mirror_hb_data_list_t;
-
-typedef struct zfs_hbx_frame_para {
-	enum hbx_event_type event;
-	hbx_link_state_t	link_state;
-	hbx_node_state_t	major;
-	hbx_node_state_t	minor;
-	boolean_t b_data;
-	char *data;
-	uint64_t data_len;
-} zfs_hbx_frame_para_t;
-#endif
-
 typedef struct zfs_hbx_s {
 	boolean_t		hb_initialized;
 	uint32_t		hb_host_id;
@@ -307,11 +212,6 @@ typedef void (*zfs_hbx_link_evt_cb_t)(zfs_hbx_link_evt_t link_evt);
 int zfs_hbx_init(void);
 int zfs_hbx_fini(void);
 
-#if	0
-void zfs_hbx_rx_handle(mblk_t *mp, uint8_t msg_type);
-void zfs_hbx_update_spa_config(nvlist_t *nvl, boolean_t tx_to_remote);
-void zfs_hbx_timeout_update();
-#endif
 extern void hbx_mac_offline_notify(void *data, uint64_t len);
 extern void zfs_notify_clusterd(enum hbx_event_type type, char *data, uint64_t data_len);
 
