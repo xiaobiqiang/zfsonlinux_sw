@@ -44,7 +44,7 @@ static status_cmd_t command_table[] = {
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
 
-#define CLU_FC_INFO_CMD "fcinfo hba-port"
+#define CLU_FC_INFO_CMD "ls /sys/class/fc_host | wc -l"
 #define FC_INFO_HEAD	"HBA Port WWN"
 #define FC_INFO_MODE	"Port Mode"
 #define FC_INFO_ID		"Port ID"
@@ -170,7 +170,7 @@ clumgt_hostname_get(char *hostname)
 	FILE * fp;
 	char *tmp = (char*)hostname;
 
-	fp = popen("zfs clustersan list-host | head -n 2 | grep hostname | cut -d: -f2 | sed 's/^ *//'", "r");
+	fp = popen("cat /etc/cluster_hostname", "r");
 	if (fp) {
 		if(fgets(tmp, BUF_MAX, fp) == NULL) {
 		 	syslog(LOG_ERR, "get hostname fail\n");
@@ -186,14 +186,13 @@ static int
 clumgt_get_fc_num(char *fc_info_p)
 {
 	FILE * fp;
-	char *tmp = fc_info_p;
-	char *char_p = fc_info_p;
-	int i = 0;
+	int i=0;
+	char tmp[10] = {0};
 
 	fp = popen(CLU_FC_INFO_CMD, "r");
 	if (fp) {
-		while(fgets(tmp, BUF_MAX, fp) != NULL){
-			tmp += strlen(tmp);
+		if (fgets(tmp, BUF_MAX, fp) != NULL){
+			i = atoi(tmp);
 		}
 	} else {
 		syslog(LOG_ERR, "exec cmd fail\n");
@@ -201,58 +200,84 @@ clumgt_get_fc_num(char *fc_info_p)
 		return 0;
 	}
 	pclose(fp);
-	while ((char_p = strstr(char_p, FC_INFO_HEAD)) != NULL) {
-		i++;
-		char_p += sizeof (FC_INFO_HEAD);
-	}
 	
 	return (i);
 }
 static void
 clumgt_fc_status_get(char *fc_info_p, clu_fc_stat_t *clu_fc_stat)
 {
+	FILE * fp;
+	char path[100];
 	char *tmp_p = fc_info_p;
 	char *next_p;
 	int len;
+	
 	/*wwn*/
-	tmp_p = strstr(fc_info_p, FC_INFO_HEAD);
-	tmp_p += strlen(FC_INFO_HEAD) + 2;
-	next_p = strstr(tmp_p, FC_INFO_MODE);
-	len = next_p - tmp_p -1;
-	snprintf(clu_fc_stat->wwn, len, "%s", tmp_p);
+	memset(path, 0, 100);
+	sprintf(path, "cat %s/%s",tmp_p, "port_name");
+	fp = popen(path, "r");
+	if (fp) {
+		fgets(clu_fc_stat->wwn, BUF_SHORT, fp);
+		*(clu_fc_stat->wwn + strlen(clu_fc_stat->wwn) -1) = 0;
+	} else {
+		memset(clu_fc_stat->wwn, 0, BUF_SHORT);
+	}
+	pclose(fp);
+	
 	/*mode*/
-	tmp_p = next_p;
-	tmp_p += strlen(FC_INFO_MODE) + 2;
-	next_p = strstr(tmp_p, FC_INFO_ID);
-	len = next_p - tmp_p -1;
-	snprintf(clu_fc_stat->mode, len, "%s", tmp_p);
+	memset(path, 0, 100);
+	sprintf(path, "cat %s/%s",tmp_p, "port_type");
+	fp = popen(path, "r");
+	if (fp) {
+		fgets(clu_fc_stat->mode, BUF_SHORT, fp);
+		*(clu_fc_stat->mode + strlen(clu_fc_stat->mode) -1) = 0;
+	} else {
+		memset(clu_fc_stat->mode, 0, BUF_SHORT);
+	}
+	pclose(fp);
+	
 	/*driver*/
-	tmp_p = strstr(tmp_p, FC_INFO_DRIVER);
+	/*tmp_p = strstr(tmp_p, FC_INFO_DRIVER);
 	tmp_p += strlen(FC_INFO_DRIVER) + 2;
 	next_p = strstr(tmp_p, FC_INFO_VER);
 	len = next_p - tmp_p -1;
-	snprintf(clu_fc_stat->driver, len, "%s", tmp_p);
+	snprintf(clu_fc_stat->driver, len, "%s", tmp_p);*/
+	
 	/*state*/
-	tmp_p = strstr(tmp_p, FC_INFO_STATE);
-	tmp_p += strlen(FC_INFO_STATE) + 2;
-	next_p = strstr(tmp_p, FC_INFO_SPEED);
-	len = next_p - tmp_p -1;
-	snprintf(clu_fc_stat->stat, len, "%s", tmp_p);
+	memset(path, 0, 100);
+	sprintf(path, "cat %s/%s",tmp_p, "port_state");
+	fp = popen(path, "r");
+	if (fp) {
+		fgets(clu_fc_stat->stat, BUF_SHORT, fp);
+		*(clu_fc_stat->stat + strlen(clu_fc_stat->stat) -1) = 0;
+	} else {
+		memset(clu_fc_stat->stat, 0, BUF_SHORT);
+	}
+	pclose(fp);
+	
 	/*speed*/
-	tmp_p = next_p;
-	tmp_p += strlen(FC_INFO_SPEED) + 2;
-	tmp_p = strstr(tmp_p, " ");
-	tmp_p = strstr(tmp_p+1, " ");
-	tmp_p++;
-	next_p = strstr(tmp_p, FC_INFO_CURRENT);
-	len = next_p - tmp_p -2;
-	snprintf(clu_fc_stat->speed, len, "%s", tmp_p);
+	memset(path, 0, 100);
+	sprintf(path, "cat %s/%s",tmp_p, "supported_speeds");
+	fp = popen(path, "r");
+	if (fp) {
+		fgets(clu_fc_stat->speed, BUF_SHORT, fp);
+		*(clu_fc_stat->speed + strlen(clu_fc_stat->speed) -1) = 0;
+	} else {
+		memset(clu_fc_stat->speed, 0, BUF_SHORT);
+	}
+	pclose(fp);
+	
 	/*current speed*/
-	tmp_p = next_p;
-	tmp_p += strlen(FC_INFO_CURRENT) + 2;
-	next_p = strstr(tmp_p, FC_INFO_NODE);
-	len = next_p - tmp_p -2;
-	snprintf(clu_fc_stat->current, len, "%s", tmp_p);
+	memset(path, 0, 100);
+	sprintf(path, "cat %s/%s",tmp_p, "speed");
+	fp = popen(path, "r");
+	if (fp) {
+		fgets(clu_fc_stat->current, BUF_SHORT, fp);
+		*(clu_fc_stat->current + strlen(clu_fc_stat->current) -1) = 0;
+	} else {
+		memset(clu_fc_stat->current, 0, BUF_SHORT);
+	}
+	pclose(fp);
 }
 
 static int
@@ -281,6 +306,8 @@ clumgt_handle_fcinfo_req(clumgt_response_t **respp)
 	uint32_t resp_len;
 	char fc_info_p[4096] = {0};
 	char *tmp_p = fc_info_p;
+	char path[100]={0};
+	FILE *fp;
 
 	fc_num = clumgt_get_fc_num(fc_info_p);
 	resp_len = sizeof(clumgt_response_t) + sizeof (clu_fc_status_t) + sizeof (clu_fc_stat_t)* fc_num;
@@ -291,11 +318,16 @@ clumgt_handle_fcinfo_req(clumgt_response_t **respp)
 	clumgt_hostname_get(clu_fc_status_p->name);
 	clu_fc_status_p->fc_num = (uint32_t)fc_num;
 	clu_fc_stat_p = (clu_fc_stat_t *)(clu_fc_status_p->fc_stat);
-	while ((tmp_p = strstr(tmp_p, FC_INFO_HEAD)) != NULL) {
-		clumgt_fc_status_get(tmp_p, clu_fc_stat_p);
+
+	fp = popen("ls /sys/class/fc_host/ | cut -d' ' -f 1", "r");
+	while(fgets(path, 100, fp)) {
+		sprintf(fc_info_p, "/sys/class/fc_host/%s", path);
+		*(fc_info_p + strlen(fc_info_p) - 1) = 0;
+		clumgt_fc_status_get(fc_info_p, clu_fc_stat_p);
 		clu_fc_stat_p++;
-		tmp_p += sizeof (FC_INFO_HEAD)+1;
 	}
+	pclose(fp);
+	
 	*respp = resp;
 	return 0;
 }

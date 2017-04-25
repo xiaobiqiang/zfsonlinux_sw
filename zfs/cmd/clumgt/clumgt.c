@@ -600,7 +600,7 @@ int clumgt_server()
 	(void)pthread_create(&m_tid, NULL, sync_send_msg_to_agent, NULL);
 
 	/* create a pthread for choose cluster master */
-	(void)pthread_create(&s_tid, NULL, sync_choose_master, NULL);
+	//(void)pthread_create(&s_tid, NULL, sync_choose_master, NULL);
 	
 	/*  Now wait on them to finish. */
 	for (i = 0; i < MAXWORKERS; i++) {
