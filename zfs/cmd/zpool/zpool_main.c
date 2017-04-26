@@ -53,6 +53,7 @@
 #include <sys/fm/protocol.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/spa_impl.h>
+#include <sys/efi_partition.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 
@@ -102,8 +103,9 @@ static int zpool_do_events(int, char **);
 static int zpool_do_get(int, char **);
 static int zpool_do_set(int, char **);
 
-
+/* add for zpool cluster cmd */
 static int zpool_do_cluster(int argc, char **argv);
+static void zpool_init_efi(char *path);
 
 xmlDocPtr pool_doc;
 xmlNodePtr pool_root_node;
@@ -1210,6 +1212,158 @@ badusage:
 	return (2);
 }
 
+/* modify from solaris begin */
+static void
+zpool_init_efi(char *path)
+{
+	int fd, ret, i;
+	dk_gpt_t *table;
+	
+#if 0
+	/* add by jbzhao 20151202 begin
+	 *  if path is slice, return
+	 */
+	int len = 0;
+	len = strlen(path);
+	if ( !(*(path + len -1) == '0' && *(path + len - 2) == 'd')) 
+		return;	
+	/* add by jbzhao 20151202 end*/
+#endif
+	fd =  open(path, O_NDELAY);
+	if (fd < 0) {
+		syslog(LOG_ERR, "Destroy devs:Open  disk (%s) fails", path);
+		return;
+	}
+	ret = efi_alloc_and_init(fd, 9, &table);
+	if (ret != 0) {
+		syslog(LOG_ERR, "Destroy devs:Get  disk table  (%s) fails", path);
+		goto DONE;
+	}
+	
+	for (i = 0; i < 9; i ++) {
+		table->efi_parts[i].p_start = 0;
+		table->efi_parts[i].p_size = 0;
+		table->efi_parts[i].p_tag = V_UNASSIGNED;
+	}
+	table->efi_parts[8].p_start = table->efi_last_u_lba - EFI_MIN_RESV_SIZE;
+	table->efi_parts[8].p_size = EFI_MIN_RESV_SIZE;
+	table->efi_parts[8].p_tag = V_RESERVED;
+	ret = efi_write(fd,  table);
+	if (ret != 0) {
+		syslog(LOG_ERR, "Destroy devs: write   disk table  (%s) fails", path);
+	}
+	printf("efi_init : efi_parts[0] = %d; efi_parts[8] = %d\n",table->efi_parts[0].p_size,table->efi_parts[8].p_size);
+	efi_free(table);
+		
+DONE:
+	close(fd);
+	return;
+}
+
+static void
+zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
+{
+	nvlist_t *config, *nvroot;
+	uint_t c, children, nspares, ncaches, nmetaspares, nmirrorspare;
+	nvlist_t **child, **spares,**caches, **metaspares, **mirrorspare;
+	zpool_stamp_t *stamp;
+	char *name;
+	char dev_path[1024];
+	
+	if (parents == NULL) {
+		config = zpool_get_config(zhp, NULL);
+		verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    		&nvroot) == 0);
+	} else {
+		nvroot = parents;
+	}
+
+	stamp = malloc(sizeof(zpool_stamp_t));
+	if (stamp == NULL) {
+		syslog(LOG_ERR, "pool destroy stamp malloc failed");
+		return;
+	}
+	bzero(stamp, sizeof(zpool_stamp_t));
+	stamp->para.company_name = COMPANY_NAME;
+	/* initialize data devs */
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN, &child,
+	    &children) != 0) {
+		goto FINISH;
+	}
+	for (c = 0; c < children; c++) {
+		nvlist_t **tmp_child;
+		uint_t tmp_children;
+		
+		if (nvlist_lookup_nvlist_array(child[c], ZPOOL_CONFIG_CHILDREN, &tmp_child,
+		    &tmp_children) == 0) {
+			zpool_initialize_pool_devs(zhp, child[c]);
+			continue;
+		}
+		if ((name = zpool_vdev_name(g_zfs, zhp, child[c], B_FALSE)) == NULL )
+			continue;
+#if 0
+		if (strncmp(name, "/dev/dsk/", 9) == 0)
+			name += 9;
+		sprintf(dev_path, "/dev/rdsk/%s", name);
+		zpool_init_dev_labels(dev_path);
+#else
+		memcpy(dev_path, name, strlen(name));
+#endif
+		zpool_init_efi(dev_path);
+		zpool_write_dev_stamp(dev_path, stamp);
+		zpool_write_dev_stamp_mark(dev_path, stamp);
+		free(name);
+	}
+
+
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_MIRRORSPARES, &mirrorspare,
+	    &nmirrorspare) == 0) {
+		for (c = 0; c < nmirrorspare; c++) {
+			if ((name = zpool_vdev_name(g_zfs, zhp, mirrorspare[c], B_FALSE)) == NULL )
+				continue;
+#if 0
+			if (strncmp(name, "/dev/dsk/", 9) == 0)
+				name += 9;
+			sprintf(dev_path, "/dev/rdsk/%s", name);
+			zpool_init_dev_labels(dev_path);
+#else
+			memcpy(dev_path, name, strlen(name));
+#endif
+			
+			zpool_init_efi(dev_path);
+			zpool_write_dev_stamp(dev_path, stamp);
+			zpool_write_dev_stamp_mark(dev_path, stamp);
+			free(name);
+		}
+	}
+	
+	/* initialize cache disks */
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_L2CACHE, &caches,
+	    &ncaches) == 0) {
+		for (c = 0; c < ncaches; c++) {
+			if ((name = zpool_vdev_name(g_zfs, zhp, caches[c], B_FALSE)) == NULL )
+				continue;
+#if 0
+			if (strncmp(name, "/dev/dsk/", 9) == 0)
+				name += 9;
+			sprintf(dev_path, "/dev/rdsk/%s", name);
+			zpool_init_dev_labels(dev_path);
+#else
+			memcpy(dev_path, name, strlen(name));
+#endif
+			zpool_init_efi(dev_path);
+			zpool_write_dev_stamp(dev_path, stamp);
+			zpool_write_dev_stamp_mark(dev_path, stamp);
+			free(name);
+		}
+	}
+
+FINISH:
+	free(stamp);
+	return;
+}
+/* modify from solaris end */
+
 /*
  * zpool destroy <pool>
  *
@@ -1275,6 +1429,12 @@ zpool_do_destroy(int argc, char **argv)
 	log_history = B_FALSE;
 
 	ret = (zpool_destroy(zhp, history_str) != 0);
+
+	/* modify from solaris begin */
+	if (ret == 0) {
+		zpool_initialize_pool_devs(zhp, NULL);
+	}
+	/* modify from solaris end */
 
 	zpool_close(zhp);
 
