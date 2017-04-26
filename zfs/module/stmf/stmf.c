@@ -355,8 +355,8 @@ static struct miscdevice stmf_misc = {
 	.fops		= &stmfdev_fops,
 };
 
-int
-_init(void)
+static int __init
+stmf_init(void)
 {
 	int ret;
 	uint32_t hostid;
@@ -377,7 +377,7 @@ _init(void)
 	if (ret)
 		return (ret);
 
-	stmf_trace_buf = kmem_zalloc(stmf_trace_buf_size, KM_SLEEP);
+	stmf_trace_buf = vmem_zalloc(stmf_trace_buf_size, KM_SLEEP);
 	trace_buf_size = stmf_trace_buf_size;
 	trace_buf_curndx = 0;
 	mutex_init(&trace_buf_lock, NULL, MUTEX_DRIVER, 0);
@@ -425,8 +425,8 @@ _init(void)
 	return (ret);
 }
 
-int
-_fini(void)
+static void __exit
+stmf_fini(void)
 {
 	int ret;
 	stmf_i_remote_port_t	*irport;
@@ -471,7 +471,7 @@ _fini(void)
 	}
 	avl_destroy(&stmf_state.stmf_itl_kstat_list);
 
-	kmem_free(stmf_trace_buf, stmf_trace_buf_size);
+	vmem_free(stmf_trace_buf, stmf_trace_buf_size);
 	mutex_destroy(&trace_buf_lock);
 	mutex_destroy(&stmf_state.stmf_lock);
 	cv_destroy(&stmf_state.stmf_cv);
@@ -11207,4 +11207,12 @@ void stmf_transition_redo_worker(void *arg)
 		}
 	}
 }
+
+module_init(stmf_init);
+module_exit(stmf_fini);
+
+MODULE_DESCRIPTION("STMF implementation");
+MODULE_AUTHOR(ZFS_META_AUTHOR);
+MODULE_LICENSE(ZFS_META_LICENSE);
+MODULE_VERSION(ZFS_META_VERSION "-" ZFS_META_RELEASE);
 
