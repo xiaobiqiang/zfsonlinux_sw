@@ -127,6 +127,7 @@ AC_CONFIG_FILES([
 	module/zcommon/Makefile
 	module/zfs/Makefile
 	module/zpios/Makefile
+	module/fct/Makefile
 	include/Makefile
 	include/linux/Makefile
 	include/sys/Makefile
