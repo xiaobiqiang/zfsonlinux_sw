@@ -230,6 +230,7 @@ struct vdev {
 
 #define	VDEV_RAIDZ_MAXPARITY	3
 
+#define VDEV_STAMP_LABEL_NO	1
 #define	VDEV_PAD_SIZE		(8 << 10)
 /* 2 padding areas (vl_pad1 and vl_pad2) to skip */
 #define	VDEV_SKIP_SIZE		VDEV_PAD_SIZE * 2

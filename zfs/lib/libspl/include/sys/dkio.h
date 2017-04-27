@@ -64,6 +64,18 @@ struct dk_cinfo {
 	ushort_t dki_maxtransfer;	/* max. transfer size in DEV_BSIZE */
 };
 
+#define	DKC_SCSI_IPORT_LEN	256
+typedef struct un_locate_info {
+	int en_id;
+	int slot_id;
+	uint64_t sas_wwn;
+	int instance;
+	int block_size;
+	uint64_t block_count;
+	char	vendorid[16];
+	char	productid[32];
+}un_locate_info_t;
+
 /*
  * Controller types
  */
@@ -354,6 +366,9 @@ struct dk_minfo {
  * specific underlying device of a replicated device.
  */
 
+#define	DKIOCGEXTVTOC	(DKIOC|23)	/* Get extended VTOC */
+#define	DKIOCSEXTVTOC	(DKIOC|24)	/* Set extended VTOC, Write to Disk */
+
 #define	DKIOCGETVOLCAP	(DKIOC | 25)	/* Get volume capabilities */
 #define	DKIOCSETVOLCAP	(DKIOC | 26)	/* Set volume capabilities */
 #define	DKIOCDMR	(DKIOC | 27)	/* Issue a directed read */
@@ -476,6 +491,8 @@ typedef struct dk_updatefw_32 {
 #define	FW_TYPE_TEMP	0x0		/* temporary use */
 #define	FW_TYPE_PERM	0x1		/* permanent use */
 
+#define	DKIOCGETLUNEXT	(DKIOC|98)
+#define	DKIOCSETLUNEXT	(DKIOC|99)
 
 #ifdef	__cplusplus
 }

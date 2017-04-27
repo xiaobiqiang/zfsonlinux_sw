@@ -127,7 +127,11 @@ zpool_prop_init(void)
 	zprop_register_index(ZPOOL_PROP_FAILUREMODE, "failmode",
 	    ZIO_FAILURE_MODE_WAIT, PROP_DEFAULT, ZFS_TYPE_POOL,
 	    "wait | continue | panic", "FAILMODE", failuremode_table);
-
+	
+	zprop_register_string(ZPOOL_PROP_CLUSTER_NODE_NAME, "clusnodename", "none",
+	    PROP_READONLY, ZFS_TYPE_POOL, 
+	    "cluster node name", "CLUSNODENAME");
+	
 	/* hidden properties */
 	zprop_register_hidden(ZPOOL_PROP_NAME, "name", PROP_TYPE_STRING,
 	    PROP_READONLY, ZFS_TYPE_POOL, "NAME");

@@ -47,6 +47,8 @@
 extern "C" {
 #endif
 
+#define SPA_NUM_OF_QUANTUM  2
+
 typedef struct spa_error_entry {
 	zbookmark_phys_t	se_bookmark;
 	char			*se_name;

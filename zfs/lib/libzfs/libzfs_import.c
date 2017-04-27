@@ -48,6 +48,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -55,6 +56,7 @@
 #include <sys/dktp/fdisk.h>
 #include <sys/efi_partition.h>
 #include <syslog.h>
+#include <sys/spa_impl.h>
 
 #include <sys/vdev_impl.h>
 #ifdef HAVE_LIBBLKID
@@ -158,6 +160,505 @@ zpool_label_disk_wait(char *path, int timeout_ms)
 
 	return (ENODEV);
 }
+
+/* Interface of stamp */
+
+static int
+add_mounted_pools(zpool_handle_t *zhp, void *data)
+{
+	nvlist_t *config = data;
+	nvlist_t *pool;
+	char *name;
+	
+	pool = zpool_get_config(zhp, NULL);
+	/* add this pool to the list of configs */
+	verify(nvlist_lookup_string(pool, ZPOOL_CONFIG_POOL_NAME,
+	    &name) == 0);
+	if (nvlist_add_nvlist(config, name, pool) != 0) {
+		fprintf(stderr, "add umount pool <%s> failed\n", name);
+		return (1);
+	}
+
+	zpool_close(zhp);
+
+	return (0);
+}
+
+static nvlist_t *get_switched_config(
+	libzfs_handle_t *hdl, char *name, uint32_t remote_hostid)
+{
+	nvlist_t *nvl;
+	zfs_cmd_t zc = { 0 };
+	int err;
+
+	if (name != NULL) {
+		strcpy(zc.zc_name, name);
+	}
+	zc.zc_cookie = ZFS_HBX_GET_PARTNER_POOL;
+	zc.zc_guid = remote_hostid;
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	while ((err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX,
+	    &zc)) != 0 && errno == ENOMEM) {
+		if (zcmd_expand_dst_nvlist(hdl, &zc) != 0) {
+			zcmd_free_nvlists(&zc);
+			return (NULL);
+		}
+	}
+
+	if (err) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	if (zcmd_read_dst_nvlist(hdl, &zc, &nvl) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	zcmd_free_nvlists(&zc);
+	return (nvl);
+}
+
+int
+read_vtoc(int fd, struct vtoc *vtoc)
+{
+	struct dk_cinfo		dki_info;
+
+	/*
+	 * Read the vtoc.
+	 */
+	if (ioctl(fd, DKIOCGVTOC, (caddr_t)vtoc) == -1) {
+		switch (errno) {
+		case EIO:
+			return (VT_EIO);
+		case EINVAL:
+			return (VT_EINVAL);
+		case ENOTSUP:
+			/* GPT labeled or disk > 1TB with no extvtoc support */
+			return (VT_ENOTSUP);
+		case EOVERFLOW:
+			return (VT_EOVERFLOW);
+		default:
+			return (VT_ERROR);
+		}
+	}
+
+	/*
+	 * Sanity-check the vtoc.
+	 */
+	if (vtoc->v_sanity != VTOC_SANE) {
+		return (VT_EINVAL);
+	}
+
+	/*
+	 * Convert older-style vtoc's.
+	 */
+	switch (vtoc->v_version) {
+	case 0:
+		/*
+		 * No vtoc information.  Install default
+		 * nparts/sectorsz and version.  We are
+		 * assuming that the driver returns the
+		 * current partition information correctly.
+		 */
+
+		vtoc->v_version = V_VERSION;
+		if (vtoc->v_nparts == 0)
+			vtoc->v_nparts = V_NUMPAR;
+		if (vtoc->v_sectorsz == 0)
+			vtoc->v_sectorsz = DEV_BSIZE;
+
+		break;
+
+	case V_VERSION:
+		break;
+
+	default:
+		return (VT_EINVAL);
+	}
+
+	/*
+	 * Return partition number for this file descriptor.
+	 */
+	if (ioctl(fd, DKIOCINFO, (caddr_t)&dki_info) == -1) {
+		switch (errno) {
+		case EIO:
+			return (VT_EIO);
+		case EINVAL:
+			return (VT_EINVAL);
+		default:
+			return (VT_ERROR);
+		}
+	}
+	if (dki_info.dki_partition > V_NUMPAR) {
+		return (VT_EINVAL);
+	}
+	return ((int)dki_info.dki_partition);
+}
+
+uint64_t
+label_offset(uint64_t size, int l)
+{
+	ASSERT(P2PHASE_TYPED(size, sizeof (vdev_label_t), uint64_t) == 0);
+	return (l * sizeof (vdev_label_t) + (l < VDEV_LABELS / 2 ?
+	    0 : size - VDEV_LABELS * sizeof (vdev_label_t)));
+}
+
+
+static uint64_t
+stamp_offset(uint64_t size, int l)
+{
+	ASSERT(P2PHASE_TYPED(size, sizeof (zpool_stamp_t), uint64_t) == 0);
+	return (l * sizeof (vdev_label_t) + (l < VDEV_LABELS / 2 ?
+	    0 : size - VDEV_LABELS * sizeof (vdev_label_t)));
+}
+
+int get_disk_stamp_offset(int disk_fd, uint64_t *offset)
+{
+	uint64_t size;
+	struct stat64 statbuf;
+	struct vtoc vtoc_info;
+	uint64_t tmp_offset  = 0;
+	if (fstat64(disk_fd, &statbuf) == -1)
+		return (1);
+	size = P2ALIGN_TYPED(statbuf.st_size, sizeof (zpool_stamp_t), uint64_t);
+	if (read_vtoc(disk_fd, &vtoc_info) >= 0) {
+			return (1);
+	}
+	tmp_offset = stamp_offset(size, VDEV_STAMP_LABEL_NO);
+	*offset = tmp_offset;
+	return (0);
+}
+
+int zpool_write_dev_stamp(char *path, zpool_stamp_t *stamp)
+{
+	int fd,ret = 1;
+	uint64_t stamp_offset;
+	zpool_stamp_t *stamp_tmp;
+	stamp_tmp = malloc(sizeof(zpool_stamp_t));
+	if (stamp_tmp != NULL) {
+		bzero(stamp_tmp, sizeof(zpool_stamp_t));
+	}
+
+	fd = open(path, O_RDWR|O_NDELAY|O_SYNC);
+	if (fd > 0) {
+		if (get_disk_stamp_offset(fd, &stamp_offset) != 0) {
+			syslog(LOG_ERR, "write stamp, get offset <%s> failed", path);
+		} else {
+			if (pread(fd, stamp_tmp, sizeof(zpool_stamp_t), stamp_offset) == sizeof(zpool_stamp_t)){
+				if(stamp_tmp->para.company_name == COMPANY_NAME)
+					stamp->para.company_name = stamp_tmp->para.company_name;
+			}
+			if (pwrite(fd, stamp, sizeof(zpool_stamp_t), stamp_offset) != sizeof(zpool_stamp_t)) {
+				syslog(LOG_ERR, "write error, <%s>", path);
+			} else {
+				ret = 0;
+			}
+		}
+		close(fd);
+	} else {
+		syslog(LOG_ERR, "write stamp, open <%s> failed",path);
+	}
+	free(stamp_tmp);
+	return (ret);
+}
+
+int zpool_write_dev_stamp_mark(char *path, zpool_stamp_t *stamp)
+{
+	int fd,ret = 1;
+	uint64_t stamp_offset;
+	zpool_stamp_t *stamp_tmp;
+	stamp_tmp = malloc(sizeof(zpool_stamp_t));
+	if (stamp_tmp != NULL) {
+		bzero(stamp_tmp, sizeof(zpool_stamp_t));
+	}
+	fd = open(path, O_RDWR|O_NDELAY|O_SYNC);
+	if (fd > 0) {
+		if (get_disk_stamp_offset(fd, &stamp_offset) != 0) {
+			syslog(LOG_ERR, "write stamp, get offset <%s> failed", path);
+		} else {
+			stamp_offset += stamp_offset/STAMP_OFFSET;
+			if (pread(fd, stamp_tmp, sizeof(zpool_stamp_t), stamp_offset) == sizeof(zpool_stamp_t)){
+				if(stamp_tmp->para.company_name == COMPANY_NAME)
+					stamp->para.company_name = stamp_tmp->para.company_name;
+			}
+			if (pwrite(fd, stamp, sizeof(zpool_stamp_t), stamp_offset) != sizeof(zpool_stamp_t)) {
+				syslog(LOG_ERR, "write error, <%s>", path);
+			} else {
+				ret = 0;
+			}
+		}
+		close(fd);
+	} else {
+		syslog(LOG_ERR, "write stamp, open <%s> failed",path);
+	}
+    free(stamp_tmp);
+	return (ret);
+}
+
+int zpool_read_stmp_by_path(char *path, zpool_stamp_t *stamp)
+{
+	int fd, ret = 1,len;
+	char tmp_path[1024];
+	uint64_t stamp_offset = 0;
+	sprintf(tmp_path, "%s", path);
+	len = strlen(tmp_path);
+#if 0
+	if (*(tmp_path + len - 2) == 's') {
+		*(tmp_path + len -2) = '\0';
+	}
+#endif
+
+	fd = open(tmp_path, O_RDONLY|O_NDELAY);
+	if (fd > 0) {
+		if (get_disk_stamp_offset(fd, &stamp_offset) != 0) {
+			syslog(LOG_ERR, "read stamp, get stamp offset failed");
+			close(fd);
+			return (ret);
+		}
+		stamp_offset += stamp_offset/STAMP_OFFSET;
+		if (pread(fd, stamp, sizeof(zpool_stamp_t), stamp_offset)
+		    == sizeof(zpool_stamp_t)) {
+			if (stamp->para.company_name == COMPANY_NAME) {
+				ret = 0;
+			} else {
+				syslog(LOG_ERR, "pool company name check failed");
+			}
+		} else {
+			syslog(LOG_ERR, "read stamp failed");
+		}
+		close(fd);
+	}
+	return (ret);
+}
+
+int
+zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
+{
+	char *path;
+	int fd, ret = 1, err;
+	nvlist_t **child;
+	uint_t i,  c, children;
+	uint64_t quantum;
+	char tmp_path[1024];
+	int size;
+	struct vtoc vtoc_info;
+	char *real_path;
+	
+	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) == 0);
+	for (i = 0; i < children; i ++) {
+		nvlist_t **tmp_child;
+		uint_t tmp_children;
+		uint64_t stamp_offset = 0;
+		struct vtoc vtoc_info;
+		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
+    		    &tmp_child, &tmp_children) == 0) {
+    		    	ret = zpool_read_stamp(child[i], stamp);
+			if (ret == 0) {
+				break;
+			}
+		} else {
+			err = nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path);
+			if (err != 0) {
+				syslog(LOG_ERR, "pool get config path failed");
+				continue;
+			}
+#if 0
+			err = nvlist_lookup_uint64(child[i], ZPOOL_CONFIG_QUANTUM_DEV, &quantum);
+			if (err != 0 || quantum == 0)
+				continue;
+#endif
+			
+#if 0
+			if (strncmp(path, "/dev/dsk/", 9) == 0)
+				path += 9;
+
+			(void)zpool_get_quantum_path(path);
+
+			fd = open(tmp_path, O_RDONLY|O_NDELAY);
+#endif
+			fd = open(path, O_RDONLY|O_NDELAY);
+			if (fd > 0) {
+				if (get_disk_stamp_offset(fd, &stamp_offset) != 0) {
+					syslog(LOG_ERR, "read stamp <%s>, get stamp offset failed", tmp_path);
+					close(fd);
+					continue;
+				}
+				size = pread(fd, stamp, sizeof(zpool_stamp_t), stamp_offset);
+				if (size == -1)
+					size = pread(fd, stamp, sizeof(zpool_stamp_t), stamp_offset);
+				if (size == sizeof(zpool_stamp_t)) {
+					if (stamp->para.pool_magic == ZPOOL_MAGIC) {
+						ret = 0;
+						close(fd);
+						break;
+					} else {
+						syslog(LOG_ERR, "<%s> pool magic num check failed", tmp_path);
+					}
+				} else {
+					syslog(LOG_ERR, "read stamp <%s> failed, size=%d, expected size=%d",
+						tmp_path, size, sizeof(zpool_stamp_t));
+				}
+				close(fd);
+				continue;
+			}
+		}
+	}
+
+	if (ret)
+		syslog(LOG_ERR, "read stamp info failed");
+	return (ret);
+}
+
+int zpool_write_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp, int nquantum)
+{
+	int ret;
+	char *path;
+	int fd, found = 0;
+	nvlist_t **child;
+	nvlist_t **spares;
+	uint_t i,  c, children, nspares;
+	char tmp_path[1024];
+
+	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) == 0);
+	for (i = 0; i < children; i ++) {
+		nvlist_t **tmp_child;
+		uint_t tmp_children;
+		struct vtoc vtoc_info;
+		
+		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
+    		    &tmp_child, &tmp_children) == 0) {
+    		   	found += zpool_write_stamp(child[i], stamp, nquantum - found);
+			if (found == nquantum) {
+				break;
+			}
+		}  else {
+			int ret;
+#if 0
+			uint64_t quantum;
+			ret = nvlist_lookup_uint64(child[i], ZPOOL_CONFIG_QUANTUM_DEV, &quantum);
+			if (ret != 0 || quantum == 0)
+				continue;
+#endif
+			nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path);
+#if 0
+			if (strncmp(path, "/dev/dsk/", 9) == 0)
+				path += 9;
+			sprintf(tmp_path, "/dev/rdsk/%s", path);
+			ret = zpool_write_dev_stamp(tmp_path, stamp);
+#endif
+			ret = zpool_write_dev_stamp(path, stamp);
+			if (ret != 0) {
+				continue;
+			} else {
+				found++;
+				if (found == nquantum)
+					break;
+			}	
+    	}
+	}
+
+	return (found);
+}
+
+/*
+ *
+ * Function: restore the disk label from in front of third label
+ *
+ * Return	: 0==>success; -1==>fail
+ */
+int
+zpool_restore_label(int fd)
+{
+	struct stat64 statbuf;
+	int l;
+	vdev_label_t label;
+	uint64_t size;
+	int rv = 0;
+	uint64_t wsize, woffset, tmp_woffset;
+
+	if (fstat64(fd, &statbuf) != 0) {
+		syslog(LOG_ERR, "clear label fstat failed:%s", strerror(errno));
+		return (-1);
+	}
+	size = P2ALIGN_TYPED(statbuf.st_size, sizeof (vdev_label_t), uint64_t);
+
+	/* offset in front of third label, because the backup label save there */
+	tmp_woffset = label_offset(size, 2);
+	for (l = 0; l < VDEV_LABELS; l++) {
+		woffset = label_offset(size, l);
+#if 0
+		pread64(fd, &label, sizeof (vdev_label_t), (tmp_woffset-sizeof (vdev_label_t)*(l + 1)));
+		wsize = pwrite64(fd, &label, sizeof (vdev_label_t), woffset);
+#endif
+		pread(fd, &label, sizeof (vdev_label_t), (tmp_woffset-sizeof (vdev_label_t)*(l + 1)));
+		wsize = pwrite(fd, &label, sizeof (vdev_label_t), woffset);
+		if (wsize != sizeof (vdev_label_t)) {
+			printf("label:%d, woffset:0x%llx, wsize:0x%llx, size:%d\n", l,
+			    (u_longlong_t)woffset, (u_longlong_t)wsize, sizeof (vdev_label_t));
+			rv = -1;
+		}
+	}
+	return (rv);
+}
+
+/*
+ * Function: save disk label at end of the disk.
+ *		it a opportunity to restore disk label.
+ *
+ * Return	: 0==>success; -1==>fail
+ */
+int
+zpool_save_label(int fd)
+{
+	struct stat64 statbuf;
+	int l;
+	vdev_label_t label;
+	uint64_t size;
+	int rv = 0;
+	uint64_t wsize, woffset, tmp_woffset;
+
+	if (fstat64(fd, &statbuf) != 0) {
+		syslog(LOG_ERR, "clear label fstat failed:%s", strerror(errno));
+		return (-1);
+	}
+	size = P2ALIGN_TYPED(statbuf.st_size, sizeof (vdev_label_t), uint64_t);
+
+	/* tmp_woffset recod the third offset */
+	tmp_woffset = label_offset(size, 2);
+	for (l = 0; l < VDEV_LABELS; l++) {
+#if 0
+		if (pwrite64(fd, label, sizeof (vdev_label_t),
+		    label_offset(size, l)) != sizeof (vdev_label_t))
+			rv = -1;
+#else
+		/* read disk label and write it in front of third */
+		woffset = label_offset(size, l);
+#if 0
+		pread64(fd, &label, sizeof (vdev_label_t), woffset);
+		/* tmp_woffset-sizeof (vdev_label_t)*(l + 1). Move forward (vdev_label_t)*(l + 1) size */
+		wsize = pwrite64(fd, &label, sizeof (vdev_label_t), (tmp_woffset - sizeof (vdev_label_t)*(l + 1)));
+#endif
+		pread64(fd, &label, sizeof (vdev_label_t), woffset);
+		/* tmp_woffset-sizeof (vdev_label_t)*(l + 1). Move forward (vdev_label_t)*(l + 1) size */
+		wsize = pwrite64(fd, &label, sizeof (vdev_label_t), (tmp_woffset - sizeof (vdev_label_t)*(l + 1)));
+
+		if (wsize != sizeof (vdev_label_t)) {
+			syslog(LOG_ERR, "label:%d, woffset:0x%llx, wsize:0x%llx, size:%d\n", l,
+			    (u_longlong_t)woffset, (u_longlong_t)wsize, sizeof (vdev_label_t));
+			rv = -1;
+		}
+#endif
+	}
+	return (rv);
+}
+/* Interface of stamp end */
 
 /*
  * Go through and fix up any path and/or devid information for the given vdev
@@ -994,17 +1495,6 @@ error:
 	free(child);
 
 	return (NULL);
-}
-
-/*
- * Return the offset of the given label.
- */
-static uint64_t
-label_offset(uint64_t size, int l)
-{
-	ASSERT(P2PHASE_TYPED(size, sizeof (vdev_label_t), uint64_t) == 0);
-	return (l * sizeof (vdev_label_t) + (l < VDEV_LABELS / 2 ?
-	    0 : size - VDEV_LABELS * sizeof (vdev_label_t)));
 }
 
 /*
@@ -1996,4 +2486,82 @@ zpool_remove_partner(libzfs_handle_t *hdl, char *name, uint32_t remote_hostid)
 	zc.zc_cookie = ZFS_HBX_REMOVE_PARTNER_POOL;
 	err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX, &zc);
 	return (err);
+}
+
+int zpool_cluster_set_disks(libzfs_handle_t *hdl, char *pool_name,
+	uint64_t cid, uint64_t rid, uint64_t progress, boolean_t cluster_switch,
+	uint32_t remote_hostid)
+{
+	int ret;
+	uint64_t host_id = 0;
+	char buffer[256] = {"\0"}, *pname;
+	nvlist_t *pools, *config, *nvroot;
+	importargs_t iarg = { 0 };
+	nvpair_t *elem = NULL;
+	zpool_stamp_t *stamp;
+
+	host_id = gethostid();
+#if 0
+	if (host_id != 1 && host_id != 2) {
+		syslog(LOG_ERR, "host id is not 1 or 2, cluster set disks failed");
+		if (progress == ZPOOL_NO_PROGRESS || progress == ZPOOL_ON_PROGRESS)
+			return (-1);
+	}
+#endif
+	if (host_id > 255) {
+		syslog(LOG_ERR, "host id(%"PRId64") is invalid, cluster set disks failed", host_id);
+		if (progress == ZPOOL_NO_PROGRESS || progress == ZPOOL_ON_PROGRESS)
+			return (-1);
+	}
+	if (!cluster_switch)
+		pools = zpool_find_import_impl(hdl, &iarg);
+	else
+		pools = get_switched_config(hdl, "", remote_hostid);
+	if (pools == NULL) {
+		if (nvlist_alloc(&pools, 0, 0) != 0) {
+			syslog(LOG_ERR, "scan  pools, alloc nvlist failed");
+			return (-1);
+		}
+	}
+	if (!cluster_switch)
+		(void) zpool_iter(hdl, add_mounted_pools, pools);
+	
+	/* Secondly, we write label info */
+	stamp = malloc(sizeof(zpool_stamp_t));
+	if (stamp == NULL) {
+		syslog(LOG_ERR, "cluste set disk malloc failed");
+		nvlist_free(pools);
+		return (-1);
+	}
+	
+	bzero(stamp, sizeof(zpool_stamp_t));
+	while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
+		verify(nvpair_value_nvlist(elem, &config) == 0);
+		verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
+		    &pname) == 0);
+		if (pool_name == NULL || (pool_name != NULL && strcmp(pname,
+			pool_name) == 0)) {
+        	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+            	    &nvroot) == 0);
+        	if (zpool_read_stamp(nvroot, stamp) != 0)
+				continue;
+			if (rid < 256) {
+				stamp->para.pool_real_owener = rid;
+			}
+
+			if (cid < 256) {
+				stamp->para.pool_current_owener = cid;
+			}
+
+			if (progress == ZPOOL_NO_PROGRESS || progress == ZPOOL_ON_PROGRESS) {
+				stamp->para.pool_progress[(host_id + 1) % 2] = progress;
+			}
+			zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM);
+		}
+	}
+
+	nvlist_free(pools);
+	free(stamp);
+	
+	return (0);
 }

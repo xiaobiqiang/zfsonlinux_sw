@@ -2443,6 +2443,10 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		 */
 		(void) strlcpy(propbuf, zhp->zfs_name, proplen);
 		break;
+		
+	case ZFS_PROP_CLUSTER_NODE_NAME:
+		get_clusnodename(propbuf, proplen);
+		break;
 
 	case ZFS_PROP_MLSLABEL:
 		{

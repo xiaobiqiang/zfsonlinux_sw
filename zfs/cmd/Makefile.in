@@ -467,9 +467,9 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 udevdir = @udevdir@
 udevruledir = @udevruledir@
-SUBDIRS = zfs zpool zdb zhack zinject zstreamdump ztest zpios \
+SUBDIRS = zfs zpool zdb zhack zinject zstreamdump ztest zpios disk \
 	mount_zfs fsck_zfs zvol_id vdev_id arcstat dbufstat zed \
-	arc_summary
+	arc_summary 
 all: all-recursive
 
 .SUFFIXES:
