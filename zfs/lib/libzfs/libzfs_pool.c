@@ -2197,6 +2197,17 @@ zpool_vdev_is_interior(const char *name)
 }
 
 nvlist_t *
+zpool_get_nvroot(zpool_handle_t *zhp)
+{
+	nvlist_t *nvroot;
+
+	verify(nvlist_lookup_nvlist(zhp->zpool_config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+	
+	return (nvroot);
+}
+
+nvlist_t *
 zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare,
     boolean_t *l2cache, boolean_t *log)
 {

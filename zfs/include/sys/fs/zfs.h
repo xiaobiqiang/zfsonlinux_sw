@@ -562,6 +562,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_MISSING_DEVICES	"missing_vdevs"	/* not stored on disk */
 #define	ZPOOL_CONFIG_LOAD_INFO		"load_info"	/* not stored on disk */
 #define ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
+#define ZPOOL_CONFIG_MIRRORSPARES	"mirrorspares"
 #define	ZPOOL_CONFIG_REWIND_INFO	"rewind_info"	/* not stored on disk */
 #define	ZPOOL_CONFIG_UNSUP_FEAT		"unsup_feat"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ENABLED_FEAT	"enabled_feat"	/* not stored on disk */
