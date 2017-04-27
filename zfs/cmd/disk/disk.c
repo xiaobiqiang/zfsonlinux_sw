@@ -81,25 +81,41 @@ get_scsi_gsize(uint64_t blocks)
 }
 
 static int
-get_scsi_pool(disk_info_t *di)
+get_scsi_status(disk_info_t *di)
 {
-	FILE *fp;
-	int len = 0;
-	char *cstr = NULL;
-	char *buf[1024] = {0};
-	char *name[DISK_NAME] = {0};
+	int i = 0;
+	int fd = -1;
+	int err = -1;
+	int count = 0;
+	struct dk_gpt *vtoc = NULL;
 
-	fp = popen("blkid","r");
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		sscanf(buf,"%8s",name);
-		cstr = strstr(buf, "TYPE");
-		if (strncasecmp(di->dk_name, name, 8) == 0 && cstr != NULL) {
-			memcpy(di->dk_busy, "busy", 4);
-			return (1);
+	if (strncmp(di->dk_name, "/dev/sda", 8) == 0) {
+		memcpy(di->dk_busy, "busy", 4);
+		return (1);
+	}
+
+	fd = open(di->dk_name, O_RDWR|O_DIRECT);
+	if (fd < 0)
+		return (0);
+
+	err = efi_alloc_and_read(fd, &vtoc);
+	if (err < 0)
+		return (0);
+
+	for (i = 0; i < vtoc->efi_nparts; i++) {
+		if (vtoc->efi_parts[i].p_size != 0) {
+			count = i;
+			break;
 		}
 	}
 
-	memcpy(di->dk_busy, "free", 4);
+	if (count == 8)
+		memcpy(di->dk_busy, "free", 4);
+	else
+		memcpy(di->dk_busy, "busy", 4);
+
+	efi_free(vtoc);
+	(void) close(fd);
 	return (1);
 }
 
@@ -359,7 +375,7 @@ int list_disks(int all)
 	{
 		get_scsi_vendor(di_cur);
 		get_scsi_serial(di_cur);
-		get_scsi_pool(di_cur);
+		get_scsi_status(di_cur);
 		di_cur = di_cur->next;
 	}
 
@@ -375,22 +391,22 @@ int list_disks(int all)
 static void disk_init_efi(char *path)
 {
 	int fd, ret, i;
-	dk_gpt_t *table;
+	struct dk_gpt *table;
 
-	fd = open(path, O_RDONLY|O_DIRECT);
+	fd = open(path, O_RDWR|O_DIRECT);
 	if (fd < 0) {
 		syslog(LOG_ERR, "disk_init: open <%s> fails",path);
 		return;
 	}
-
+	
 	ret = efi_alloc_and_init(fd, EFI_NUMPAR, &table);
-	if (ret != 0) {
+	if (ret < 0) {
 		syslog(LOG_ERR, "disk_init: get disk table <%s> fails",path);
 		(void) close(fd);
 		return;
 	}
 
-	for (i = 0; i < EFI_NUMPAR; i++) {
+	for (i = 0; i < 8; i++) {
 		table->efi_parts[i].p_start = 0;
 		table->efi_parts[i].p_size = 0;
 		table->efi_parts[i].p_tag = V_UNASSIGNED;
@@ -401,11 +417,11 @@ static void disk_init_efi(char *path)
 	table->efi_parts[8].p_tag = V_RESERVED;
 
 	ret = efi_write(fd, table);
-	if (ret != 0) {
+	if (ret < 0) {
 		syslog(LOG_ERR, "Destroy devs: write   disk table  (%s) fails", path);
 	}
-	efi_free(table);
 	(void) close(fd);
+	efi_free(table);
 
 	return;
 }
@@ -930,12 +946,13 @@ static int disk_analyze_partition(const char *dev)
 	zpool_handle_t	*zhp;
 	libzfs_handle_t *tmp_gzfs;
 	nvlist_t *nvroot;
-
+#if 0
 	bzero(dev_path,256);
 	if (strncmp(dev, "/dev/rdsk/", 10) != 0){
 		printf("can't find the disk please check it\n");
 		return c;
 	}
+#endif
 	
 	/* get en_id & slot_id */
 	ret = disk_get_enid_slotid(dev,&en_id,&slot_id);
@@ -1639,7 +1656,6 @@ disk_init(slice_req_t *req)
 		free(stamp);
 		
 	}
-	syslog(LOG_ERR,"disk init  %s",req->disk_name);
 	free(stamp_tmp);
 	//system("/usr/sbin/devfsadm");
 	return (0);
@@ -1770,7 +1786,7 @@ static int disk_mark(slice_req_t *req)
 	if (stamp != NULL) {
 		bzero(stamp, sizeof(zpool_stamp_t));
 		stamp->para.company_name = COMPANY_NAME;
-		ret=zpool_write_dev_stamp_mark(buffer, stamp);
+		ret=zpool_write_dev_stamp_mark(req->disk_name, stamp);
 		free(stamp);
 	}
 	if(ret)
