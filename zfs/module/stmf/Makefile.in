@@ -1,0 +1,11 @@
+src = @abs_top_srcdir@/module/stmf
+obj = @abs_builddir@
+
+MODULE := zstmf
+
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+
+obj-$(CONFIG_ZFS) := $(MODULE).o
+
+$(MODULE)-objs += lun_map.o
+$(MODULE)-objs += stmf.o

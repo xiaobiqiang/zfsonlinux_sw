@@ -50,6 +50,35 @@
 extern spinlock_t atomic32_lock;
 extern spinlock_t atomic64_lock;
 
+static __inline__ uint8_t
+atomic_cas_8(volatile uint8_t *target,  uint8_t cmp,
+              uint8_t newval)
+{
+	uint32_t rc;
+
+	spin_lock(&atomic32_lock);
+	rc = *target;
+	if (*target == cmp)
+		*target = newval;
+
+	spin_unlock(&atomic32_lock);
+
+	return rc;
+}
+
+static __inline__ uint16_t
+atomic_add_16_nv(volatile uint16_t *target, uint16_t delta)
+{
+	uint16_t nv;
+
+	spin_lock(&atomic32_lock);
+	*target += delta;
+	nv = *target;
+	spin_unlock(&atomic32_lock);
+
+	return nv;
+}
+
 static __inline__ void
 atomic_inc_32(volatile uint32_t *target)
 {
@@ -156,6 +185,32 @@ atomic_swap_32(volatile uint32_t *target,  uint32_t newval)
 	spin_lock(&atomic32_lock);
 	rc = *target;
 	*target = newval;
+	spin_unlock(&atomic32_lock);
+
+	return rc;
+}
+
+static __inline__ uint32_t
+atomic_or_32(volatile uint32_t *target,  uint32_t bits)
+{
+	uint32_t rc;
+
+	spin_lock(&atomic32_lock);
+	rc = *target;
+	*target |= bits;
+	spin_unlock(&atomic32_lock);
+
+	return rc;
+}
+
+static __inline__ uint32_t
+atomic_and_32(volatile uint32_t *target,  uint32_t mask)
+{
+	uint32_t rc;
+
+	spin_lock(&atomic32_lock);
+	rc = *target;
+	*target &= mask;
 	spin_unlock(&atomic32_lock);
 
 	return rc;
@@ -271,8 +326,37 @@ atomic_swap_64(volatile uint64_t *target,  uint64_t newval)
 	return rc;
 }
 
+static __inline__ uint64_t
+atomic_or_64(volatile uint64_t *target,  uint64_t bits)
+{
+	uint64_t rc;
+
+	spin_lock(&atomic64_lock);
+	rc = *target;
+	*target |= bits;
+	spin_unlock(&atomic64_lock);
+
+	return rc;
+}
+
+static __inline__ uint64_t
+atomic_and_64(volatile uint64_t *target,  uint64_t mask)
+{
+	uint64_t rc;
+
+	spin_lock(&atomic64_lock);
+	rc = *target;
+	*target &= mask;
+	spin_unlock(&atomic64_lock);
+
+	return rc;
+}
+
+
 #else /* ATOMIC_SPINLOCK */
 
+#define	atomic_cas_8(v, x, y)	atomic_cmpxchg((atomic_t *)(v), x, y)
+#define	atomic_add_16_nv(v, i)	atomic_add_return((i), (atomic_t *)(v))
 #define atomic_inc_32(v)	atomic_inc((atomic_t *)(v))
 #define atomic_dec_32(v)	atomic_dec((atomic_t *)(v))
 #define atomic_add_32(v, i)	atomic_add((i), (atomic_t *)(v))
@@ -283,6 +367,8 @@ atomic_swap_64(volatile uint64_t *target,  uint64_t newval)
 #define atomic_sub_32_nv(v, i)	atomic_sub_return((i), (atomic_t *)(v))
 #define atomic_cas_32(v, x, y)	atomic_cmpxchg((atomic_t *)(v), x, y)
 #define atomic_swap_32(v, x)	atomic_xchg((atomic_t *)(v), x)
+#define	atomic_or_32(v, i)	atomic_or_long((unsigned long *)(v), (i))
+#define	atomic_and_32(v, i)	atomic_clear_mask((i), (atomic_t *)(v))
 #define atomic_inc_64(v)	atomic64_inc((atomic64_t *)(v))
 #define atomic_dec_64(v)	atomic64_dec((atomic64_t *)(v))
 #define atomic_add_64(v, i)	atomic64_add((i), (atomic64_t *)(v))
@@ -293,6 +379,8 @@ atomic_swap_64(volatile uint64_t *target,  uint64_t newval)
 #define atomic_sub_64_nv(v, i)	atomic64_sub_return((i), (atomic64_t *)(v))
 #define atomic_cas_64(v, x, y)	atomic64_cmpxchg((atomic64_t *)(v), x, y)
 #define atomic_swap_64(v, x)	atomic64_xchg((atomic64_t *)(v), x)
+#define	atomic_or_64(v, i)	atomic_or_long((unsigned long *)(v), (i))
+#define	atomic_and_64(v, i)	atomic_clear_mask((i), (atomic64_t *)(v))
 
 #endif /* ATOMIC_SPINLOCK */
 

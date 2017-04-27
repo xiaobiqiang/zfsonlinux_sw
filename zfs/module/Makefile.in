@@ -5,6 +5,7 @@ subdir-m += zcommon
 subdir-m += zfs
 subdir-m += zpios
 subdir-m += fct
+subdir-m += stmf
 
 INSTALL_MOD_DIR ?= extra
 
