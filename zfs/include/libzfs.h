@@ -92,10 +92,6 @@ typedef struct zpool_stamp {
 	uint8_t	reserved[ZPOOL_STAMP_SIZE - sizeof (zpool_stamp_para_t)];
 } zpool_stamp_t;
 
-typedef struct spa_quantum_index {
-	uint64_t index;
-	char *dev_name;
-}spa_quantum_index_t;
 /* solaris stamp write end */
 
 /*
