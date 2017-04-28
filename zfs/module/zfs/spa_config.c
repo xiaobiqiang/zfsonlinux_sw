@@ -38,8 +38,12 @@
 #ifdef _KERNEL
 #include <sys/kobj.h>
 #include <sys/zone.h>
+#include <sys/cluster_san.h>
 #endif
 
+#ifndef	ETC_VAR_SYS_POOL_NAME
+#define	ETC_VAR_SYS_POOL_NAME	"syspool"
+#endif
 /*
  * Pool configuration repository.
  *
@@ -218,6 +222,206 @@ spa_config_write(spa_config_dirent_t *dp, nvlist_t *nvl)
 	kmem_free(temp, MAXPATHLEN);
 }
 
+static vdev_t *
+spa_search_quantum_dev(vdev_t *vdev)
+{
+	int c;
+	vdev_t *quantum_dev = NULL;
+	vdev_t *dev_active_spare = NULL;
+	int refcnt;
+	uint64_t pool = 0;
+
+	for (c = 0; c < vdev->vdev_children; c++) {
+		if ((vdev->vdev_child[c]->vdev_ops->vdev_op_leaf == B_TRUE)
+			&& (!vdev->vdev_child[c]->vdev_isquantum)
+			&& (vdev->vdev_child[c]->vdev_state >  VDEV_STATE_FAULTED)) {
+			if ((!vdev->vdev_child[c]->vdev_islog)
+				&& (!vdev->vdev_child[c]->vdev_isspare)
+				&& (!vdev->vdev_child[c]->vdev_isl2cache)) {
+				quantum_dev = vdev->vdev_child[c];
+				break;
+			}
+
+			if ((dev_active_spare == NULL)
+				&& (vdev->vdev_child[c]->vdev_isspare != 0)) {
+				if (B_TRUE == spa_spare_exists(vdev->vdev_child[c]->vdev_guid, &pool, &refcnt)) {
+					if(spa_guid(vdev->vdev_child[c]->vdev_spa) == pool) {
+						dev_active_spare = vdev->vdev_child[c];
+					}
+				}
+			}
+		}
+	}
+
+	if (quantum_dev == NULL ) {
+		if (vdev->vdev_children > 0){
+			/* recursively look for quantum dev candidate in children. */
+			for (c = 0; c < vdev->vdev_children; c++)
+			{
+				quantum_dev = spa_search_quantum_dev(vdev->vdev_child[c]);
+				if (quantum_dev != NULL ) {
+					/* Find quantum dev. */
+					return (quantum_dev);
+				}
+			}
+
+			if (dev_active_spare != NULL ) {
+				/* Choose activated spare disk as quantum disk. */
+				quantum_dev = dev_active_spare;
+			} else {
+				/* Didn't find quantum dev candidate in any child. */
+				return (NULL);
+			}
+		}
+		else {
+			/*
+			*  choose no quantum dev in the level of root dev, so we choose from it's upper level
+			*/
+			return (NULL);
+		}
+	}
+
+	return (quantum_dev);
+}
+
+static int
+spa_label_quantum_dev(spa_quantum_t *quantum, vdev_t *vdev,
+	vdev_t **old_quantum_dev)
+{
+	int i = 0;
+	boolean_t need_post = B_TRUE;
+	vdev_t *quantum_dev = NULL;
+
+	quantum_dev = spa_search_quantum_dev(vdev);
+	if (quantum_dev == NULL)
+		return (1);
+	
+	for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+		if (quantum_dev == old_quantum_dev[i]) {
+			need_post = B_FALSE;
+			break ;
+		}
+	}
+
+	quantum_dev->vdev_isquantum = B_TRUE;
+	mutex_enter(&quantum->spa_quantum_lock);
+	quantum->spa_quantum_dev = quantum_dev;
+	quantum->spa_quantum_index = 0;
+	mutex_exit(&quantum->spa_quantum_lock);
+	spa_quantum_start(quantum);
+	cmn_err(CE_WARN, "spa_label_quantum_dev: choose quantum dev = %s, post:%d, quantum(%lx)",
+		quantum_dev->vdev_path, need_post, (ulong_t)quantum);
+	if (need_post == B_TRUE) {
+		spa_event_notify(quantum_dev->vdev_spa, quantum_dev, FM_EREPORT_ZFS_DEVICE_QUANTUM);
+	}
+	
+	return (0);
+}
+
+static void
+spa_clean_quantum_dev(vdev_t *vdev)
+{
+	int c;
+	int i;
+	vdev_t *root_vdev= vdev;
+	spa_quantum_t *quantum = vdev->vdev_spa->spa_quantums ;
+
+	if ( B_TRUE == vdev->vdev_isquantum ) {
+		for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+			if (quantum[i].spa_quantum_dev == vdev) {
+				if (quantum[i].spa_quantum_state == QUANTUM_PROC_ACTIVE)
+					break ;
+			}
+		}
+		if (i == SPA_NUM_OF_QUANTUM) {
+			vdev->vdev_isquantum = B_FALSE;
+		}
+	}
+
+	for (c = 0; c < root_vdev->vdev_children; c ++)
+	{
+		spa_clean_quantum_dev(root_vdev->vdev_child[c]);
+	}
+}
+
+void
+spa_choose_quantum_dev(spa_t *spa) 
+{
+	int i;
+	int err;
+	vdev_t *root_dev;
+	boolean_t need_choose = B_FALSE;
+	vdev_t *old_quantum_dev[SPA_NUM_OF_QUANTUM];
+
+	root_dev = spa->spa_root_vdev;
+	if (root_dev == NULL) {
+		return;
+	}
+
+	for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+		spa_quantum_t *quantum = &(spa->spa_quantums[i]);
+		old_quantum_dev[i] = quantum->spa_quantum_dev;/* record the old quantum dev */
+		if ((quantum->spa_quantum_state != QUANTUM_PROC_ACTIVE)
+			|| (quantum->spa_quantum_dev == NULL)
+			|| (quantum->spa_quantum_dev->vdev_state <= VDEV_STATE_FAULTED)
+			|| (quantum->spa_quantum_dev->vdev_detached != 0)) {
+			spa_quantum_stop(quantum);
+			need_choose = B_TRUE;
+		}
+	}
+	if (need_choose != B_TRUE) {
+		return ;
+	}
+
+	spa_clean_quantum_dev(root_dev);
+
+	for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+		spa_quantum_t *quantum = &(spa->spa_quantums[i]);
+		if (quantum->spa_quantum_state == QUANTUM_PROC_NONE) {
+			err = spa_label_quantum_dev(quantum, root_dev, old_quantum_dev);
+			if (0 != err) {
+				cmn_err(CE_WARN, "spa_choose_quantum_dev: pool:%s, state:%d "
+					"failed in choosing quantum_dev(%d)",
+					spa->spa_name, spa->spa_state, spa->spa_num_of_quantums+1);
+				break ;
+			}
+		}
+	}
+}
+
+static void
+spa_config_sync_remote(spa_t *target, boolean_t removing,
+	boolean_t sync_remote)
+{
+	nvlist_t *nvl = NULL;
+	spa_t *spa = NULL;
+	
+	while ((spa = spa_next(spa)) != NULL) {
+		if (spa == target && removing)
+			continue;
+		if (strncmp(spa->spa_name, ETC_VAR_SYS_POOL_NAME, MAXNAMELEN) == 0) {
+			continue;
+		}
+
+		if (nvl == NULL) {
+			VERIFY(nvlist_alloc(&nvl, NV_UNIQUE_NAME,
+				  KM_SLEEP) == 0);
+		}
+		mutex_enter(&spa->spa_props_lock);
+		VERIFY(nvlist_add_nvlist(nvl, spa->spa_name,
+			  spa->spa_config) == 0);
+		mutex_exit(&spa->spa_props_lock);
+	}
+	
+#ifdef _KERNEL
+	cluster_update_spa_config(nvl, sync_remote);
+	cmn_err(CE_WARN, "spa_config_sync_remote: cluster_update_spa_config");
+#endif
+
+	if (nvl != NULL)
+		nvlist_free(nvl);
+}
+
 /*
  * Synchronize pool configuration to disk.  This must be called with the
  * namespace lock held. Synchronizing the pool cache is typically done after
@@ -238,6 +442,8 @@ spa_config_sync(spa_t *target, boolean_t removing, boolean_t postsysevent)
 
 	if (rootdir == NULL || !(spa_mode_global & FWRITE))
 		return;
+
+	spa_config_sync_remote(target, removing, B_TRUE);
 
 	/*
 	 * Iterate over all cachefiles for the pool, past or present.  When the

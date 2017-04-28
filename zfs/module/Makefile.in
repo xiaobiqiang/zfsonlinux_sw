@@ -1,4 +1,5 @@
 subdir-m += avl
+subdir-m += cn_hbx
 subdir-m += nvpair
 subdir-m += unicode
 subdir-m += zcommon

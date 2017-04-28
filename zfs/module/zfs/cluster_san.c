@@ -9,7 +9,7 @@
 /* #include <sys/strsubr.h> */
 #include <sys/atomic.h>
 #include <sys/zfs_ioctl.h>
-/* #include <sys/fs/zfs_hbx.h> */
+#include <sys/fs/zfs_hbx.h>
 #include <sys/fs/zfs.h>
 #include <sys/cluster_san.h>
 #include <sys/cluster_target_mac.h>
@@ -916,14 +916,14 @@ csh_link_evt_handle_ext(cluster_san_hostinfo_t *cshi, cts_link_evt_t link_evt)
 			/* spa failover */
 			hostid = kmem_zalloc(sizeof(uint32_t), KM_SLEEP);
 			*hostid = cshi->hostid;
-			/* zfs_notify_clusterd(EVT_REMOTE_HOST_DOWN,
-				(char *)hostid, (uint64_t)sizeof(uint32_t)); */
+			zfs_notify_clusterd(EVT_REMOTE_HOST_DOWN,
+				(char *)hostid, (uint64_t)sizeof(uint32_t));
 			break;
 		case LINK_EVT_DOWN_TO_UP:
 			hostid = kmem_zalloc(sizeof(uint32_t), KM_SLEEP);
 			*hostid = cshi->hostid;
-			/* zfs_notify_clusterd(EVT_REMOTE_HOST_UP,
-				(char *)hostid, (uint64_t)sizeof(uint32_t)); */
+			zfs_notify_clusterd(EVT_REMOTE_HOST_UP,
+				(char *)hostid, (uint64_t)sizeof(uint32_t));
 			break;
 		default:
 			break;
@@ -1061,7 +1061,7 @@ int cluster_san_init()
 	clustersan->cs_async_taskq = taskq_create("clustersan_async_tq",
 		1, minclsyspri, 1, CLUSTER_SAN_ASYNC_THREAD_MAX, TASKQ_PREPOPULATE);
 
-	/* zfs_hbx_init(); */
+	zfs_hbx_init();
 	/* cluster_target_rpc_rdma_svc_init(); */
 	/* cluster_target_rpc_rdma_clnt_init(); */
 
@@ -1074,7 +1074,7 @@ int cluster_san_init()
 
 void cluster_san_fini()
 {
-	/* zfs_hbx_fini(); */
+	zfs_hbx_fini();
 	mutex_destroy(&clustersan_lock);
 	rw_destroy(&clustersan_rwlock);
 	list_destroy(&clustersan->cs_target_list);
@@ -1350,14 +1350,13 @@ int cluster_remote_import_pool(uint32_t remote_hostid, char *spa_name)
 
 void cluster_change_pool_owner_handle(cs_rx_data_t *cs_data)
 {
-	/* cluster_san_hostinfo_t *cshi = cs_data->cs_private; */
 	char *buf;
 
 	buf = kmem_zalloc(cs_data->data_len, KM_SLEEP);
 	bcopy(cs_data->data, buf, cs_data->data_len);
 
-	/* zfs_notify_clusterd(EVT_CHANGE_POOL_OWNER,
-		buf, cs_data->data_len); */
+	zfs_notify_clusterd(EVT_CHANGE_POOL_OWNER,
+		buf, cs_data->data_len);
 	csh_rx_data_free(cs_data, B_TRUE);
 }
 
@@ -1571,7 +1570,7 @@ void cluster_rx_ipmi_ip(cs_rx_data_t *cs_data)
 	cluster_san_host_sync_msg_ret(cshi, evt_header->msg_id,
 		CLUSTER_SAN_MSGTYPE_CLUSTER, 0);
 	/* notify clusterd to add route */
-	/* zfs_notify_clusterd(EVT_IPMI_ADD_ROUTE, ipmi_ipaddr, 16); */
+	zfs_notify_clusterd(EVT_IPMI_ADD_ROUTE, ipmi_ipaddr, 16);
 	csh_rx_data_free(cs_data, B_TRUE);
 }
 
@@ -5249,7 +5248,7 @@ static void cluster_san_rx_sync_cmd_handle(cs_rx_data_t *cs_data)
 	    KM_SLEEP) == 0);
 	nvlist_free(nvl_cmd);
 
-	/* zfs_notify_clusterd(EVT_CLUSTERSAN_SYNC_CMD, buf, buflen); */
+	zfs_notify_clusterd(EVT_CLUSTERSAN_SYNC_CMD, buf, buflen);
 
 out:
 	csh_rx_data_free(cs_data, B_TRUE);

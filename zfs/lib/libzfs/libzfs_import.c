@@ -55,6 +55,7 @@
 #include <sys/vtoc.h>
 #include <sys/dktp/fdisk.h>
 #include <sys/efi_partition.h>
+#include <syslog.h>
 #include <sys/spa_impl.h>
 
 #include <sys/vdev_impl.h>
@@ -187,7 +188,7 @@ static nvlist_t *get_switched_config(
 	libzfs_handle_t *hdl, char *name, uint32_t remote_hostid)
 {
 	nvlist_t *nvl;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	int err;
 
 	if (name != NULL) {
@@ -363,6 +364,7 @@ int zpool_write_dev_stamp(char *path, zpool_stamp_t *stamp)
 		syslog(LOG_ERR, "write stamp, open <%s> failed",path);
 	}
 	free(stamp_tmp);
+
 	return (ret);
 }
 
@@ -441,12 +443,9 @@ zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
 	char *path;
 	int fd, ret = 1, err;
 	nvlist_t **child;
-	uint_t i,  c, children;
+	uint_t i, children;
 	uint64_t quantum;
-	char tmp_path[1024];
 	int size;
-	struct vtoc vtoc_info;
-	char *real_path;
 	
 	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) == 0);
@@ -454,7 +453,7 @@ zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
 		nvlist_t **tmp_child;
 		uint_t tmp_children;
 		uint64_t stamp_offset = 0;
-		struct vtoc vtoc_info;
+
 		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
     		    &tmp_child, &tmp_children) == 0) {
     		    	ret = zpool_read_stamp(child[i], stamp);
@@ -467,11 +466,10 @@ zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
 				syslog(LOG_ERR, "pool get config path failed");
 				continue;
 			}
-#if 0
+
 			err = nvlist_lookup_uint64(child[i], ZPOOL_CONFIG_QUANTUM_DEV, &quantum);
 			if (err != 0 || quantum == 0)
 				continue;
-#endif
 			
 #if 0
 			if (strncmp(path, "/dev/dsk/", 9) == 0)
@@ -484,7 +482,7 @@ zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
 			fd = open(path, O_RDONLY|O_NDELAY);
 			if (fd > 0) {
 				if (get_disk_stamp_offset(fd, &stamp_offset) != 0) {
-					syslog(LOG_ERR, "read stamp <%s>, get stamp offset failed", tmp_path);
+					syslog(LOG_ERR, "read stamp <%s>, get stamp offset failed", path);
 					close(fd);
 					continue;
 				}
@@ -497,11 +495,11 @@ zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
 						close(fd);
 						break;
 					} else {
-						syslog(LOG_ERR, "<%s> pool magic num check failed", tmp_path);
+						syslog(LOG_ERR, "<%s> pool magic num check failed", path);
 					}
 				} else {
 					syslog(LOG_ERR, "read stamp <%s> failed, size=%d, expected size=%d",
-						tmp_path, size, sizeof(zpool_stamp_t));
+						path, size, sizeof(zpool_stamp_t));
 				}
 				close(fd);
 				continue;
@@ -516,21 +514,18 @@ zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp)
 
 int zpool_write_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp, int nquantum)
 {
-	int ret;
 	char *path;
-	int fd, found = 0;
+	int found = 0;
 	nvlist_t **child;
 	nvlist_t **spares;
-	uint_t i,  c, children, nspares;
-	char tmp_path[1024];
+	uint_t i, children;
 
 	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) == 0);
 	for (i = 0; i < children; i ++) {
 		nvlist_t **tmp_child;
 		uint_t tmp_children;
-		struct vtoc vtoc_info;
-		
+	
 		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
     		    &tmp_child, &tmp_children) == 0) {
     		   	found += zpool_write_stamp(child[i], stamp, nquantum - found);
@@ -539,12 +534,10 @@ int zpool_write_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp, int nquantum)
 			}
 		}  else {
 			int ret;
-#if 0
 			uint64_t quantum;
 			ret = nvlist_lookup_uint64(child[i], ZPOOL_CONFIG_QUANTUM_DEV, &quantum);
 			if (ret != 0 || quantum == 0)
 				continue;
-#endif
 			nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path);
 #if 0
 			if (strncmp(path, "/dev/dsk/", 9) == 0)
@@ -1710,6 +1703,8 @@ zpool_find_import_impl(libzfs_handle_t *hdl, importargs_t *iarg)
 
 	if (dirs == 0) {
 #ifdef HAVE_LIBBLKID
+		if (iarg->no_blkid)
+			goto dont_use_blkid;
 		/* Use libblkid to scan all device for their type */
 		if (zpool_find_import_blkid(hdl, &pools) == 0)
 			goto skip_scanning;
@@ -1717,6 +1712,7 @@ zpool_find_import_impl(libzfs_handle_t *hdl, importargs_t *iarg)
 		(void) zfs_error_fmt(hdl, EZFS_BADCACHE,
 		    dgettext(TEXT_DOMAIN, "blkid failure falling back "
 		    "to manual probing"));
+dont_use_blkid:
 #endif /* HAVE_LIBBLKID */
 
 		dir = zpool_default_import_path;
@@ -2294,19 +2290,202 @@ zpool_in_use(libzfs_handle_t *hdl, int fd, pool_state_t *state, char **namestr,
 	return (0);
 }
 
+#define	ZPOOL_STAMP_SIZE	(VDEV_PAD_SIZE / 2)
+
+static uint64_t
+used_index_offset(uint64_t size, int l)
+{
+	verify(P2PHASE_TYPED(size, sizeof (vdev_use_index_t), uint64_t) == 0);
+	return (l * sizeof (vdev_label_t) + (l < VDEV_LABELS / 2 ?
+	    0 : size - VDEV_LABELS * sizeof (vdev_label_t)) + ZPOOL_STAMP_SIZE);
+}
+
+int
+get_disk_userd_offset(int disk_fd, uint64_t *offset)
+{
+	uint64_t size;
+	struct stat64 statbuf;
+	/*struct vtoc vtoc_info;*/
+	uint64_t tmp_offset  = 0;
+	if (fstat64(disk_fd, &statbuf) == -1)
+		return (1);
+	size = P2ALIGN_TYPED(statbuf.st_size, sizeof (vdev_use_index_t), uint64_t);
+#if	0
+	if (read_vtoc(disk_fd, &vtoc_info) >= 0) {
+			return (1);
+	}
+#endif
+	tmp_offset = used_index_offset(size, VDEV_STAMP_LABEL_NO);
+	*offset = tmp_offset;
+	return (0);
+}
+
+/* 
+ * description:
+ *         read quantum's index
+ * input:
+ *         pool_root: the pool want to read
+ *         index: the quantum's index, output
+ *         nquantum: the num of quantums in the pool, maybe less than nquantum
+ * return:
+ *         real num of quantums in the pool
+ */
+uint64_t
+zpool_read_used(nvlist_t *pool_root, spa_quantum_index_t *index,
+	uint64_t nquantum)
+{
+	char *path;
+	int fd, ret = 0;
+	nvlist_t **child;
+	uint_t i;
+	uint_t children = 0;
+	uint64_t quantum;
+	uint64_t real_nquantum = 0;
+	uint64_t tmp_nquantum = 0;
+	char tmp_path[1024];
+	spa_quantum_index_t *pindex = index;
+	char *type;
+
+	if ((nquantum == 0) || (index == NULL) || (pool_root == NULL))
+		return (0);
+	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
+		&child, &children) == 0);
+	for (i = 0; i < children; i ++) {
+		nvlist_t **tmp_child;
+		uint_t tmp_children = 0;
+		uint64_t used_offset = 0;
+		vdev_use_index_t used_buf;
+		
+		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
+			&tmp_child, &tmp_children) == 0) {
+			tmp_nquantum = zpool_read_used(child[i], pindex,
+				nquantum-real_nquantum);
+			pindex += tmp_nquantum;
+			real_nquantum += tmp_nquantum;
+			if (real_nquantum == nquantum)
+				break;
+		} else {
+			verify(nvlist_lookup_string(child[i], ZPOOL_CONFIG_TYPE, 
+				&type) == 0);
+			ret = nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path);
+			if (ret != 0) {
+				syslog(LOG_ERR, "pool get config path failed");
+				continue;
+			}
+			ret = nvlist_lookup_uint64(child[i], ZPOOL_CONFIG_QUANTUM_DEV, &quantum);
+			if (ret != 0 || quantum == 0)
+				continue;
+#if	0
+			if (strncmp(path, "/dev/dsk/", 9) == 0)
+				path += 9;
+			sprintf(tmp_path, "/dev/rdsk/%s", path);
+#else
+			strcpy(tmp_path, path);
+			syslog(LOG_WARNING, "zpool_read_used: path=%s", tmp_path);
+#endif
+			fd = open(tmp_path, O_RDONLY|O_NDELAY);
+			if (fd > 0) {
+				if (get_disk_userd_offset(fd, &used_offset) != 0) {
+					syslog(LOG_ERR, "get index used offset failed");
+					close(fd);
+					break;
+				}
+				if (pread(fd, &used_buf, sizeof(vdev_use_index_t), used_offset)
+					== sizeof(vdev_use_index_t)) {
+					close(fd);
+					pindex->index = used_buf.index;
+					pindex->dev_name = path;
+					pindex++ ;
+					real_nquantum++ ;
+
+					if (real_nquantum == nquantum)
+						break;
+				} else {
+					close(fd);
+					break;
+				}
+			}
+		}
+	}
+	return (real_nquantum);
+}
+
+boolean_t
+zpool_used_index_changed(spa_quantum_index_t *last_index, uint64_t nquantum,
+	spa_quantum_index_t *current_index, uint64_t *read_nquantum)
+{
+	uint64_t used_offset = 0;
+	vdev_use_index_t used_buf;
+	char path[MAXPATHLEN];
+	int fd, i;
+	if (read_nquantum != NULL)
+		*read_nquantum = 0;
+	if ((nquantum == 0) || (last_index == NULL))
+		return (B_FALSE);
+	for (i = 0; i < nquantum; i++) {
+		if (read_nquantum != NULL)
+			(*read_nquantum)++;
+		if (current_index != NULL) {
+			current_index[i].index = 0;
+			current_index[i].dev_name = last_index[i].dev_name;
+		}
+		if (last_index[i].dev_name != NULL) {
+			/*sprintf(path, "/dev/rdsk/%s", last_index[i].dev_name);*/
+			strcpy(path, last_index[i].dev_name);
+			syslog(LOG_WARNING, "zpool_used_index_changed: path=%s", path);
+			fd = open(path, O_RDONLY|O_NDELAY);
+			if (fd > 0) {
+				if (get_disk_userd_offset(fd, &used_offset) != 0) {
+					syslog(LOG_ERR, "get index used offset failed");
+					close(fd);
+					continue;
+				}
+				if (pread(fd, &used_buf, sizeof(vdev_use_index_t), used_offset)
+					== sizeof(vdev_use_index_t)) {
+					close(fd);
+					if (current_index != NULL)
+						current_index[i].index = used_buf.index;
+					if (used_buf.index != last_index[i].index)
+						return (B_TRUE);
+				} else {
+					close(fd);
+					continue;
+				}
+			}
+		}
+	}
+
+	return (B_FALSE);
+}
+
+int
+zpool_remove_partner(libzfs_handle_t *hdl, char *name, uint32_t remote_hostid)
+{
+	zfs_cmd_t zc;
+	int err;
+	if (name != NULL) {
+		strcpy(zc.zc_name, name);
+	} else {
+		zc.zc_name[0] = '\0';
+	}
+	zc.zc_perm_action = remote_hostid;
+	zc.zc_cookie = ZFS_HBX_REMOVE_PARTNER_POOL;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX, &zc);
+	return (err);
+}
+
 int zpool_cluster_set_disks(libzfs_handle_t *hdl, char *pool_name,
 	uint64_t cid, uint64_t rid, uint64_t progress, boolean_t cluster_switch,
 	uint32_t remote_hostid)
 {
-	int ret;
 	uint64_t host_id = 0;
-	char buffer[256] = {"\0"}, *pname;
+	char *pname;
 	nvlist_t *pools, *config, *nvroot;
 	importargs_t iarg = { 0 };
 	nvpair_t *elem = NULL;
 	zpool_stamp_t *stamp;
 
-	host_id = gethostid();
+	host_id = get_system_hostid();
 #if 0
 	if (host_id != 1 && host_id != 2) {
 		syslog(LOG_ERR, "host id is not 1 or 2, cluster set disks failed");
@@ -2371,4 +2550,3 @@ int zpool_cluster_set_disks(libzfs_handle_t *hdl, char *pool_name,
 	
 	return (0);
 }
-

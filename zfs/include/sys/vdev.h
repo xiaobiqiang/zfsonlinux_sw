@@ -156,6 +156,7 @@ typedef enum {
 } vdev_labeltype_t;
 
 extern int vdev_label_init(vdev_t *vd, uint64_t txg, vdev_labeltype_t reason);
+extern int vdev_usedblock_sync(vdev_t *vdev, uint64_t index);
 
 #ifdef	__cplusplus
 }

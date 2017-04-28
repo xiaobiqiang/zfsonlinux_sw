@@ -1,5 +1,6 @@
 COMMON_H = \
-	$(top_srcdir)/include/sys/fs/zfs.h
+	$(top_srcdir)/include/sys/fs/zfs.h \
+	$(top_srcdir)/include/sys/fs/zfs_hbx.h
 
 KERNEL_H =
 

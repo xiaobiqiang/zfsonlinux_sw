@@ -51,6 +51,10 @@
 #include <sys/arc.h>
 #include <sys/ddt.h>
 #include <sys/kstat.h>
+#include <sys/callb.h>
+#ifdef	_KERNEL
+#include <sys/atomic.h>
+#endif
 #include "zfs_prop.h"
 #include "zfeature_common.h"
 
@@ -654,6 +658,8 @@ spa_remove(spa_t *spa)
 	ASSERT3U(refcount_count(&spa->spa_refcount), ==, 0);
 
 	nvlist_free(spa->spa_config_splitting);
+
+	spa_quantum_fini(spa);
 
 	avl_remove(&spa_namespace_avl, spa);
 	cv_broadcast(&spa_namespace_cv);
@@ -1993,6 +1999,160 @@ spa_maxblocksize(spa_t *spa)
 		return (SPA_MAXBLOCKSIZE);
 	else
 		return (SPA_OLD_MAXBLOCKSIZE);
+}
+
+void
+spa_quantum_init(spa_t *spa)
+{
+	int i;
+
+	for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+		spa_quantum_t *quantum = &(spa->spa_quantums[i]);
+		mutex_init(&(quantum->spa_quantum_lock), NULL,
+			MUTEX_DEFAULT, NULL);
+		cv_init(&(quantum->spa_quantum_exit_cv), NULL,
+			CV_DEFAULT, NULL);
+		quantum->spa_quantum_pthread = NULL;
+		quantum->spa_quantum_dev = NULL ;
+		quantum->spa_quantum_index = 0;
+		quantum->spa_quantum_state = QUANTUM_PROC_NONE;
+	}
+	spa->spa_num_of_quantums = 0 ;
+}
+
+void
+spa_quantum_fini(spa_t *spa)
+{
+	int i;
+
+	for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+		mutex_destroy(&(spa->spa_quantums[i].spa_quantum_lock));
+		cv_destroy(&(spa->spa_quantums[i].spa_quantum_exit_cv));
+	}
+}
+
+static void
+spa_quantum_thread_enter(spa_quantum_t *quantum, callb_cpr_t *cpr)
+{
+	CALLB_CPR_INIT(cpr, &(quantum->spa_quantum_lock), callb_generic_cpr, FTAG);
+	mutex_enter(&(quantum->spa_quantum_lock));
+}
+
+static void
+spa_quantum_thread_exit(spa_quantum_t *quantum, callb_cpr_t *cpr,
+	kthread_t **tpp)
+{
+	spa_t *spa = quantum->spa_quantum_dev->vdev_spa;
+	ASSERT(*tpp != NULL);
+	*tpp = NULL;
+	atomic_dec_32(&spa->spa_num_of_quantums);
+	quantum->spa_quantum_state = QUANTUM_PROC_NONE;
+	cv_broadcast(&(quantum->spa_quantum_exit_cv));
+	CALLB_CPR_EXIT(cpr);		/* drops &tx->tx_sync_lock */
+	thread_exit();
+}
+
+static void
+spa_quantum_thread_wait(spa_quantum_t *quantum, callb_cpr_t *cpr,
+	kcondvar_t *cv, uint64_t time)
+{
+	CALLB_CPR_SAFE_BEGIN(cpr);
+
+	if (time)
+		(void) cv_timedwait(cv, &(quantum->spa_quantum_lock),
+			ddi_get_lbolt() + time);
+	else
+		cv_wait(cv, &(quantum->spa_quantum_lock));
+
+	CALLB_CPR_SAFE_END(cpr, &(quantum->spa_quantum_lock));
+}
+
+static void
+spa_quantum_thread(spa_quantum_t *quantum)
+{
+	callb_cpr_t cpr;
+	uint64_t timer;
+	vdev_t *quantum_dev;
+	spa_t *spa = quantum->spa_quantum_dev->vdev_spa;
+	spa_quantum_thread_enter(quantum, &cpr);
+	while(1) {
+		timer  = ZFS_QUANTUM_INTERVAL_TICK;
+		quantum_dev = quantum->spa_quantum_dev;
+		spa_quantum_thread_wait(quantum, &cpr,
+			&(quantum->spa_quantum_exit_cv), timer);
+		if (quantum_dev->vdev_detached)
+			cmn_err(CE_WARN, "spa_quantum_thread: spa_quantumv->vdev_detached:%d, quantum(%lx)",
+				quantum_dev->vdev_detached, (ulong_t)quantum);
+		if ((quantum->spa_quantum_state == QUANTUM_PROC_DEACTIVATE)
+			|| ((quantum_dev->vdev_state < VDEV_STATE_DEGRADED)
+				&& (quantum_dev->vdev_state > VDEV_STATE_CLOSED))
+			|| quantum_dev->vdev_detached) {
+			cmn_err(CE_WARN, "spa_quantum_thread: quantum thread exit, pool:%s, state:%d, quantum(%lx)",
+				spa->spa_name, (int)quantum_dev->vdev_state, (ulong_t)quantum);
+			spa_quantum_thread_exit(quantum, &cpr, &(quantum->spa_quantum_pthread));
+		}
+		quantum->spa_quantum_index++ ;
+		
+		spa_config_enter(spa, SCL_STATE, FTAG, RW_READER);
+		vdev_usedblock_sync(quantum->spa_quantum_dev,
+			quantum->spa_quantum_index);
+		spa_config_exit(spa, SCL_STATE, FTAG);
+	}
+}
+
+void
+spa_quantum_start(spa_quantum_t *quantum) 
+{
+	spa_t *spa = quantum->spa_quantum_dev->vdev_spa;
+	mutex_enter(&(quantum->spa_quantum_lock));
+	quantum->spa_quantum_state = QUANTUM_PROC_ACTIVE;
+	atomic_inc_32(&spa->spa_num_of_quantums);
+	quantum->spa_quantum_pthread= thread_create(NULL, 32<<10,
+		spa_quantum_thread, quantum, 0,
+		&p0, TS_RUN, minclsyspri);
+	cmn_err(CE_NOTE, "spa_quantum_start: thread id(%lx)", (ulong_t)quantum->spa_quantum_pthread);
+	mutex_exit(&(quantum->spa_quantum_lock));
+}
+
+void
+spa_quantum_stop(spa_quantum_t *quantum)
+{
+	mutex_enter(&(quantum->spa_quantum_lock));
+	/* wait until spa_quantum_thread exit */
+	while (quantum->spa_quantum_state != QUANTUM_PROC_NONE) {
+		spa_t *spa = quantum->spa_quantum_dev->vdev_spa;
+		cmn_err(CE_WARN, "spa_quantum_stop: stop thread %lld, pool:%s",
+			(longlong_t)spa->spa_num_of_quantums, spa->spa_name);
+		quantum->spa_quantum_state = QUANTUM_PROC_DEACTIVATE;
+#ifdef	_KERNEL
+		cv_timedwait(&(quantum->spa_quantum_exit_cv),
+			&(quantum->spa_quantum_lock), 
+			ddi_get_lbolt()+ drv_usectohz(500000));/* 500ms */
+#else
+		cv_wait(&(quantum->spa_quantum_exit_cv), &(quantum->spa_quantum_lock));
+#endif
+	}
+	if ((quantum->spa_quantum_dev != NULL)
+		&& (quantum->spa_quantum_dev->vdev_state < VDEV_STATE_HEALTHY)) {
+		quantum->spa_quantum_dev->vdev_isquantum = B_FALSE;
+	}
+	quantum->spa_quantum_dev = NULL;
+	quantum->spa_quantum_pthread = NULL;
+	mutex_exit(&(quantum->spa_quantum_lock));
+}
+
+void
+spa_quantum_stop_all(spa_t *spa)
+{
+	int i;
+
+	for (i = 0; i < SPA_NUM_OF_QUANTUM; i++) {
+		spa_quantum_t *quantum = &(spa->spa_quantums[i]);
+		if (spa->spa_root_vdev == NULL) {
+			quantum->spa_quantum_dev = NULL;
+		}
+		spa_quantum_stop(quantum);
+	}
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)

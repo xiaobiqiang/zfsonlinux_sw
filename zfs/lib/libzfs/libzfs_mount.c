@@ -73,8 +73,12 @@
 #include <sys/mntent.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <string.h>
+#include <syslog.h>
+#include <mqueue.h>
 
 #include <libzfs.h>
+#include <libcluster.h>
 
 #include "libzfs_impl.h"
 
@@ -386,6 +390,64 @@ zfs_add_options(zfs_handle_t *zhp, char *options, int len)
 	return (error);
 }
 
+static int 
+send_cluster_message(const char *buf, int buflen, int mnttype)
+{
+	mqd_t mqd;
+	cluster_mq_message_t msg;
+
+	if ((mnttype != cluster_msgtype_mount) && (mnttype != cluster_msgtype_umount))
+		return (EINVAL);
+
+	mqd = mq_open(CLUSTER_MQ_NAME, O_WRONLY);
+	if (mqd == (mqd_t) -1) {
+		syslog(LOG_ERR, "mq_open error: %d", errno);
+		return (errno);
+	}
+
+	msg.msgtype= mnttype;
+	msg.msglen = buflen;
+	memcpy(msg.msg, buf, buflen);
+	if (mq_send(mqd, (const char *)&msg, 
+			sizeof(int)*2 + buflen, 0) == -1) {
+		syslog(LOG_ERR, "mq_send error: %d", errno);
+		mq_close(mqd);
+		return (errno);
+	}
+	mq_close(mqd);
+	return (0);
+}
+
+/* For ip failover */
+static int
+handle_failover_config(zfs_handle_t * zhp, int mnttype)
+{
+	int err;
+	nvlist_t *user_props = zfs_get_user_props(zhp);
+	nvpair_t *elem = NULL;
+	nvlist_t *propval;
+	char *strval, *sourceval; 
+	char buf[ZFS_MAXNAMELEN+ZFS_MAXPROPLEN];
+	while ((elem = nvlist_next_nvpair(user_props, elem)) != NULL) {
+		if (!zfs_is_failover_prop(nvpair_name(elem)))
+			continue;
+		err = nvlist_lookup_nvlist(user_props, nvpair_name(elem), &propval);
+		if (err != 0) {
+			syslog(LOG_ERR, "get property error: %d", err);
+			return (err);
+		}
+		verify(nvlist_lookup_string(propval, ZPROP_VALUE, &strval) == 0);
+		verify(nvlist_lookup_string(propval, ZPROP_SOURCE, &sourceval) == 0);
+		if (strcmp(sourceval, zfs_get_name(zhp)) == 0) {
+			snprintf(buf, sizeof(buf), "%s,%s,%s",
+				zhp->zfs_name, nvpair_name(elem), strval);
+			send_cluster_message(buf, strlen(buf), mnttype);
+		}
+	}
+	
+	return (0);
+}
+
 /*
  * Mount the given filesystem.
  */
@@ -515,6 +577,8 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 
 	/* add the mounted entry into our cache */
 	libzfs_mnttab_add(hdl, zfs_get_name(zhp), mountpoint, mntopts);
+
+	handle_failover_config(zhp, cluster_msgtype_mount);
 	return (0);
 }
 
@@ -559,6 +623,8 @@ zfs_unmount(zfs_handle_t *zhp, const char *mountpoint, int flags)
 			mntpt = zfs_strdup(hdl, entry.mnt_mountp);
 		else
 			mntpt = zfs_strdup(hdl, mountpoint);
+
+		handle_failover_config(zhp, cluster_msgtype_umount);
 
 		/*
 		 * Unshare and unmount the filesystem
@@ -1283,6 +1349,8 @@ zpool_disable_datasets(zpool_handle_t *zhp, boolean_t force)
 	 * appropriate.
 	 */
 	for (i = 0; i < used; i++) {
+		if (datasets[i])
+			handle_failover_config(datasets[i], cluster_msgtype_umount);
 		if (unmount_one(hdl, mountpoints[i], flags) != 0)
 			goto out;
 	}
