@@ -119,7 +119,7 @@ char ipmi_passwd[16];
 #define	ZPOOL_CMD		"/sbin/zpool"
 #else
 #define	ZPOOL_CMD		"/usr/local/sbin/zpool"
-#define	ZPOOL_IMPORT	"/usr/local/sbin/zpool import -bf"
+#define	ZPOOL_IMPORT	"/usr/local/sbin/zpool import -bfi"
 #define	ZPOOL_EXPORT	"/usr/local/sbin/zpool export -f"
 #endif
 
@@ -2372,8 +2372,6 @@ req_remote_mac_state(const char *mac_name)
 static int
 cluster_failover_conf_handler(int flag, const void *data)
 {
-	syslog(LOG_WARNING, "%s(%d, %s)", __func__, flag, (char *)data);
-
 	pthread_mutex_lock(&cf_conf.lock);
 	switch (flag) {
 	case FLAG_CF_MAC_OFFLINE:
@@ -2912,10 +2910,10 @@ cluster_task_wait_event(void)
 			cluster_import_event_handler(event->data, event->size);
 			break;
 		case EVT_POWEROFF_REMOTEHOST:
-			/*cluster_poweroff_remote_event_handler(event->data, event->size);*/
+			cluster_poweroff_remote_event_handler(event->data, event->size);
 			break;
 		case EVT_POWERON_REMOTEHOST:
-			/*cluster_poweron_remote_event_handler(event->data, event->size);*/
+			cluster_poweron_remote_event_handler(event->data, event->size);
 			break;
 		case EVT_CLUSTERNAS_FAILOVER_CTL:
 			/*clusternas_failover_ctl(event->data, event->size);*/
@@ -3621,7 +3619,6 @@ cluster_poweron_remote_event_handler(const void *buffer, int bufsize)
 	return (ret);
 }
 
-#if	0
 static inline int
 cluster_read_stamp(zpool_stamp_t *stamp, nvlist_t *pool_root, char *path)
 {
@@ -3639,7 +3636,6 @@ cluster_write_stamp(zpool_stamp_t *stamp, nvlist_t *pool_root, char *path)
 	else
 		return (zpool_write_dev_stamp_mark(path, stamp) == 0 ? 1 : 0);
 }
-#endif
 
 static nvlist_t *
 zpool_get_all_pools(libzfs_handle_t *hdl, int cluster_switch)
@@ -3702,6 +3698,29 @@ cluster_check_pool_replicas(uint64_t pool_guid)
 	return (ret);
 }
 
+static char *
+choose_critical_disk(nvlist_t *pool_root)
+{
+	uint_t i, nchild, nchild2;
+	nvlist_t **children, **children2;
+	char *path;
+
+	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
+		&children, &nchild) == 0);
+
+	for (i = 0; i < nchild; i++) {
+		if (nvlist_lookup_nvlist_array(children[i], ZPOOL_CONFIG_CHILDREN,
+			&children2, &nchild2) == 0) {
+			return choose_critical_disk(children[i]);
+		}
+
+		if (nvlist_lookup_string(children[i], ZPOOL_CONFIG_PATH, &path) == 0)
+			return path;
+	}
+
+	return (NULL);
+}
+
 static void *
 cluster_compete_pool(void *arg)
 {
@@ -3717,13 +3736,13 @@ cluster_compete_pool(void *arg)
 	uint64_t real_nquantum1 = 0;
 	uint64_t real_nquantum2 = 0;
 	uint64_t usec;
-	/*zpool_stamp_t *stamp = NULL;*/
+	zpool_stamp_t *stamp = NULL;
 	uint64_t hostid/*, poolhostid = 0, ownerhostid = 0*/;
-	/*int counter, conflict_cnt;*/
-	todo_import_pool_node_t *todo_import_pool;
+	int counter, conflict_cnt;
+	todo_import_pool_node_t *todo_import_pool = NULL;
 	void *ret = NULL;
 	/*uint_t host_total[256 + 1], host_active[256 + 1];*/
-	char /*buf[512],*/ *disks[256], *path;
+	char buf[512], *disks[256], *path;
 	int i, err, *owners= NULL/*, chosen*/;
 	cluster_import_pool_t *cip = NULL;
 	timespec_t ts;
@@ -3739,8 +3758,7 @@ cluster_compete_pool(void *arg)
 	verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID, 
 		&guid) == 0);
 
-	/*hostid = get_host_id();*/
-	hostid = gethostid();
+	hostid = get_system_hostid();
 #if 0
 	if (hostid > 255) {
 		syslog(LOG_ERR, "Invalid host id: %"PRId64"", hostid);
@@ -3927,12 +3945,11 @@ ready_import:
 	real_nquantum1 = zpool_read_used(nvroot, used_index1, SPA_NUM_OF_QUANTUM);
 	if (real_nquantum1 == 0) {
 		syslog(LOG_WARNING, "Can't find quantum disk in pool \"%s\"", poolname);
-#if	0
-		path = choose_critical_disk(disks, disk_active);
+		path = choose_critical_disk(nvroot);
 		if (path == NULL)
 			goto exit_thr;
 
-		snprintf(buf, 512, "/dev/rdsk/%s", path);
+		snprintf(buf, 512, "%s", path);
 		path = buf;
 		stamp = (zpool_stamp_t *) malloc(sizeof(zpool_stamp_t));
 		if (stamp == NULL) {
@@ -3954,16 +3971,12 @@ ready_import:
 		}
 
 		pool_root = NULL;
-#else
-		goto exit_thr;
-#endif
 	} else {
 		pool_root = nvroot;
 		path = NULL;
 
 		/* wait a moment, then check index of quantum disk */
 		usec = ZFS_QUANTUM_INTERVAL_TICK * 20 * 1000;
-		/*zpool_index_delay(usec);*/
 		while (usleep(usec) != 0) {
 			if (errno != EINTR)
 				goto exit_thr;
@@ -3976,7 +3989,6 @@ ready_import:
 		}
 	}
 
-#if	0
 	if (stamp == NULL) {
 		stamp = (zpool_stamp_t *) malloc(sizeof(zpool_stamp_t));
 		if (!stamp) {
@@ -4041,7 +4053,7 @@ ready_import:
 			goto exit_thr;
 		}
 	}
-#endif
+
 	if (param->import_state == NULL) {
 		todo_import_pool = add_todo_import_pool(poolname, guid);
 		if (!todo_import_pool)
@@ -4052,7 +4064,7 @@ ready_import:
 		pthread_cond_signal(&import_state->cond);
 		syslog(LOG_WARNING, "compete won.");
 	}
-#if	0
+
 	for (counter = 0; counter < CONFLICT_DURATION;) {
 		usleep(UPDATE_STAMP_INTERVAL);
 
@@ -4079,9 +4091,6 @@ ready_import:
 	}
 
 	ret = stamp->para.pool_real_owener == hostid ? (void *)1 : (void *)2;
-#else
-	ret = (void *)1;
-#endif
 
 exit_thr:
 	if (param->import_state != NULL) {
@@ -4092,10 +4101,8 @@ exit_thr:
 			pthread_mutex_unlock(&param->import_state->mtx);
 		}
 	}
-#if	0
 	if (stamp)
 		free(stamp);
-#endif
 	if (owners != NULL)
 		free(owners);
 	for (i = 0; i < disk_active; i++)
@@ -5828,7 +5835,8 @@ handle_release_pools_event(const void *buffer, int bufsiz)
 			syslog(LOG_ERR, "%s: import pool error - %d",
 				__func__, err);
 			err = -1;
-			break;
+			unshielding_failover_poollist(pool_list);
+			goto exit_func;
 		}
 	}
 

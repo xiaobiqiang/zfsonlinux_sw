@@ -809,6 +809,9 @@ extern int zpool_write_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp,
 		int nquantum);
 extern int zpool_read_stmp_by_path(char *path, zpool_stamp_t *stamp);
 extern int zpool_write_dev_stamp_mark(char *path, zpool_stamp_t *stamp);
+extern int zpool_cluster_set_disks(libzfs_handle_t * hdl,
+	char * pool_name, uint64_t cid, uint64_t rid, uint64_t progress,
+	boolean_t cluster_switch, uint32_t remote_hostid);
 
 /*
  * Management interfaces for SMB ACL files

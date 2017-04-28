@@ -561,8 +561,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_BOOTFS		"bootfs"	/* not stored on disk */
 #define	ZPOOL_CONFIG_MISSING_DEVICES	"missing_vdevs"	/* not stored on disk */
 #define	ZPOOL_CONFIG_LOAD_INFO		"load_info"	/* not stored on disk */
-#define ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
-#define ZPOOL_CONFIG_MIRRORSPARES	"mirrorspares"
+#define	ZPOOL_CONFIG_MIRRORSPARES	"mirrorspares"
 #define	ZPOOL_CONFIG_REWIND_INFO	"rewind_info"	/* not stored on disk */
 #define	ZPOOL_CONFIG_UNSUP_FEAT		"unsup_feat"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ENABLED_FEAT	"enabled_feat"	/* not stored on disk */
@@ -570,7 +569,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_FEATURES_FOR_READ	"features_for_read"
 #define	ZPOOL_CONFIG_FEATURE_STATS	"feature_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ERRATA		"errata"	/* not stored on disk */
-#define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"	/* not stored on disk */
+#define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
 /*
  * The persistent vdev state is stored as separate values rather than a single
  * 'vdev_state' entry.  This is because a device can be in multiple states, such
@@ -975,7 +974,7 @@ typedef enum {
 #define	ZFS_IMPORT_ANY_HOST	0x2
 #define	ZFS_IMPORT_MISSING_LOG	0x4
 #define	ZFS_IMPORT_ONLY		0x8
-#define ZFS_IMPORT_IGNORE_CLUSTER	0x10
+#define	ZFS_IMPORT_IGNORE_CLUSTER	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x10
 
 /*

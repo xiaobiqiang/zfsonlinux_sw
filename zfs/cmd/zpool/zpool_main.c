@@ -904,7 +904,6 @@ zpool_do_create(int argc, char **argv)
 
 	/* write stamp */
 	uint64_t host_id;
-	int error;
 	zpool_stamp_t *stamp;
 	int pool_success = 0;
 
@@ -1193,10 +1192,10 @@ zpool_do_create(int argc, char **argv)
 		zpool_handle_t *zhp;
 		nvlist_t *config = NULL, *pool_nv = NULL;
 
-		host_id = gethostid();
+		host_id = get_system_hostid();
 		stamp = malloc(sizeof(zpool_stamp_t));
 		if (stamp != NULL) {
-			if (zhp = zpool_open_canfail(g_zfs, poolname)) {
+			if ((zhp = zpool_open_canfail(g_zfs, poolname)) != NULL) {
 				config = zpool_get_config(zhp, NULL);
 				verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 		    			&pool_nv) == 0);
@@ -2303,8 +2302,6 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 
 #if 1
 	/* write stamp */
-	int error;
-	char buf[256] = {"\0"};
 	int host_id;
 	nvlist_t *nvroot;
 	zpool_stamp_t *stamp;
@@ -2315,17 +2312,17 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		return (1);
 	}
 	bzero(stamp, sizeof(zpool_stamp_t));
-	host_id = gethostid();
+	host_id = get_system_hostid();
 
 	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 	    &nvroot) == 0);
 
+	verify (zpool_read_stamp(nvroot, stamp) == 0);
 	if (!(flags&ZFS_IMPORT_IGNORE_CLUSTER)) {
-		verify (zpool_read_stamp(nvroot, stamp) == 0);
-
 		if (stamp->para.pool_current_owener != host_id) {
 			(void) fprintf(stderr, gettext("cannot import '%s': pool "
-			    "the pool's cid is not this host\n"), name);
+			    "the pool's cid <%d> is not this host\n"),
+			    name, stamp->para.pool_current_owener);
 			free(stamp);
 			return (1);
 		}
@@ -2484,7 +2481,7 @@ zpool_do_import(int argc, char **argv)
 	char *endptr;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":abCc:d:DEfFmnNo:qR:tT:VX")) != -1) {
+	while ((c = getopt(argc, argv, ":abCc:d:DEfFimnNo:qR:tT:VX")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
@@ -2516,6 +2513,9 @@ zpool_do_import(int argc, char **argv)
 			break;
 		case 'F':
 			do_rewind = B_TRUE;
+			break;
+		case 'i':
+			flags |= ZFS_IMPORT_IGNORE_CLUSTER;
 			break;
 		case 'm':
 			flags |= ZFS_IMPORT_MISSING_LOG;
@@ -4924,8 +4924,6 @@ status_callback(zpool_handle_t *zhp, void *data)
 	const char *health;
 	uint_t c;
 	uint64_t host_id;
-	uint64_t real_id;
-	uint64_t cur_id;
 	vdev_stat_t *vs;
 	zpool_stamp_t *stamp;
 
@@ -4964,6 +4962,8 @@ status_callback(zpool_handle_t *zhp, void *data)
 	verify(nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_VDEV_STATS,
 	    (uint64_t **)&vs, &c) == 0);
 	health = zpool_state_to_name(vs->vs_state, vs->vs_aux);
+
+	host_id = get_system_hostid();
 
 	if (zpool_read_stamp(nvroot, stamp) == 0) {
 		(void) printf(gettext(" real owner: %d\n"), stamp->para.pool_real_owener);
@@ -6633,17 +6633,13 @@ static int
 release_callback(zpool_handle_t *zhp, void *data)
 {
 	release_cbdata_t *cbp = data;
-	/*nvlist_t *config, *nvroot*/;
-	/*vdev_stat_t *vs;*/
+	nvlist_t *config, *nvroot;
 	int partner_id;
 	const char *pool_name;
 	struct link_list *node;
-	/*zpool_stamp_t *stamp;*/
-	/*int error;*/
-	/*char	buf[256];*/
+	zpool_stamp_t *stamp;
 	uint64_t host_id;
 
-#if	0
 	stamp = malloc(sizeof(zpool_stamp_t));
 	bzero(stamp, sizeof(zpool_stamp_t));
 	config = zpool_get_config(zhp, NULL);
@@ -6651,16 +6647,11 @@ release_callback(zpool_handle_t *zhp, void *data)
 	    &nvroot) == 0);
 	verify (zpool_read_stamp(nvroot, stamp) == 0);
 
-	error = sysinfo(SI_HW_SERIAL, buf, sizeof(buf));
-	if (error == NULL)
-		return (NULL);
-	host_id = strtoul(buf, NULL, 10);
-#endif
-	host_id = gethostid();
+	host_id = get_system_hostid();
 
 	pool_name = zpool_get_name(zhp);
 	partner_id = cbp->cb_rid > 0 ? cbp->cb_rid :
-		((host_id + 2) % 2 + 1);
+		((host_id % 2) + 1);
 #if	0
 	partner_id = get_partner_id(g_zfs, cbp->cb_rid);
 	if (partner_id == 0) {
@@ -6668,6 +6659,8 @@ release_callback(zpool_handle_t *zhp, void *data)
 			" hostid use option '-s hostid'\n");
 		return (1);
 	}
+#endif
+
 	if (!cbp->cb_allpools) {
 		if (strcmp(pool_name, cbp->cb_pool_name) == 0) {
 			/*
@@ -6692,7 +6685,6 @@ release_callback(zpool_handle_t *zhp, void *data)
 	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
 	free(stamp);
 	nvlist_free(nvroot);
-#endif
 
 	if (cbp->cb_clusterd) {
 		node = malloc(sizeof(struct link_list));
