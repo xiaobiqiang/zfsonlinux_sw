@@ -275,9 +275,7 @@ typedef struct fct_i_local_port {
 	/* rpwe = remote port with pending els(es) */
 	fct_i_remote_port_t	*iport_rpwe_head;
 	fct_i_remote_port_t	*iport_rpwe_tail;
-#ifdef SOLARIS
 	kstat_t			*iport_kstat_portstat;
-#endif
 	struct semaphore		iport_rls_sema;
 	fct_rls_cb_data_t	iport_rls_cb_data;
 } fct_i_local_port_t;

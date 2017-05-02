@@ -35,7 +35,7 @@
 #include <sys/atomic.h>
 #include <sys/sdt.h>
 #include <linux/miscdevice.h>
-
+#include <sys/kstat.h>
 #include <sys/stmf.h>
 #include <sys/stmf_ioctl.h>
 #include <sys/portif.h>
@@ -115,14 +115,14 @@ static void __exit fct_fini(void)
 	mutex_destroy(&fct_global_mutex);
 }
 
+#ifdef SOLARIS
 int
 _info(struct modinfo *modinfop)
 {
-#ifdef SOLARIS
 	return (mod_info(&modlinkage, modinfop));
-#endif
 	return 0;
 }
+#endif
 
 /* ARGSUSED */
 #ifdef SOLARIS
@@ -3559,7 +3559,6 @@ fct_wwn_to_str(char *to_ptr, const uint8_t *from_ptr)
 	    from_ptr[4], from_ptr[5], from_ptr[6], from_ptr[7]);
 }
 
-#ifdef SOLARIS
 static int
 fct_update_stats(kstat_t *ks, int rw)
 {
@@ -3598,10 +3597,8 @@ fct_update_stats(kstat_t *ks, int rw)
 	    stat.InvalidCRCCount;
 	return (0);
 }
-#endif
 
 
-#ifdef SOLARIS
 void
 fct_init_kstats(fct_i_local_port_t *iport)
 {
@@ -3609,10 +3606,10 @@ fct_init_kstats(fct_i_local_port_t *iport)
 	fct_port_stat_t *port_kstat;
 	char	name[256];
 
-	if (iport->iport_alias)
+	/*if (iport->iport_alias)
 		(void) sprintf(name, "iport_%s", iport->iport_alias);
 	else
-		(void) sprintf(name, "iport_%"PRIxPTR"", (uintptr_t)iport);
+		(void) sprintf(name, "iport_%"PRIxPTR"", (uintptr_t)iport);*/
 	ks = kstat_create(FCT_MODULE_NAME, 0, name, "rawdata",
 	    KSTAT_TYPE_NAMED, sizeof (fct_port_stat_t) / sizeof (kstat_named_t),
 	    0);
@@ -3639,7 +3636,6 @@ fct_init_kstats(fct_i_local_port_t *iport)
 	ks->ks_private = (void *)iport;
 	kstat_install(ks);
 }
-#endif
 
 module_init(fct_init);
 module_exit(fct_fini);
