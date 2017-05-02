@@ -304,7 +304,7 @@ typedef struct fct_link_info {
 	uint8_t			port_rnwwn[8];
 	uint8_t			port_rpwwn[8];
 } fct_link_info_t;
-
+#ifdef SOLARIS
 typedef struct fct_port_stat {
 	kstat_named_t	link_failure_cnt;
 	kstat_named_t	loss_of_sync_cnt;
@@ -313,7 +313,7 @@ typedef struct fct_port_stat {
 	kstat_named_t	invalid_tx_word_cnt;
 	kstat_named_t	invalid_crc_cnt;
 } fct_port_stat_t;
-
+#endif
 /*
  * port topology
  */
