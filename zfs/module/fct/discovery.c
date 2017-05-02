@@ -184,6 +184,9 @@ fct_port_worker(void *arg)
 #ifdef SOLARIS
 			(void) cv_reltimedwait(&iport->iport_worker_cv,
 			    &iport->iport_worker_lock, dl, TR_CLOCK_TICK);
+#else
+			cv_timedwait(&iport->iport_worker_cv, &iport->iport_worker_lock,
+					ddi_get_lbolt() + dl);
 #endif
 			atomic_and_32(&iport->iport_flags,
 			    ~IPORT_WORKER_DOING_TIMEDWAIT);
@@ -199,6 +202,9 @@ fct_port_worker(void *arg)
 			(void) cv_reltimedwait(&iport->iport_worker_cv,
 			    &iport->iport_worker_lock, (clock_t)tmp_delay,
 			    TR_CLOCK_TICK);
+#else
+			cv_timedwait(&iport->iport_worker_cv, &iport->iport_worker_lock, 
+					ddi_get_lbolt() + tmp_delay);
 #endif
 			atomic_and_32(&iport->iport_flags,
 			    ~IPORT_WORKER_DOING_WAIT);
@@ -2666,6 +2672,8 @@ fct_rls_cb(fct_i_cmd_t *icmd)
 			rls_cb_data->fct_els_res = FCT_FAILURE;
 #ifdef SOLARIS
 			sema_v(&iport->iport_rls_sema);
+#else
+			up(&iport->iport_rls_sema);
 #endif
 		}
 		return;
@@ -2674,6 +2682,8 @@ fct_rls_cb(fct_i_cmd_t *icmd)
 	if (!rls_cb_data) {
 #ifdef SOLARIS
 		sema_v(&iport->iport_rls_sema);
+#else
+		up(&iport->iport_rls_sema);
 #endif
 		return;
 	}
@@ -2696,6 +2706,8 @@ fct_rls_cb(fct_i_cmd_t *icmd)
 	rls_cb_data->fct_els_res = FCT_SUCCESS;
 #ifdef SOLARIS
 	sema_v(&iport->iport_rls_sema);
+#else
+	up(&iport->iport_rls_sema);
 #endif
 	icmd->icmd_cb_private = NULL;
 }

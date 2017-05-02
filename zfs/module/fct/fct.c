@@ -732,6 +732,8 @@ SEND_RLS_ELS:
 	fct_post_to_solcmd_queue(iport->iport_port, cmd);
 #ifdef SOLARIS
 	sema_p(&iport->iport_rls_sema);
+#else
+	down(&iport->iport_rls_sema);
 #endif
 	if (iport->iport_rls_cb_data.fct_els_res != FCT_SUCCESS)
 		ret = EIO;
@@ -980,13 +982,13 @@ fct_alloc(fct_struct_id_t struct_id, int additional_size, int flags)
 	if ((struct_id == 0) || (struct_id >= FCT_MAX_STRUCT_IDS))
 		return (NULL);
 
-#ifdef SOLARIS
-	if ((curthread->t_flag & T_INTR_THREAD) || (flags & AF_FORCE_NOSLEEP)) {
+//#ifdef SOLARIS
+//	if ((curthread->t_flag & T_INTR_THREAD) || (flags & AF_FORCE_NOSLEEP)) {
 		kmem_flag = KM_NOSLEEP;
-	} else {
-		kmem_flag = KM_SLEEP;
-	}
-#endif
+//	} else {
+//		kmem_flag = KM_SLEEP;
+//	}
+//#endif
 	additional_size = (additional_size + 7) & (~7);
 	fct_size = fct_sizes[struct_id].shared +
 	    fct_sizes[struct_id].fw_private +
@@ -1159,17 +1161,19 @@ fct_register_local_port(fct_local_port_t *port)
 	    port->port_pwwn, PROTOCOL_FIBRE_CHANNEL);
 	(void) snprintf(taskq_name, sizeof (taskq_name), "stmf_fct_taskq_%d",
 	    atomic_inc_32_nv(&taskq_cntr));
-#ifdef SOLARIS
-	if ((iport->iport_worker_taskq = ddi_taskq_create(NULL,
-	    taskq_name, 1, TASKQ_DEFAULTPRI, 0)) == NULL) {
+//#ifdef SOLARIS
+	if ((iport->iport_worker_taskq = taskq_create(taskq_name, 1, 
+					19, 1, 1, TASKQ_PREPOPULATE)) == NULL) {
 		return (FCT_FAILURE);
 	}
-#endif
+//#endif
 	mutex_init(&iport->iport_worker_lock, NULL, MUTEX_DRIVER, NULL);
 	cv_init(&iport->iport_worker_cv, NULL, CV_DRIVER, NULL);
 	rw_init(&iport->iport_lock, NULL, RW_DRIVER, NULL);
 #ifdef SOLARIS
 	sema_init(&iport->iport_rls_sema, 0, NULL, SEMA_DRIVER, NULL);
+#else
+	sema_init(&iport->iport_rls_sema, 0);
 #endif
 	/* Remote port mgmt */
 	iport->iport_rp_slots = (fct_i_remote_port_t **)kmem_zalloc(
@@ -1207,10 +1211,9 @@ fct_register_local_port(fct_local_port_t *port)
 
 	/* Start worker thread */
 	atomic_and_32(&iport->iport_flags, ~IPORT_TERMINATE_WORKER);
-#ifdef SOLARIS
-	(void) ddi_taskq_dispatch(iport->iport_worker_taskq,
+	(void) taskq_dispatch(iport->iport_worker_taskq,
 	    fct_port_worker, port, DDI_SLEEP);
-#endif
+
 	/* Wait for taskq to start */
 	while ((iport->iport_flags & IPORT_WORKER_RUNNING) == 0) {
 		delay(1);
@@ -1265,9 +1268,7 @@ fct_regport_fail1:;
 			delay(1);
 		}
 	}
-#ifdef SOLARIS
-	ddi_taskq_destroy(iport->iport_worker_taskq);
-#endif
+	taskq_destroy(iport->iport_worker_taskq);
 	if (iport->iport_rp_tb) {
 		kmem_free(iport->iport_rp_tb, rportid_table_size *
 		    sizeof (fct_i_remote_port_t *));
@@ -1339,9 +1340,9 @@ fct_deregister_local_port(fct_local_port_t *port)
 	sema_destroy(&iport->iport_rls_sema);
 #endif
 	mutex_destroy(&iport->iport_worker_lock);
-#ifdef SOLARIS
-	ddi_taskq_destroy(iport->iport_worker_taskq);
-#endif
+
+	taskq_destroy(iport->iport_worker_taskq);
+
 	if (iport->iport_rp_tb) {
 		kmem_free(iport->iport_rp_tb, rportid_table_size *
 		    sizeof (fct_i_remote_port_t *));
@@ -1359,10 +1360,8 @@ fct_deregport_fail1:;
 	/* Restart the worker */
 
 	atomic_and_32(&iport->iport_flags, ~IPORT_TERMINATE_WORKER);
-#ifdef SOLARIS
-	(void) ddi_taskq_dispatch(iport->iport_worker_taskq,
-	    fct_port_worker, port, DDI_SLEEP);
-#endif
+	(void) taskq_dispatch(iport->iport_worker_taskq,
+   	   fct_port_worker, port, DDI_SLEEP);
 	/* Wait for taskq to start */
 	while ((iport->iport_flags & IPORT_WORKER_RUNNING) == 0) {
 		delay(1);

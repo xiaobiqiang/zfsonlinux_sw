@@ -257,9 +257,7 @@ typedef struct fct_i_local_port {
 	fct_cmd_slot_t		*iport_cmd_slots;
 
 	/* worker thread data */
-#ifdef SOLARIS
-	ddi_taskq_t		*iport_worker_taskq;
-#endif
+	taskq_t		*iport_worker_taskq;
 	kmutex_t		iport_worker_lock;
 	kcondvar_t		iport_worker_cv;
 	struct fct_i_event	*iport_event_head;
@@ -279,8 +277,8 @@ typedef struct fct_i_local_port {
 	fct_i_remote_port_t	*iport_rpwe_tail;
 #ifdef SOLARIS
 	kstat_t			*iport_kstat_portstat;
-	ksema_t			iport_rls_sema;
 #endif
+	struct semaphore		iport_rls_sema;
 	fct_rls_cb_data_t	iport_rls_cb_data;
 } fct_i_local_port_t;
 
