@@ -5350,4 +5350,6 @@ clustersan_get_ipmi_switch(void)
 	return (cluster_failover_ipmi_switch);
 }
 
-
+EXPORT_SYMBOL(cluster_san_hostinfo_rele);
+EXPORT_SYMBOL(cts_link_up_to_down_handle);
+EXPORT_SYMBOL(cluster_san_hostinfo_hold);

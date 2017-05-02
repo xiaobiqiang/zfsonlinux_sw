@@ -123,17 +123,17 @@ struct block_descriptor {
  */
 
 struct mode_page {
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t	code	:6,	/* page code number */
 			:1,	/* reserved */
 		ps	:1;	/* 'Parameter Saveable' bit */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t	ps	:1,	/* 'Parameter Saveable' bit */
 			:1,	/* reserved */
 		code	:6;	/* page code number */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	length;		/* length of bytes to follow */
 	/*
 	 * Mode Page specific data follows right after this...
@@ -197,14 +197,14 @@ struct mode_disco_reco {
 	ushort_t disconect_time_limit;	/* min to remain disconnected */
 	ushort_t connect_time_limit;	/* min to remain connected */
 	ushort_t max_burst_size;	/* max data burst size */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		dtdc	: 3,	/* data transfer disconenct control */
 			dimm	: 1,	/* disconnect immediate */
 			fastat	: 1,	/* fair for status */
 			fawrt	: 1,	/* fair for write */
 			fard	: 1,	/* fair for read */
 			emdp	: 1;	/* enable modify data pointers */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		emdp	: 1,	/* enable modify data pointers */
 			fard	: 1,	/* fair for read */
 			fawrt	: 1,	/* fair for write */
@@ -212,8 +212,8 @@ struct mode_disco_reco {
 			dimm	: 1,	/* disconnect immediate */
 			dtdc	: 3;	/* data transfer disconenct control */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	reserved;
 	ushort_t first_burst_sz;	/* first burst size */
 };
@@ -237,14 +237,14 @@ struct mode_disco_reco {
 
 struct mode_caching {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t	rcd		: 1,	/* Read Cache Disable */
 		mf		: 1,	/* Multiplication Factor */
 		wce		: 1,	/* Write Cache Enable */
 				: 5;	/* Reserved */
 	uchar_t	write_ret_prio	: 4,	/* Write Retention Priority */
 		dmd_rd_ret_prio	: 4;	/* Demand Read Retention Priority */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t			: 5,	/* Reserved */
 		wce		: 1,	/* Write Cache Enable */
 		mf		: 1,	/* Multiplication Factor */
@@ -252,8 +252,8 @@ struct mode_caching {
 	uchar_t	dmd_rd_ret_prio	: 4,	/* Demand Read Retention Priority */
 		write_ret_prio	: 4;	/* Write Retention Priority */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	ushort_t pf_dsbl_trans_len;	/* Disable prefetch transfer length */
 	ushort_t min_prefetch;		/* Minimum Prefetch */
 	ushort_t max_prefetch;		/* Maximum Prefetch */
@@ -291,7 +291,7 @@ struct mode_pdevice {
 
 struct mode_control_scsi3 {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		rlec	: 1,	/* Report Log Exception bit */
 			gltsd	: 1,	/* global logging target save disable */
 			d_sense	: 1,	/* Use descriptor sense data (SPC-3) */
@@ -309,7 +309,7 @@ struct mode_control_scsi3 {
 			rac	: 1,	/* report a check */
 			eeca	: 1;	/* enable extended contingent */
 					/* allegiance (only pre-SCSI-3) */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t			: 5,
 			d_sense	: 1,	/* Use descriptor sense data (SPC-3) */
 			gltsd	: 1,	/* global logging target save disable */
@@ -328,8 +328,8 @@ struct mode_control_scsi3 {
 			uaaenp  : 1,	/* Unit attention AEN permission */
 			eanp	: 1;	/* Enable AEN permission */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	reserved;
 	ushort_t ready_aen_holdoff;	/* Ready AEN holdoff period */
 	ushort_t busy_timeout;		/* Busy timeout period */
@@ -352,7 +352,7 @@ _NOTE(SCHEME_PROTECTS_DATA("Unshared SCSI payload", \
 
 struct mode_info_excpt_page {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		log_err	: 1;	/* log errors */
 	uchar_t			: 1;	/* reserved */
 	uchar_t		test	: 1;	/* create test failure */
@@ -363,7 +363,7 @@ struct mode_info_excpt_page {
 	uchar_t		perf	: 1;	/* performance */
 	uchar_t		mrie	: 4;	/* method of reporting info. excpts. */
 	uchar_t			: 4;	/* reserved */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		perf	: 1;	/* performance */
 	uchar_t			: 1;	/* reserved */
 	uchar_t		ebf	: 1;	/* enable background function */
@@ -375,7 +375,7 @@ struct mode_info_excpt_page {
 	uchar_t			: 4;	/* reserved */
 	uchar_t		mrie	: 4;	/* method of reporting info. excpts. */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
 #endif
 	uchar_t	interval_timer[4];	/* interval timer */
 	uchar_t	report_count[4];	/* report count */
@@ -392,16 +392,16 @@ struct mode_info_excpt_page {
 struct mode_info_power_cond {
 	struct mode_page mode_page;	/* common mode page header */
 	uchar_t reserved;
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t standby	:1,	/* standby bit */
 		idle	:1,	/* idle bit */
 			:6;	/* reserved */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		:6,	/* reserved */
 		idle	:1,	/* idle bit */
 		standby	:1;	/* standby bit */
 #else
-#error One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
+#error One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
 #endif
 	uchar_t	idle_cond_timer_high;
 	uchar_t idle_cond_timer_low;
@@ -409,14 +409,14 @@ struct mode_info_power_cond {
 };
 
 struct parameter_control {
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t fmt_link:2,	/* format and link bit */
 		tmc	:2,	/* tmc bit */
 		etc	:1,	/* etc bit */
 		tsd	:1,	/* tsd bit */
 		reserv	:1,	/* obsolete */
 		du	:1;	/* du bit */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t	du	:1,	/* du bit */
 		reserv	:1,	/* obsolete */
 		tsd	:1,	/* tsd bit */
@@ -424,21 +424,21 @@ struct parameter_control {
 		tmc	:2,	/* tmc bit */
 		fmt_link:2;	/* format and link bit */
 #else
-#error One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
+#error One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
 #endif
 };
 
 struct start_stop_cycle_counter_log {
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t code	:6,	/* page code bit */
 		spf	:1,	/* spf bit */
 		ds	:1;	/* ds bit */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t	ds	:1,	/* ds bit */
 		spf	:1,	/* spf bit */
 		code	:6;	/* page code bit */
 #else
-#error One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
+#error One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
 #endif
 	uchar_t			sub_page_code;
 	uchar_t			page_len_high;

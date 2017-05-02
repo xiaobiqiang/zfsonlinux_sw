@@ -26,6 +26,8 @@
 #define	_STMF_SBD_H
 
 #include <sys/rwlock.h>
+#include <sys/mutex.h>
+#include <sys/vnode.h>
 
 #ifdef	__cplusplus
 extern "C" {

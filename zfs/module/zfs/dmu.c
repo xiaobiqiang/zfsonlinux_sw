@@ -1310,6 +1310,7 @@ dmu_read_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size)
 
 	return (err);
 }
+EXPORT_SYMBOL(dmu_read_uio);
 
 static int
 dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size, dmu_tx_t *tx)
@@ -1416,6 +1417,7 @@ dmu_write_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size,
 
 	return (err);
 }
+EXPORT_SYMBOL(dmu_write_uio);
 #endif /* _KERNEL */
 
 /*
@@ -2071,6 +2073,26 @@ dmu_object_size_from_db(dmu_buf_t *db_fake, uint32_t *blksize,
 	    SPA_MINBLOCKSHIFT) + 1;
 	DB_DNODE_EXIT(db);
 }
+
+void 
+dmu_get_lock_para(dmu_buf_t *handle, uint64_t offset, uint64_t len, 
+    uint64_t *lock_offset, uint64_t *lock_len)
+{
+	uint64_t blk_id;
+	dnode_t *dn;
+	dmu_buf_impl_t *db;
+	dmu_buf_impl_t *dbuf = (dmu_buf_impl_t *)handle;
+	DB_DNODE_ENTER(dbuf);
+	dn = DB_DNODE(dbuf);
+	blk_id = dbuf_whichblock(dn, offset);
+	*lock_offset = blk_id << dn->dn_datablkshift;
+	blk_id =  dbuf_whichblock(dn, (offset + len));
+	if ((blk_id << (dn->dn_datablkshift)) < (offset + len))
+		blk_id += 1;
+	*lock_len = (blk_id << dn->dn_datablkshift) - *lock_offset;
+	DB_DNODE_EXIT(dbuf);
+}
+EXPORT_SYMBOL(dmu_get_lock_para);
 
 void
 byteswap_uint64_array(void *vbuf, size_t size)

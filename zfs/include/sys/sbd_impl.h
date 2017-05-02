@@ -26,6 +26,7 @@
 #define	_SBD_IMPL_H
 
 #include <sys/condvar.h>
+#include <sys/uio.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -303,7 +304,7 @@ sbd_zvol_rele_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf);
 int
 sbd_zvol_copy_read(sbd_lu_t *sl, uio_t *uio, char *initiator_wwn);
 int sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn);
-void *sbd_zvol_create_parent_io(sbd_lu_t *sl);
+/* void *sbd_zvol_create_parent_io(sbd_lu_t *sl); */
 
 stmf_status_t sbd_task_alloc(struct scsi_task *task);
 void sbd_new_task(struct scsi_task *task, struct stmf_data_buf *initial_dbuf);
@@ -318,7 +319,7 @@ void sbd_ctl(struct stmf_lu *lu, int cmd, void *arg);
 stmf_status_t sbd_info(uint32_t cmd, stmf_lu_t *lu, void *arg,
 				uint8_t *buf, uint32_t *bufsizep);
 void sbd_zvol_mirror_replay_wait(sbd_lu_t *sl);
-void sbd_try_transition_to_active_lu(sbd_lu_t *sl, int context);
+/* void sbd_try_transition_to_active_lu(sbd_lu_t *sl, int context); */
 
 #ifdef	__cplusplus
 }

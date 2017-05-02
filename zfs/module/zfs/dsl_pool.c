@@ -97,6 +97,8 @@
  * parameter.
  */
 unsigned long zfs_dirty_data_max = 0;
+EXPORT_SYMBOL(zfs_dirty_data_max);
+
 unsigned long zfs_dirty_data_max_max = 0;
 int zfs_dirty_data_max_percent = 10;
 int zfs_dirty_data_max_max_percent = 25;

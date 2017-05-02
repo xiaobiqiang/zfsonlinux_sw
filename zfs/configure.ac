@@ -124,6 +124,7 @@ AC_CONFIG_FILES([
 	module/zfs/Makefile
 	module/zpios/Makefile
 	module/stmf/Makefile
+	module/stmf_sbd/Makefile
 	include/Makefile
 	include/linux/Makefile
 	include/sys/Makefile
