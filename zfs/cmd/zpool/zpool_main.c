@@ -1219,17 +1219,7 @@ zpool_init_efi(char *path)
 	int fd, ret, i;
 	dk_gpt_t *table;
 	
-#if 0
-	/* add by jbzhao 20151202 begin
-	 *  if path is slice, return
-	 */
-	int len = 0;
-	len = strlen(path);
-	if ( !(*(path + len -1) == '0' && *(path + len - 2) == 'd')) 
-		return;	
-	/* add by jbzhao 20151202 end*/
-#endif
-	fd =  open(path, O_NDELAY);
+	fd =  open(path, O_RDWR|O_DIRECT);
 	if (fd < 0) {
 		syslog(LOG_ERR, "Destroy devs:Open  disk (%s) fails", path);
 		return;
@@ -1252,7 +1242,6 @@ zpool_init_efi(char *path)
 	if (ret != 0) {
 		syslog(LOG_ERR, "Destroy devs: write   disk table  (%s) fails", path);
 	}
-	printf("efi_init : efi_parts[0] = %d; efi_parts[8] = %d\n",table->efi_parts[0].p_size,table->efi_parts[8].p_size);
 	efi_free(table);
 		
 DONE:
@@ -1307,7 +1296,7 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 		sprintf(dev_path, "/dev/rdsk/%s", name);
 		zpool_init_dev_labels(dev_path);
 #else
-		memcpy(dev_path, name, strlen(name));
+		sprintf(dev_path, "/dev/%s", name);
 #endif
 		zpool_init_efi(dev_path);
 		zpool_write_dev_stamp(dev_path, stamp);
@@ -1327,7 +1316,7 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 			sprintf(dev_path, "/dev/rdsk/%s", name);
 			zpool_init_dev_labels(dev_path);
 #else
-			memcpy(dev_path, name, strlen(name));
+			sprintf(dev_path, "/dev/%s", name);
 #endif
 			
 			zpool_init_efi(dev_path);
@@ -1349,7 +1338,7 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 			sprintf(dev_path, "/dev/rdsk/%s", name);
 			zpool_init_dev_labels(dev_path);
 #else
-			memcpy(dev_path, name, strlen(name));
+			sprintf(dev_path, "/dev/%s", name);
 #endif
 			zpool_init_efi(dev_path);
 			zpool_write_dev_stamp(dev_path, stamp);
