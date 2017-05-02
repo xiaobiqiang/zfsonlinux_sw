@@ -412,9 +412,9 @@ fct_status_t fct_port_shutdown(fct_local_port_t *port, uint32_t rflags,
     char *additional_info);
 fct_status_t fct_handle_rcvd_flogi(fct_local_port_t *port,
     fct_flogi_xchg_t *fx);
-void fct_log_local_port_event(fct_local_port_t *port, char *subclass);
-void fct_log_remote_port_event(fct_local_port_t *port, char *subclass,
-    uint8_t *rp_pwwn, uint32_t rp_id);
+//void fct_log_local_port_event(fct_local_port_t *port, char *subclass);
+//void fct_log_remote_port_event(fct_local_port_t *port, char *subclass,
+//    uint8_t *rp_pwwn, uint32_t rp_id);
 void fct_wwn_to_str(char *to_ptr, const uint8_t *from_ptr);
 
 #ifdef	__cplusplus

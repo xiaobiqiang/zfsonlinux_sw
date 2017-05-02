@@ -1254,9 +1254,9 @@ fct_register_local_port(fct_local_port_t *port)
 	mutex_exit(&fct_global_mutex);
 
 	fct_init_kstats(iport);
-
+#ifdef SOLARIS
 	fct_log_local_port_event(port, ESC_SUNFC_PORT_ATTACH);
-
+#endif
 	return (FCT_SUCCESS);
 
 fct_regport_fail1:;
@@ -1353,7 +1353,9 @@ fct_deregister_local_port(fct_local_port_t *port)
 		kstat_delete(iport->iport_kstat_portstat);
 	}
 #endif
+#ifdef SOLARIS
 	fct_log_local_port_event(port, ESC_SUNFC_PORT_DETACH);
+#endif
 	return (FCT_SUCCESS);
 
 fct_deregport_fail1:;
@@ -3427,7 +3429,7 @@ fct_cmd_terminator(fct_i_local_port_t *iport)
 		return (DISC_ACTION_RESCAN);
 	return (ret);
 }
-
+#ifdef SOLARIS
 /*
  * Send a syslog event for adapter port level events.
  */
@@ -3519,7 +3521,7 @@ alloc_failed:
 	stmf_trace(((fct_i_local_port_t *)port->port_fct_private)->iport_alias,
 	    "Unable to send %s event", subclass);
 }
-
+#endif
 uint64_t
 fct_netbuf_to_value(uint8_t *buf, uint8_t nbytes)
 {

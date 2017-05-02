@@ -374,11 +374,15 @@ fct_handle_local_port_event(fct_i_local_port_t *iport)
 			atomic_or_32(&iport->iport_flags,
 			    IPORT_ALLOW_UNSOL_FLOGI);
 		}
+#ifdef SOLARIS
 		fct_log_local_port_event(iport->iport_port,
 		    ESC_SUNFC_PORT_ONLINE);
+#endif
 	} else if (new_bits & S_RCVD_LINK_DOWN) {
+#ifdef SOLARIS
 		fct_log_local_port_event(iport->iport_port,
 		    ESC_SUNFC_PORT_OFFLINE);
+#endif
 		stmf_check_reboot();
 		stmf_check_fc_offline(iport->iport_port->port_pwwn_str);
 	}
@@ -1176,9 +1180,10 @@ fct_register_remote_port(fct_local_port_t *port, fct_remote_port_t *rp,
 		atomic_or_32(&irp->irp_flags, IRP_HANDLE_OPENED);
 	}
 	(void) atomic_add_64_nv(&iport->iport_last_change, 1);
+#ifdef SOLARIS
 	fct_log_remote_port_event(port, ESC_SUNFC_TARGET_ADD,
 	    rp->rp_pwwn, rp->rp_id);
-
+#endif
 register_rp_done:;
 	rw_exit(&irp->irp_lock);
 	rw_exit(&iport->iport_lock);
@@ -1221,8 +1226,10 @@ fct_deregister_remote_port(fct_local_port_t *port, fct_remote_port_t *rp)
 		iport->iport_rp_slots[rp->rp_handle] = NULL;
 	}
 	(void) atomic_add_64_nv(&iport->iport_last_change, 1);
+#ifdef SOLARIS
 	fct_log_remote_port_event(port, ESC_SUNFC_TARGET_REMOVE,
 	    rp->rp_pwwn, rp->rp_id);
+#endif
 
 	return (FCT_SUCCESS);
 }
