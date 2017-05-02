@@ -26,7 +26,7 @@
 #include <sys/pppt_ic_if.h>
 #include <sys/cluster_san.h>
 #include <sys/kobj.h>
-#include "stmf_impl.h"
+#include <sys/stmf_impl.h>
 #include "lun_map.h"
 #include "stmf_state.h"
 #include "stmf_stats.h"
