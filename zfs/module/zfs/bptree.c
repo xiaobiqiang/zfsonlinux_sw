@@ -137,7 +137,7 @@ bptree_add(objset_t *os, uint64_t obj, blkptr_t *bp, uint64_t birth_txg,
 	bte = kmem_zalloc(sizeof (*bte), KM_SLEEP);
 	bte->be_birth_txg = birth_txg;
 	bte->be_bp = *bp;
-	dmu_write(os, obj, bt->bt_end * sizeof (*bte), sizeof (*bte), bte, tx);
+    dmu_write(os, obj, bt->bt_end * sizeof (*bte), sizeof (*bte), bte, tx, B_FALSE);
 	kmem_free(bte, sizeof (*bte));
 
 	dmu_buf_will_dirty(db, tx);
@@ -244,7 +244,7 @@ bptree_iterate(objset_t *os, uint64_t obj, boolean_t free, bptree_itor_t func,
 				    ZB_DESTROYED_OBJSET);
 				ASSERT0(bte.be_zb.zb_level);
 				dmu_write(os, obj, i * sizeof (bte),
-				    sizeof (bte), &bte, tx);
+                    sizeof (bte), &bte, tx, B_FALSE);
 				if (err == EIO || err == ECKSUM ||
 				    err == ENXIO) {
 					/*
@@ -266,7 +266,7 @@ bptree_iterate(objset_t *os, uint64_t obj, boolean_t free, bptree_itor_t func,
 				 */
 				bte.be_birth_txg = UINT64_MAX;
 				dmu_write(os, obj, i * sizeof (bte),
-				    sizeof (bte), &bte, tx);
+                    sizeof (bte), &bte, tx, B_FALSE);
 			}
 
 			if (!ioerr) {

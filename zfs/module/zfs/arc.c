@@ -138,6 +138,7 @@
 #include <sys/vdev_impl.h>
 #include <sys/dsl_pool.h>
 #include <sys/multilist.h>
+#include <sys/dmu_objset.h>
 #ifdef _KERNEL
 #include <sys/vmsystm.h>
 #include <vm/anon.h>
@@ -236,6 +237,7 @@ int zfs_arc_shrink_shift = 0;
 int zfs_arc_p_min_shift = 0;
 int zfs_disable_dup_eviction = 0;
 int zfs_arc_average_blocksize = 8 * 1024; /* 8KB */
+int zfs_arc_gcache_timeout = 0x5;
 
 /*
  * These tunables are Linux specific
@@ -803,6 +805,220 @@ static void l2arc_read_done(zio_t *);
 static boolean_t l2arc_compress_buf(arc_buf_hdr_t *);
 static void l2arc_decompress_zio(zio_t *, arc_buf_hdr_t *, enum zio_compress);
 static void l2arc_release_cdata_buf(arc_buf_hdr_t *);
+
+#ifdef _KERNEL
+typedef struct gcache_worker {
+    list_t gcache_list;
+    kmutex_t gcache_mtx;
+    kmutex_t gcache_thr_mtx;
+    kcondvar_t gcache_cv;
+    kcondvar_t gcache_thr_cv;
+    kcondvar_t gcache_cache_cv;
+    uint64_t gcache_data;
+    uint64_t gcache_request_size;
+    uint64_t gcache_thr_exit;
+    uint64_t gcache_size;
+}gcache_worker_t;
+
+gcache_worker_t *gcache = NULL;
+
+void gcache_init(void)
+{
+    gcache = kmem_zalloc(sizeof(gcache_worker_t), KM_SLEEP);
+    mutex_init(&gcache->gcache_mtx,
+        NULL, MUTEX_DEFAULT, NULL);
+    mutex_init(&gcache->gcache_thr_mtx,
+        NULL, MUTEX_DEFAULT, NULL);
+    list_create(&gcache->gcache_list, sizeof(os_cache_t),
+        offsetof(os_cache_t, os_cache_node));
+    cv_init(&gcache->gcache_cv, NULL, CV_DRIVER, NULL);
+    cv_init(&gcache->gcache_thr_cv, NULL, CV_DRIVER, NULL);
+    cv_init(&gcache->gcache_cache_cv, NULL, CV_DRIVER, NULL);
+}
+
+void gcache_fini(void)
+{
+    mutex_enter(&gcache->gcache_thr_mtx);
+    gcache->gcache_thr_exit = 1;
+    cv_wait(&gcache->gcache_thr_cv, &gcache->gcache_thr_mtx);
+    mutex_exit(&gcache->gcache_thr_mtx);
+
+    mutex_destroy(&gcache->gcache_mtx);
+    mutex_destroy(&gcache->gcache_thr_mtx);
+    cv_destroy(&gcache->gcache_cv);
+    cv_destroy(&gcache->gcache_thr_cv);
+    cv_destroy(&gcache->gcache_cache_cv);
+    list_destroy(&gcache->gcache_list);
+    kmem_free(gcache, sizeof(gcache_worker_t));
+}
+
+void gcache_insert(os_cache_t *os_cache)
+{
+    mutex_enter(&gcache->gcache_mtx);
+    list_insert_tail(&gcache->gcache_list, os_cache);
+    mutex_exit(&gcache->gcache_mtx);
+}
+
+void gcache_remove(os_cache_t *os_cache)
+{
+    mutex_enter(&gcache->gcache_mtx);
+    while (refcount_count(&os_cache->os_cache_refcnt)) {
+        cv_timedwait(&gcache->gcache_cv, &gcache->gcache_mtx, ddi_get_lbolt64() + 10);
+    }
+    list_remove(&gcache->gcache_list, os_cache);
+    mutex_exit(&gcache->gcache_mtx);
+}
+
+void gcache_request_size(uint64_t size)
+{
+    mutex_enter(&gcache->gcache_mtx);
+    gcache->gcache_request_size = size;
+    while ((gcache->gcache_data + size) >= GCACHE_MAX_SIZE) {
+        cmn_err(CE_WARN, "total size > GCACHE_MAX_SIZE");
+        cv_broadcast(&gcache->gcache_thr_cv);
+        cv_timedwait(&gcache->gcache_cv, &gcache->gcache_mtx, ddi_get_lbolt64() + 10);
+    }
+    gcache->gcache_data += size;
+    mutex_exit(&gcache->gcache_mtx);
+}
+
+void
+gcache_thread_wake_up(void)
+{
+    mutex_enter(&gcache->gcache_thr_mtx);
+    cv_broadcast(&gcache->gcache_thr_cv);
+    mutex_exit(&gcache->gcache_thr_mtx);
+}
+
+void gcache_return_size(uint64_t size) {
+    mutex_enter(&gcache->gcache_mtx);
+    gcache->gcache_data -= size;
+    cv_signal(&gcache->gcache_cv);
+    mutex_exit(&gcache->gcache_mtx);
+}
+
+static os_cache_t *
+gcache_find_max_size_node(void)
+{
+    uint64_t size = 0;
+    uint64_t max_size = 0;
+    os_cache_t *max_size_node = NULL;
+    os_cache_t *head;
+
+    for (head = list_head(&gcache->gcache_list); head != NULL;
+        head = list_next(&gcache->gcache_list, head)) {
+        size = dmu_objset_get_cache_size(head->os);
+        if (size > max_size) {
+            max_size_node = head;
+            max_size = size;
+        }
+    }
+
+    return (max_size_node);
+}
+
+void
+gcache_check(uint64_t request_size)
+{
+    os_cache_t *max_size_node;
+    uint64_t clean_size;
+    uint64_t clean_total_size = request_size;
+
+
+    while (!list_is_empty(&gcache->gcache_list)) {
+        uint64_t tmp_clean_size;
+        max_size_node = gcache_find_max_size_node();
+        if (max_size_node == NULL)
+            break;
+
+        VERIFY(max_size_node != NULL);
+        if (clean_total_size > max_size_node->os_cache_size)  {
+            clean_size = max_size_node->os_cache_size;
+        } else {
+            clean_size = clean_total_size;
+        }
+        tmp_clean_size = max_size_node->clean(max_size_node->os,  clean_size, B_FALSE);
+        if (tmp_clean_size > clean_total_size || tmp_clean_size == 0)
+            break;
+        clean_total_size -= tmp_clean_size;
+    }
+}
+
+void
+get_read_bytes(uint64_t read)
+{
+}
+
+static char *
+os_cache_clean = "os_cache_clean";
+
+void
+gcache_clean_active_os(boolean_t cache_exit)
+{
+    os_cache_t *head;
+    boolean_t clean_all;
+
+    mutex_enter(&gcache->gcache_mtx);
+    for (head = list_head(&gcache->gcache_list); head != NULL;
+        head = list_next(&gcache->gcache_list, head)) {
+            refcount_add(&head->os_cache_refcnt, os_cache_clean);
+            clean_all = head->check(head->os);
+            mutex_exit(&gcache->gcache_mtx);
+            head->clean(head->os, -1, clean_all | cache_exit);
+            mutex_enter(&gcache->gcache_mtx);
+            refcount_remove(&head->os_cache_refcnt, os_cache_clean);
+    }
+    mutex_exit(&gcache->gcache_mtx);
+}
+
+void
+gcache_size_add(int64_t size)
+{
+    atomic_add_64(&gcache->gcache_size, size);
+}
+
+uint64_t
+gcache_total_size(void)
+{
+    return (gcache->gcache_size);
+}
+
+boolean_t
+gcache_disable_woptimize(void)
+{
+    uint64_t size;
+    size = gcache_total_size();
+    if (size > GCACHE_MAX_SIZE)
+        return (B_TRUE);
+    else
+        return (B_FALSE);
+}
+
+static void
+gcache_reclaim_thread(void)
+{
+
+    uint64_t total_data;
+    callb_cpr_t		cpr;
+    CALLB_CPR_INIT(&cpr, &gcache->gcache_thr_mtx, callb_generic_cpr, FTAG);
+    mutex_enter(&gcache->gcache_thr_mtx);
+    while (gcache->gcache_thr_exit  == 0) {
+        gcache_clean_active_os(B_FALSE);
+        /* block until needed, or one second, whichever is shorter */
+        CALLB_CPR_SAFE_BEGIN(&cpr);
+        (void) cv_timedwait(&gcache->gcache_thr_cv,
+            &gcache->gcache_thr_mtx, (ddi_get_lbolt() + zfs_arc_gcache_timeout*hz));
+        CALLB_CPR_SAFE_END(&cpr, &gcache->gcache_thr_mtx);
+    }
+
+    gcache_clean_active_os(B_TRUE);
+    total_data = gcache->gcache_data;
+    gcache->gcache_thr_exit  = 0;
+    cv_broadcast(&gcache->gcache_thr_cv);
+    CALLB_CPR_EXIT(&cpr);		/* drops arc_reclaim_thr_lock */
+    thread_exit();
+}
+#endif
 
 static uint64_t
 buf_hash(uint64_t spa, const dva_t *dva, uint64_t birth)
@@ -5047,6 +5263,42 @@ arc_write(zio_t *pio, spa_t *spa, uint64_t txg,
 	return (zio);
 }
 
+zio_t *
+arc_ctrl(zio_t *pio, spa_t *spa, uint64_t txg,
+    blkptr_t *bp, arc_buf_t *buf, boolean_t l2arc, const zio_prop_t *zp,
+    arc_done_func_t *ready, arc_done_func_t *done, void *private,
+    zio_priority_t priority, int zio_flags, const zbookmark_phys_t *zb)
+{
+	zio_done_func_t *ready_func;
+	zio_done_func_t *done_func;
+	arc_buf_hdr_t *hdr = buf->b_hdr;
+	arc_write_callback_t *callback;
+	zio_t *zio;
+
+	ASSERT(ready != NULL);
+	ASSERT(done != NULL);
+	ASSERT(!HDR_IO_ERROR(hdr));
+	ASSERT((hdr->b_flags & ARC_FLAG_IO_IN_PROGRESS) == 0);
+	ASSERT(hdr->b_acb == NULL);
+	if (l2arc)
+		hdr->b_flags |= ARC_FLAG_L2CACHE;
+	callback = kmem_zalloc(sizeof (arc_write_callback_t), KM_SLEEP);
+	callback->awcb_ready = ready;
+	callback->awcb_done = done;
+	callback->awcb_private = private;
+	callback->awcb_buf = buf;
+
+	if (ready != NULL)
+		ready_func = arc_write_ready;
+	if (done != NULL)
+		done_func = arc_write_done;
+
+	zio = zio_ctrl(pio, spa, txg, bp, buf->b_data, hdr->b_size, zp,
+	    	    ready_func, done_func, callback, priority, zio_flags, zb);
+
+	return (zio);
+}
+
 static int
 arc_memory_throttle(uint64_t reserve, uint64_t txg)
 {
@@ -5465,7 +5717,11 @@ arc_init(void)
 
 	(void) thread_create(NULL, 0, arc_user_evicts_thread, NULL, 0, &p0,
 	    TS_RUN, defclsyspri);
-
+#ifdef _KERNEL
+    gcache_init();
+    (void) thread_create(NULL, 0, gcache_reclaim_thread, NULL, 0, &p0,
+        TS_RUN, minclsyspri);
+#endif
 	arc_dead = FALSE;
 	arc_warm = B_FALSE;
 
@@ -5572,7 +5828,9 @@ arc_fini(void)
 	multilist_destroy(&arc_l2c_only->arcs_list[ARC_BUFC_DATA]);
 
 	buf_fini();
-
+#ifdef _KERNEL
+    gcache_fini();
+#endif
 	ASSERT0(arc_loaned_bytes);
 }
 

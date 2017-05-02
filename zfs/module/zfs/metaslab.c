@@ -1938,7 +1938,7 @@ metaslab_sync(metaslab_t *msp, uint64_t txg)
 	if (object != space_map_object(msp->ms_sm)) {
 		object = space_map_object(msp->ms_sm);
 		dmu_write(mos, vd->vdev_ms_array, sizeof (uint64_t) *
-		    msp->ms_id, sizeof (uint64_t), &object, tx);
+            msp->ms_id, sizeof (uint64_t), &object, tx, B_FALSE);
 	}
 	dmu_tx_commit(tx);
 }

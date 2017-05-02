@@ -45,6 +45,8 @@
 #include <sys/blkptr.h>
 #include <sys/range_tree.h>
 #include <sys/trace_dbuf.h>
+#include <sys/zfs_mirror.h>
+#include <sys/zvol.h>
 
 struct dbuf_hold_impl_data {
 	/* Function arguments */
@@ -90,6 +92,11 @@ extern inline void dmu_buf_init_user(dmu_buf_user_t *dbu,
 static kmem_cache_t *dbuf_cache;
 static taskq_t *dbu_evict_taskq;
 
+char *dbuf_rewrite_tag ="rewrite";
+char *dbuf_segs_tag = "onsegs";
+char *dbuf_seg_in_os_tag = "onsegs";
+char *dbuf_cache_tag = "oncache";
+
 /* ARGSUSED */
 static int
 dbuf_cons(void *vdb, void *unused, int kmflag)
@@ -100,6 +107,20 @@ dbuf_cons(void *vdb, void *unused, int kmflag)
 	mutex_init(&db->db_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&db->db_changed, NULL, CV_DEFAULT, NULL);
 	refcount_create(&db->db_holds);
+
+    list_create(&db->db_segments_list,  sizeof (dbuf_segs_record_t),
+        offsetof(dbuf_segs_record_t, seg_record_node));
+    list_create(&db->db_segments_list_order,  sizeof (dbuf_segs_record_t),
+        offsetof(dbuf_segs_record_t, seg_record_node_order));
+    mutex_init(&db->db_seg_mtx, NULL, MUTEX_DEFAULT, NULL);
+
+    mutex_init(&db->db_mirror_io_list_mtx, NULL, MUTEX_DEFAULT, NULL);
+    list_create(&db->db_mirror_io_list, sizeof(dbuf_mirror_io_t),
+            offsetof(dbuf_mirror_io_t, mirror_io_node));
+
+    list_create(&db->db_seg_list, sizeof(dbuf_segs_data_t),
+        offsetof(dbuf_segs_data_t, segs_data_dbuf_node));
+    mutex_init(&db->db_seg_list_mtx, NULL, MUTEX_DEFAULT, NULL);
 
 	return (0);
 }
@@ -112,8 +133,81 @@ dbuf_dest(void *vdb, void *unused)
 	mutex_destroy(&db->db_mtx);
 	cv_destroy(&db->db_changed);
 	refcount_destroy(&db->db_holds);
+
+    list_destroy(&db->db_segments_list);
+    list_destroy(&db->db_segments_list_order);
+    mutex_destroy(&db->db_seg_mtx);
+
+    mutex_destroy(&db->db_mirror_io_list_mtx);
+    list_destroy(&db->db_mirror_io_list);
+
+    list_destroy(&db->db_seg_list);
+    mutex_destroy(&db->db_seg_list_mtx);
+
+    bzero(db, sizeof(dmu_buf_impl_t));
 }
 
+#ifdef _KERNEL
+
+void
+dbuf_insert_mirror_io(dmu_buf_impl_t *db,
+    dbuf_mirror_io_t *mirror_io, uint64_t txg)
+ {
+    mutex_enter(&db->db_mirror_io_list_mtx);
+    list_insert_tail(&db->db_mirror_io_list, mirror_io);
+    mutex_exit(&db->db_mirror_io_list_mtx);
+}
+
+void
+dbuf_dirty_mirror_io(dmu_buf_impl_t *db, dbuf_dirty_record_t *dr)
+{
+    dbuf_mirror_io_t *mirror_io = NULL;
+    int mirror_io_count = 0;
+    int ret;
+
+    ret = zfs_mirror_hold_to_tx();
+
+    mutex_enter(&db->db_mirror_io_list_mtx);
+    while ((mirror_io = list_head(&db->db_mirror_io_list)) != NULL) {
+        list_remove(&db->db_mirror_io_list, mirror_io);
+        if (ret == 0) {
+            list_insert_tail(&dr->dr_mirror_io_list, mirror_io);
+        }
+        else {
+            zfs_mirror_destroy(mirror_io);
+        }
+        mirror_io_count++;
+    }
+    mutex_exit(&db->db_mirror_io_list_mtx);
+    if (ret == 0) {
+        zfs_mirror_rele();
+    }
+}
+
+void dbuf_clear_mirror_io(dbuf_dirty_record_t *dr, objset_t *os, uint64_t txg)
+{
+    dbuf_mirror_io_t *mirror_io = NULL;
+    int ret;
+
+    ret = zfs_mirror_hold_to_tx();
+
+    while ((mirror_io = list_head(&dr->dr_mirror_io_list)) != NULL) {
+        /*
+         * dbuf record is cleaned, move mirror io record to objset
+         */
+        list_remove(&dr->dr_mirror_io_list, mirror_io);
+        if (ret == 0) {
+            dmu_objset_insert_mirror_io(os, mirror_io, txg);
+        } else {
+            zfs_mirror_destroy(mirror_io);
+        }
+    }
+    if (ret == 0) {
+        zfs_mirror_rele();
+    }
+}
+
+#endif
 /*
  * dbuf hash table routines
  */
@@ -590,9 +684,11 @@ dbuf_loan_arcbuf(dmu_buf_impl_t *db)
 	mutex_enter(&db->db_mtx);
 	if (arc_released(db->db_buf) || refcount_count(&db->db_holds) > 1) {
 		int blksz = db->db.db_size;
-		spa_t *spa = db->db_objset->os_spa;
+        /*spa_t *spa = db->db_objset->os_spa;*/
+        spa_t *spa;
 
 		mutex_exit(&db->db_mtx);
+        DB_GET_SPA(&spa, db);
 		abuf = arc_loan_buf(spa, blksz);
 		bcopy(db->db.db_data, abuf->b_data, blksz);
 	} else {
@@ -831,10 +927,12 @@ dbuf_noread(dmu_buf_impl_t *db)
 		cv_wait(&db->db_changed, &db->db_mtx);
 	if (db->db_state == DB_UNCACHED) {
 		arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
-		spa_t *spa = db->db_objset->os_spa;
+        /*spa_t *spa = db->db_objset->os_spa;*/
+        spa_t *spa;
 
 		ASSERT(db->db_buf == NULL);
 		ASSERT(db->db.db_data == NULL);
+        DB_GET_SPA(&spa, db);
 		dbuf_set_data(db, arc_buf_alloc(spa, db->db.db_size, db, type));
 		db->db_state = DB_FILL;
 	} else if (db->db_state == DB_NOFILL) {
@@ -889,8 +987,10 @@ dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
 	} else if (refcount_count(&db->db_holds) > db->db_dirtycnt) {
 		int size = db->db.db_size;
 		arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
-		spa_t *spa = db->db_objset->os_spa;
+        /*spa_t *spa = db->db_objset->os_spa;*/
+        spa_t *spa;
 
+        DB_GET_SPA(&spa, db);
 		dr->dt.dl.dr_data = arc_buf_alloc(spa, size, db, type);
 		bcopy(db->db.db_data, dr->dt.dl.dr_data->b_data, size);
 	} else {
@@ -916,8 +1016,13 @@ dbuf_unoverride(dbuf_dirty_record_t *dr)
 	ASSERT(db->db_data_pending != dr);
 
 	/* free this block */
-	if (!BP_IS_HOLE(bp) && !dr->dt.dl.dr_nopwrite)
-		zio_free(db->db_objset->os_spa, txg, bp);
+    if (!BP_IS_HOLE(bp) && !dr->dt.dl.dr_nopwrite) {
+        spa_t *spa;
+
+        DB_GET_SPA(&spa, db);
+        zio_free(spa, txg, bp);
+    }
+        /*zio_free(db->db_objset->os_spa, txg, bp);*/
 
 	dr->dt.dl.dr_override_state = DR_NOT_OVERRIDDEN;
 	dr->dt.dl.dr_nopwrite = B_FALSE;
@@ -1015,6 +1120,19 @@ dbuf_free_range(dnode_t *dn, uint64_t start_blkid, uint64_t end_blkid,
 			mutex_exit(&db->db_mtx);
 			continue;
 		}
+#ifdef _KERNEL
+		mutex_exit(&db->db_mtx);
+		
+		mutex_enter(&db->db_seg_mtx);
+		if (db->db_has_segments) {
+			if(dbuf_handle_segs(db, B_FALSE, 0))
+				continue;
+		} else {
+			mutex_exit(&db->db_seg_mtx);
+		}
+		
+		mutex_enter(&db->db_mtx);
+#endif
 		if (refcount_count(&db->db_holds) == 0) {
 			ASSERT(db->db_buf);
 			dbuf_clear(db);
@@ -1152,14 +1270,17 @@ dbuf_new_size(dmu_buf_impl_t *db, int size, dmu_tx_t *tx)
 void
 dbuf_release_bp(dmu_buf_impl_t *db)
 {
-	ASSERTV(objset_t *os = db->db_objset);
+    objset_t *os;
+
+    DB_GET_OBJSET(&os, db);
+    /*ASSERTV(objset_t *os = db->db_objset);*/
 
 	ASSERT(dsl_pool_sync_context(dmu_objset_pool(os)));
 	ASSERT(arc_released(os->os_phys_buf) ||
 	    list_link_active(&os->os_dsl_dataset->ds_synced_link));
 	ASSERT(db->db_parent == NULL || arc_released(db->db_parent->db_buf));
 
-	(void) arc_release(db->db_buf, db);
+    (void) arc_release(db->db_buf, db);
 }
 
 dbuf_dirty_record_t *
@@ -1327,6 +1448,8 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	}
 	if (db->db_blkid != DMU_BONUS_BLKID && os->os_dsl_dataset != NULL)
 		dr->dr_accounted = db->db.db_size;
+    list_create(&dr->dr_mirror_io_list, sizeof(dbuf_mirror_io_t),
+         offsetof(dbuf_mirror_io_t, mirror_io_node));
 	dr->dr_dbuf = db;
 	dr->dr_txg = tx->tx_txg;
 	dr->dr_next = *drp;
@@ -1521,6 +1644,10 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 			VERIFY(arc_buf_remove_ref(dr->dt.dl.dr_data, db));
 	}
 
+    if (list_head(&dr->dr_mirror_io_list) != NULL) {
+        cmn_err(CE_WARN, "dbuf_undirty dr mirror io list is not null");
+    }
+    list_destroy(&dr->dr_mirror_io_list);
 	kmem_free(dr, sizeof (dbuf_dirty_record_t));
 
 	ASSERT(db->db_dirtycnt > 0);
@@ -1542,6 +1669,7 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 void
 dmu_buf_will_dirty(dmu_buf_t *db_fake, dmu_tx_t *tx)
 {
+    dbuf_dirty_record_t *dr = NULL;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)db_fake;
 	int rf = DB_RF_MUST_SUCCEED | DB_RF_NOPREFETCH;
 
@@ -1553,7 +1681,11 @@ dmu_buf_will_dirty(dmu_buf_t *db_fake, dmu_tx_t *tx)
 		rf |= DB_RF_HAVESTRUCT;
 	DB_DNODE_EXIT(db);
 	(void) dbuf_read(db, NULL, rf);
-	(void) dbuf_dirty(db, tx);
+    dr = dbuf_dirty(db, tx);
+#ifdef _KERNEL
+    if (dr != NULL)
+        dbuf_dirty_mirror_io(db, dr);
+#endif
 }
 
 void
@@ -1569,6 +1701,7 @@ dmu_buf_will_not_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 void
 dmu_buf_will_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 {
+    dbuf_dirty_record_t *dr = NULL;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)db_fake;
 
 	ASSERT(db->db_blkid != DMU_BONUS_BLKID);
@@ -1580,7 +1713,12 @@ dmu_buf_will_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 	    dmu_tx_private_ok(tx));
 
 	dbuf_noread(db);
-	(void) dbuf_dirty(db, tx);
+    dr = dbuf_dirty(db, tx);
+#ifdef _KERNEL
+    if (dr != NULL) {
+        dbuf_dirty_mirror_io(db, dr);
+    }
+#endif
 }
 
 #pragma weak dmu_buf_fill_done = dbuf_fill_done
@@ -1637,6 +1775,12 @@ dmu_buf_write_embedded(dmu_buf_t *dbuf, void *data,
 	dl->dr_overridden_by.blk_birth = db->db_last_dirty->dr_txg;
 }
 
+void dbuf_direct_write_done(zio_t *zio)
+{
+    dmu_ctrl_data_t *ctrl_datap = (dmu_ctrl_data_t *)zio->io_private;
+    bcopy((char *)zio->io_bp, (char *)&ctrl_datap->new_blk_addr, sizeof(blkptr_t));
+}
+
 /*
  * Directly assign a provided arc buf to a given dbuf if it's not referenced
  * by anybody except our caller. Otherwise copy arcbuf's contents to dbuf.
@@ -1644,6 +1788,9 @@ dmu_buf_write_embedded(dmu_buf_t *dbuf, void *data,
 void
 dbuf_assign_arcbuf(dmu_buf_impl_t *db, arc_buf_t *buf, dmu_tx_t *tx)
 {
+    objset_t *os;
+    dbuf_dirty_record_t *dr = NULL;
+
 	ASSERT(!refcount_is_zero(&db->db_holds));
 	ASSERT(db->db_blkid != DMU_BONUS_BLKID);
 	ASSERT(db->db_level == 0);
@@ -1655,6 +1802,19 @@ dbuf_assign_arcbuf(dmu_buf_impl_t *db, arc_buf_t *buf, dmu_tx_t *tx)
 	arc_return_buf(buf, db);
 	ASSERT(arc_released(buf));
 
+    os = db->db_objset;
+
+#ifdef _KERNEL
+    mutex_enter(&db->db_seg_mtx);
+    if (db->db_has_segments) {
+        dbuf_handle_segs(db, B_FALSE, tx->tx_txg);
+    } else {
+        mutex_exit(&db->db_seg_mtx);
+    }
+
+    dmu_objset_remove_seg_cache(os, db);
+#endif
+
 	mutex_enter(&db->db_mtx);
 
 	while (db->db_state == DB_READ || db->db_state == DB_FILL)
@@ -1665,7 +1825,12 @@ dbuf_assign_arcbuf(dmu_buf_impl_t *db, arc_buf_t *buf, dmu_tx_t *tx)
 	if (db->db_state == DB_CACHED &&
 	    refcount_count(&db->db_holds) - 1 > db->db_dirtycnt) {
 		mutex_exit(&db->db_mtx);
-		(void) dbuf_dirty(db, tx);
+        dr = dbuf_dirty(db, tx);
+#ifdef _KERNEL
+        if (dr != NULL) {
+            dbuf_dirty_mirror_io(db, dr);
+        }
+#endif
 		bcopy(buf->b_data, db->db.db_data, db->db.db_size);
 		VERIFY(arc_buf_remove_ref(buf, db));
 		xuio_stat_wbuf_copied();
@@ -1696,8 +1861,77 @@ dbuf_assign_arcbuf(dmu_buf_impl_t *db, arc_buf_t *buf, dmu_tx_t *tx)
 	dbuf_set_data(db, buf);
 	db->db_state = DB_FILL;
 	mutex_exit(&db->db_mtx);
-	(void) dbuf_dirty(db, tx);
+    dr = dbuf_dirty(db, tx);
+#ifdef _KERNEL
+    if (dr != NULL) {
+        dbuf_dirty_mirror_io(db, dr);
+    }
+#endif
 	dmu_buf_fill_done(&db->db, tx);
+}
+
+void
+dbuf_direct_write(dmu_buf_impl_t *db,  dmu_tx_t *tx)
+{
+    uint64_t txg_id;
+    uint64_t object;
+    int wp_flag = 0;
+    void *data = NULL;
+    uint64_t data_len = 0;
+
+    uint64_t dn_type;
+    dnode_t *dn;
+    zio_t *data_zio;
+    dbuf_blkptr_record_t *blk_record;
+    zio_prop_t zp;
+    objset_t *os;
+    blkptr_t *data_addr;
+    zbookmark_phys_t zb;
+    dmu_ctrl_data_t *ctrl_datap;
+
+    zio_done_func_t *direct_done = NULL;
+    void *done_private = NULL;
+
+    DB_GET_OBJSET(&os, db);
+    DB_DNODE_ENTER(db);
+    dn = DB_DNODE(db);
+    dn_type = dn->dn_type;
+    object = dn->dn_object;
+    DB_DNODE_EXIT(db);
+
+    txg_id = tx->tx_txg & TXG_MASK;
+    ctrl_datap = kmem_zalloc(sizeof(dmu_ctrl_data_t), KM_SLEEP);
+
+    mutex_enter(&db->db_mtx);
+    data = db->db.db_data;
+    data_len = db->db.db_size;
+    ctrl_datap->blk_id = db->db_blkid;
+    ctrl_datap->len = db->db.db_size;
+    ctrl_datap->offset = db->db.db_offset;
+
+    SET_BOOKMARK(&zb, os->os_dsl_dataset->ds_object,
+        db->db.db_object, db->db_level, db->db_blkid);
+    wp_flag = 0;
+    dmu_write_policy(os, DB_DNODE(db), db->db_level, wp_flag, &zp);
+
+    blk_record = kmem_zalloc(sizeof(dbuf_blkptr_record_t), KM_SLEEP);
+    blk_record->seq = db->db_blkptr_seq[txg_id];
+    db->db_blkptr_seq[txg_id]++;
+    data_addr = &blk_record->addr;
+    list_insert_tail(&db->db_blkptr_list[txg_id], blk_record);
+    mutex_exit(&db->db_mtx);
+
+    direct_done = dbuf_direct_write_done;
+    done_private = ctrl_datap;
+    data_zio = zio_raw_write(NULL, os->os_spa, tx->tx_txg,
+        data_addr, data, data_len, &zp,
+            NULL, direct_done, NULL, done_private,
+            ZIO_PRIORITY_SYNC_WRITE, ZIO_FLAG_MUSTSUCCEED, &zb);
+    if (!db->db_ctrl_data[txg_id])
+        db->db_ctrl_data[txg_id] = B_TRUE;
+    zio_wait(data_zio );
+    zil_write_ctrl_data(os, object, tx, TX_WRITE_CTRL, ctrl_datap);
+    kmem_free(ctrl_datap, sizeof(dmu_ctrl_data_t));
 }
 
 /*
@@ -1863,6 +2097,7 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 {
 	objset_t *os = dn->dn_objset;
 	dmu_buf_impl_t *db, *odb;
+	int i;
 
 	ASSERT(RW_LOCK_HELD(&dn->dn_struct_rwlock));
 	ASSERT(dn->dn_type != DMU_OT_NONE);
@@ -1883,6 +2118,14 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	db->db_user_immediate_evict = FALSE;
 	db->db_freed_in_flight = FALSE;
 	db->db_pending_evict = FALSE;
+
+	db->db_has_segments = 0;
+	
+	for (i = 0; i < TXG_SIZE; i++) {
+		db->db_ctrl_data[i] = 0;
+		list_create(&db->db_blkptr_list[i],  sizeof (dbuf_blkptr_record_t),
+			    offsetof(dbuf_blkptr_record_t, db_blkptr_node));
+	}
 
 	if (blkid == DMU_BONUS_BLKID) {
 		ASSERT3P(parent, ==, dn->dn_dbuf);
@@ -1963,9 +2206,25 @@ dbuf_do_evict(void *private)
 	return (0);
 }
 
+void dbuf_clear_direct_bp(dmu_buf_impl_t *db) {
+	int i;
+	
+	for (i  = 0; i < TXG_SIZE; i ++) {
+		dbuf_blkptr_record_t *tmp_record = NULL;
+		while(tmp_record= list_head(&db->db_blkptr_list[i])) {
+			uint64_t txg = tmp_record->addr.blk_birth;
+			list_remove(&db->db_blkptr_list[i], tmp_record);
+			zio_wait(zio_free_sync(NULL, db->db_objset->os_spa,
+	   		txg,  &tmp_record->addr, 0));
+			kmem_free(tmp_record, sizeof(dbuf_blkptr_record_t));
+		}
+	}
+}
+
 static void
 dbuf_destroy(dmu_buf_impl_t *db)
 {
+	int i;
 	ASSERT(refcount_is_zero(&db->db_holds));
 
 	if (db->db_blkid != DMU_BONUS_BLKID) {
@@ -1994,6 +2253,12 @@ dbuf_destroy(dmu_buf_impl_t *db)
 		}
 		dbuf_hash_remove(db);
 	}
+	
+	dbuf_clear_direct_bp(db);
+	for (i = 0; i < TXG_SIZE; i ++) {
+		list_destroy(&db->db_blkptr_list[i]);
+	}	
+	
 	db->db_parent = NULL;
 	db->db_buf = NULL;
 
@@ -2678,6 +2943,10 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 			mutex_destroy(&dr->dt.di.dr_mtx);
 			list_destroy(&dr->dt.di.dr_children);
 		}
+        if (list_head(&dr->dr_mirror_io_list) != NULL) {
+            cmn_err(CE_WARN, "dbuf_sync_leaf dr mirror io list is not null");
+        }
+        list_destroy(&dr->dr_mirror_io_list);
 		kmem_free(dr, sizeof (dbuf_dirty_record_t));
 		ASSERT(db->db_dirtycnt > 0);
 		db->db_dirtycnt -= 1;
@@ -2857,6 +3126,12 @@ dbuf_write_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 	mutex_exit(&db->db_mtx);
 }
 
+static void 
+dbuf_ctrl_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
+{
+	dbuf_write_ready(zio, buf, vdb);
+}
+
 /*
  * The SPA will call this callback several times for each zio - once
  * for every physical child i/o (zio->io_phys_children times).  This
@@ -2893,16 +3168,27 @@ dbuf_write_physdone(zio_t *zio, arc_buf_t *buf, void *arg)
 static void
 dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 {
+    uint8_t txg_off;
+    dsl_dataset_t *ds;
+
 	dmu_buf_impl_t *db = vdb;
 	blkptr_t *bp_orig = &zio->io_bp_orig;
 	blkptr_t *bp = db->db_blkptr;
-	objset_t *os = db->db_objset;
-	dmu_tx_t *tx = os->os_synctx;
+    objset_t *os;
+    dmu_tx_t *tx;
+    //objset_t *os = db->db_objset;
+    //dmu_tx_t *tx = os->os_synctx;
 	dbuf_dirty_record_t **drp, *dr;
+    uint64_t txg = zio->io_txg;
 
 	ASSERT0(zio->io_error);
 	ASSERT(db->db_blkptr == bp);
 
+    txg_off = txg & TXG_MASK;
+    DB_GET_OBJSET(&os, db);
+    ds = os->os_dsl_dataset;
+    tx = os->os_synctx;
+	
 	/*
 	 * For nopwrites and rewrites we ensure that the bp matches our
 	 * original and bypass all the accounting.
@@ -2910,7 +3196,7 @@ dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 	if (zio->io_flags & (ZIO_FLAG_IO_REWRITE | ZIO_FLAG_NOPWRITE)) {
 		ASSERT(BP_EQUAL(bp, bp_orig));
 	} else {
-		dsl_dataset_t *ds = os->os_dsl_dataset;
+        //dsl_dataset_t *ds = os->os_dsl_dataset;
 		(void) dsl_dataset_block_kill(ds, bp_orig, tx, B_TRUE);
 		dsl_dataset_block_born(ds, bp, tx);
 	}
@@ -2971,6 +3257,10 @@ dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 		mutex_destroy(&dr->dt.di.dr_mtx);
 		list_destroy(&dr->dt.di.dr_children);
 	}
+#ifdef _KERNEL
+    dbuf_clear_mirror_io(dr, os, tx->tx_txg);
+#endif
+    list_destroy(&dr->dr_mirror_io_list);
 	kmem_free(dr, sizeof (dbuf_dirty_record_t));
 
 	cv_broadcast(&db->db_changed);
@@ -2978,6 +3268,12 @@ dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 	db->db_dirtycnt -= 1;
 	db->db_data_pending = NULL;
 	dbuf_rele_and_unlock(db, (void *)(uintptr_t)tx->tx_txg);
+}
+
+static void
+dbuf_ctrl_done(zio_t *zio, arc_buf_t *buf, void *vdb)
+{
+	dbuf_write_done(zio, buf, vdb);
 }
 
 static void
@@ -3028,6 +3324,7 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx)
 	objset_t *os;
 	dmu_buf_impl_t *parent = db->db_parent;
 	uint64_t txg = tx->tx_txg;
+	uint64_t txg_id = txg & TXG_MASK;
 	zbookmark_phys_t zb;
 	zio_prop_t zp;
 	zio_t *zio;
@@ -3116,14 +3413,246 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx)
 		    ZIO_PRIORITY_ASYNC_WRITE,
 		    ZIO_FLAG_MUSTSUCCEED | ZIO_FLAG_NODATA, &zb);
 	} else {
-		ASSERT(arc_released(data));
-		dr->dr_zio = arc_write(zio, os->os_spa, txg,
-		    db->db_blkptr, data, DBUF_IS_L2CACHEABLE(db),
-		    DBUF_IS_L2COMPRESSIBLE(db), &zp, dbuf_write_ready,
-		    dbuf_write_physdone, dbuf_write_done, db,
-		    ZIO_PRIORITY_ASYNC_WRITE, ZIO_FLAG_MUSTSUCCEED, &zb);
+		if (db->db_ctrl_data[txg_id]  && os->os_sync == ZFS_SYNC_DISK) {
+			dbuf_blkptr_record_t *tmp_record = NULL;
+			dbuf_blkptr_record_t *last_record = NULL;
+			uint32_t seq = 0;
+
+			ASSERT(arc_released(data));
+			for (tmp_record = list_head(&db->db_blkptr_list[txg_id]); tmp_record != NULL;
+				tmp_record = list_next(&db->db_blkptr_list[txg_id], tmp_record)){
+					if (seq < tmp_record->seq)
+						seq =  tmp_record->seq;
+			}
+
+			for (tmp_record = list_head(&db->db_blkptr_list[txg_id]); tmp_record != NULL;
+				tmp_record = list_next(&db->db_blkptr_list[txg_id], tmp_record)){
+					if (seq == tmp_record->seq) {
+						last_record = tmp_record;
+						break;
+					}
+			}
+			dr->dr_zio = arc_ctrl(zio, os->os_spa, txg,
+		   	    db->db_blkptr, data, DBUF_IS_L2CACHEABLE(db), &zp,
+		    	    dbuf_ctrl_ready, dbuf_ctrl_done, db,
+		    	    ZIO_PRIORITY_SYNC_WRITE, ZIO_FLAG_MUSTSUCCEED, &zb);
+			
+			mutex_enter(&db->db_mtx);
+			bcopy((char *)(&last_record->addr), 
+			   (char *)db->db_blkptr, sizeof(blkptr_t));
+			while(tmp_record= list_head(&db->db_blkptr_list[txg_id])) {
+				list_remove(&db->db_blkptr_list[txg_id], tmp_record);
+				if (tmp_record != last_record)
+					zio_wait(zio_free_sync(NULL, db->db_objset->os_spa,
+	   				    txg,  &tmp_record->addr, 0));
+				kmem_free(tmp_record, sizeof(dbuf_blkptr_record_t));
+			}
+			db->db_ctrl_data[txg_id] = B_FALSE;
+			mutex_exit(&db->db_mtx);
+			
+		}else { 
+			mutex_enter(&db->db_mtx);
+			dbuf_blkptr_record_t *tmp_record = NULL;
+			while(tmp_record= list_head(&db->db_blkptr_list[txg_id])) {
+				list_remove(&db->db_blkptr_list[txg_id], tmp_record);
+				zio_wait(zio_free_sync(NULL, db->db_objset->os_spa,
+	   				    txg,  &tmp_record->addr, 0));
+				kmem_free(tmp_record, sizeof(dbuf_blkptr_record_t));
+			}
+			mutex_exit(&db->db_mtx);
+			ASSERT(arc_released(data));
+			dr->dr_zio = arc_write(zio, os->os_spa, txg,
+		   	 db->db_blkptr, data, DBUF_IS_L2CACHEABLE(db), DBUF_IS_L2COMPRESSIBLE(db),
+ 		   	 &zp, dbuf_write_ready, dbuf_write_physdone, dbuf_write_done, db,
+ 		   	 ZIO_PRIORITY_ASYNC_WRITE, ZIO_FLAG_MUSTSUCCEED, &zb);
+			db->db_ctrl_data[txg_id] = B_FALSE;
+		}
 	}
 }
+
+int
+dbuf_rewrite(dbuf_segs_data_t *node)
+{
+#ifdef _KERNEL
+    int error = 0;
+    objset_t *os;
+    dnode_t *dn;
+    dmu_buf_impl_t *db;
+
+
+    db = (dmu_buf_impl_t *)node->db;
+    DB_DNODE_ENTER(db);
+    dn = DB_DNODE(db);
+    os = dn->dn_objset;
+    DB_DNODE_EXIT(db);
+
+    if (dmu_objset_type(os) == DMU_OST_ZVOL) {
+        error = zvol_obj_rewrite(os,dn->dn_object, node->data_offset,
+            node->data_len, node);
+    } else if (dmu_objset_type(os) == DMU_OST_ZFS) {
+        error = zfs_obj_rewrite(os, dn->dn_object, node->data_offset,
+            node->data_len,  node);
+    }
+
+    return (error);
+#else
+    return (0);
+#endif
+}
+
+#ifdef _KERNEL
+
+void dbuf_data_reload(dmu_buf_impl_t *db)
+{
+    objset_t *os;
+    dnode_t *dn;
+    spa_t *spa;
+    dbuf_segs_data_t *node;
+
+    DB_DNODE_ENTER(db);
+    dn = DB_DNODE(db);
+    os = dn->dn_objset;
+    spa = os->os_spa;
+    DB_DNODE_EXIT(db);
+
+    node = kmem_zalloc(sizeof(dbuf_segs_data_t), KM_SLEEP);
+    node->data_offset = db->db.db_offset;
+    node->data_len = db->db.db_size;
+    node->data_data = dmu_request_arcbuf(&db->db, node->data_len);
+    if (node->data_data == NULL || arc_buf_size(node->data_data) != node->data_len) {
+        cmn_err(CE_WARN, "Error dbuf_data_reload:node->data_data:0x%p, data_len:0x%llx",
+            node->data_data, (longlong_t)node->data_len);
+    }
+    node->db = db;
+
+    bcopy(db->db.db_data, node->data_data->b_data, node->data_len);
+    dmu_objset_insert_data(os, db, node);
+}
+
+static
+boolean_t dbuf_check_segs_full(dmu_buf_impl_t *db) {
+    uint64_t total_len = 0;
+
+    dbuf_segs_record_t *seg = NULL;
+    dbuf_segs_record_t *seg_next = NULL;
+    seg = list_head(&db->db_segments_list_order);
+    while (seg != NULL) {
+        seg_next = list_next(&db->db_segments_list_order, seg);
+        if (seg_next == NULL) {
+            total_len += seg->seg_record_len;
+            break;
+        }
+        if (seg_next->seg_record_roffset !=
+            (seg->seg_record_roffset + seg->seg_record_len)) {
+            break;
+        }
+        total_len += seg->seg_record_len;
+
+        seg = seg_next;
+    }
+
+    if (total_len == db->db.db_size) {
+        return (B_TRUE);
+    } else {
+        return (B_FALSE);
+    }
+}
+
+static void
+dbuf_seg_insert_by_sort(list_t * seg_list, dbuf_segs_record_t *db_seg)
+{
+    dbuf_segs_record_t *next = NULL;
+    dbuf_segs_record_t *next_next = NULL;
+    dbuf_segs_record_t *head = list_head(seg_list);
+
+    if (head == NULL) {
+        list_insert_head(seg_list, db_seg);
+    } else if ( head->seg_record_roffset >  db_seg->seg_record_roffset) {
+        list_insert_head(seg_list, db_seg);
+        next = list_next(seg_list, db_seg);
+    } else {
+        next = head;
+        next_next = list_next(seg_list, next);
+        while (next_next != NULL  &&
+          next_next ->seg_record_roffset <= db_seg->seg_record_roffset) {
+            next = next_next;
+            next_next = list_next(seg_list, next);
+        }
+        list_insert_after(seg_list, next, db_seg);
+    }
+
+}
+
+boolean_t
+dbuf_handle_seg(dmu_buf_impl_t *db,
+    dbuf_segs_record_t *db_seg, uint64_t txg) {
+    objset_t *os;
+    boolean_t db_full = B_FALSE;
+    list_t *seg_list;
+    list_t *seg_list_order;
+
+    seg_list = &db->db_segments_list;
+    seg_list_order = &db->db_segments_list_order;
+
+    DB_GET_OBJSET(&os, db);
+    mutex_enter(&db->db_seg_mtx);
+    if (!db->db_has_segments) {
+        db->db_has_segments = B_TRUE;
+        db->db_first_segment_txg = txg;
+        dbuf_add_ref(db, (void *)dbuf_seg_in_os_tag);
+        dmu_objset_insert_record(os, db);
+    }
+
+    db->db_segs_len += db_seg->seg_record_len;
+    dbuf_add_ref(db, (void *)dbuf_segs_tag);
+    dbuf_seg_insert_by_sort(seg_list_order, db_seg);
+    list_insert_tail(seg_list, db_seg);
+    db_full = dbuf_check_segs_full(db);
+    mutex_exit(&db->db_seg_mtx);
+    return (db_full);
+
+}
+
+boolean_t
+dbuf_handle_segs(dmu_buf_impl_t *db, boolean_t b_write, uint64_t txg) {
+    objset_t *os;
+    list_t *seg_list, *seg_list_order;
+    dbuf_segs_record_t *head;
+    int64_t holds;
+
+    seg_list = &db->db_segments_list;
+    seg_list_order = &db->db_segments_list_order;
+
+    DB_GET_OBJSET(&os, db);
+    while (head = list_head(seg_list)) {
+            list_remove(seg_list, head);
+            list_remove(seg_list_order, head);
+
+            if (b_write) {
+                bcopy(head->seg_record_data->b_data,
+                    (char *)db->db.db_data + head->seg_record_roffset,
+                    head->seg_record_len);
+            }
+            dmu_return_arcbuf(head->seg_record_data);
+            dbuf_rele(db, (void *)dbuf_segs_tag);
+            kmem_free(head, sizeof(dbuf_segs_record_t));
+    }
+
+    db->db_has_segments = B_FALSE;
+    db->db_segs_len = 0;
+    db->db_first_segment_txg = 0;
+    dmu_objset_remove_record(os, db);
+    dbuf_rele(db, (void *)dbuf_seg_in_os_tag);
+    mutex_exit(&db->db_seg_mtx);
+    mutex_enter(&db->db_mtx);
+    holds = refcount_count(&db->db_holds);
+    dbuf_rele_and_unlock(db, dbuf_seg_in_os_tag);
+    if (holds <= 1)
+        return TRUE;	/* db released */
+    else
+        return FALSE;	/* db still hold */
+}
+#endif
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(dbuf_find);

@@ -187,6 +187,7 @@
 #include <sys/zfeature.h>
 
 #include <linux/miscdevice.h>
+#include <sys/zfs_mirror.h>
 #include <sys/cluster_san.h>
 
 #include "zfs_namecheck.h"
@@ -4862,6 +4863,32 @@ zfs_ioc_smb_acl(zfs_cmd_t *zc)
 #endif /* HAVE_SMB_SHARE */
 }
 
+static int
+zfs_ioc_start_mirror(zfs_cmd_t *zc)
+{
+    int ret = 0;
+    if (zc->zc_cookie == ENABLE_MIRROR) {
+        ret = zfs_mirror_init(zc->zc_perm_action);
+    }
+    else if (zc->zc_cookie == DISABLE_MIRROR) {
+        ret = zfs_mirror_fini();
+    } else if (zc->zc_cookie == SHOW_MIRROR) {
+        if (zfs_mirror_enable()) {
+            strcpy(zc->zc_string, "up");
+        } else {
+            strcpy(zc->zc_string, "down");
+        }
+    }
+    zc->zc_guid = ret;
+    return (ret);
+}
+
+static int
+zfs_ioc_get_mirror(zfs_cmd_t *zc)
+{
+    return (0);
+}
+
 static int zfs_ioc_do_clustersan_get_hostlist(zfs_cmd_t *zc)
 {
 	int ret = -1;
@@ -5723,6 +5750,13 @@ zfs_ioctl_init(void)
 
 	zfs_ioctl_register_clustersan(ZFS_IOC_CLUSTERSAN, zfs_ioc_do_clustersan,
 			zfs_secpolicy_none);
+
+    zfs_ioctl_register_legacy(ZFS_IOC_START_MIRROR,
+        zfs_ioc_start_mirror, zfs_secpolicy_none,
+        NO_NAME, B_FALSE, POOL_CHECK_NONE);
+    zfs_ioctl_register_legacy(ZFS_IOC_GET_MIRROR_STATE,
+        zfs_ioc_get_mirror, zfs_secpolicy_none,
+        NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	/*
 	 * ZoL functions

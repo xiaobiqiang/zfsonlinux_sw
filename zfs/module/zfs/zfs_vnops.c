@@ -475,7 +475,7 @@ zfs_read(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	/*
 	 * If we're in FRSYNC mode, sync out this znode before reading it.
 	 */
-	if (ioflag & FRSYNC || zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (ioflag & FRSYNC || zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zsb->z_log, zp->z_id);
 
 	/*
@@ -600,6 +600,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	int		count = 0;
 	sa_bulk_attr_t	bulk[4];
 	uint64_t	mtime[2], ctime[2];
+    boolean_t sync;
 	ASSERTV(int	iovcnt = uio->uio_iovcnt);
 
 	/*
@@ -705,6 +706,8 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	while (n > 0) {
 		abuf = NULL;
 		woff = uio->uio_loffset;
+        sync = dmu_objset_sync_check(zsb->z_os);
+
 		if (zfs_owner_overquota(zsb, zp, B_FALSE) ||
 		    zfs_owner_overquota(zsb, zp, B_TRUE)) {
 			if (abuf != NULL)
@@ -797,7 +800,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		if (abuf == NULL) {
 			tx_bytes = uio->uio_resid;
 			error = dmu_write_uio_dbuf(sa_get_db(zp->z_sa_hdl),
-			    uio, nbytes, tx);
+                uio, nbytes, tx, sync);
 			tx_bytes -= uio->uio_resid;
 		} else {
 			tx_bytes = nbytes;
@@ -811,14 +814,14 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			if (tx_bytes < max_blksz && (!write_eof ||
 			    aiov->iov_base != abuf->b_data)) {
 				ASSERT(xuio);
-				dmu_write(zsb->z_os, zp->z_id, woff,
-				    aiov->iov_len, aiov->iov_base, tx);
+                dmu_write_mirror_fs(zsb->z_os, zp->z_id, woff,
+                    aiov->iov_len, aiov->iov_base, tx, sync);
 				dmu_return_arcbuf(abuf);
 				xuio_stat_wbuf_copied();
 			} else {
 				ASSERT(xuio || tx_bytes == max_blksz);
 				dmu_assign_arcbuf(sa_get_db(zp->z_sa_hdl),
-				    woff, abuf, tx);
+                    woff, abuf, tx, sync);
 			}
 			ASSERT(tx_bytes <= uio->uio_resid);
 			uioskip(uio, tx_bytes);
@@ -911,7 +914,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	}
 
 	if (ioflag & (FSYNC | FDSYNC) ||
-	    zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, zp->z_id);
 
 	ZFS_EXIT(zsb);
@@ -1476,7 +1479,7 @@ out:
 		*ipp = ZTOI(zp);
 	}
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zsb);
@@ -1667,7 +1670,7 @@ out:
 	if (xzp)
 		iput(ZTOI(xzp));
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zsb);
@@ -1845,7 +1848,7 @@ top:
 
 	zfs_dirent_unlock(dl);
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	zfs_inode_update(dzp);
@@ -1976,7 +1979,7 @@ out:
 	zfs_inode_update(zp);
 	iput(ip);
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zsb);
@@ -2155,7 +2158,7 @@ zfs_fsync(struct inode *ip, int syncflag, cred_t *cr)
 
 	(void) tsd_set(zfs_fsyncer_key, (void *)zfs_fsync_sync_cnt);
 
-	if (zsb->z_os->os_sync != ZFS_SYNC_DISABLED) {
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD) {
 		ZFS_ENTER(zsb);
 		ZFS_VERIFY_ZP(zp);
 		zil_commit(zsb->z_log, zp->z_id);
@@ -3046,7 +3049,7 @@ out:
 	}
 
 out2:
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 out3:
@@ -3483,7 +3486,7 @@ out:
 		iput(ZTOI(tzp));
 	}
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zsb);
@@ -3643,7 +3646,7 @@ top:
 
 	*ipp = ZTOI(zp);
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zsb);
@@ -3831,7 +3834,7 @@ top:
 
 	zfs_dirent_unlock(dl);
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	zfs_inode_update(dzp);
@@ -4002,7 +4005,7 @@ zfs_putpage(struct inode *ip, struct page *pp, struct writeback_control *wbc)
 
 	va = kmap(pp);
 	ASSERT3U(pglen, <=, PAGE_SIZE);
-	dmu_write(zsb->z_os, zp->z_id, pgoff, pglen, va, tx);
+    dmu_write(zsb->z_os, zp->z_id, pgoff, pglen, va, tx, B_FALSE);
 	kunmap(pp);
 
 	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MTIME(zsb), NULL, &mtime, 16);
@@ -4511,7 +4514,7 @@ zfs_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 
 	error = zfs_setacl(zp, vsecp, skipaclchk, cr);
 
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zsb);

@@ -19,9 +19,6 @@
 #include <sys/cluster_target_rpc_rdma_clnt.h>
 */
 
-#define PRIx64	"llx"
-#define	PRId64	"lld"
-
 #define	CLUSTER_TARGET_TRAN_REPLY_HASH_SIZE		1024
 
 #define	CTS_CALLBACK_HASH_SIZE					32

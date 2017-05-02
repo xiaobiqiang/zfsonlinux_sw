@@ -47,6 +47,7 @@
 #include <sys/zil_impl.h>
 #include <sys/dsl_userhold.h>
 #include <sys/trace_txg.h>
+#include <sys/zfs_mirror.h>
 
 /*
  * ZFS Write Throttle
@@ -600,9 +601,21 @@ void
 dsl_pool_sync_done(dsl_pool_t *dp, uint64_t txg)
 {
 	zilog_t *zilog;
+    objset_t *os;
+    uint64_t ds_object;
 
 	while ((zilog = txg_list_remove(&dp->dp_dirty_zilogs, txg))) {
 		dsl_dataset_t *ds = dmu_objset_ds(zilog->zl_os);
+#ifdef _KERNEL
+        os = ds->ds_objset;
+        ds_object = os->os_dsl_dataset ? os->os_dsl_dataset->ds_object: 0;
+        zfs_mirror_log_clean(os, spa_guid(os->os_spa), ds_object,
+            txg, 0, MIRROR_DATA_ALIGNED);
+        zfs_mirror_log_clean(os, spa_guid(os->os_spa), ds_object,
+            txg, 0, MIRROR_DATA_META_ALIGNED);
+        zfs_mirror_log_clean(os, spa_guid(os->os_spa), ds_object,
+            txg, 0, MIRROR_DATA_UNALIGNED);
+#endif
 		zil_clean(zilog, txg);
 		ASSERT(!dmu_objset_is_dirty(zilog->zl_os, txg));
 		dmu_buf_rele(ds->ds_dbuf, zilog);

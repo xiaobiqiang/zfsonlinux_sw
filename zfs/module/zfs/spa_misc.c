@@ -626,6 +626,10 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa->spa_min_ashift = INT_MAX;
 	spa->spa_max_ashift = 0;
 
+    mutex_init(&spa->spa_do_zvol_lock, NULL, MUTEX_DEFAULT, NULL);
+    cv_init(&spa->spa_do_zvol_cv, NULL, CV_DEFAULT, NULL);
+    spa->spa_zvol_minor_creating_cnt = 0;
+
 	/*
 	 * As a pool is being created, treat all features as disabled by
 	 * setting SPA_FEATURE_DISABLED for all entries in the feature
@@ -700,6 +704,9 @@ spa_remove(spa_t *spa)
 	mutex_destroy(&spa->spa_suspend_lock);
 	mutex_destroy(&spa->spa_vdev_top_lock);
 	mutex_destroy(&spa->spa_feat_stats_lock);
+
+    cv_destroy(&spa->spa_do_zvol_cv);
+    mutex_destroy(&spa->spa_do_zvol_lock);
 
 	kmem_free(spa, sizeof (spa_t));
 }

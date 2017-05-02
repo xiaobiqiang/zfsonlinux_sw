@@ -498,7 +498,7 @@ zpios_dmu_write(run_args_t *run_args, objset_t *os, uint64_t object,
 //	if (run_args->flags & DMU_WRITE_ZC)
 //		flags |= DMU_WRITE_ZEROCOPY;
 
-	dmu_write(os, object, offset, size, buf, tx);
+    dmu_write(os, object, offset, size, buf, tx, B_FALSE);
 	dmu_tx_commit(tx);
 
 	return (0);

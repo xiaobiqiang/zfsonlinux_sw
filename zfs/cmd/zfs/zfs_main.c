@@ -104,6 +104,7 @@ static int zfs_do_holds(int argc, char **argv);
 static int zfs_do_release(int argc, char **argv);
 static int zfs_do_diff(int argc, char **argv);
 static int zfs_do_bookmark(int argc, char **argv);
+static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
 
 /*
@@ -152,6 +153,7 @@ typedef enum {
 	HELP_RELEASE,
 	HELP_DIFF,
 	HELP_BOOKMARK,
+    HELP_MIRROR,
 	HELP_CLUSTERSAN
 } zfs_help_t;
 
@@ -206,6 +208,7 @@ static zfs_command_t command_table[] = {
 	{ "holds",	zfs_do_holds,		HELP_HOLDS		},
 	{ "release",	zfs_do_release,		HELP_RELEASE		},
 	{ "diff",	zfs_do_diff,		HELP_DIFF		},
+    { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
 };
 
@@ -322,6 +325,8 @@ get_usage(zfs_help_t idx)
 		    "[snapshot|filesystem]\n"));
 	case HELP_BOOKMARK:
 		return (gettext("\tbookmark <snapshot> <bookmark>\n"));
+    case HELP_MIRROR:
+        return (gettext("\tmirror [-ved] <port-name> [-m] <mac-addr>\n"));
 	case HELP_CLUSTERSAN:
 		return (gettext(
 			"\tclustersan enable [-n clustername] [-l linkname] [-p]\n"
@@ -6680,6 +6685,40 @@ zfs_do_bookmark(int argc, char **argv)
 usage:
 	usage(B_FALSE);
 	return (-1);
+}
+
+static int
+zfs_do_mirror(int argc, char **argv)
+{
+    int flags = 0;
+    char *mirror_to = NULL;
+    int c;
+
+    while ((c = getopt(argc, argv, "ve:d")) != -1) {
+        switch (c) {
+        case 'v':
+            flags  = SHOW_MIRROR;
+            break;
+        case 'e':
+            flags = ENABLE_MIRROR;
+            mirror_to = optarg;
+            break;
+        case 'd':
+            flags = DISABLE_MIRROR;
+            break;
+        default:
+            (void) fprintf(stderr,
+                gettext("invalid option '%c'\n"), optopt);
+            usage(B_FALSE);
+        }
+    }
+
+    argc -= optind;
+    argv += optind;
+
+    zfs_start_mirror(g_zfs, mirror_to, flags);
+
+    return (0);
 }
 
 #define	LVL1_FORMAT					"    %s"

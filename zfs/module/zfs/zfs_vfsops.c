@@ -67,6 +67,7 @@
 #include <sys/spa_boot.h>
 #include <sys/zpl.h>
 #include "zfs_comutil.h"
+#include <sys/zfs_mirror.h>
 
 /*ARGSUSED*/
 int
@@ -721,6 +722,10 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	zsb->z_max_blksz = SPA_OLD_MAXBLOCKSIZE;
 	zsb->z_show_ctldir = ZFS_SNAPDIR_VISIBLE;
 	zsb->z_os = os;
+    os->os_replay = zfs_replay_vector;
+    os->os_replay_data = zfs_replay_rawdata;
+    os->os_seg_data_lock = zfs_seg_data_lock;
+    os->os_seg_data_unlock = zfs_seg_data_unlock;
 
 	error = zfs_get_zplprop(os, ZFS_PROP_VERSION, &zsb->z_version);
 	if (error) {
@@ -914,10 +919,15 @@ zfs_sb_setup(zfs_sb_t *zsb, boolean_t mounting)
 				zil_destroy(zsb->z_log, B_FALSE);
 			} else {
 				zsb->z_replay = B_TRUE;
-				zil_replay(zsb->z_os, zsb,
-				    zfs_replay_vector);
+                zil_replay(zsb->z_os, zsb,
+                    zfs_replay_vector);
 				zsb->z_replay = B_FALSE;
 			}
+
+            /* check mirror status in dmu_objset_replay_all_cache */
+            zsb->z_replay = B_TRUE;
+            dmu_objset_replay_all_cache(zsb->z_os);
+            zsb->z_replay = B_FALSE;
 		}
 
 		/* restore readonly bit */
@@ -1362,6 +1372,8 @@ zfs_sb_teardown(zfs_sb_t *zsb, boolean_t unmounting)
 	 */
 	zfs_unregister_callbacks(zsb);
 
+    dmu_objset_cache_clean_size(zsb->z_os, -1, B_TRUE);
+
 	/*
 	 * Evict cached data
 	 */
@@ -1435,7 +1447,8 @@ zfs_domount(struct super_block *sb, zfs_mntopts_t *zmo, int silent)
 			goto out;
 		acltype_changed_cb(zsb, pval);
 		zsb->z_issnap = B_TRUE;
-		zsb->z_os->os_sync = ZFS_SYNC_DISABLED;
+        /*zsb->z_os->os_sync = ZFS_SYNC_DISABLED;*/
+        zsb->z_os->os_sync = ZFS_SYNC_MIRROR;
 		zsb->z_snap_defer_time = jiffies;
 
 		mutex_enter(&zsb->z_os->os_user_ptr_lock);
