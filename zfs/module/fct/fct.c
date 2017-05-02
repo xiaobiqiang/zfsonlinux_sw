@@ -27,8 +27,8 @@
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/modctl.h>
-#include <sys/scsi/scsi.h>
-#include <sys/scsi/impl/scsi_reset_notify.h>
+//#include <sys/scsi/scsi.h>
+//#include <sys/scsi/impl/scsi_reset_notify.h>
 #include <sys/disp.h>
 #include <sys/byteorder.h>
 #include <sys/varargs.h>
@@ -42,24 +42,31 @@
 #include <sys/fct.h>
 #include <sys/fctio.h>
 
+#include <sys/nvpair.h>
+#include <sys/avl.h>
+#include <sys/modhash.h>
+#include <sys/modhash_impl.h>
 #include "fct_impl.h"
 #include "discovery.h"
-
-
+#include <sys/zfs_context.h>
+#ifdef SOLARIS
 static int fct_attach(dev_info_t *dip, ddi_attach_cmd_t cmd);
 static int fct_detach(dev_info_t *dip, ddi_detach_cmd_t cmd);
 static int fct_getinfo(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg,
     void **result);
-static int fct_open(dev_t *devp, int flag, int otype, cred_t *credp);
-static int fct_close(dev_t dev, int flag, int otype, cred_t *credp);
-static int fct_ioctl(dev_t dev, int cmd, intptr_t data, int mode,
-    cred_t *credp, int *rval);
+#endif
+static int fct_open(struct inode *inode, struct file *file);
+static int fct_close(struct inode *inode, struct file *file);
+static int fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 static int fct_fctiocmd(intptr_t data, int mode);
 void fct_init_kstats(fct_i_local_port_t *iport);
 
+#ifdef SOLARIS
 static dev_info_t *fct_dip;
+#endif
 
-
+#define DDI_SLEEP KM_SLEEP
+#define	DDI_VENDOR_SUNW		"SUNW"
 #define	FCT_NAME	"COMSTAR FCT"
 #define	FCT_MODULE_NAME	"fct"
 
@@ -99,10 +106,11 @@ static int __init fct_init(void)
 static void __exit fct_fini(void)
 {
 	int ret;
-
+#ifdef SOLARIS
 	ret = mod_remove(&modlinkage);
 	if (ret)
 		return (ret);
+#endif
 	/* XXX */
 	mutex_destroy(&fct_global_mutex);
 }
@@ -110,10 +118,14 @@ static void __exit fct_fini(void)
 int
 _info(struct modinfo *modinfop)
 {
+#ifdef SOLARIS
 	return (mod_info(&modlinkage, modinfop));
+#endif
+	return 0;
 }
 
 /* ARGSUSED */
+#ifdef SOLARIS
 static int
 fct_getinfo(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg, void **result)
 {
@@ -130,7 +142,6 @@ fct_getinfo(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg, void **result)
 
 	return (DDI_SUCCESS);
 }
-
 static int
 fct_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 {
@@ -160,7 +171,7 @@ fct_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 
 	return (DDI_FAILURE);
 }
-
+#endif
 /* ARGSUSED */
 static int
 fct_open(struct inode *inode, struct file *file)
@@ -349,9 +360,12 @@ fct_get_adapter_attr(uint8_t *pwwn, fc_tgt_hba_adapter_attributes_t *hba_attr,
 		bcopy(iport->iport_port->port_sym_node_name,
 		    hba_attr->NodeSymbolicName,
 		    strlen(iport->iport_port->port_sym_node_name));
-	else
+	else {
+#ifdef SOLARIS
 		bcopy(utsname.nodename, hba_attr->NodeSymbolicName,
 		    strlen(utsname.nodename));
+#endif
+	}
 	bcopy(attr->hardware_version, hba_attr->HardwareVersion,
 	    sizeof (hba_attr->HardwareVersion));
 	bcopy(attr->option_rom_version, hba_attr->OptionROMVersion,
@@ -716,7 +730,9 @@ SEND_RLS_ELS:
 	iport->iport_rls_cb_data.fct_link_status = link_status;
 	CMD_TO_ICMD(cmd)->icmd_cb_private = &iport->iport_rls_cb_data;
 	fct_post_to_solcmd_queue(iport->iport_port, cmd);
+#ifdef SOLARIS
 	sema_p(&iport->iport_rls_sema);
+#endif
 	if (iport->iport_rls_cb_data.fct_els_res != FCT_SUCCESS)
 		ret = EIO;
 	return (ret);
@@ -964,12 +980,13 @@ fct_alloc(fct_struct_id_t struct_id, int additional_size, int flags)
 	if ((struct_id == 0) || (struct_id >= FCT_MAX_STRUCT_IDS))
 		return (NULL);
 
+#ifdef SOLARIS
 	if ((curthread->t_flag & T_INTR_THREAD) || (flags & AF_FORCE_NOSLEEP)) {
 		kmem_flag = KM_NOSLEEP;
 	} else {
 		kmem_flag = KM_SLEEP;
 	}
-
+#endif
 	additional_size = (additional_size + 7) & (~7);
 	fct_size = fct_sizes[struct_id].shared +
 	    fct_sizes[struct_id].fw_private +
@@ -1142,15 +1159,18 @@ fct_register_local_port(fct_local_port_t *port)
 	    port->port_pwwn, PROTOCOL_FIBRE_CHANNEL);
 	(void) snprintf(taskq_name, sizeof (taskq_name), "stmf_fct_taskq_%d",
 	    atomic_inc_32_nv(&taskq_cntr));
+#ifdef SOLARIS
 	if ((iport->iport_worker_taskq = ddi_taskq_create(NULL,
 	    taskq_name, 1, TASKQ_DEFAULTPRI, 0)) == NULL) {
 		return (FCT_FAILURE);
 	}
+#endif
 	mutex_init(&iport->iport_worker_lock, NULL, MUTEX_DRIVER, NULL);
 	cv_init(&iport->iport_worker_cv, NULL, CV_DRIVER, NULL);
 	rw_init(&iport->iport_lock, NULL, RW_DRIVER, NULL);
+#ifdef SOLARIS
 	sema_init(&iport->iport_rls_sema, 0, NULL, SEMA_DRIVER, NULL);
-
+#endif
 	/* Remote port mgmt */
 	iport->iport_rp_slots = (fct_i_remote_port_t **)kmem_zalloc(
 	    port->port_max_logins * sizeof (fct_i_remote_port_t *), KM_SLEEP);
@@ -1187,8 +1207,10 @@ fct_register_local_port(fct_local_port_t *port)
 
 	/* Start worker thread */
 	atomic_and_32(&iport->iport_flags, ~IPORT_TERMINATE_WORKER);
+#ifdef SOLARIS
 	(void) ddi_taskq_dispatch(iport->iport_worker_taskq,
 	    fct_port_worker, port, DDI_SLEEP);
+#endif
 	/* Wait for taskq to start */
 	while ((iport->iport_flags & IPORT_WORKER_RUNNING) == 0) {
 		delay(1);
@@ -1243,7 +1265,9 @@ fct_regport_fail1:;
 			delay(1);
 		}
 	}
+#ifdef SOLARIS
 	ddi_taskq_destroy(iport->iport_worker_taskq);
+#endif
 	if (iport->iport_rp_tb) {
 		kmem_free(iport->iport_rp_tb, rportid_table_size *
 		    sizeof (fct_i_remote_port_t *));
@@ -1311,26 +1335,34 @@ fct_deregister_local_port(fct_local_port_t *port)
 	    sizeof (fct_i_remote_port_t *));
 	rw_destroy(&iport->iport_lock);
 	cv_destroy(&iport->iport_worker_cv);
+#ifdef SOLARIS
 	sema_destroy(&iport->iport_rls_sema);
+#endif
 	mutex_destroy(&iport->iport_worker_lock);
+#ifdef SOLARIS
 	ddi_taskq_destroy(iport->iport_worker_taskq);
+#endif
 	if (iport->iport_rp_tb) {
 		kmem_free(iport->iport_rp_tb, rportid_table_size *
 		    sizeof (fct_i_remote_port_t *));
 	}
 
+#ifdef SOLARIS
 	if (iport->iport_kstat_portstat) {
 		kstat_delete(iport->iport_kstat_portstat);
 	}
-
+#endif
 	fct_log_local_port_event(port, ESC_SUNFC_PORT_DETACH);
 	return (FCT_SUCCESS);
 
 fct_deregport_fail1:;
 	/* Restart the worker */
+
 	atomic_and_32(&iport->iport_flags, ~IPORT_TERMINATE_WORKER);
+#ifdef SOLARIS
 	(void) ddi_taskq_dispatch(iport->iport_worker_taskq,
 	    fct_port_worker, port, DDI_SLEEP);
+#endif
 	/* Wait for taskq to start */
 	while ((iport->iport_flags & IPORT_WORKER_RUNNING) == 0) {
 		delay(1);
@@ -1730,11 +1762,6 @@ fct_post_rcvd_cmd(fct_cmd_t *cmd, stmf_data_buf_t *dbuf)
 		uint32_t load = iport->iport_total_alloced_ncmds -
 		    iport->iport_cached_ncmds;
 
-		DTRACE_FC_4(scsi__command,
-		    fct_cmd_t, cmd,
-		    fct_i_local_port_t, iport,
-		    scsi_task_t, task,
-		    fct_i_remote_port_t, irp);
 
 		if (load >= iport->iport_task_green_limit) {
 			if ((load < iport->iport_task_yellow_limit &&
@@ -1847,7 +1874,6 @@ fct_alloc_cmd_slot(fct_i_local_port_t *iport, fct_cmd_t *cmd)
 		new = ((old + (0x10000)) & 0xFFFF0000);
 		new |= iport->iport_cmd_slots[cmd_slot].slot_next;
 	} while (atomic_cas_32(&iport->iport_next_free_slot, old, new) != old);
-
 	atomic_dec_16(&iport->iport_nslots_free);
 	iport->iport_cmd_slots[cmd_slot].slot_cmd = icmd;
 	cmd->cmd_handle = (uint32_t)cmd_slot | 0x80000000 |
@@ -1909,13 +1935,6 @@ fct_xfer_scsi_data(scsi_task_t *task, stmf_data_buf_t *dbuf, uint32_t ioflags)
 {
 	fct_cmd_t *cmd = (fct_cmd_t *)task->task_port_private;
 
-	DTRACE_FC_5(xfer__start,
-	    fct_cmd_t, cmd,
-	    fct_i_local_port_t, cmd->cmd_port->port_fct_private,
-	    scsi_task_t, task,
-	    fct_i_remote_port_t, cmd->cmd_rp->rp_fct_private,
-	    stmf_data_buf_t, dbuf);
-
 	return (cmd->cmd_port->port_xfer_scsi_data(cmd, dbuf, ioflags));
 }
 
@@ -1926,12 +1945,6 @@ fct_scsi_data_xfer_done(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	uint32_t	old, new;
 	uint32_t	iof = 0;
 
-	DTRACE_FC_5(xfer__done,
-	    fct_cmd_t, cmd,
-	    fct_i_local_port_t, cmd->cmd_port->port_fct_private,
-	    scsi_task_t, ((scsi_task_t *)cmd->cmd_specific),
-	    fct_i_remote_port_t, cmd->cmd_rp->rp_fct_private,
-	    stmf_data_buf_t, dbuf);
 
 	if (ioflags & FCT_IOF_FCA_DONE) {
 		do {
@@ -1955,13 +1968,6 @@ fct_send_scsi_status(scsi_task_t *task, uint32_t ioflags)
 {
 	fct_cmd_t *cmd = (fct_cmd_t *)task->task_port_private;
 
-	DTRACE_FC_4(scsi__response,
-	    fct_cmd_t, cmd,
-	    fct_i_local_port_t,
-	    (fct_i_local_port_t *)cmd->cmd_port->port_fct_private,
-	    scsi_task_t, task,
-	    fct_i_remote_port_t,
-	    (fct_i_remote_port_t *)cmd->cmd_rp->rp_fct_private);
 
 	return (cmd->cmd_port->port_send_cmd_response(cmd, ioflags));
 }
@@ -2656,12 +2662,13 @@ fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
 		break;
 
 	case NS_RSNN_NN:
+#ifdef SOLARIS
 		namelen = port->port_sym_node_name == NULL ?
 		    strlen(utsname.nodename) :
 		    strlen(port->port_sym_node_name);
 		nname = port->port_sym_node_name == NULL ?
 		    utsname.nodename : port->port_sym_node_name;
-
+#endif
 		ct->ct_resp_alloc_size = ct->ct_resp_size = 16;
 		ct->ct_resp_payload = (uint8_t *)kmem_zalloc(ct->ct_resp_size,
 		    KM_SLEEP);
@@ -2828,7 +2835,6 @@ fct_cmd_fca_aborted(fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 		    STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info);
 		return;
 	}
-
 	atomic_and_32(&icmd->icmd_flags, ~ICMD_KNOWN_TO_FCA);
 	/* For non FCP Rest of the work is done by the terminator */
 	/* For FCP stuff just call stmf */
@@ -2948,11 +2954,6 @@ fct_handle_rcvd_abts(fct_cmd_t *cmd)
 		fct_queue_cmd_for_termination(cmd, FCT_NOT_LOGGED_IN);
 		return;
 	}
-
-	DTRACE_FC_3(abts__receive,
-	    fct_cmd_t, cmd,
-	    fct_local_port_t, port,
-	    fct_i_remote_port_t, irp);
 
 	cmd->cmd_rp = irp->irp_rp;
 
@@ -3437,10 +3438,11 @@ fct_log_local_port_event(fct_local_port_t *port, char *subclass)
 	nvlist_t *attr_list;
 	int port_instance;
 
+#ifdef SOLARIS
 	if (!fct_dip)
 		return;
 	port_instance = ddi_get_instance(fct_dip);
-
+#endif
 	if (nvlist_alloc(&attr_list, NV_UNIQUE_NAME_TYPE,
 	    KM_SLEEP) != DDI_SUCCESS) {
 		goto alloc_failed;
@@ -3455,10 +3457,10 @@ fct_log_local_port_event(fct_local_port_t *port, char *subclass)
 	    port->port_pwwn, 8) != DDI_SUCCESS) {
 		goto error;
 	}
-
+#ifdef SOLARIS
 	(void) ddi_log_sysevent(fct_dip, DDI_VENDOR_SUNW, EC_SUNFC,
 	    subclass, attr_list, NULL, DDI_SLEEP);
-
+#endif
 	nvlist_free(attr_list);
 	return;
 
@@ -3476,10 +3478,11 @@ fct_log_remote_port_event(fct_local_port_t *port, char *subclass,
 	nvlist_t *attr_list;
 	int port_instance;
 
+#ifdef SOLARIS
 	if (!fct_dip)
 		return;
 	port_instance = ddi_get_instance(fct_dip);
-
+#endif
 	if (nvlist_alloc(&attr_list, NV_UNIQUE_NAME_TYPE,
 	    KM_SLEEP) != DDI_SUCCESS) {
 		goto alloc_failed;
@@ -3504,10 +3507,10 @@ fct_log_remote_port_event(fct_local_port_t *port, char *subclass,
 	    rp_id) != DDI_SUCCESS) {
 		goto error;
 	}
-
+#ifdef SOLARIS
 	(void) ddi_log_sysevent(fct_dip, DDI_VENDOR_SUNW, EC_SUNFC,
 	    subclass, attr_list, NULL, DDI_SLEEP);
-
+#endif
 	nvlist_free(attr_list);
 	return;
 
@@ -3555,6 +3558,7 @@ fct_wwn_to_str(char *to_ptr, const uint8_t *from_ptr)
 	    from_ptr[4], from_ptr[5], from_ptr[6], from_ptr[7]);
 }
 
+#ifdef SOLARIS
 static int
 fct_update_stats(kstat_t *ks, int rw)
 {
@@ -3591,10 +3595,12 @@ fct_update_stats(kstat_t *ks, int rw)
 	    stat.InvalidTransmissionWordCount;
 	port_kstat->invalid_crc_cnt.value.ui32 =
 	    stat.InvalidCRCCount;
-
 	return (0);
 }
+#endif
 
+
+#ifdef SOLARIS
 void
 fct_init_kstats(fct_i_local_port_t *iport)
 {
@@ -3631,8 +3637,8 @@ fct_init_kstats(fct_i_local_port_t *iport)
 	ks->ks_update = fct_update_stats;
 	ks->ks_private = (void *)iport;
 	kstat_install(ks);
-
 }
+#endif
 
 module_init(fct_init);
 module_exit(fct_fini);

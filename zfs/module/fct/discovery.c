@@ -27,8 +27,8 @@
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/modctl.h>
-#include <sys/scsi/scsi.h>
-#include <sys/scsi/impl/scsi_reset_notify.h>
+//#include <sys/scsi/scsi.h>
+//#include <sys/scsi/impl/scsi_reset_notify.h>
 #include <sys/disp.h>
 #include <sys/byteorder.h>
 #include <sys/varargs.h>
@@ -40,6 +40,7 @@
 #include <sys/portif.h>
 #include <sys/fct.h>
 #include <sys/fctio.h>
+#include <sys/zfs_context.h>
 
 #include "fct_impl.h"
 #include "discovery.h"
@@ -180,8 +181,10 @@ fct_port_worker(void *arg)
 			}
 			atomic_or_32(&iport->iport_flags,
 			    IPORT_WORKER_DOING_TIMEDWAIT);
+#ifdef SOLARIS
 			(void) cv_reltimedwait(&iport->iport_worker_cv,
 			    &iport->iport_worker_lock, dl, TR_CLOCK_TICK);
+#endif
 			atomic_and_32(&iport->iport_flags,
 			    ~IPORT_WORKER_DOING_TIMEDWAIT);
 		} else {
@@ -192,9 +195,11 @@ fct_port_worker(void *arg)
 			if (tmp_delay < 0) {
 				tmp_delay = (int64_t)short_delay;
 			}
+#ifdef SOLARIS
 			(void) cv_reltimedwait(&iport->iport_worker_cv,
 			    &iport->iport_worker_lock, (clock_t)tmp_delay,
 			    TR_CLOCK_TICK);
+#endif
 			atomic_and_32(&iport->iport_flags,
 			    ~IPORT_WORKER_DOING_WAIT);
 		}
@@ -270,9 +275,9 @@ fct_handle_local_port_event(fct_i_local_port_t *iport)
 	rw_enter(&iport->iport_lock, RW_WRITER);
 
 	if (in->event_type == FCT_EVENT_LINK_UP) {
-		DTRACE_FC_1(link__up, fct_i_local_port_t, iport);
+		//DTRACE_FC_1(link__up, fct_i_local_port_t, iport);
 	} else if (in->event_type == FCT_EVENT_LINK_DOWN) {
-		DTRACE_FC_1(link__down, fct_i_local_port_t, iport);
+		//DTRACE_FC_1(link__down, fct_i_local_port_t, iport);
 	}
 
 	/* Calculate new state */
@@ -416,7 +421,7 @@ fct_do_flogi(fct_i_local_port_t *iport)
 	int force_link_down = 0;
 	int do_retry = 0;
 
-	DTRACE_FC_1(fabric__login__start, fct_i_local_port_t, iport);
+	/*DTRACE_FC_1(fabric__login__start, fct_i_local_port_t, iport);*/
 
 	bzero(&fx, sizeof (fx));
 	fx.fx_op = ELS_OP_FLOGI;
@@ -493,8 +498,9 @@ fct_do_flogi(fct_i_local_port_t *iport)
 	iport->iport_link_info.port_fct_flogi_done = 1;
 
 done:
-	DTRACE_FC_1(fabric__login__end,
-	    fct_i_local_port_t, iport);
+	;
+	/*DTRACE_FC_1(fabric__login__end,
+	    fct_i_local_port_t, iport);*/
 }
 
 /*
@@ -986,7 +992,7 @@ start_els_posting:;
 		 */
 		atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
 	}
-	atomic_add_16(&irp->irp_nonfcp_xchg_count, 1);
+	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);
 
 	/*
 	 * Grab the remote port lock while we modify the port state.
@@ -1003,11 +1009,11 @@ start_els_posting:;
 			if (irp->irp_flags & IRP_PLOGI_DONE)
 				atomic_add_32(&iport->iport_nrps_login, -1);
 		}
-		atomic_add_16(&irp->irp_sa_elses_count, 1);
+		atomic_add_16_nv(&irp->irp_sa_elses_count, 1);
 		atomic_and_32(&irp->irp_flags, ~rf);
 		atomic_or_32(&icmd->icmd_flags, ICMD_SESSION_AFFECTING);
 	} else {
-		atomic_add_16(&irp->irp_nsa_elses_count, 1);
+		atomic_add_16_nv(&irp->irp_nsa_elses_count, 1);
 	}
 
 	fct_post_to_discovery_queue(iport, irp, icmd);
@@ -1396,11 +1402,6 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
 
-	DTRACE_FC_4(rport__login__start,
-	    fct_cmd_t, cmd,
-	    fct_local_port_t, port,
-	    fct_i_remote_port_t, irp,
-	    int, (cmd_type != FCT_CMD_RCVD_ELS));
 
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
@@ -1515,7 +1516,7 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 			}
 		}
 	}
-	atomic_add_16(&irp->irp_sa_elses_count, -1);
+	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 
 	if (ret == FCT_SUCCESS) {
 		if (cmd_type == FCT_CMD_RCVD_ELS) {
@@ -1525,12 +1526,6 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 				irp->irp_deregister_timer = 0;
 		}
 		if (icmd_flags & ICMD_IMPLICIT) {
-			DTRACE_FC_5(rport__login__end,
-			    fct_cmd_t, cmd,
-			    fct_local_port_t, port,
-			    fct_i_remote_port_t, irp,
-			    int, (cmd_type != FCT_CMD_RCVD_ELS),
-			    int, FCT_SUCCESS);
 
 			p = els->els_resp_payload;
 			p[0] = ELS_OP_ACC;
@@ -1538,12 +1533,6 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 			fct_send_cmd_done(cmd, FCT_SUCCESS, FCT_IOF_FCA_DONE);
 		}
 	} else {
-		DTRACE_FC_5(rport__login__end,
-		    fct_cmd_t, cmd,
-		    fct_local_port_t, port,
-		    fct_i_remote_port_t, irp,
-		    int, (cmd_type != FCT_CMD_RCVD_ELS),
-		    int, ret);
 
 		fct_queue_cmd_for_termination(cmd, ret);
 	}
@@ -1601,7 +1590,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 			    els->els_req_size, els->els_req_payload[6]);
 
 		fct_dequeue_els(irp);
-		atomic_add_16(&irp->irp_sa_elses_count, -1);
+		atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 		ret = fct_send_accrjt(cmd, ELS_OP_LSRJT, 3, 0x2c);
 		goto prli_end;
 	}
@@ -1678,7 +1667,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 	}
 
 	fct_dequeue_els(irp);
-	atomic_add_16(&irp->irp_sa_elses_count, -1);
+	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 	if (ses == NULL) {
 		/* fail PRLI */
 		ret = fct_send_accrjt(cmd, ELS_OP_LSRJT, 3, 0);
@@ -1729,11 +1718,6 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	char			 info[FCT_INFO_LEN];
 	clock_t			 end_time;
 
-	DTRACE_FC_4(rport__logout__start,
-	    fct_cmd_t, cmd,
-	    fct_local_port_t, port,
-	    fct_i_remote_port_t, irp,
-	    int, (cmd->cmd_type != FCT_CMD_RCVD_ELS));
 
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
@@ -1784,7 +1768,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	}
 
 	fct_dequeue_els(irp);
-	atomic_add_16(&irp->irp_sa_elses_count, -1);
+	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 
 	/* don't send response if this is an implicit logout cmd */
 	if (!(icmd->icmd_flags & ICMD_IMPLICIT)) {
@@ -1803,18 +1787,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 			fct_queue_cmd_for_termination(cmd, ret);
 		}
 
-		DTRACE_FC_4(rport__logout__end,
-		    fct_cmd_t, cmd,
-		    fct_local_port_t, port,
-		    fct_i_remote_port_t, irp,
-		    int, (cmd->cmd_type != FCT_CMD_RCVD_ELS));
-
 	} else {
-		DTRACE_FC_4(rport__logout__end,
-		    fct_cmd_t, cmd,
-		    fct_local_port_t, port,
-		    fct_i_remote_port_t, irp,
-		    int, (cmd->cmd_type != FCT_CMD_RCVD_ELS));
 
 		fct_cmd_free(cmd);
 	}
@@ -1896,7 +1869,7 @@ fct_process_prlo(fct_i_cmd_t *icmd)
 	}
 
 	fct_dequeue_els(irp);
-	atomic_add_16(&irp->irp_sa_elses_count, -1);
+	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 	ret = fct_send_accrjt(cmd, ELS_OP_ACC, 0, 0);
 	if (ret != FCT_SUCCESS)
 		fct_queue_cmd_for_termination(cmd, ret);
@@ -1921,7 +1894,7 @@ fct_process_rcvd_adisc(fct_i_cmd_t *icmd)
 	fct_status_t		ret;
 
 	fct_dequeue_els(irp);
-	atomic_add_16(&irp->irp_nsa_elses_count, -1);
+	atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
 
 	/* Validate the adisc request */
 	p = els->els_req_payload;
@@ -1959,7 +1932,7 @@ fct_process_unknown_els(fct_i_cmd_t *icmd)
 
 	ASSERT(icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
-	atomic_add_16(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
+	atomic_add_16_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	op = ICMD_TO_ELS(icmd)->els_req_payload[0];
 	stmf_trace(iport->iport_alias, "Rejecting unknown unsol els %x (%s)",
 	    op, FCT_ELS_NAME(op));
@@ -1981,7 +1954,7 @@ fct_process_rscn(fct_i_cmd_t *icmd)
 	uint32_t		 rscn_req_size;
 
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
-	atomic_add_16(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
+	atomic_add_16_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	if (icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS) {
 		op = ICMD_TO_ELS(icmd)->els_req_payload[0];
 		stmf_trace(iport->iport_alias, "Accepting RSCN %x (%s)",
@@ -2078,9 +2051,9 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 			fct_i_cmd_t *c = (*ppcmd)->icmd_next;
 
 			if ((*ppcmd)->icmd_flags & ICMD_SESSION_AFFECTING)
-				atomic_add_16(&irp->irp_sa_elses_count, -1);
+				atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 			else
-				atomic_add_16(&irp->irp_nsa_elses_count, -1);
+				atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
 			(*ppcmd)->icmd_next = cmd_to_abort;
 			cmd_to_abort = *ppcmd;
 			*ppcmd = c;
@@ -2135,7 +2108,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 		fct_local_port_t *port = iport->iport_port;
 
 		fct_dequeue_els(irp);
-		atomic_add_16(&irp->irp_nsa_elses_count, -1);
+		atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
 		atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
 		if ((s = port->port_send_cmd(cmd)) != FCT_SUCCESS) {
 			atomic_and_32(&icmd->icmd_flags, ~ICMD_KNOWN_TO_FCA);
@@ -2384,7 +2357,7 @@ fct_handle_solct(fct_cmd_t *cmd)
 	rw_exit(&irp->irp_lock);
 	rw_exit(&iport->iport_lock);
 
-	atomic_add_16(&irp->irp_nonfcp_xchg_count, 1);
+	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);
 	atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
 	icmd->icmd_start_time = ddi_get_lbolt();
 	ret = iport->iport_port->port_send_cmd(cmd);
@@ -2691,13 +2664,17 @@ fct_rls_cb(fct_i_cmd_t *icmd)
 		    "solicited RLS is not accepted - icmd/%p", icmd);
 		if (rls_cb_data) {
 			rls_cb_data->fct_els_res = FCT_FAILURE;
+#ifdef SOLARIS
 			sema_v(&iport->iport_rls_sema);
+#endif
 		}
 		return;
 	}
 
 	if (!rls_cb_data) {
+#ifdef SOLARIS
 		sema_v(&iport->iport_rls_sema);
+#endif
 		return;
 	}
 
@@ -2717,7 +2694,9 @@ fct_rls_cb(fct_i_cmd_t *icmd)
 	rls_resp->InvalidCRCCount = BE_32(*((uint32_t *)(resp + 24)));
 
 	rls_cb_data->fct_els_res = FCT_SUCCESS;
+#ifdef SOLARIS
 	sema_v(&iport->iport_rls_sema);
+#endif
 	icmd->icmd_cb_private = NULL;
 }
 
@@ -2808,9 +2787,9 @@ fct_rscn_verify(fct_i_local_port_t *iport, uint8_t *rscn_req_payload,
 		page_format = 0x03 & page_buf[0];
 		page_portid = fct_netbuf_to_value(page_buf + 1, 3);
 
-		DTRACE_FC_2(rscn__receive,
+		/*DTRACE_FC_2(rscn__receive,
 		    fct_i_local_port_t, iport,
-		    int, page_portid);
+		    int, page_portid);*/
 
 		rw_enter(&iport->iport_lock, RW_READER);
 		if (!page_format) {

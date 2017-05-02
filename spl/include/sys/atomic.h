@@ -80,6 +80,20 @@ atomic_add_16_nv(volatile uint16_t *target, uint16_t delta)
 }
 
 static __inline__ void
+atomic_inc_16(volatile uint16_t *target)
+{
+	spin_lock(&atomic32_lock);
+	(*target)++;
+	spin_unlock(&atomic32_lock);
+}
+static __inline__ void
+atomic_inc_16(volatile uint16_t *target)
+{
+	spin_lock(&atomic32_lock);
+	(*target)++;
+	spin_unlock(&atomic32_lock);
+}
+static __inline__ void
 atomic_inc_32(volatile uint32_t *target)
 {
 	spin_lock(&atomic32_lock);
@@ -357,7 +371,9 @@ atomic_and_64(volatile uint64_t *target,  uint64_t mask)
 
 #define	atomic_cas_8(v, x, y)	atomic_cmpxchg((atomic_t *)(v), x, y)
 #define	atomic_add_16_nv(v, i)	atomic_add_return((i), (atomic_t *)(v))
+#define atomic_inc_16(v)	atomic_inc((atomic_t *)(v))
 #define atomic_inc_32(v)	atomic_inc((atomic_t *)(v))
+#define atomic_dec_16(v)	atomic_dec((atomic_t *)(v))
 #define atomic_dec_32(v)	atomic_dec((atomic_t *)(v))
 #define atomic_add_32(v, i)	atomic_add((i), (atomic_t *)(v))
 #define atomic_sub_32(v, i)	atomic_sub((i), (atomic_t *)(v))
