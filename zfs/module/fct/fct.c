@@ -48,7 +48,7 @@
 #include <sys/modhash_impl.h>
 #include "fct_impl.h"
 #include "discovery.h"
-#include <sys/zfs_context.h>
+//#include <sys/zfs_context.h>
 #ifdef SOLARIS
 static int fct_attach(dev_info_t *dip, ddi_attach_cmd_t cmd);
 static int fct_detach(dev_info_t *dip, ddi_detach_cmd_t cmd);
@@ -211,7 +211,7 @@ fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	return (ret);
 }
-
+/*
 int
 ddi_copyin(const void *buf, void *kernbuf, size_t size, int flags)
 {
@@ -221,7 +221,7 @@ int
 ddi_copyout(const void *buf, void *kernbuf, size_t size, int flags)
 {
 	return (copy_to_user(kernbuf, buf, size));
-}
+}*/
 int
 fct_copyin_iocdata(intptr_t data, int mode, fctio_t **fctio,
     void **ibuf, void **abuf, void **obuf)
@@ -361,10 +361,10 @@ fct_get_adapter_attr(uint8_t *pwwn, fc_tgt_hba_adapter_attributes_t *hba_attr,
 		    hba_attr->NodeSymbolicName,
 		    strlen(iport->iport_port->port_sym_node_name));
 	else {
-#ifdef SOLARIS
-		bcopy(utsname.nodename, hba_attr->NodeSymbolicName,
-		    strlen(utsname.nodename));
-#endif
+		//bcopy(utsname.nodename, hba_attr->NodeSymbolicName,
+		//	strlen(utsname.nodename));
+		bcopy("tmp nodename", hba_attr->NodeSymbolicName,
+		    strlen("tmp nodename"));
 	}
 	bcopy(attr->hardware_version, hba_attr->HardwareVersion,
 	    sizeof (hba_attr->HardwareVersion));
@@ -2515,7 +2515,7 @@ fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
 	fct_i_local_port_t	*iport	 = NULL;
 	char			*nname	 = NULL;
 	int			 namelen = 0;
-
+	static char tmp_name[]="fct temp name";
 	/*
 	 * Allocate space
 	 */
@@ -2663,13 +2663,11 @@ fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
 		break;
 
 	case NS_RSNN_NN:
-#ifdef SOLARIS
 		namelen = port->port_sym_node_name == NULL ?
-		    strlen(utsname.nodename) :
+		    /*strlen(utsname.nodename) :*/ strlen(tmp_name) :
 		    strlen(port->port_sym_node_name);
 		nname = port->port_sym_node_name == NULL ?
-		    utsname.nodename : port->port_sym_node_name;
-#endif
+		    /*utsname.nodename*/tmp_name : port->port_sym_node_name;
 		ct->ct_resp_alloc_size = ct->ct_resp_size = 16;
 		ct->ct_resp_payload = (uint8_t *)kmem_zalloc(ct->ct_resp_size,
 		    KM_SLEEP);
