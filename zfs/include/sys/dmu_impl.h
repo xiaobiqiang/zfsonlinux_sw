@@ -237,6 +237,18 @@ extern "C" {
 struct objset;
 struct dmu_pool;
 
+typedef struct dmu_ctrl_data {
+    uint64_t blk_id;
+    uint64_t offset;
+    uint64_t len;
+    blkptr_t new_blk_addr;
+}dmu_ctrl_data_t;
+
+typedef struct dmu_ctrl_data_group {
+    uint64_t num;
+    dmu_ctrl_data_t *ctrl_datap;
+}dmu_ctrl_data_group_t;
+
 typedef struct dmu_xuio {
 	int next;
 	int cnt;

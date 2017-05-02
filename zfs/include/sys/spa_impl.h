@@ -48,6 +48,7 @@ extern "C" {
 #endif
 
 #define SPA_NUM_OF_QUANTUM  2
+#define	ETC_VAR_SYS_POOL_NAME	"syspool"
 
 typedef struct spa_error_entry {
 	zbookmark_phys_t	se_bookmark;
@@ -265,6 +266,10 @@ struct spa {
 	 */
 	spa_config_lock_t spa_config_lock[SCL_LOCKS]; /* config changes */
 	refcount_t	spa_refcount;		/* number of opens */
+
+    kmutex_t	spa_do_zvol_lock;
+    kcondvar_t	spa_do_zvol_cv;
+    uint32_t	spa_zvol_minor_creating_cnt;
 };
 
 extern char *spa_config_path;

@@ -702,28 +702,33 @@ int dmu_free_long_object(objset_t *os, uint64_t object);
  */
 #define	DMU_READ_PREFETCH	0 /* prefetch */
 #define	DMU_READ_NO_PREFETCH	1 /* don't prefetch */
+#define	DMU_NO_READ		2
 int dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	void *buf, uint32_t flags);
 void dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
-	const void *buf, dmu_tx_t *tx);
+    const void *buf, dmu_tx_t *tx, boolean_t b_mirror);
 void dmu_prealloc(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	dmu_tx_t *tx);
+
+#define WRITE_FLAG_APP_META     0x00000001
+#define WRITE_FLAG_APP_SYNC     0x00000002
+
 #ifdef _KERNEL
 #include <linux/blkdev_compat.h>
 int dmu_read_bio(objset_t *os, uint64_t object, struct bio *bio);
 int dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio,
-	dmu_tx_t *tx);
+    dmu_tx_t *tx, uint64_t write_flag);
 int dmu_read_uio(objset_t *os, uint64_t object, struct uio *uio, uint64_t size);
 int dmu_read_uio_dbuf(dmu_buf_t *zdb, struct uio *uio, uint64_t size);
 int dmu_write_uio(objset_t *os, uint64_t object, struct uio *uio, uint64_t size,
-	dmu_tx_t *tx);
+    dmu_tx_t *tx, uint64_t write_flag);
 int dmu_write_uio_dbuf(dmu_buf_t *zdb, struct uio *uio, uint64_t size,
-	dmu_tx_t *tx);
+    dmu_tx_t *tx, boolean_t b_sync);
 #endif
 struct arc_buf *dmu_request_arcbuf(dmu_buf_t *handle, int size);
 void dmu_return_arcbuf(struct arc_buf *buf);
 void dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, struct arc_buf *buf,
-    dmu_tx_t *tx);
+    dmu_tx_t *tx, boolean_t b_sync);
 int dmu_xuio_init(struct xuio *uio, int niov);
 void dmu_xuio_fini(struct xuio *uio);
 int dmu_xuio_add(struct xuio *uio, struct arc_buf *abuf, offset_t off,
@@ -920,6 +925,16 @@ void dmu_traverse_objset(objset_t *os, uint64_t txg_start,
 
 int dmu_diff(const char *tosnap_name, const char *fromsnap_name,
     struct vnode *vp, offset_t *offp);
+
+#ifdef _KERNEL
+boolean_t dmu_data_newer(objset_t *os, uint64_t data_object,
+    uint64_t data_blkid, uint64_t data_txg);
+void dmu_direct_write(dmu_buf_t *handle, dmu_tx_t *tx);
+boolean_t dmu_write_optimize(dmu_buf_t *db);
+void dmu_buf_reread(dmu_buf_t *db);
+int dmu_write_mirror_fs(objset_t *os, uint64_t object, uint64_t offset,
+    uint64_t size, const void *data, dmu_tx_t *tx, boolean_t b_sync);
+#endif
 
 /* CRC64 table */
 #define	ZFS_CRC64_POLY	0xC96C5795D7870F42ULL	/* ECMA-182, reflected form */

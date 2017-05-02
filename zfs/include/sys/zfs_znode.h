@@ -46,6 +46,8 @@
 extern "C" {
 #endif
 
+struct dbuf_segs_data;
+
 /*
  * Additional file level attributes, that are stored
  * in the upper half of zp_flags
@@ -330,32 +332,37 @@ extern void	zfs_inode_destroy(struct inode *);
 extern void	zfs_inode_update(znode_t *);
 extern void	zfs_mark_inode_dirty(struct inode *);
 
-extern void zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
+extern int zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name, vsecattr_t *, zfs_fuid_info_t *,
     vattr_t *vap);
 extern int zfs_log_create_txtype(zil_create_t, vsecattr_t *vsecp,
     vattr_t *vap);
-extern void zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
+extern int zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, char *name, uint64_t foid);
 #define	ZFS_NO_OBJECT	0	/* no object id */
-extern void zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
+extern int zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name);
-extern void zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
+extern int zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name, char *link);
-extern void zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
+extern int zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *sdzp, char *sname, znode_t *tdzp, char *dname, znode_t *szp);
 extern void zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, offset_t off, ssize_t len, int ioflag,
     zil_callback_t callback, void *callback_data);
-extern void zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern int zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, uint64_t off, uint64_t len);
-extern void zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern int zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, vattr_t *vap, uint_t mask_applied, zfs_fuid_info_t *fuidp);
-extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
+extern int zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
     vsecattr_t *vsecp, zfs_fuid_info_t *fuidp);
 extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap, dmu_tx_t *tx);
 extern void zfs_upgrade(zfs_sb_t *zsb, dmu_tx_t *tx);
 extern int zfs_create_share_dir(zfs_sb_t *zsb, dmu_tx_t *tx);
+extern int zfs_obj_rewrite(objset_t *os, uint64_t object, uint64_t offset,
+    uint64_t len, struct dbuf_segs_data *seg_node);
+struct rl *zfs_seg_data_lock(objset_t *os, uint64_t object,
+    uint64_t offset, uint64_t len,  uint8_t  type);
+void zfs_seg_data_unlock(struct rl *rl);
 
 #if defined(HAVE_UIO_RW)
 extern caddr_t zfs_map_page(page_t *, enum seg_rw);

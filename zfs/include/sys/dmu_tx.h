@@ -76,6 +76,8 @@ struct dmu_tx {
 	/* need to wait for sufficient dirty space */
 	boolean_t tx_wait_dirty;
 
+    boolean_t tx_bdirect;
+
 	int tx_err;
 #ifdef DEBUG_DMU_TX
 	uint64_t tx_space_towrite;
