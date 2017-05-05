@@ -144,6 +144,10 @@ struct scsi_transport_id;
 struct stmf_data_buf;
 struct stmf_lun_map;
 struct scsi_devid_desc;
+struct stmf_alua_state_desc;
+struct stmf_lu_state_desc;
+struct stmf_local_port;
+
 
 #ifdef	__cplusplus
 }

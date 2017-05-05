@@ -25,6 +25,7 @@
 #define	_SYS_PPPT_IC_IF_H
 
 #include <sys/stmf_defines.h>
+#include <sys/nvpair.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -533,20 +534,33 @@ typedef stmf_ic_msg_t *
     uint32_t need_synced,
 	stmf_ic_msgid_t msgid);
 
-static stmf_ic_msg_t *
+stmf_ic_msg_t *
 stmf_ic_notify_avs_master_state_msg_alloc(
 	uint8_t *lun_id,
     char *lu_provider_name,
     uint32_t master_state,
 	stmf_ic_msgid_t msgid);
 
-static stmf_ic_msg_t *
+stmf_ic_msg_t *
 stmf_ic_set_remote_sync_flag_msg_alloc(
 	uint8_t *lun_id,
     char *lu_provider_name,
     uint32_t need_synced,
 	stmf_ic_msgid_t msgid);
 
+#if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN) 
+typedef stmf_ic_msg_status_t (*stmf_ic_asyn_tx_msg_func_t)(stmf_ic_msg_t *msg,
+	uint32_t type, void *private, void(*compl_cb)(void *, uint32_t, int),
+	void (*clean_cb)(void *), int (*comp)(void *, void *));
+typedef void (*stmf_ic_asyn_tx_clean_func_t)(uint32_t type, void *private);
+typedef stmf_ic_msg_status_t (*stmf_ic_sync_tx_msg_func_t)(stmf_ic_msg_t *msg);
+typedef void (*stmf_ic_sync_tx_msg_ret_func_t)(void *sess, uint64_t msg_id, uint64_t ret);
+typedef int (*stmf_ic_csh_hold_func_t)(void *csh, void *tag);
+typedef void (*stmf_ic_csh_rele_func_t)(void *csh, void *tag);
+typedef void *(*stmf_ic_kmem_alloc_func_t)(size_t size, int kmflag);
+typedef void *(*stmf_ic_kmem_zalloc_func_t)(size_t size, int kmflag);
+typedef void (*stmf_ic_kmem_free_func_t)(void *ptr, size_t size);
+#endif
 
 /*
  * Free a msg.
@@ -572,6 +586,37 @@ void stmf_ic_rx_msg(char *buf, size_t len, void *sess_private);
 stmf_status_t stmf_msg_rx(stmf_ic_msg_t *msg);
 
 int stmf_alua_state_enable(void);
+
+typedef struct pppt_callback
+{
+	stmf_ic_reg_port_msg_alloc_func_t	ic_reg_port_msg_alloc;
+	stmf_ic_dereg_port_msg_alloc_func_t	ic_dereg_port_msg_alloc;
+	stmf_ic_reg_lun_msg_alloc_func_t	ic_reg_lun_msg_alloc;
+	stmf_ic_lun_active_msg_alloc_func_t	ic_lun_active_msg_alloc;
+	stmf_ic_lun_active_msg_alloc_func_t	ic_lun_deactive_msg_alloc;
+	stmf_ic_dereg_lun_msg_alloc_func_t	ic_dereg_lun_msg_alloc;
+	stmf_ic_scsi_cmd_msg_alloc_func_t	ic_scsi_cmd_msg_alloc;
+	stmf_ic_scsi_data_xfer_done_msg_alloc_func_t	ic_scsi_data_xfer_done_msg_alloc;
+	stmf_ic_scsi_data_req_msg_alloc_func_t	ic_scsi_data_req_msg_alloc;
+	stmf_ic_scsi_data_res_msg_alloc_func_t	ic_scsi_data_res_msg_alloc;
+	stmf_ic_session_create_msg_alloc_func_t	ic_session_reg_msg_alloc;
+	stmf_ic_session_destroy_msg_alloc_func_t	ic_session_dereg_msg_alloc;
+	stmf_ic_tx_msg_func_t	ic_tx_msg;
+	stmf_ic_msg_free_func_t	ic_msg_free;
+	stmf_ic_notify_avs_master_state_msg_alloc_func_t	ic_notify_avs_master_state_alloc;
+	stmf_ic_set_remote_sync_flag_msg_alloc_func_t	ic_set_remote_sync_flag_alloc;
+#if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
+	stmf_ic_asyn_tx_msg_func_t	ic_asyn_tx_msg;
+	stmf_ic_asyn_tx_clean_func_t	ic_asyn_tx_clean;
+	stmf_ic_sync_tx_msg_func_t	ic_sync_tx_msg;
+	stmf_ic_sync_tx_msg_ret_func_t	ic_sync_tx_msg_ret;
+	stmf_ic_csh_hold_func_t	ic_csh_hold;
+	stmf_ic_csh_rele_func_t	ic_csh_rele;
+	stmf_ic_kmem_alloc_func_t	ic_kmem_alloc;
+	stmf_ic_kmem_zalloc_func_t	ic_kmem_zalloc;
+	stmf_ic_kmem_free_func_t	ic_kmem_free;
+#endif
+} pppt_callback_t;
 
 #ifdef	__cplusplus
 }

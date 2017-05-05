@@ -293,6 +293,91 @@ void sbd_onlineport_task_init(void)
 		sbd_onelineport_task, NULL, TQ_SLEEP);
 }
 
+/*
+static int
+sbd_rdc_modload(void)
+{
+	int error;
+
+	if (drvrdc_mod == NULL && ((drvrdc_mod =
+	    ddi_modopen("drv/rdc", KRTLD_MODE_FIRST, &error)) == NULL)) {
+		cmn_err(CE_WARN, "Unable to load rdc");
+		return (-1);
+	}
+
+	if (rdc_register_role_notify == NULL && ((rdc_register_role_notify =
+	    (rdc_register_role_notify_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_register_role_notify",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_register_role_notify");
+		return (-1);
+	}
+
+	if (rdc_register_mode_notify == NULL && ((rdc_register_mode_notify =
+	    (rdc_register_mode_notify_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_register_mode_notify",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_register_mode_notify");
+		return (-1);
+	}
+
+	if (rdc_register_stop_notify == NULL && ((rdc_register_stop_notify =
+	    (rdc_register_stop_notify_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_register_stop_notify",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_register_stop_notify");
+		return (-1);
+	}
+
+	if (rdc_reg_set_remote_sync_flag == NULL && ((rdc_reg_set_remote_sync_flag =
+	    (rdc_reg_set_remote_sync_flag_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_register_set_remote_sync_flag",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_register_set_remote_sync_flag");
+		return (-1);
+	}
+
+	if (rdc_reg_transition_to_standby == NULL && ((rdc_reg_transition_to_standby =
+	    (rdc_reg_transition_to_standby_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_register_set_transition_standby",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_register_set_transition_standby");
+		return (-1);
+	}
+	
+	if (rdc_request_role == NULL && ((rdc_request_role =
+	    (rdc_request_role_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_request_role",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_request_role");
+		return (-1);
+	}
+
+	if (rdc_set_sync_flag == NULL && ((rdc_set_sync_flag =
+	    (rdc_set_sync_flag_func_t)
+	    ddi_modsym(drvrdc_mod, "rdc_set_sync_flag",
+	    &error)) == NULL)) {
+		cmn_err(CE_WARN,
+		    "Unable to find symbol - rdc_set_sync_flag");
+		return (-1);
+	}
+
+	rdc_register_role_notify(sbd_rdc_role_notify_cb);
+	rdc_register_mode_notify(sbd_rdc_mode_notify_cb);
+	rdc_register_stop_notify(sbd_rdc_stop_notify_cb);
+	rdc_reg_set_remote_sync_flag(sbd_set_remote_sync_flag);
+	rdc_reg_transition_to_standby(sbd_transition_to_trans_standby_lu);
+	
+	return (0);
+}
+*/
+
 static int __init
 stmf_sbd_init(void)
 {
@@ -300,7 +385,7 @@ stmf_sbd_init(void)
 
 	ret = misc_register(&stmf_sbd_misc);
 	if (ret != 0) {
-		printk(KERN_INFO "STMF SBD: misc_register() failed %d\n", ret);
+		cmn_err(CE_WARN, "STMF SBD: misc_register() failed %d", ret);
 		return (ret);
 	}
 
@@ -324,6 +409,7 @@ stmf_sbd_init(void)
 	sbd_onlineport_task_init();
 	sbd_product_no = 1;
 	sbd_serial_no = sbd_serial_no + sbd_product_no * 1000;
+	/* sbd_rdc_modload(); */
 	return (0);
 }
 

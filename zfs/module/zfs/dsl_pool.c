@@ -97,8 +97,6 @@
  * parameter.
  */
 unsigned long zfs_dirty_data_max = 0;
-EXPORT_SYMBOL(zfs_dirty_data_max);
-
 unsigned long zfs_dirty_data_max_max = 0;
 int zfs_dirty_data_max_percent = 10;
 int zfs_dirty_data_max_max_percent = 25;
@@ -1088,6 +1086,8 @@ dsl_pool_config_held_writer(dsl_pool_t *dp)
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(dsl_pool_config_enter);
 EXPORT_SYMBOL(dsl_pool_config_exit);
+
+EXPORT_SYMBOL(zfs_dirty_data_max);
 
 /* zfs_dirty_data_max_percent only applied at module load in arc_init(). */
 module_param(zfs_dirty_data_max_percent, int, 0444);

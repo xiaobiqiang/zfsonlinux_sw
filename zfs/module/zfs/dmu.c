@@ -2080,7 +2080,6 @@ dmu_get_lock_para(dmu_buf_t *handle, uint64_t offset, uint64_t len,
 {
 	uint64_t blk_id;
 	dnode_t *dn;
-	dmu_buf_impl_t *db;
 	dmu_buf_impl_t *dbuf = (dmu_buf_impl_t *)handle;
 	DB_DNODE_ENTER(dbuf);
 	dn = DB_DNODE(dbuf);
@@ -2092,7 +2091,6 @@ dmu_get_lock_para(dmu_buf_t *handle, uint64_t offset, uint64_t len,
 	*lock_len = (blk_id << dn->dn_datablkshift) - *lock_offset;
 	DB_DNODE_EXIT(dbuf);
 }
-EXPORT_SYMBOL(dmu_get_lock_para);
 
 void
 byteswap_uint64_array(void *vbuf, size_t size)
@@ -2193,6 +2191,8 @@ EXPORT_SYMBOL(dmu_request_arcbuf);
 EXPORT_SYMBOL(dmu_return_arcbuf);
 EXPORT_SYMBOL(dmu_assign_arcbuf);
 EXPORT_SYMBOL(dmu_buf_hold);
+EXPORT_SYMBOL(dmu_get_lock_para);
+
 EXPORT_SYMBOL(dmu_ot);
 
 module_param(zfs_mdcomp_disable, int, 0644);

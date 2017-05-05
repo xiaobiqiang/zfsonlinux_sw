@@ -489,10 +489,14 @@ boolean_t stmf_scsilib_tptid_compare(struct scsi_transport_id *,
 struct stmf_remote_port *stmf_remote_port_alloc(uint16_t);
 void stmf_remote_port_free(struct stmf_remote_port *);
 void stmf_check_reboot(void);
-void stmf_check_fc_offline(char	*);
-
+void stmf_check_fc_offline(char *);
 void stmf_online_localport(void);
+int stmf_set_alua_state(struct stmf_alua_state_desc *alua_state);
+int stmf_set_lu_state(struct stmf_lu_state_desc *lu_state);
+int stmf_reset_lport(struct stmf_local_port *lport);
 
+struct pppt_callback;
+void stmf_register_pppt_cb(struct pppt_callback cb);
 
 #ifdef	__cplusplus
 }

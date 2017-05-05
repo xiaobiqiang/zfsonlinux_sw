@@ -125,7 +125,7 @@ static int stmf_get_stmf_state(stmf_state_desc_t *std);
 static int stmf_set_stmf_state(stmf_state_desc_t *std);
 static void stmf_abort_task_offline(scsi_task_t *task, int offline_lu,
     char *info);
-int stmf_set_alua_state(stmf_alua_state_desc_t *alua_state);
+int stmf_set_alua_state(struct stmf_alua_state_desc *alua_state);
 static void stmf_get_alua_state(stmf_alua_state_desc_t *alua_state);
 
 static void stmf_task_audit(stmf_i_scsi_task_t *itask,
@@ -201,18 +201,6 @@ stmf_ic_notify_avs_master_state_msg_alloc_func_t ic_notify_avs_master_state_allo
 stmf_ic_set_remote_sync_flag_msg_alloc_func_t ic_set_remote_sync_flag_alloc;
 
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
-typedef stmf_ic_msg_status_t (*stmf_ic_asyn_tx_msg_func_t)(stmf_ic_msg_t *msg,
-	uint32_t type, void *private, void(*compl_cb)(void *, uint32_t, int),
-	void (*clean_cb)(void *), int (*comp)(void *, void *));
-typedef void (*stmf_ic_asyn_tx_clean_func_t)(uint32_t type, void *private);
-typedef stmf_ic_msg_status_t (*stmf_ic_sync_tx_msg_func_t)(stmf_ic_msg_t *msg);
-typedef void (*stmf_ic_sync_tx_msg_ret_func_t)(void *sess, uint64_t msg_id, int ret);
-typedef int (*stmf_ic_csh_hold_func_t)(void *csh, void *tag);
-typedef void (*stmf_ic_csh_rele_func_t)(void *csh, void *tag);
-typedef void *(*stmf_ic_kmem_alloc_func_t)(size_t size, int kmflag);
-typedef void *(*stmf_ic_kmem_zalloc_func_t)(size_t size, int kmflag);
-typedef void (*stmf_ic_kmem_free_func_t)(void *ptr, size_t size);
-
 static stmf_ic_asyn_tx_msg_func_t ic_asyn_tx_msg = NULL;
 static stmf_ic_asyn_tx_clean_func_t ic_asyn_tx_clean = NULL;
 static stmf_ic_sync_tx_msg_func_t ic_sync_tx_msg = NULL;
@@ -363,7 +351,7 @@ stmf_init(void)
 
 	ret = misc_register(&stmf_misc);
 	if (ret != 0) {
-		printk(KERN_INFO "STMF: misc_register() failed %d\n", ret);
+		cmn_err(CE_WARN, "STMF: misc_register() failed %d", ret);
 		return (ret);
 	}
 
@@ -2597,238 +2585,78 @@ stmf_proxy_scsi_data_res(scsi_task_t *task, stmf_data_buf_t *dbuf)
 	return ret;
 } 
 
-/*
-stmf_status_t
-pppt_modload()
+void
+stmf_register_pppt_cb(struct pppt_callback cb)
 {
-	int error;
-
-	if (pppt_mod == NULL && ((pppt_mod =
-	    ddi_modopen("drv/pppt", KRTLD_MODE_FIRST, &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to load pppt");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_reg_port_msg_alloc == NULL && ((ic_reg_port_msg_alloc =
-	    (stmf_ic_reg_port_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_reg_port_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_reg_port_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-
-	if (ic_dereg_port_msg_alloc == NULL && ((ic_dereg_port_msg_alloc =
-	    (stmf_ic_dereg_port_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_dereg_port_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_dereg_port_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_reg_lun_msg_alloc == NULL && ((ic_reg_lun_msg_alloc =
-	    (stmf_ic_reg_lun_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_reg_lun_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_reg_lun_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_lun_active_msg_alloc == NULL && ((ic_lun_active_msg_alloc =
-	    (stmf_ic_lun_active_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_lun_active_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_lun_active_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_lun_deactive_msg_alloc == NULL && ((ic_lun_deactive_msg_alloc =
-	    (stmf_ic_lun_active_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_lun_deactive_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_lun_deactive_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_dereg_lun_msg_alloc == NULL && ((ic_dereg_lun_msg_alloc =
-	    (stmf_ic_dereg_lun_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_dereg_lun_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_dereg_lun_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_scsi_cmd_msg_alloc == NULL && ((ic_scsi_cmd_msg_alloc =
-	    (stmf_ic_scsi_cmd_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_scsi_cmd_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - stmf_ic_scsi_cmd_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_scsi_data_xfer_done_msg_alloc == NULL &&
-	    ((ic_scsi_data_xfer_done_msg_alloc =
-	    (stmf_ic_scsi_data_xfer_done_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_scsi_data_xfer_done_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol -"
-		    "stmf_ic_scsi_data_xfer_done_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_scsi_data_req_msg_alloc == NULL &&
-	    ((ic_scsi_data_req_msg_alloc = 
-	     (stmf_ic_scsi_data_req_msg_alloc_func_t)
-	     ddi_modsym(pppt_mod, "stmf_ic_scsi_data_req_msg_alloc", &error))
-	     == NULL)) {
-	    	cmn_err(CE_WARN,
-		    "Unable to find symbol -"
-		    "stmf_ic_scsi_data_req_msg_alloc");
-		return (STMF_FAILURE);
-	}
+	ic_reg_port_msg_alloc = cb.ic_reg_port_msg_alloc;
+	ic_dereg_port_msg_alloc = cb.ic_dereg_port_msg_alloc;
+	ic_reg_lun_msg_alloc = cb.ic_reg_lun_msg_alloc;
+	ic_lun_active_msg_alloc = cb.ic_lun_active_msg_alloc;
+	ic_lun_deactive_msg_alloc = cb.ic_lun_deactive_msg_alloc;
+	ic_dereg_lun_msg_alloc = cb.ic_dereg_lun_msg_alloc;
+	ic_scsi_cmd_msg_alloc = cb.ic_scsi_cmd_msg_alloc;
+	ic_scsi_data_xfer_done_msg_alloc = cb.ic_scsi_data_xfer_done_msg_alloc;
+	ic_scsi_data_req_msg_alloc = cb.ic_scsi_data_req_msg_alloc;
+	ic_scsi_data_res_msg_alloc = cb.ic_scsi_data_res_msg_alloc;
+	ic_session_reg_msg_alloc = cb.ic_session_reg_msg_alloc;
+	ic_session_dereg_msg_alloc = cb.ic_session_dereg_msg_alloc;
+	ic_tx_msg = cb.ic_tx_msg;
+	ic_msg_free = cb.ic_msg_free;
+	ic_notify_avs_master_state_alloc = cb.ic_notify_avs_master_state_alloc;
+	ic_set_remote_sync_flag_alloc = cb.ic_set_remote_sync_flag_alloc;
 	
-	if (ic_scsi_data_res_msg_alloc == NULL &&
-	    ((ic_scsi_data_res_msg_alloc = 
-	     (stmf_ic_scsi_data_res_msg_alloc_func_t)
-	     ddi_modsym(pppt_mod, "stmf_ic_scsi_data_res_msg_alloc", &error))
-	     == NULL)) {
-	    	cmn_err(CE_WARN,
-		    "Unable to find symbol -"
-		    "stmf_ic_scsi_data_res_msg_alloc");
-		return (STMF_FAILURE);
-	}
+#if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
+	ic_asyn_tx_msg = cb.ic_asyn_tx_msg;
+	ic_asyn_tx_clean = cb.ic_asyn_tx_clean;
+	ic_sync_tx_msg = cb.ic_sync_tx_msg;
+	ic_sync_tx_msg_ret = cb.ic_sync_tx_msg_ret;
+	ic_csh_hold = cb.ic_csh_hold;
+	ic_csh_rele = cb.ic_csh_rele;
+	ic_kmem_alloc = cb.ic_kmem_alloc;
+	ic_kmem_zalloc = cb.ic_kmem_zalloc;
+	ic_kmem_free = cb.ic_kmem_free;
+#endif
+}
 
-	if (ic_session_reg_msg_alloc == NULL &&
-	    ((ic_session_reg_msg_alloc =
-	    (stmf_ic_session_create_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_session_create_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol -"
-		    "stmf_ic_session_create_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_session_dereg_msg_alloc == NULL &&
-	    ((ic_session_dereg_msg_alloc =
-	    (stmf_ic_session_destroy_msg_alloc_func_t)
-	    ddi_modsym(pppt_mod, "stmf_ic_session_destroy_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol -"
-		    "stmf_ic_session_destroy_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_tx_msg == NULL && ((ic_tx_msg =
-	    (stmf_ic_tx_msg_func_t)ddi_modsym(pppt_mod, "stmf_ic_tx_msg",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_tx_msg");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_msg_free == NULL && ((ic_msg_free =
-	    (stmf_ic_msg_free_func_t)ddi_modsym(pppt_mod, "stmf_ic_msg_free",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_msg_free");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_notify_avs_master_state_alloc == NULL &&
-		((ic_notify_avs_master_state_alloc =
-	    (stmf_ic_notify_avs_master_state_msg_alloc_func_t)ddi_modsym(
-	    pppt_mod, "stmf_ic_notify_avs_master_state_msg_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - "
-			"stmf_ic_notify_avs_master_state_msg_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_set_remote_sync_flag_alloc == NULL &&
-		((ic_set_remote_sync_flag_alloc =
-		(stmf_ic_set_remote_sync_flag_msg_alloc_func_t)ddi_modsym(
-		pppt_mod, "stmf_ic_set_remote_sync_flag_msg_alloc",
-		&error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - "
-			"stmf_ic_set_remote_sync_flag_msg_alloc");
-		return (STMF_FAILURE);
-	}
+stmf_status_t
+stmf_pppt_cb_registerd()
+{
+	stmf_status_t ret = STMF_SUCCESS;
+	
+	if (!(ic_reg_port_msg_alloc &&
+		ic_dereg_port_msg_alloc &&
+		ic_reg_lun_msg_alloc &&
+		ic_lun_active_msg_alloc &&
+		ic_lun_deactive_msg_alloc &&
+		ic_dereg_lun_msg_alloc &&
+		ic_scsi_cmd_msg_alloc &&
+		ic_scsi_data_xfer_done_msg_alloc &&
+		ic_scsi_data_req_msg_alloc &&
+		ic_scsi_data_res_msg_alloc &&
+		ic_session_reg_msg_alloc &&
+		ic_session_dereg_msg_alloc &&
+		ic_tx_msg &&
+		ic_msg_free &&
+		ic_notify_avs_master_state_alloc &&
+		ic_set_remote_sync_flag_alloc))
+		ret = STMF_FAILURE;
 
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
-	if (ic_asyn_tx_msg == NULL && ((ic_asyn_tx_msg =
-	    (stmf_ic_asyn_tx_msg_func_t)ddi_modsym(pppt_mod, "stmf_ic_asyn_tx_msg",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_asyn_tx_msg");
-		return (STMF_FAILURE);
-	}
 
-	if (ic_asyn_tx_clean == NULL && ((ic_asyn_tx_clean =
-	    (stmf_ic_asyn_tx_clean_func_t)ddi_modsym(pppt_mod, "stmf_ic_asyn_tx_clean",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_asyn_tx_clean");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_sync_tx_msg == NULL && ((ic_sync_tx_msg =
-	    (stmf_ic_sync_tx_msg_func_t)ddi_modsym(pppt_mod, "stmf_ic_sync_tx_msg",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_sync_tx_msg");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_sync_tx_msg_ret == NULL && ((ic_sync_tx_msg_ret =
-	    (stmf_ic_sync_tx_msg_ret_func_t)ddi_modsym(pppt_mod, "stmf_ic_sync_tx_msg_ret",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_sync_tx_msg_ret");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_csh_hold == NULL && ((ic_csh_hold =
-	    (stmf_ic_csh_hold_func_t)ddi_modsym(pppt_mod, "stmf_ic_csh_hold",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_csh_hold");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_csh_rele == NULL && ((ic_csh_rele =
-	    (stmf_ic_csh_rele_func_t)ddi_modsym(pppt_mod, "stmf_ic_csh_rele",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_csh_rele");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_kmem_alloc == NULL && ((ic_kmem_alloc =
-	    (stmf_ic_kmem_alloc_func_t)ddi_modsym(pppt_mod, "stmf_ic_kmem_alloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_kmem_alloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_kmem_zalloc == NULL && ((ic_kmem_zalloc =
-	    (stmf_ic_kmem_zalloc_func_t)ddi_modsym(pppt_mod, "stmf_ic_kmem_zalloc",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_kmem_zalloc");
-		return (STMF_FAILURE);
-	}
-
-	if (ic_kmem_free == NULL && ((ic_kmem_free =
-	    (stmf_ic_kmem_free_func_t)ddi_modsym(pppt_mod, "stmf_ic_kmem_free",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to find symbol - stmf_ic_kmem_free");
-		return (STMF_FAILURE);
-	}
+	if (!(ic_asyn_tx_msg &&
+		ic_asyn_tx_clean &&
+		ic_sync_tx_msg &&
+		ic_sync_tx_msg_ret &&
+		ic_csh_hold &&
+		ic_csh_rele &&
+		ic_kmem_alloc &&
+		ic_kmem_zalloc &&
+		ic_kmem_free))
+		ret = STMF_FAILURE;
 #endif
-	return (STMF_SUCCESS);
+
+	return (ret);
 }
-*/
 
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
 static void stmf_asyn_lu_reg_compl(void *private, uint32_t hostid, int ret)
@@ -2907,9 +2735,8 @@ stmf_get_alua_state(stmf_alua_state_desc_t *alua_state)
 	mutex_exit(&stmf_state.stmf_lock);
 }
 
-
 int
-stmf_set_alua_state(stmf_alua_state_desc_t *alua_state)
+stmf_set_alua_state(struct stmf_alua_state_desc *alua_state)
 {
 	stmf_i_local_port_t *ilport;
 	stmf_i_lu_t *ilu;
@@ -2928,12 +2755,11 @@ stmf_set_alua_state(stmf_alua_state_desc_t *alua_state)
 	/* we should check if port state is offlining, then we should wait until the state is not, else go on */
 	mutex_enter(&stmf_state.stmf_lock);
 	if (alua_state->alua_state == 1) {
-		/*
-		if (pppt_modload() == STMF_FAILURE) {
+		if (stmf_pppt_cb_registerd() == STMF_FAILURE) {
+			cmn_err(CE_WARN, "%s pppt cb not registerd", __func__);
 			ret = EIO;
 			goto err;
 		}
-		*/
 	}
 	for (ilport = stmf_state.stmf_ilportlist; ilport != NULL;
 		    ilport = ilport->ilport_next) {
@@ -2963,16 +2789,8 @@ stmf_set_alua_state(stmf_alua_state_desc_t *alua_state)
 					break;
 			}
 	}
-	mutex_exit(&stmf_state.stmf_lock);	
 
-	mutex_enter(&stmf_state.stmf_lock);
 	if (alua_state->alua_state == 1) {
-		/*
-		if (pppt_modload() == STMF_FAILURE) {
-			ret = EIO;
-			goto err;
-		}
-		*/
 #if 0
 		if (alua_state->alua_node != 0) {
 			/* reset existing rtpids to new base */
@@ -3101,13 +2919,13 @@ stmf_set_alua_state(stmf_alua_state_desc_t *alua_state)
 		cmn_err(CE_NOTE, "%s set alua state 0", __func__);
 	}
 
-/* err: */
+err:
 	mutex_exit(&stmf_state.stmf_lock);
 	return (ret);
 }
 
 int
-stmf_set_lu_state(stmf_lu_state_desc_t *lu_state)
+stmf_set_lu_state(struct stmf_lu_state_desc *lu_state)
 {
 	stmf_i_lu_t *ilu;
 	stmf_lu_t *lu;
@@ -3142,7 +2960,7 @@ stmf_set_lu_state(stmf_lu_state_desc_t *lu_state)
 #define RETRY_LPORT_INTERVAL	100
 
 int
-stmf_reset_lport(stmf_local_port_t *lport)
+stmf_reset_lport(struct stmf_local_port *lport)
 {
 	stmf_state_change_info_t ssci;
 	stmf_status_t ctl_ret;
@@ -11253,3 +11071,26 @@ EXPORT_SYMBOL(stmf_free);
 EXPORT_SYMBOL(stmf_register_lu_provider);
 EXPORT_SYMBOL(stmf_lu_xfer_start);
 EXPORT_SYMBOL(stmf_xfer_data);
+
+EXPORT_SYMBOL(stmf_post_task);
+EXPORT_SYMBOL(stmf_send_status_done);
+EXPORT_SYMBOL(stmf_deregister_local_port);
+EXPORT_SYMBOL(stmf_register_port_provider);
+EXPORT_SYMBOL(stmf_data_xfer_done);
+EXPORT_SYMBOL(stmf_register_local_port);
+EXPORT_SYMBOL(stmf_register_scsi_session);
+EXPORT_SYMBOL(stmf_task_alloc);
+EXPORT_SYMBOL(stmf_set_lu_state);
+EXPORT_SYMBOL(stmf_find_and_hold_task);
+EXPORT_SYMBOL(stmf_reset_lport);
+EXPORT_SYMBOL(stmf_get_lun_id);
+EXPORT_SYMBOL(stmf_find_and_abort_task);
+EXPORT_SYMBOL(stmf_find_session_tasks);
+EXPORT_SYMBOL(stmf_remote_port_alloc);
+EXPORT_SYMBOL(stmf_msg_rx);
+EXPORT_SYMBOL(stmf_alua_state_enable);
+EXPORT_SYMBOL(stmf_deregister_port_provider);
+EXPORT_SYMBOL(stmf_set_alua_state);
+EXPORT_SYMBOL(stmf_set_port_standby);
+EXPORT_SYMBOL(stmf_deregister_scsi_session);
+EXPORT_SYMBOL(stmf_register_pppt_cb);

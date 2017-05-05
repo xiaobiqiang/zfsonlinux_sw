@@ -1,0 +1,14 @@
+src = @abs_top_srcdir@/module/pppt
+obj = @abs_builddir@
+
+MODULE := zpppt
+
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+
+obj-$(CONFIG_ZFS) := $(MODULE).o
+
+$(MODULE)-objs += alua_ic_if.o
+$(MODULE)-objs += alua_ic_xdr.o
+$(MODULE)-objs += pppt.o
+$(MODULE)-objs += pppt_msg.o
+$(MODULE)-objs += pppt_tgt.o
