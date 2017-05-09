@@ -5,11 +5,7 @@
 #include <sys/sysmacros.h>
 #include <sys/cmn_err.h>
 #include <sys/crc32.h>
-//#include <sys/strsubr.h>
 
-//#include <sys/mac_client.h>
-//#include <sys/stream.h>
-//#include <sys/strsun.h>
 #include <sys/dmu.h>
 #include <sys/dmu_impl.h>
 #include <sys/dmu_tx.h>
@@ -1183,13 +1179,6 @@ zfs_mirror_write_data_msg(uint64_t spa_id, uint64_t os_id, uint64_t object_id,
     ret = cluster_san_host_send(cshi,
         data, len, header, sizeof(zfs_mirror_msg_mirrordata_header_t),
         CLUSTER_SAN_MSGTYPE_ZFS_MIRROR, 0, B_TRUE, 1);
-	
-#ifdef LC_DEBUG
-	if (ret != 0) {
-		cmn_err(CE_WARN, "[zfs_mirror_write_data_msg]: send to host(%d), datalen(%d), headlen(%d), msgtype(%d) failed", 
-			cshi->hostid, len, sizeof(zfs_mirror_msg_clean_header_t), header->msg_head.msg_type);
-	}
-#endif
     kmem_free(header, sizeof(zfs_mirror_msg_mirrordata_header_t));
     cluster_san_hostinfo_rele(cshi);
 
@@ -1755,7 +1744,7 @@ zfs_mirror_host_init(uint32_t mirror_hostid)
         sizeof(zfs_mirror_host_node_t), offsetof(zfs_mirror_host_node_t, node));
     zfs_mirror_mac_port->mirror_local_host = kmem_zalloc(
         sizeof(zfs_mirror_host_node_t), KM_SLEEP);
-    zfs_mirror_mac_port->mirror_local_host->hostid = clustersan->cs_host.hostid;//zone_get_hostid(NULL);
+    zfs_mirror_mac_port->mirror_local_host->hostid = zone_get_hostid(NULL);
     list_insert_head(&zfs_mirror_mac_port->mirror_host_lists,
         zfs_mirror_mac_port->mirror_local_host);
     zfs_mirror_mac_port->mirror_permanent_hostid = mirror_hostid;

@@ -54,6 +54,7 @@
 #include <sys/fs/zfs.h>
 #include <sys/dmu.h>
 #include <sys/dmu_objset.h>
+#include <sys/dmu_tx.h>
 #include <sys/spa.h>
 #include <sys/txg.h>
 #include <sys/dbuf.h>
@@ -600,6 +601,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	int		count = 0;
 	sa_bulk_attr_t	bulk[4];
 	uint64_t	mtime[2], ctime[2];
+	boolean_t write_direct = B_FALSE;
     boolean_t sync;
 	ASSERTV(int	iovcnt = uio->uio_iovcnt);
 
@@ -837,6 +839,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		if (tx_bytes == 0) {
 			(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zsb),
 			    (void *)&zp->z_size, sizeof (uint64_t), tx);
+			write_direct = dmu_tx_sync_log(tx);
 			dmu_tx_commit(tx);
 			ASSERT(error != 0);
 			break;
@@ -887,9 +890,12 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			zp->z_size = zsb->z_replay_eof;
 
 		error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
-
+		
+		write_direct = dmu_tx_sync_log(tx);
+#if 0
 		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag,
 		    NULL, NULL);
+#endif
 		dmu_tx_commit(tx);
 
 		if (error != 0)
@@ -914,7 +920,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	}
 
 	if (ioflag & (FSYNC | FDSYNC) ||
-	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
+	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct)
 		zil_commit(zilog, zp->z_id);
 
 	ZFS_EXIT(zsb);

@@ -580,7 +580,8 @@ mod_hash_destroy_hash(mod_hash_t *hash)
 	 * Clean out keys and values.
 	 */
 	mod_hash_clear(hash);
-
+	rw_destroy(&hash->mh_contents);
+	
 	kmem_free(hash->mh_name, strlen(hash->mh_name) + 1);
 	kmem_free(hash, MH_SIZE(hash->mh_nchains));
 }

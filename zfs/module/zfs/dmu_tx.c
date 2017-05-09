@@ -1383,6 +1383,13 @@ dmu_tx_willuse_space(dmu_tx_t *tx, int64_t delta)
 #endif
 }
 
+boolean_t 
+dmu_tx_sync_log(dmu_tx_t *tx)
+{
+	return (tx->tx_bdirect);
+}
+
+
 void
 dmu_tx_commit(dmu_tx_t *tx)
 {
