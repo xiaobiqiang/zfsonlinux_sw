@@ -33,11 +33,10 @@
  */
 #define DEFAULT_DISK_INFO_PATH	"/proc/partitions"
 #define DEFAULT_PATH			"/dev/"
-#define SAS2IRCU		"sas2ircu 0 display"
+#define SAS2IRCU		"/cmd/disk/sas2ircu 0 display"
 #define SLOT			"Slot"
 #define ENCLOSURE		"Enclosure"
 #define SERIALNO		"Serial"
-#define PARAM_LEN		5
 #define CMD_TMP_LEN		1024
 #define ARGS_LEN		100
 #define DEV_LEN			50
@@ -145,13 +144,17 @@ get_scsi_slot(disk_info_t *di)
 	char value_sn[ARGS_LEN] = {0};
 	char args[ARGS_LEN] = {0};
 	char tmp[CMD_TMP_LEN] = {0};
+	char path[CMD_TMP_LEN] = {0};
 
 	len = strlen(di->dk_name);
 	if (di->dk_name[len -1] >= '0' &&
 		di->dk_name[len - 1] <= '9')
 		return (0);
 
-	fd = popen(SAS2IRCU, "r");
+	getcwd(path, sizeof(path));
+	strcat(path, SAS2IRCU);
+
+	fd = popen(path, "r");
 	if (fd == NULL)
 		return (0);
 
