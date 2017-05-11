@@ -154,7 +154,8 @@ typedef enum {
 	HELP_DIFF,
 	HELP_BOOKMARK,
     HELP_MIRROR,
-	HELP_CLUSTERSAN
+	HELP_CLUSTERSAN,
+	HELP_SPEEDTEST
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -210,6 +211,7 @@ static zfs_command_t command_table[] = {
 	{ "diff",	zfs_do_diff,		HELP_DIFF		},
     { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
+	{"speed"	zfs_do_speed_test,	HELP_SPEEDTEST		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -349,6 +351,8 @@ get_usage(zfs_help_t idx)
 			"\tclustersan hostid <hostid>\n"));
 				
 	}
+	case HELP_SPEEDTEST:
+		return (gettext("\tspeed -s blocksize -n cnt\n"));
 
 	abort();
 	/* NOTREACHED */
@@ -6719,6 +6723,43 @@ zfs_do_mirror(int argc, char **argv)
     zfs_start_mirror(g_zfs, mirror_to, flags);
 
     return (0);
+}
+
+static int
+zfs_do_speed(int arc, char **argv)
+{
+	long int bs, cnt;
+	int c;
+	int ret;
+
+	while ((c = getopt(argc, argv, "s:n:")) != -1) {
+		switch (c) {
+		case 's':
+			bs = strtol(optarg);
+			if ((bs == LONG_MAX) || (bs == LONG_MIN)) {
+				fprintf(stderr, "invalid option %s\n", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 'n':
+			cnt = strtol(optarg);
+			if ((cnt == LONG_MAX) || (cnt == LONG_MIN)) {
+				fprintf(stderr, "invalid option %s\n", optarg);
+				return -EINVAL;
+			}
+			break;
+		default:
+			fprintf(stderr, "invalid option\n");
+			usage(B_FALSE);
+			return -EINVAL;
+		}
+	}
+
+	ret = zfs_test_mirror(g_zfs, bs, cnt);
+	if (ret) {
+		fprintf(stderr, "mirro test failed: %d\n", ret);
+	}
+	return ret;
 }
 
 #define	LVL1_FORMAT					"    %s"

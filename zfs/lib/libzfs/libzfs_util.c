@@ -1885,6 +1885,20 @@ zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
     }
 }
 
+int
+zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+
+	zc.zc_nvlist_src_size = bs;
+	zc.zc_nvlist_dst_size = cnt;
+
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MIRROR, &zc);
+
+	return err;
+}
+
 int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen)
 {
 	int err;

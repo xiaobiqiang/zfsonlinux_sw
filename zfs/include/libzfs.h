@@ -840,6 +840,7 @@ extern boolean_t libzfs_fru_notself(libzfs_handle_t *, const char *);
 extern int zpool_fru_set(zpool_handle_t *, uint64_t, const char *);
 extern void zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
     uint64_t flags);
+extern int zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt);
 extern int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen);
 extern int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid);
 extern int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname);
