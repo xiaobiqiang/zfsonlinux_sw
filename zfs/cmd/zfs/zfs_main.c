@@ -106,6 +106,8 @@ static int zfs_do_diff(int argc, char **argv);
 static int zfs_do_bookmark(int argc, char **argv);
 static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
+static int zfs_do_speed_test(int arc, char **argv);
+
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -211,7 +213,7 @@ static zfs_command_t command_table[] = {
 	{ "diff",	zfs_do_diff,		HELP_DIFF		},
     { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
-	{"speed"	zfs_do_speed_test,	HELP_SPEEDTEST		},
+	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -349,10 +351,10 @@ get_usage(zfs_help_t idx)
 			"\tclustersan list-target [-v]\n"
 			"\tclustersan hostname <hostname>\n"
 			"\tclustersan hostid <hostid>\n"));
-				
-	}
 	case HELP_SPEEDTEST:
 		return (gettext("\tspeed -s blocksize -n cnt\n"));
+			
+	}
 
 	abort();
 	/* NOTREACHED */
@@ -6726,23 +6728,26 @@ zfs_do_mirror(int argc, char **argv)
 }
 
 static int
-zfs_do_speed(int arc, char **argv)
+zfs_do_speed_test(int argc, char **argv)
 {
-	long int bs, cnt;
+	char *end;
+	long int bs = 0, cnt = 0;
 	int c;
 	int ret;
 
 	while ((c = getopt(argc, argv, "s:n:")) != -1) {
 		switch (c) {
 		case 's':
-			bs = strtol(optarg);
+			end = NULL;
+			bs = strtol(optarg, &end, 10);
 			if ((bs == LONG_MAX) || (bs == LONG_MIN)) {
 				fprintf(stderr, "invalid option %s\n", optarg);
 				return -EINVAL;
 			}
 			break;
 		case 'n':
-			cnt = strtol(optarg);
+			end = NULL;
+			cnt = strtol(optarg, &end, 10);
 			if ((cnt == LONG_MAX) || (cnt == LONG_MIN)) {
 				fprintf(stderr, "invalid option %s\n", optarg);
 				return -EINVAL;
@@ -6753,6 +6758,11 @@ zfs_do_speed(int arc, char **argv)
 			usage(B_FALSE);
 			return -EINVAL;
 		}
+	}
+
+	if ((bs == 0) || (cnt == 0)) {
+		usage(B_FALSE);
+		return -EINVAL;
 	}
 
 	ret = zfs_test_mirror(g_zfs, bs, cnt);
