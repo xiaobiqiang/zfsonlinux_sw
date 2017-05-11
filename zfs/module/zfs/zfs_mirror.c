@@ -1524,6 +1524,10 @@ zfs_mirror_rx_cb(cs_rx_data_t *cs_data, void *arg)
             taskq_dispatch(zfs_mirror_mac_port->tq_check_spa_hung,
                 zfs_mirror_rx_spa_txg_handle, (void *)cs_data, TQ_SLEEP);
             break;
+	case ZFS_MIRROR_SPEED_TEST:
+		csh_rx_data_free(cs_data, B_TRUE);
+		/* FIXME */
+		break;
         default:
             break;
     }
