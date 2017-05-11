@@ -4904,9 +4904,9 @@ zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
 	int ret = 0;
 
 	/* block size */
-	bs = zc->zc_nvlist_src_size;
+	bs = zc->zc_guid;
 	/* block cnt */
-	cnt = zc->zc_nvlist_dst_size;
+	cnt = zc->zc_cookie;
 
 	if (bs > 1048576) {
 		printk("%s: bs too big\n", __func__);

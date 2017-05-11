@@ -1891,8 +1891,8 @@ zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt)
 	int err;
 	zfs_cmd_t zc = { 0 };
 
-	zc.zc_nvlist_src_size = bs;
-	zc.zc_nvlist_dst_size = cnt;
+	zc.zc_guid = bs;
+	zc.zc_cookie = cnt;
 
 	err = ioctl(hdl->libzfs_fd, ZFS_IOC_MIRROR_SPEED_TEST, &zc);
 
