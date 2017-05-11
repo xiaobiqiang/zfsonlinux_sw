@@ -10,6 +10,12 @@
 #include <sys/cluster_target_mac.h>
 #include <sys/fs/zfs.h>
 
+#ifndef	netdev_notifier_info_to_dev
+#define	netdev_notifier_info_to_dev(x)	(x)
+#define	register_netdevice_notifier_rh	register_netdevice_notifier
+#define	unregister_netdevice_notifier_rh	unregister_netdevice_notifier
+#endif
+
 #define	CLUSTER_MAC_TX_MAX_REPEAT_COUNT		3
 #define TARGET_PORT_NUM		2
 typedef struct TARGET_PORT_ARRAY

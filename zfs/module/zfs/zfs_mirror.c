@@ -1790,7 +1790,7 @@ zfs_mirror_host_fini(void)
 }
 
 int
-zfs_mirror_tx_test_data(char *buf, size_t len)
+zfs_mirror_tx_speed_data(char *buf, size_t len)
 {
     cluster_san_hostinfo_t *cshi = NULL;
     zfs_mirror_msg_header_t msg_head;
@@ -2748,7 +2748,7 @@ static void zfs_mirror_watchdog_thread(void *arg)
     thread_exit();
 }
 
-void zfs_mirror_stop_watchdog_thread()
+void zfs_mirror_stop_watchdog_thread(void)
 {
 	if (zfs_mirror_wd->wd_state == ZFS_MIRROR_WD_ACTIVE) {
 		zfs_mirror_wd->wd_state = ZFS_MIRROR_WD_DEACTIVATE;

@@ -4511,8 +4511,11 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 	return (ret);
 }
 
-void cluster_san_hb_stop()
+void cluster_san_hb_stop(void)
 {	
+	cluster_san_hostinfo_t *cshi;
+	cluster_target_session_t *cts;
+
 	rw_enter(&clustersan_rwlock, RW_READER);
 	cshi = list_head(&clustersan->cs_hostlist);
 	while (cshi != NULL) {
@@ -4524,7 +4527,7 @@ void cluster_san_hb_stop()
 	}
 	rw_exit(&clustersan_rwlock);
 
-	return 0;
+	return;
 }
 
 
