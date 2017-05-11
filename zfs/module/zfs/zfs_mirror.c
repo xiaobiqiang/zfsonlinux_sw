@@ -1785,6 +1785,31 @@ zfs_mirror_host_fini(void)
     cluster_change_failover_host(NULL);
 }
 
+int
+zfs_mirror_tx_test_data(char *buf, size_t len)
+{
+    cluster_san_hostinfo_t *cshi = NULL;
+    zfs_mirror_msg_header_t msg_head;
+    int ret;
+
+    rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_READER);
+    if (zfs_mirror_mac_port->mirror_failover_host != NULL) {
+        cshi = zfs_mirror_mac_port->mirror_failover_host->cshi;
+    }
+    if (cshi != NULL) {
+        cluster_san_hostinfo_hold(cshi);
+    }
+    rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
+
+    msg_head.msg_type = ZFS_MIRROR_SPEED_TEST;
+    ret = cluster_san_host_send(cshi, (void *)buf, len, &msg_head,
+		    sizeof(zfs_mirror_msg_header_t),
+		    CLUSTER_SAN_MSGTYPE_ZFS_MIRROR, 0, B_FALSE, 0);
+    cluster_san_hostinfo_rele(cshi);
+
+    return ret;
+}
+
 static void
 zfs_mirror_tx_spa_txg(void *arg)
 {
@@ -2717,6 +2742,16 @@ static void zfs_mirror_watchdog_thread(void *arg)
     cv_broadcast(&zfs_mirror_wd->wd_cv);
     mutex_exit(&zfs_mirror_wd->wd_mxt);
     thread_exit();
+}
+
+void zfs_mirror_stop_watchdog_thread()
+{
+	if (zfs_mirror_wd->wd_state == ZFS_MIRROR_WD_ACTIVE) {
+		zfs_mirror_wd->wd_state = ZFS_MIRROR_WD_DEACTIVATE;
+		cv_wait(&zfs_mirror_wd->wd_cv, &zfs_mirror_wd->wd_mxt);
+	}
+
+	return;
 }
 
 void zfs_mirror_data_expired_switch(boolean_t on_off)

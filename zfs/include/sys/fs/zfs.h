@@ -912,6 +912,7 @@ typedef enum zfs_ioc {
 	ZFS_IOC_CLUSTERSAN,
 
 	ZFS_IOC_HBX,
+	ZFS_IOC_MIRROR_SPEED_TEST,
 	/*
 	 * Linux - 3/64 numbers reserved.
 	 */

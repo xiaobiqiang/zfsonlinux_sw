@@ -32,6 +32,7 @@ TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]=
 		.ctp = NULL,
 	}
 };
+
 //extern pri_t minclsyspri, maxclsyspri;
 uint32_t cts_mac_throttle_max = 512 * 1024;
 uint32_t cts_mac_throttle_default = 128 * 1024;

@@ -4511,6 +4511,23 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 	return (ret);
 }
 
+void cluster_san_hb_stop()
+{	
+	rw_enter(&clustersan_rwlock, RW_READER);
+	cshi = list_head(&clustersan->cs_hostlist);
+	while (cshi != NULL) {
+		cts = cts_select_from_host(cshi);
+		if (cts != NULL) {
+			cts_hb_fini(cts);
+		}
+		cshi = list_next(&clustersan->cs_hostlist, cshi);
+	}
+	rw_exit(&clustersan_rwlock);
+
+	return 0;
+}
+
+
 void cluster_san_broadcast_send(
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, int pri)

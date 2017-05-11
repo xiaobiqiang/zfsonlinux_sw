@@ -4883,11 +4883,64 @@ zfs_ioc_start_mirror(zfs_cmd_t *zc)
     return (ret);
 }
 
+
 static int
 zfs_ioc_get_mirror(zfs_cmd_t *zc)
 {
     return (0);
 }
+
+extern void zfs_mirror_stop_watchdog_thread();
+extern void cluster_san_hb_stop();
+extern int zfs_mirror_tx_test_data(char *buf, size_t len);
+
+static int
+zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
+{
+	uint64_t bs, cnt;
+	char *buf;
+	uint64_t *index;
+	uint64_t i;
+	int ret = 0;
+
+	/* block size */
+	bs = zc->zc_nvlist_src_size;
+	/* block cnt */
+	cnt = zc->zc_nvlist_dst_size;
+
+	if (bs > 1048576) {
+		printk("%s: bs too big\n", __func__);
+		return -EINVAL;
+	}
+
+	kmem_alloc
+
+	buf = kmalloc(bs, GFP_KERNEL);
+	if (!buf) {
+		printk("%s: nomem\n", __func__);
+		return -ENOMEM;
+	}
+
+	cluster_san_hb_stop();
+	zfs_mirror_stop_watchdog_thread();
+
+	printk("%s: start to send data\n", __func__);
+	index = (uint64_t *)buf;
+	for (i = 0; i < cnt; i++) {
+		*index = i;
+		/* FIXME: send msg */
+		ret = zfs_mirror_tx_speed_data(buf, bs);
+		if (ret) {
+			printk("%s: send data failed: %d\n", ret);
+			break;
+		}
+	}
+
+	kfree(buf);
+
+	return ret;
+}
+
 
 static int zfs_ioc_do_clustersan_get_hostlist(zfs_cmd_t *zc)
 {
@@ -5757,6 +5810,10 @@ zfs_ioctl_init(void)
     zfs_ioctl_register_legacy(ZFS_IOC_GET_MIRROR_STATE,
         zfs_ioc_get_mirror, zfs_secpolicy_none,
         NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_MIRROR_SPEED_TEST,
+			zfs_ioc_mirror_speed_test, zf_secpolicy_none, NO_NAME,
+			B_FALSE, POOL_CHECK_NONE);
 
 	/*
 	 * ZoL functions

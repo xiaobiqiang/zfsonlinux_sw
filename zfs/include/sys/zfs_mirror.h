@@ -39,6 +39,7 @@ struct dbuf_mirror_io;
 #define ZFS_MIRROR_REPLY_NONALIGNED_ACTIVE		0x0a
 
 #define	ZFS_MIRROR_SPA_TXG						0x0b
+#define	ZFS_MIRROR_SPEED_TEST				0x0c
 
 #define	ZFS_MIRROR_NONALI_DATA_HASH_SIZE	16*1024
 
