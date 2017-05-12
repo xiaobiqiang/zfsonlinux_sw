@@ -9,6 +9,7 @@
 #include <sys/cluster_san.h>
 #include <sys/cluster_target_mac.h>
 #include <sys/fs/zfs.h>
+#include "zfs_mirror_debug.h"
 
 #ifndef	netdev_notifier_info_to_dev
 #define	netdev_notifier_info_to_dev(x)	(x)
@@ -777,6 +778,7 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
 	mp = kzalloc(sizeof(mblk_t), GFP_ATOMIC);
 	mp->skb = skb;
+	printk("%s %d: wake up ctp_mac_rx_worker\n", __func__, __LINE__);
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
 		
 out:
@@ -943,6 +945,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 		while (1) {
 			mp = ctp_mac_mplist_remove_head(w->mplist_r);
 			if (mp != NULL) {
+				POSITION("");
 				atomic_dec_32(&w->worker_ntasks);
 				fragment = cts_mac_mblk_to_fragment(ctp, mp);
 				if (fragment == NULL) {
@@ -989,6 +992,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						cts_para->fragment = fragment;
 						cts_para->sess = cts;
 						cts_para->index = ct_head->index;
+						POSITION("wake up cts rx worker");
 						cts_rx_worker_wakeup(cts_w, cts_para);
 						}
 						break;

@@ -1797,12 +1797,22 @@ zfs_mirror_tx_speed_data(char *buf, size_t len)
     int ret;
 
     rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_READER);
-    if (zfs_mirror_mac_port->mirror_failover_host != NULL) {
-        cshi = zfs_mirror_mac_port->mirror_failover_host->cshi;
+    if (zfs_mirror_mac_port->mirror_failover_host == NULL) {
+	    ret = -EIO;
+	    rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
+	    printk("%s: failover host is NULL\n", __func__);
+	    return ret;
     }
-    if (cshi != NULL) {
-        cluster_san_hostinfo_hold(cshi);
+
+    cshi = zfs_mirror_mac_port->mirror_failover_host->cshi;
+    if (cshi == NULL) {
+	    ret = -EIO;
+	    rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
+	    printk("%s: failover host's cshi is NULL\n", __func__);
+	    return ret;
     }
+
+    cluster_san_hostinfo_hold(cshi);
     rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
 
     msg_head.msg_type = ZFS_MIRROR_SPEED_TEST;
@@ -2750,7 +2760,8 @@ static void zfs_mirror_watchdog_thread(void *arg)
 
 void zfs_mirror_stop_watchdog_thread(void)
 {
-	if (zfs_mirror_wd->wd_state == ZFS_MIRROR_WD_ACTIVE) {
+
+	if ((zfs_mirror_wd != NULL) && (zfs_mirror_wd->wd_state == ZFS_MIRROR_WD_ACTIVE)) {
 		zfs_mirror_wd->wd_state = ZFS_MIRROR_WD_DEACTIVATE;
 		cv_wait(&zfs_mirror_wd->wd_cv, &zfs_mirror_wd->wd_mxt);
 	}
