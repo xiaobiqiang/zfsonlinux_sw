@@ -735,7 +735,6 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	cluster_target_port_mac_t *port_mac;
 	cluster_target_port_t *ctp;
 	ctp_mac_rx_worker_t *ctp_w;
-	uint16_t frm_type;
 	mblk_t *mp;
 	int ret;
 	
@@ -767,12 +766,14 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	
 	ret = cluster_target_port_hold(ctp);
 	
+#if 0
 	frm_type = ntohs(*(uint16_t *)(skb_mac_header(skb) + 
 		offsetof(struct ether_header, h_proto)));
 	if (frm_type != ETHERTYPE_CLUSTERSAN) {
 		kfree_skb(skb);
 		goto out;
 	}
+#endif
 
 	ct_head = (cluster_target_msg_header_t *)(skb_mac_header(skb) + sizeof(struct ether_header));
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
@@ -781,7 +782,9 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	POSITION("wake up ctp_mac_rx_worker");
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
 		
+#if 0
 out:
+#endif
 	if (ret == 0) {
 		cluster_target_port_rele(ctp);
 	}
@@ -920,6 +923,7 @@ static void ctp_mac_rx_throttle_handle(cluster_target_port_t *ctp)
 	}
 	mutex_exit(&ctp->ctp_lock);
 }
+extern void cts_rx_msg(cluster_target_session_t *cts, cts_fragment_data_t *fragment);
 
 static void ctp_mac_rx_worker_handle(void *arg)
 {
@@ -969,8 +973,11 @@ static void ctp_mac_rx_worker_handle(void *arg)
 					case CLUSTER_SAN_MSGTYPE_JOIN:
 						if (cts->sess_linkstate == CTS_LINK_DOWN) {
 							atomic_inc_64(&ctp->ref_count);
+							cs_join_msg_handle(fragment);
+#if 0
 							taskq_dispatch(clustersan->cs_async_taskq,
 								cs_join_msg_handle, fragment, TQ_SLEEP);
+#endif
 						} else {
 							cts_mac_fragment_free(fragment);
 						}
@@ -983,6 +990,9 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						cts_mac_fragment_free(fragment);
 						break;
 					default:
+						cts_rx_msg(cts, fragment);
+						cluster_target_session_rele(cts, "cts_find");
+#if 0
 						{
 						atomic_add_32(&sess_mac->sess_fc_rx_bytes, ct_head->fc_tx_len);
 						cts_w = &cts->sess_rx_worker[ct_head->index % cts->sess_rx_worker_n];
@@ -995,6 +1005,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						POSITION("wake up cts rx worker");
 						cts_rx_worker_wakeup(cts_w, cts_para);
 						}
+#endif
 						break;
 					}
 				} else {

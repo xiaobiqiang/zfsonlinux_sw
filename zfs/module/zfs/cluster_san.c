@@ -2483,6 +2483,38 @@ cluster_target_session_worker_handle(void *arg)
 	atomic_dec_32(&cts->sess_rx_worker_n);
 }
 
+static void cluster_san_host_rx_handle(cs_rx_data_t *cs_data);
+static cs_rx_data_t *cluster_san_host_fragment_handle(cluster_san_hostinfo_t *cshi, cts_fragment_data_t *fragment);
+
+void
+cts_rx_msg(cluster_target_session_t *cts, cts_fragment_data_t *fragment)
+{
+	cluster_san_hostinfo_t *cshi;
+	uint8_t msg_type;
+	cs_rx_data_t *cs_data;
+
+	BUG_ON(cts == NULL);
+	BUG_ON(fragment == NULL);
+
+	cshi = cts->sess_host_private;
+	msg_type = fragment->ct_head->msg_type;
+	cts_rx_data_check_link(cts);
+
+	/* FIXME: release hold on cts/cshi ? */
+	if (msg_type == CLUSTER_SAN_MSGTYPE_HB) {
+		cts_fragment_free(fragment);
+		return;
+	}
+
+	cs_data = cluster_san_host_fragment_handle(cshi, fragment);
+	if (cs_data != NULL) {
+		cluster_san_host_rx_handle(cs_data);
+	}
+
+	return;
+}
+
+
 static int
 cts_rxworker_avl_compare(const void *a1, const void *a2)
 {
@@ -2712,6 +2744,76 @@ static cs_rx_data_t *cluster_san_host_rxfragment_handle(
 	return (NULL);
 }
 
+static cs_rx_data_t *cluster_san_host_fragment_handle(cluster_san_hostinfo_t *cshi, cts_fragment_data_t *fragment)
+{
+	uint64_t data_index = fragment->ct_head->index;
+	uint64_t total_len = fragment->ct_head->total_len;
+	uint8_t msg_type = fragment->ct_head->msg_type;
+	uint8_t need_reply = fragment->ct_head->need_reply;
+
+	cs_rx_data_t ctsrd_compare;
+	cts_fragments_t ctsfs_compare;
+	cs_rx_data_t *cs_data;
+	cts_fragments_t *ctsfs = NULL;
+	avl_index_t where;
+	boolean_t is_entired;
+	boolean_t is_newdata = B_FALSE;
+	boolean_t is_corrupt = B_FALSE;
+
+	ctsrd_compare.data_index = data_index;
+	ctsfs_compare.cs_data = &ctsrd_compare;
+	mutex_enter(&cshi->host_fragment_lock);
+	ctsfs = avl_find(&cshi->host_fragment_avl, &ctsfs_compare, &where);
+	if (ctsfs == NULL) {
+		ctsfs = kmem_zalloc(sizeof(cts_fragments_t), KM_SLEEP);
+		ctsfs->cs_data = cts_rx_data_alloc(total_len);
+		ctsfs->cs_data->data_index = data_index;
+		ctsfs->cs_data->msg_type = msg_type;
+		ctsfs->cs_data->cs_private = cshi;
+		ctsfs->cs_data->need_reply = need_reply;
+		ctsfs->rx_len = 0;
+		list_create(&ctsfs->data_list, sizeof(cts_fragment_data_t),
+			offsetof(cts_fragment_data_t, node));
+		is_newdata = B_TRUE;
+	}
+	if (fragment->ex_len != 0) {
+		if (ctsfs->cs_data->ex_head == NULL) {
+			ctsfs->cs_data->ex_head = kmem_zalloc(fragment->ex_len, KM_SLEEP);
+			bcopy(fragment->ex_head, ctsfs->cs_data->ex_head, fragment->ex_len);
+			ctsfs->cs_data->ex_len = fragment->ex_len;
+		}
+	}
+	is_entired = cts_fragments_entired(ctsfs, fragment, &is_corrupt);
+	if (is_entired) {
+		if (!is_newdata) {
+			list_remove(&cshi->host_fragment_list, ctsfs);
+			avl_remove(&cshi->host_fragment_avl, ctsfs);
+		}
+		mutex_exit(&cshi->host_fragment_lock);
+		if (is_corrupt) {
+			csh_rx_data_free(ctsfs->cs_data, B_FALSE);
+			cs_data = NULL;
+		} else {
+			cs_data = ctsfs->cs_data;
+		}
+		cts_fragments_free(ctsfs);
+		cluster_san_hostinfo_hold(cs_data->cs_private);
+		return (cs_data);
+	}
+	
+	if (is_newdata) {
+		avl_add(&cshi->host_fragment_avl, ctsfs);
+		ctsfs->active_time = ddi_get_lbolt64();
+		list_insert_tail(&cshi->host_fragment_list, ctsfs);
+	} else {
+		list_remove(&cshi->host_fragment_list, ctsfs);
+		ctsfs->active_time = ddi_get_lbolt64();
+		list_insert_tail(&cshi->host_fragment_list, ctsfs);
+	}
+	mutex_exit(&cshi->host_fragment_lock);
+
+	return (NULL);
+}
 cluster_target_session_t *cts_select_from_host(cluster_san_hostinfo_t *cshi)
 {
 	cluster_target_session_t *cur_cts;
@@ -3010,6 +3112,13 @@ static void cluster_san_host_rxworker_init(cluster_san_hostinfo_t *cshi)
 	cshi->host_rx_worker = (cts_rx_worker_t *)kmem_zalloc(
 		sizeof (cts_rx_worker_t) * cluster_san_host_nrxworker,
 		KM_SLEEP);
+
+	mutex_init(&cshi->host_fragment_lock, NULL, MUTEX_DRIVER, NULL);
+	avl_create(&cshi->host_fragment_avl, cts_rxworker_avl_compare,
+			sizeof(cts_fragments_t), offsetof(cts_fragments_t, avl_node));
+	list_create(&cshi->host_fragment_list,
+			sizeof(cts_fragments_t), offsetof(cts_fragments_t, list_node));
+
 	for (i = 0; i < cluster_san_host_nrxworker; i++) {
 		cts_rx_worker_t *w = &cshi->host_rx_worker[i];
 		mutex_init(&w->fragment_lock, NULL, MUTEX_DRIVER, NULL);

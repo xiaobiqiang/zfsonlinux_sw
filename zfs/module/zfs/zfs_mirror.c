@@ -1477,6 +1477,7 @@ zfs_mirror_unaligned_handle (void *arg)
     zfs_mirror_rele_unaligned_cache(unaligned_cache, FTAG);
 }
 
+#if 0
 void
 zfs_mirror_rx_cb(cs_rx_data_t *cs_data, void *arg)
 {
@@ -1532,6 +1533,55 @@ zfs_mirror_rx_cb(cs_rx_data_t *cs_data, void *arg)
             break;
     }
 }
+#else
+
+void
+zfs_mirror_rx_cb(cs_rx_data_t *cs_data, void *arg)
+{
+	zfs_mirror_msg_header_t *msg_head;
+	msg_head = cs_data->ex_head;
+#ifdef LC_DEBUG
+	if (msg_head->msg_type != ZFS_MIRROR_SPA_TXG)
+		cmn_err(CE_WARN, "recv mirror msg [msg_type = %d]", msg_head->msg_type);
+#endif
+	switch(msg_head->msg_type) {
+		case ZFS_MIRROR_DATA:
+		case ZFS_MIRROR_META_DATA:
+			zfs_mirror_aligned_handle((void *)cs_data);
+			break;
+		case ZFS_MIRROR_DATA_UNALIGNED:
+			zfs_mirror_unaligned_handle((void *)cs_data);
+			break;
+		case ZFS_MIRROR_CLEAR_ALIGNED:
+			zfs_mirror_clean_aligned((void *)cs_data);
+			break;
+		case ZFS_MIRROR_CLEAR_NONALIGNED:
+			zfs_mirror_clean_unaligned((void *)cs_data);
+			break;
+		case ZFS_MIRROR_GET_LAST_SYNCED_TXG:
+			zfs_mirror_get_last_synced_txg((void *)cs_data);
+			break;
+		case ZFS_MIRROR_REPLY_LAST_SYNCED_TXG:
+			zfs_mirror_rcv_last_synced_txg((void *)cs_data);
+			break;
+		case ZFS_MIRROR_IS_NONALIGNED_ACTIVE:
+			zfs_mirror_is_unaligned_actived((void *)cs_data);
+			break;
+		case ZFS_MIRROR_REPLY_NONALIGNED_ACTIVE:
+			zfs_mirror_handle_unaligned_actived((void *)cs_data);
+			break;
+		case ZFS_MIRROR_SPA_TXG:
+			zfs_mirror_rx_spa_txg_handle((void *)cs_data);
+			break;
+		case ZFS_MIRROR_SPEED_TEST:
+			csh_rx_data_free(cs_data, B_TRUE);
+			/* FIXME */
+			break;
+		default:
+			break;
+	}
+}
+#endif
 
 zfs_mirror_host_node_t *
 zfs_mirror_host_create(
