@@ -35,7 +35,8 @@
 
 #include <sys/stmf_defines.h>
 #include "qlt_regs.h"
-
+#include "ddi_to_linux.h"
+#include <sys/zfs_context.h>
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -539,6 +540,7 @@ typedef struct {
 #define	RESPONSE_QUEUE_MQ_ENTRIES	512
 #define	RESPONSE_QUEUE_MQ_SIZE	(RESPONSE_QUEUE_MQ_ENTRIES * IOCB_SIZE)
 
+	
 #define	REG_RD8(qlt, addr) \
 	ddi_get8(qlt->regs_acc_handle, (uint8_t *)(qlt->regs + addr))
 #define	REG_RD16(qlt, addr) \
@@ -552,17 +554,19 @@ typedef struct {
 	ddi_put32(qlt->regs_acc_handle, (uint32_t *)(qlt->regs + addr), \
 	(uint32_t)(data))
 
+
+
 #define	PCICFG_RD8(qlt, addr) \
-	pci_config_get8(qlt->pcicfg_acc_handle, (off_t)(addr))
+	pci_config_get8(qlt->dip, (off_t)(addr))
 #define	PCICFG_RD16(qlt, addr) \
-	pci_config_get16(qlt->pcicfg_acc_handle, (off_t)(addr))
+	pci_config_get16(qlt->dip, (off_t)(addr))
 #define	PCICFG_RD32(qlt, addr) \
-	pci_config_get32(qlt->pcicfg_acc_handle, (off_t)(addr))
+	pci_config_get32(qlt->dip, (off_t)(addr))
 #define	PCICFG_WR16(qlt, addr, data) \
-	pci_config_put16(qlt->pcicfg_acc_handle, (off_t)(addr), \
+	pci_write_config_word(qlt->dip, (off_t)(addr), \
 	(uint16_t)(data))
 #define	PCICFG_WR32(qlt, addr, data) \
-	pci_config_put32(qlt->pcicfg_acc_handle, (off_t)(addr), \
+	pci_write_config_dword(qlt->dip, (off_t)(addr), \
 	(uint32_t)(data))
 
 /*
@@ -691,6 +695,17 @@ char *value2string(string_table_t *entry, int value, int delimiter);
 
 #define	PROP_STATUS_DELIMITER	((uint32_t)0xFFFF)
 
+
+#define	DDI_PROP_SUCCESS	0
+#define	DDI_PROP_NOT_FOUND	1	/* Prop not defined */
+#define	DDI_PROP_UNDEFINED	2	/* Overriden to undefine a prop */
+#define	DDI_PROP_NO_MEMORY	3	/* Unable to allocate/no sleep */
+#define	DDI_PROP_INVAL_ARG	4	/* Invalid calling argument */
+#define	DDI_PROP_BUF_TOO_SMALL	5	/* Callers buf too small */
+#define	DDI_PROP_CANNOT_DECODE	6	/* Could not decode prop */
+#define	DDI_PROP_CANNOT_ENCODE	7	/* Could not encode prop */
+#define	DDI_PROP_END_OF_DATA	8	/* Prop found in an encoded format */
+
 /* BEGIN CSTYLED */
 #define	DDI_PROP_STATUS()					\
 {								\
@@ -764,7 +779,7 @@ void	qlt_chg_endian(uint8_t *, size_t);
 
 void qlt_el_msg(qlt_state_t *qlt, const char *fn, int ce, ...);
 void qlt_dump_el_trace_buffer(qlt_state_t *qlt);
-#define	EL(qlt, ...) 	qlt_el_msg(qlt, __func__, CE_CONT, __VA_ARGS__);
+#define	EL(qlt, ...) 	qlt_el_msg(qlt, __func__, 0, __VA_ARGS__);
 #define	EL_TRACE_BUF_SIZE	8192
 #define	EL_BUFFER_RESERVE	256
 #define	DEBUG_STK_DEPTH		24

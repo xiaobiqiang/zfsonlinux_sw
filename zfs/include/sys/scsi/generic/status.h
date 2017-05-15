@@ -31,7 +31,7 @@
 #ifdef	__cplusplus
 extern "C" {
 #endif
-
+#include <sys/scsi/generic/sense.h>
 /*
  * SCSI status completion block
  *

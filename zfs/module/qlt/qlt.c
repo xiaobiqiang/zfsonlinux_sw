@@ -38,22 +38,26 @@
 #include <sys/cred.h>
 #include <sys/byteorder.h>
 #include <sys/atomic.h>
-#include <sys/scsi/scsi.h>
-
+#include <linux/pci.h>
 #include <sys/stmf_defines.h>
 #include <sys/fct_defines.h>
 #include <sys/stmf.h>
 #include <sys/portif.h>
 #include <sys/fct.h>
-
+#include <sys/pci_ids.h>
+#include <sys/scsi/generic/status.h>
 #include "qlt.h"
 #include "qlt_dma.h"
 #include "qlt_ioctl.h"
 #include "qlt_open.h"
 #include <sys/stmf_ioctl.h>
+#include <sys/qla_def.h>
+#include <linux/device.h>
+#include "ddi_to_linux.h"
 
-static int qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd);
-static int qlt_detach(dev_info_t *dip, ddi_detach_cmd_t cmd);
+
+static int qlt_attach(dev_info_t *dip, const struct pci_device_id *id);
+static void qlt_detach(dev_info_t *dip);
 static uint8_t *qlt_vpd_findtag(qlt_state_t *qlt, uint8_t *vpdbuf,
     int8_t *opcode);
 static int qlt_vpd_lookup(qlt_state_t *qlt, uint8_t *opcode, uint8_t *bp,
@@ -69,9 +73,9 @@ static mbox_cmd_t *qlt_alloc_mailbox_command(qlt_state_t *qlt,
     uint32_t dma_size);
 void qlt_free_mailbox_command(qlt_state_t *qlt, mbox_cmd_t *mcp);
 static fct_status_t qlt_mailbox_command(qlt_state_t *qlt, mbox_cmd_t *mcp);
-static uint_t qlt_isr(caddr_t arg, caddr_t arg2);
-static uint_t qlt_msix_resp_handler(caddr_t arg, caddr_t arg2);
-static uint_t qlt_msix_default_handler(caddr_t arg, caddr_t arg2);
+irqreturn_t qlt_isr(int irq, void *arg);
+irqreturn_t qlt_msix_resp_handler(int irq, void *arg);
+irqreturn_t qlt_msix_default_handler(int irq, void *arg);
 static fct_status_t qlt_firmware_dump(fct_local_port_t *port,
     stmf_state_change_info_t *ssci);
 static void qlt_handle_inot(qlt_state_t *qlt, uint8_t *inot);
@@ -141,10 +145,9 @@ static int qlt_dump_risc_ram(qlt_state_t *qlt, uint32_t addr, uint32_t words,
     caddr_t buf, uint_t size_left);
 static int qlt_fwdump_dump_regs(qlt_state_t *qlt, caddr_t buf, int startaddr,
     int count, uint_t size_left);
-static int qlt_ioctl(dev_t dev, int cmd, intptr_t data, int mode,
-    cred_t *credp, int *rval);
-static int qlt_open(dev_t *devp, int flag, int otype, cred_t *credp);
-static int qlt_close(dev_t dev, int flag, int otype, cred_t *credp);
+static int qlt_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+static int qlt_open(struct inode *inode, struct file *file);
+static int qlt_close(struct inode *inode, struct file *file);
 
 static int qlt_setup_msi(qlt_state_t *qlt);
 static int qlt_setup_msix(qlt_state_t *qlt);
@@ -152,15 +155,8 @@ static int qlt_setup_msix(qlt_state_t *qlt);
 static int qlt_el_trace_desc_ctor(qlt_state_t *qlt);
 static int qlt_el_trace_desc_dtor(qlt_state_t *qlt);
 
-static int qlt_read_int_prop(qlt_state_t *qlt, char *prop, int defval);
-static int qlt_read_string_prop(qlt_state_t *qlt, char *prop, char **prop_val);
-static int qlt_read_string_instance_prop(qlt_state_t *qlt, char *prop,
-    char **prop_val);
-static int qlt_read_int_instance_prop(qlt_state_t *, char *, int);
-static int qlt_convert_string_to_ull(char *prop, int radix,
-    u_longlong_t *result);
-static boolean_t qlt_wwn_overload_prop(qlt_state_t *qlt);
-static int qlt_quiesce(dev_info_t *dip);
+
+static void qlt_quiesce(dev_info_t *dip);
 static void qlt_disable_intr(qlt_state_t *qlt);
 static fct_status_t qlt_raw_wrt_risc_ram_word(qlt_state_t *qlt, uint32_t,
     uint32_t);
@@ -184,6 +180,9 @@ static int qlt_27xx_dump_ram(qlt_state_t *, uint16_t, uint32_t,
 int qlt_enable_msix = 1;
 int qlt_enable_msi = 1;
 
+unsigned int MMU_PAGESIZE = 4096;
+module_param(MMU_PAGESIZE, uint, S_IRUGO);
+
 
 string_table_t prop_status_tbl[] = DDI_PROP_STATUS();
 
@@ -191,39 +190,6 @@ string_table_t prop_status_tbl[] = DDI_PROP_STATUS();
 #if 0
 static int qlt_nfb[] = { 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 0xff };
 #endif
-
-static struct cb_ops qlt_cb_ops = {
-	qlt_open,
-	qlt_close,
-	nodev,
-	nodev,
-	nodev,
-	nodev,
-	nodev,
-	qlt_ioctl,
-	nodev,
-	nodev,
-	nodev,
-	nochpoll,
-	ddi_prop_op,
-	0,
-	D_MP | D_NEW
-};
-
-static struct dev_ops qlt_ops = {
-	DEVO_REV,
-	0,
-	nodev,
-	nulldev,
-	nulldev,
-	qlt_attach,
-	qlt_detach,
-	nodev,
-	&qlt_cb_ops,
-	NULL,
-	ddi_power,
-	qlt_quiesce
-};
 
 #ifndef	PORT_SPEED_16G
 #define	PORT_SPEED_16G		32
@@ -236,16 +202,6 @@ static struct dev_ops qlt_ops = {
 #ifndef QL_NAME
 #define	QL_NAME "qlt"
 #endif
-
-static struct modldrv modldrv = {
-	&mod_driverops,
-	QLT_NAME" "QLT_VERSION,
-	&qlt_ops,
-};
-
-static struct modlinkage modlinkage = {
-	MODREV_1, &modldrv, NULL
-};
 
 void *qlt_state = NULL;
 kmutex_t qlt_global_lock;
@@ -307,66 +263,102 @@ static ddi_dma_attr_t qlt_queue_dma_attr_mq_rsp1 = {
 	0			/* DMA transfer flags */
 };
 
+static struct pci_device_id qlt_pci_tbl[] = {
+	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2422) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2432) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2532) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP8001) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2071) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2261) },
+	{ 0 },
+};
+/*
+static const struct pci_error_handlers qlt_err_handler = {
+	.error_detected = qla2xxx_pci_error_detected,
+	.mmio_enabled = qla2xxx_pci_mmio_enabled,
+	.slot_reset = qla2xxx_pci_slot_reset,
+	.resume = qla2xxx_pci_resume,
+};
+*/
+#define QLT_DRIVER_NAME "qlt_driver"
+static struct pci_driver qlt_pci_driver = {
+	.name		= QLT_DRIVER_NAME,
+	.driver		= {
+		.owner		= THIS_MODULE,
+	},
+	.id_table	= qlt_pci_tbl,
+	.probe		= qlt_attach,
+	.remove		= qlt_detach,
+	.shutdown	= qlt_quiesce,
+};
 
+static const struct file_operations qlt_apidev_fops = {
+	.open		= qlt_open,
+	.unlocked_ioctl		= qlt_ioctl,
+	.release		= qlt_close,
+	.owner = THIS_MODULE,
+	.llseek = noop_llseek,
+};
+
+#define QLT_APIDEV "qlt_apidev"
 /* qlogic logging */
 int enable_extended_logging = 0;
 static char qlt_provider_name[] = "qlt";
 static struct stmf_port_provider *qlt_pp;
+static int qlt_apidev_major;
 
-int
+int pci_max_read_request=2048;
+module_param(pci_max_read_request, int, S_IRUGO);
+int pcie_max_payload_size=0;
+module_param(pcie_max_payload_size, int, S_IRUGO);
+static int __init
 _init(void)
 {
 	int ret;
 
-	ret = ddi_soft_state_init(&qlt_state, sizeof (qlt_state_t), 0);
-	if (ret == 0) {
-		mutex_init(&qlt_global_lock, 0, MUTEX_DRIVER, 0);
-		qlt_pp = (stmf_port_provider_t *)stmf_alloc(
-		    STMF_STRUCT_PORT_PROVIDER, 0, 0);
-		qlt_pp->pp_portif_rev = PORTIF_REV_1;
-		qlt_pp->pp_name = qlt_provider_name;
-		if (stmf_register_port_provider(qlt_pp) != STMF_SUCCESS) {
-			stmf_free(qlt_pp);
-			mutex_destroy(&qlt_global_lock);
-			ddi_soft_state_fini(&qlt_state);
-			return (EIO);
-		}
-		ret = mod_install(&modlinkage);
-		if (ret != 0) {
-			(void) stmf_deregister_port_provider(qlt_pp);
-			stmf_free(qlt_pp);
-			mutex_destroy(&qlt_global_lock);
-			ddi_soft_state_fini(&qlt_state);
-		}
+	mutex_init(&qlt_global_lock, 0, MUTEX_DEFAULT, 0);
+	qlt_pp = (stmf_port_provider_t *)stmf_alloc(
+	    STMF_STRUCT_PORT_PROVIDER, 0, 0);
+	qlt_pp->pp_portif_rev = PORTIF_REV_1;
+	qlt_pp->pp_name = qlt_provider_name;
+	if (stmf_register_port_provider(qlt_pp) != STMF_SUCCESS) {
+		stmf_free(qlt_pp);
+		mutex_destroy(&qlt_global_lock);
+		return (EIO);
 	}
-	return (ret);
-}
 
-int
-_fini(void)
-{
-	int ret;
+	qlt_apidev_major = register_chrdev(0, QLT_APIDEV, &qlt_apidev_fops);
+	if (qlt_apidev_major < 0) {
+	}
 
-	if (qlt_loaded_counter)
-		return (EBUSY);
-	ret = mod_remove(&modlinkage);
-	if (ret == 0) {
+	ret = pci_register_driver(&qlt_pci_driver);
+	if (ret != 0) {
 		(void) stmf_deregister_port_provider(qlt_pp);
 		stmf_free(qlt_pp);
 		mutex_destroy(&qlt_global_lock);
-		ddi_soft_state_fini(&qlt_state);
 	}
+	
 	return (ret);
 }
-
-int
-_info(struct modinfo *modinfop)
+module_init(_init);
+static void __exit
+_fini(void)
 {
-	return (mod_info(&modlinkage, modinfop));
-}
 
+	if (qlt_loaded_counter)
+		return ;
+	unregister_chrdev(qlt_apidev_major, QLT_APIDEV);
+	pci_unregister_driver(&qlt_pci_driver);
+	
+	(void) stmf_deregister_port_provider(qlt_pp);
+	stmf_free(qlt_pp);
+	mutex_destroy(&qlt_global_lock);
+
+
+}
+module_exit(_fini);
 static int
-qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
+qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 {
 	int		instance;
 	qlt_state_t	*qlt;
@@ -381,14 +373,14 @@ qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	fct_status_t	ret;
 
 	/* No support for suspend resume yet */
-	if (cmd != DDI_ATTACH)
-		return (DDI_FAILURE);
+	//if (cmd != DDI_ATTACH)
+	//	return (DDI_FAILURE);
 	instance = ddi_get_instance(dip);
 
 	cmn_err(CE_CONT, "!Qlogic %s(%d) FCA Driver v%s\n",
 	    QLT_NAME, instance, QLT_VERSION);
 
-	if (ddi_soft_state_zalloc(qlt_state, instance) != DDI_SUCCESS) {
+	if (ddi_soft_state_zalloc(&qlt_state, instance) != DDI_SUCCESS) {
 		cmn_err(CE_WARN, "qlt(%d): soft state alloc failed", instance);
 		return (DDI_FAILURE);
 	}
@@ -664,6 +656,10 @@ qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		}
 	}
 
+	/* This may fail but that's ok */
+	pci_enable_pcie_error_reporting(dip);
+
+
 	if (qlt->qlt_mq_enabled) {
 		qlt->mq_req = kmem_zalloc(
 		    ((sizeof (qlt_mq_req_ptr_blk_t)) * MQ_MAX_QUEUES),
@@ -713,7 +709,9 @@ qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	}
 
 	qlt_properties(qlt);
-
+	
+	qla2x00_config_dma_addressing(dip);
+	
 	if (ddi_dma_alloc_handle(dip, &qlt_queue_dma_attr, DDI_DMA_SLEEP,
 	    0, &qlt->queue_mem_dma_handle) != DDI_SUCCESS) {
 		goto attach_fail_5;
@@ -767,22 +765,14 @@ qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	}
 	EL(qlt, "Queue count = %d\n", qlt->qlt_queue_cnt);
 
-	(void) snprintf(qlt->qlt_minor_name, sizeof (qlt->qlt_minor_name),
-	    "qlt%d", instance);
-	(void) snprintf(qlt->qlt_port_alias, sizeof (qlt->qlt_port_alias),
-	    "%s,0", qlt->qlt_minor_name);
 
-	if (ddi_create_minor_node(dip, qlt->qlt_minor_name, S_IFCHR,
-	    instance, DDI_NT_STMF_PP, 0) != DDI_SUCCESS) {
-		goto attach_fail_9;
-	}
 
 	cv_init(&qlt->rp_dereg_cv, NULL, CV_DRIVER, NULL);
 	cv_init(&qlt->mbox_cv, NULL, CV_DRIVER, NULL);
 	mutex_init(&qlt->qlt_ioctl_lock, NULL, MUTEX_DRIVER, NULL);
 
 	/* Setup PCI cfg space registers */
-	max_read_size = qlt_read_int_prop(qlt, "pci-max-read-request", 11);
+	max_read_size = pci_max_read_request;
 	if (max_read_size == 11)
 		goto over_max_read_xfer_setting;
 	if (did == 0x2422) {
@@ -838,7 +828,7 @@ qlt_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	}
 over_max_read_xfer_setting:;
 
-	max_payload_size = qlt_read_int_prop(qlt, "pcie-max-payload-size", 11);
+	max_payload_size = pcie_max_payload_size;
 	if (max_payload_size == 11)
 		goto over_max_payload_setting;
 	if ((did == 0x2432) || (did == 0x8432) ||
@@ -880,15 +870,15 @@ over_max_payload_setting:;
 		goto attach_fail_10;
 	}
 
-	ddi_report_dev(dip);
+	//ddi_report_dev(dip);
 	return (DDI_SUCCESS);
 
 attach_fail_10:;
 	mutex_destroy(&qlt->qlt_ioctl_lock);
 	cv_destroy(&qlt->mbox_cv);
 	cv_destroy(&qlt->rp_dereg_cv);
-	ddi_remove_minor_node(dip, qlt->qlt_minor_name);
-attach_fail_9:;
+	//ddi_remove_minor_node(dip, qlt->qlt_minor_name);
+//attach_fail_9:;
 	qlt_destroy_mutex(qlt);
 	qlt_release_intr(qlt);
 	(void) qlt_mq_destroy(qlt);
@@ -931,8 +921,8 @@ attach_fail_1:;
 #define	FCT_I_EVENT_BRING_PORT_OFFLINE	0x83
 
 /* ARGSUSED */
-static int
-qlt_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
+static void
+qlt_detach(dev_info_t *dip)
 {
 	qlt_state_t *qlt;
 
@@ -941,19 +931,19 @@ qlt_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	instance = ddi_get_instance(dip);
 	if ((qlt = (qlt_state_t *)ddi_get_soft_state(qlt_state, instance)) ==
 	    NULL) {
-		return (DDI_FAILURE);
+		return ;
 	}
 
 	if (qlt->fw_code01) {
-		return (DDI_FAILURE);
+		return ;
 	}
 
 	if ((qlt->qlt_state != FCT_STATE_OFFLINE) ||
 	    qlt->qlt_state_not_acked) {
-		return (DDI_FAILURE);
+		return ;
 	}
 	if (qlt_port_stop((caddr_t)qlt) != FCT_SUCCESS) {
-		return (DDI_FAILURE);
+		return ;
 	}
 
 	qlt_disable_intr(qlt);
@@ -976,7 +966,6 @@ qlt_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 		qlt->qlt_fwdump_buf = NULL;
 	}
 
-	ddi_remove_minor_node(dip, qlt->qlt_minor_name);
 	qlt_destroy_mutex(qlt);
 	qlt_release_intr(qlt);
 	if (qlt->qlt_mq_enabled == 1) {
@@ -1018,14 +1007,13 @@ qlt_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	(void) qlt_el_trace_desc_dtor(qlt);
 	ddi_soft_state_free(qlt_state, instance);
 
-	return (DDI_SUCCESS);
 }
 
 /*
  * qlt_quiesce	quiesce a device attached to the system.
  */
-static int
-qlt_quiesce(dev_info_t *dip)
+static void
+qlt_quiesce(struct pci_dev *dip)
 {
 	qlt_state_t	*qlt;
 	uint32_t	timer;
@@ -1034,7 +1022,7 @@ qlt_quiesce(dev_info_t *dip)
 	qlt = ddi_get_soft_state(qlt_state, ddi_get_instance(dip));
 	if (qlt == NULL) {
 		/* Oh well.... */
-		return (DDI_SUCCESS);
+		return ;
 	}
 
 	REG_WR32(qlt, REG_HCCR, HCCR_CMD(CLEAR_HOST_TO_RISC_INTR));
@@ -1095,13 +1083,12 @@ qlt_quiesce(dev_info_t *dip)
 
 	qlt_disable_intr(qlt);
 
-	return (DDI_SUCCESS);
 }
 
 static void
 qlt_enable_intr(qlt_state_t *qlt)
 {
-	if (qlt->intr_cap & DDI_INTR_FLAG_BLOCK) {
+/*	if (qlt->intr_cap & DDI_INTR_FLAG_BLOCK) {                       
 		int stat;
 
 		stat = ddi_intr_block_enable(qlt->htable, qlt->intr_cnt);
@@ -1116,9 +1103,9 @@ qlt_enable_intr(qlt_state_t *qlt)
 		}
 
 #ifndef __sparc
-		else {
+		else {*/
 			/* Please see CR6840537, MSI isn't re-enabled x86 */
-			off_t offset;
+/*			off_t offset;
 			uint8_t val8;
 			ddi_intr_handle_impl_t	*hdlp;
 
@@ -1131,9 +1118,9 @@ qlt_enable_intr(qlt_state_t *qlt)
 			hdlp = (ddi_intr_handle_impl_t *)qlt->htable[0];
 			if ((hdlp->ih_state == DDI_IHDL_STATE_ENABLE) &&
 			    (hdlp->ih_type == DDI_INTR_TYPE_MSI)) {
-
+*/
 				/* get MSI control */
-				val8 = pci_config_get8(qlt->pcicfg_acc_handle,
+/*				val8 = pci_config_get8(qlt->pcicfg_acc_handle,
 				    offset);
 
 				if ((val8 & 1) == 0) {
@@ -1141,14 +1128,14 @@ qlt_enable_intr(qlt_state_t *qlt)
 					    "qlt(%d): qlt_enable_intr: "
 					    "MSI enable failed (%x)",
 					    qlt->instance, val8);
-
+*/
 					/* write enable to MSI control */
-					val8 = (uint8_t)(val8 | 1);
+/*					val8 = (uint8_t)(val8 | 1);
 					pci_config_put8(qlt->pcicfg_acc_handle,
 					    offset, val8);
-
+*/
 					/* read back to veriy */
-					val8 = pci_config_get8
+/*					val8 = pci_config_get8
 					    (qlt->pcicfg_acc_handle, offset);
 
 					if (val8 & 1) {
@@ -1160,8 +1147,8 @@ qlt_enable_intr(qlt_state_t *qlt)
 				}
 			}
 		}
-#endif /* x86 specific hack */
-	} else {
+#endif *//* x86 specific hack */
+/*	} else {
 		int i;
 		int stat = DDI_SUCCESS;
 
@@ -1177,25 +1164,25 @@ qlt_enable_intr(qlt_state_t *qlt)
 			cmn_err(CE_WARN, "!qlt(%d): qlt_enable_intr: "
 			    "ddi_intr_enable failed:%x", qlt->instance, stat);
 		}
-	}
+	}*/
 }
 
 static void
 qlt_disable_intr(qlt_state_t *qlt)
 {
-	if (qlt->intr_cap & DDI_INTR_FLAG_BLOCK) {
+	/*if (qlt->intr_cap & DDI_INTR_FLAG_BLOCK) {
 		(void) ddi_intr_block_disable(qlt->htable, qlt->intr_cnt);
 	} else {
 		int i;
 		for (i = 0; i < qlt->intr_cnt; i++)
 			(void) ddi_intr_disable(qlt->htable[i]);
-	}
+	}*/
 	qlt->qlt_intr_enabled = 0;
 }
 
 static void
 qlt_release_intr(qlt_state_t *qlt)
-{
+{/*
 	if (qlt->htable) {
 		int i;
 		for (i = 0; i < qlt->intr_cnt; i++) {
@@ -1208,7 +1195,8 @@ qlt_release_intr(qlt_state_t *qlt)
 	qlt->intr_pri = 0;
 	qlt->intr_cnt = 0;
 	qlt->intr_size = 0;
-	qlt->intr_cap = 0;
+	qlt->intr_cap = 0;*/
+	free_irq(qlt->dip->irq, qlt);
 }
 
 static void
@@ -1254,23 +1242,26 @@ qlt_destroy_mutex(qlt_state_t *qlt)
 static int
 qlt_setup_msix(qlt_state_t *qlt)
 {
-	int count, avail, actual;
+#define MIN_MSIX_COUNT	2
+	int count = 0, /*avail,*/ actual;
 	int ret;
-	int itype = DDI_INTR_TYPE_MSIX;
+	//int itype = DDI_INTR_TYPE_MSIX;
 	int i;
+	struct msix_entry *entries;
 
 	/* check 24xx revision */
 	if ((!qlt->qlt_25xx_chip) && (!qlt->qlt_81xx_chip) &&
 	    (!qlt->qlt_83xx_chip) && (!qlt->qlt_27xx_chip)) {
 		uint8_t rev_id;
-		rev_id = (uint8_t)
-		    pci_config_get8(qlt->pcicfg_acc_handle, PCI_CONF_REVID);
+		rev_id = (uint8_t)PCICFG_RD8(qlt, PCI_CONF_REVID);
+		    //pci_config_get8(qlt->pcicfg_acc_handle, PCI_CONF_REVID);
 		if (rev_id < 3) {
 			return (DDI_FAILURE);
 		}
 	}
-
-	ret = ddi_intr_get_nintrs(qlt->dip, itype, &count);
+	pci_read_config_word(qlt->dip, QLA_PCI_MSIX_CONTROL, (unsigned short*)&count);
+	
+	/*ret = ddi_intr_get_nintrs(qlt->dip, itype, &count);
 	if (ret != DDI_SUCCESS || count == 0) {
 		EL(qlt, "ddi_intr_get_nintrs status=%xh, count=%d\n", ret,
 		    count);
@@ -1285,7 +1276,7 @@ qlt_setup_msix(qlt_state_t *qlt)
 	if (avail < count) {
 		stmf_trace(qlt->qlt_port_alias,
 		    "qlt_setup_msix: nintrs=%d,avail=%d", count, avail);
-	}
+	}*/
 
 	if ((qlt->qlt_25xx_chip) && (qlt->qlt_mq_enabled == 0)) {
 		count = 2;
@@ -1297,16 +1288,16 @@ qlt_setup_msix(qlt_state_t *qlt)
 	}	
 	/* issue 0002501 modified by suwei 2016-08-09 end */	
 
-	qlt->intr_size = (int)(count * (int)sizeof (ddi_intr_handle_t));
+	/*qlt->intr_size = (int)(count * (int)sizeof (ddi_intr_handle_t));
 	qlt->htable = kmem_zalloc((uint_t)qlt->intr_size, KM_SLEEP);
 	ret = ddi_intr_alloc(qlt->dip, qlt->htable, itype,
 	    DDI_INTR_ALLOC_NORMAL, count, &actual, 0);
 
 	EL(qlt, "qlt_setup_msix: count=%d,avail=%d,actual=%d\n", count,
-	    avail, actual);
+	    avail, actual);*/
 
 	/* we need at least 2 interrupt vectors */
-	if (((qlt->qlt_83xx_chip) || (qlt->qlt_27xx_chip)) &&
+	/*if (((qlt->qlt_83xx_chip) || (qlt->qlt_27xx_chip)) &&
 	    (ret != DDI_SUCCESS || actual < 2)) {
 		EL(qlt, "ddi_intr_alloc status=%xh, actual=%d\n", ret,
 		    actual);
@@ -1325,50 +1316,65 @@ qlt_setup_msix(qlt_state_t *qlt)
 	}
 	if (actual < count) {
 		EL(qlt, "requested: %d, received: %d\n", count, actual);
-	}
+	}*/
+	actual = count;
+	entries = kzalloc(sizeof(struct msix_entry) * count, GFP_KERNEL);
+	
+	for (i = 0; i < count; i++)
+		entries[i].entry = i;
+
+	ret = pci_enable_msix_range(qlt->dip,
+				    entries, MIN_MSIX_COUNT, count);
 
 	qlt->intr_cnt = actual;
-	ret =  ddi_intr_get_pri(qlt->htable[0], &qlt->intr_pri);
+	/*ret =  ddi_intr_get_pri(qlt->htable[0], &qlt->intr_pri);
 	if (ret != DDI_SUCCESS) {
 		EL(qlt, "ddi_intr_get_pri status=%xh\n", ret);
 		ret = DDI_FAILURE;
 		goto release_intr;
-	}
+	}*/
 	qlt_init_mutex(qlt);
 	for (i = 0; i < qlt->intr_cnt; i++) {
-		ret = ddi_intr_add_handler(qlt->htable[i],
+		/*ret = ddi_intr_add_handler(qlt->htable[i],
 		    (i != 0) ? qlt_msix_resp_handler :
 		    qlt_msix_default_handler,
-		    qlt, INT2PTR((uint_t)i, void *));
+		    qlt, INT2PTR((uint_t)i, void *));*/
+		if (i!=0) {
+			ret = request_irq(qlt->dip->irq, qlt_msix_resp_handler,
+			    0, QLA2XXX_DRIVER_NAME, qlt);
+		} else {
+			ret = request_irq(qlt->dip->irq, qlt_msix_default_handler,
+			    0, QLA2XXX_DRIVER_NAME, qlt);
+		}
 		if (ret != DDI_SUCCESS) {
 			EL(qlt, "ddi_intr_add_handler status=%xh\n", ret);
 			goto release_mutex;
 		}
 	}
 
-	(void) ddi_intr_get_cap(qlt->htable[0], &qlt->intr_cap);
+	//(void) ddi_intr_get_cap(qlt->htable[0], &qlt->intr_cap);
 	qlt->intr_flags |= QLT_INTR_MSIX;
 	return (DDI_SUCCESS);
 
 release_mutex:
 	qlt_destroy_mutex(qlt);
-release_intr:
-	for (i = 0; i < actual; i++)
+//release_intr:
+	/*for (i = 0; i < actual; i++)
 		(void) ddi_intr_free(qlt->htable[i]);
 
 	kmem_free(qlt->htable, (uint_t)qlt->intr_size);
 	qlt->htable = NULL;
-	qlt_release_intr(qlt);
+	qlt_release_intr(qlt);*/
 	return (ret);
 }
 
 static int
 qlt_setup_msi(qlt_state_t *qlt)
 {
-	int count, avail, actual;
-	int itype = DDI_INTR_TYPE_MSI;
+	//int count, avail, actual;
+	//int itype = DDI_INTR_TYPE_MSI;
 	int ret;
-	int i;
+	//int i;
 
 	/* 83xx and 27xx doesn't do MSI - don't even bother? */
 	if ((qlt->qlt_83xx_chip) || (qlt->qlt_27xx_chip)) {
@@ -1376,7 +1382,7 @@ qlt_setup_msi(qlt_state_t *qlt)
 	}
 
 	/* get the # of interrupts */
-	ret = ddi_intr_get_nintrs(qlt->dip, itype, &count);
+	/*ret = ddi_intr_get_nintrs(qlt->dip, itype, &count);
 	if (ret != DDI_SUCCESS || count == 0) {
 		EL(qlt, "ddi_intr_get_nintrs status=%xh, count=%d\n", ret,
 		    count);
@@ -1390,12 +1396,12 @@ qlt_setup_msi(qlt_state_t *qlt)
 	}
 	if (avail < count) {
 		EL(qlt, "nintrs=%d, avail=%d\n", count, avail);
-	}
+	}*/
 	/* MSI requires only 1 interrupt. */
-	count = 1;
+	//count = 1;
 
 	/* allocate interrupt */
-	qlt->intr_size = (int)(count * (int)sizeof (ddi_intr_handle_t));
+	/*qlt->intr_size = (int)(count * (int)sizeof (ddi_intr_handle_t));
 	qlt->htable = kmem_zalloc((uint_t)qlt->intr_size, KM_SLEEP);
 	ret = ddi_intr_alloc(qlt->dip, qlt->htable, itype,
 	    0, count, &actual, DDI_INTR_ALLOC_NORMAL);
@@ -1408,21 +1414,31 @@ qlt_setup_msi(qlt_state_t *qlt)
 	if (actual < count) {
 		EL(qlt, "requested: %d, received: %d\n", count, actual);
 	}
-	qlt->intr_cnt = actual;
+	qlt->intr_cnt = actual;*/
 
 	/*
 	 * Get priority for first msi, assume remaining are all the same.
 	 */
-	ret =  ddi_intr_get_pri(qlt->htable[0], &qlt->intr_pri);
+	/*ret =  ddi_intr_get_pri(qlt->htable[0], &qlt->intr_pri);
 	if (ret != DDI_SUCCESS) {
 		EL(qlt, "ddi_intr_get_pri status=%xh\n", ret);
 		ret = DDI_FAILURE;
 		goto release_intr;
-	}
+	}*/
 	qlt_init_mutex(qlt);
+	
+	ret = pci_enable_msi(qlt->dip);
+	if (!ret) {
+		printk("%s %d error\n", __func__, __LINE__);
+		goto release_mutex;
+	}
+	ret = request_irq(qlt->dip->irq, qlt_isr,
+	    0, QLA2XXX_DRIVER_NAME, qlt);
+	if (ret) {
+	}
 
 	/* add handler */
-	for (i = 0; i < actual; i++) {
+	/*for (i = 0; i < actual; i++) {
 		ret = ddi_intr_add_handler(qlt->htable[i], qlt_isr,
 		    qlt, INT2PTR((uint_t)i, void *));
 		if (ret != DDI_SUCCESS) {
@@ -1431,39 +1447,39 @@ qlt_setup_msi(qlt_state_t *qlt)
 		}
 	}
 
-	(void) ddi_intr_get_cap(qlt->htable[0], &qlt->intr_cap);
+	(void) ddi_intr_get_cap(qlt->htable[0], &qlt->intr_cap);*/
 	qlt->intr_flags |= QLT_INTR_MSI;
 	return (DDI_SUCCESS);
 
 release_mutex:
 	qlt_destroy_mutex(qlt);
-release_intr:
-	for (i = 0; i < actual; i++)
-		(void) ddi_intr_free(qlt->htable[i]);
-free_mem:
-	kmem_free(qlt->htable, (uint_t)qlt->intr_size);
+//release_intr:
+	//for (i = 0; i < actual; i++)
+	//	(void) ddi_intr_free(qlt->htable[i]);
+//free_mem:
+	/*kmem_free(qlt->htable, (uint_t)qlt->intr_size);
 	qlt->htable = NULL;
-	qlt_release_intr(qlt);
+	qlt_release_intr(qlt);*/
 	return (ret);
 }
 
 static int
 qlt_setup_fixed(qlt_state_t *qlt)
 {
-	int count;
-	int actual;
+	//int count;
+	//int actual;
 	int ret;
-	int itype = DDI_INTR_TYPE_FIXED;
+	//int itype = DDI_INTR_TYPE_FIXED;
 
-	ret = ddi_intr_get_nintrs(qlt->dip, itype, &count);
+	//ret = ddi_intr_get_nintrs(qlt->dip, itype, &count);
 	/* Fixed interrupts can only have one interrupt. */
-	if (ret != DDI_SUCCESS || count != 1) {
+	/*if (ret != DDI_SUCCESS || count != 1) {
 		EL(qlt, "ddi_intr_get_nintrs status=%xh, count=%d\n", ret,
 		    count);
 		return (DDI_FAILURE);
-	}
+	}*/
 
-	qlt->intr_size = sizeof (ddi_intr_handle_t);
+	/*qlt->intr_size = sizeof (ddi_intr_handle_t);
 	qlt->htable = kmem_zalloc((uint_t)qlt->intr_size, KM_SLEEP);
 	ret = ddi_intr_alloc(qlt->dip, qlt->htable, itype,
 	    DDI_INTR_ALLOC_NORMAL, count, &actual, 0);
@@ -1472,44 +1488,46 @@ qlt_setup_fixed(qlt_state_t *qlt)
 		    actual);
 		ret = DDI_FAILURE;
 		goto free_mem;
-	}
+	}*/
 
-	qlt->intr_cnt = actual;
+	/*qlt->intr_cnt = actual;
 	ret =  ddi_intr_get_pri(qlt->htable[0], &qlt->intr_pri);
 	if (ret != DDI_SUCCESS) {
 		EL(qlt, "ddi_intr_get_pri status=%xh\n", ret);
 		ret = DDI_FAILURE;
 		goto release_intr;
-	}
+	}*/
 	qlt_init_mutex(qlt);
-	ret = ddi_intr_add_handler(qlt->htable[0], qlt_isr, qlt, 0);
+	/*ret = ddi_intr_add_handler(qlt->htable[0], qlt_isr, qlt, 0);
 	if (ret != DDI_SUCCESS) {
 		EL(qlt, "ddi_intr_add_handler status=%xh\n", ret);
 		goto release_mutex;
-	}
+	}*/
+	ret = request_irq(qlt->dip->irq, qlt_isr, IRQF_SHARED,
+	    QLA2XXX_DRIVER_NAME, qlt);
 
 	qlt->intr_flags |= QLT_INTR_FIXED;
 	return (DDI_SUCCESS);
 
-release_mutex:
+//release_mutex:
 	qlt_destroy_mutex(qlt);
-release_intr:
-	(void) ddi_intr_free(qlt->htable[0]);
-free_mem:
-	kmem_free(qlt->htable, (uint_t)qlt->intr_size);
+//release_intr:
+	//(void) ddi_intr_free(qlt->htable[0]);
+//free_mem:
+	/*kmem_free(qlt->htable, (uint_t)qlt->intr_size);
 	qlt->htable = NULL;
-	qlt_release_intr(qlt);
+	qlt_release_intr(qlt);*/
 	return (ret);
 }
 
 static int
 qlt_setup_interrupts(qlt_state_t *qlt)
 {
-	int itypes = 0;
+	//int itypes = 0;
 
 /*
  * x86 has a bug in the ddi_intr_block_enable/disable area (6562198).
- */
+ *//*
 #ifndef __sparc
 	if ((qlt_enable_msi != 0) || (qlt_enable_msix != 0)) {
 #endif
@@ -1526,7 +1544,7 @@ qlt_setup_interrupts(qlt_state_t *qlt)
 	}
 #ifndef __sparc
 	}
-#endif
+#endif*/
 	return (qlt_setup_fixed(qlt));
 }
 
@@ -1647,11 +1665,11 @@ qlt_vpd_lookup(qlt_state_t *qlt, uint8_t *opcode, uint8_t *bp,
 		}
 		/* copy the data back */
 		(void) strncpy((int8_t *)bp, (int8_t *)(vpd+3), (int64_t)len);
-		bp[len] = NULL;
+		bp[len] = 0;
 	} else {
 		/* error -- couldn't find tag */
-		bp[0] = NULL;
-		if (opcode[1] != NULL) {
+		bp[0] = 0;
+		if (opcode[1] != 0) {
 			EL(qlt, "unable to find tag '%s'\n", opcode);
 		} else {
 			EL(qlt, "unable to find tag '%xh'\n", opcode[0]);
@@ -2626,23 +2644,24 @@ link_info_retry:
 }
 
 static int
-qlt_open(dev_t *devp, int flag, int otype, cred_t *credp)
+//qlt_open(dev_t *devp, int flag, int otype, cred_t *credp)
+qlt_open(struct inode *inode, struct file *file)
 {
 	int		instance;
 	qlt_state_t	*qlt;
 
-	if (otype != OTYP_CHR) {
+	/*if (otype != OTYP_CHR) {
 		return (EINVAL);
-	}
+	}*/
 
 	/*
 	 * Since this is for debugging only, only allow root to issue ioctl now
 	 */
-	if (drv_priv(credp)) {
+	/*if (drv_priv(credp)) {
 		return (EPERM);
-	}
+	}*/
 
-	instance = (int)getminor(*devp);
+	//instance = (int)getminor(*devp);
 	qlt = ddi_get_soft_state(qlt_state, instance);
 	if (qlt == NULL) {
 		return (ENXIO);
@@ -2658,17 +2677,17 @@ qlt_open(dev_t *devp, int flag, int otype, cred_t *credp)
 		return (EBUSY);
 	}
 
-	if (flag & FEXCL) {
-		if (qlt->qlt_ioctl_flags & QLT_IOCTL_FLAG_OPEN) {
+	//if (flag & FEXCL) {
+	//	if (qlt->qlt_ioctl_flags & QLT_IOCTL_FLAG_OPEN) {
 			/*
 			 * Exclusive operation not possible
 			 * as it is already opened
 			 */
-			mutex_exit(&qlt->qlt_ioctl_lock);
-			return (EBUSY);
-		}
-		qlt->qlt_ioctl_flags |= QLT_IOCTL_FLAG_EXCL;
-	}
+	//		mutex_exit(&qlt->qlt_ioctl_lock);
+	//		return (EBUSY);
+	//	}
+	//	qlt->qlt_ioctl_flags |= QLT_IOCTL_FLAG_EXCL;
+	//}
 	qlt->qlt_ioctl_flags |= QLT_IOCTL_FLAG_OPEN;
 	mutex_exit(&qlt->qlt_ioctl_lock);
 
@@ -2677,16 +2696,17 @@ qlt_open(dev_t *devp, int flag, int otype, cred_t *credp)
 
 /* ARGSUSED */
 static int
-qlt_close(dev_t dev, int flag, int otype, cred_t *credp)
+//qlt_close(dev_t dev, int flag, int otype, cred_t *credp)
+qlt_close(struct inode *inode, struct file *file)
 {
 	int		instance;
 	qlt_state_t	*qlt;
 
-	if (otype != OTYP_CHR) {
+	/*if (otype != OTYP_CHR) {
 		return (EINVAL);
-	}
+	}*/
 
-	instance = (int)getminor(dev);
+	//instance = (int)getminor(dev);
 	qlt = ddi_get_soft_state(qlt_state, instance);
 	if (qlt == NULL) {
 		return (ENXIO);
@@ -2718,8 +2738,9 @@ qlt_close(dev_t dev, int flag, int otype, cred_t *credp)
  */
 /* ARGSUSED */
 static int
-qlt_ioctl(dev_t dev, int cmd, intptr_t data, int mode,
-    cred_t *credp, int *rval)
+//qlt_ioctl(dev_t dev, int cmd, intptr_t data, int mode,
+//    cred_t *credp, int *rval)
+qlt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	qlt_state_t	*qlt;
 	int		ret = 0;
@@ -2735,11 +2756,13 @@ qlt_ioctl(dev_t dev, int cmd, intptr_t data, int mode,
 	fct_status_t	st;
 	char		info[80];
 	fct_status_t	ret2;
+	intptr_t data = arg;
+	int mode=0;
 
-	if (drv_priv(credp) != 0)
-		return (EPERM);
+//	if (drv_priv(credp) != 0)/
+//		return (EPERM);
 
-	qlt = ddi_get_soft_state(qlt_state, (int32_t)getminor(dev));
+	qlt = ddi_get_soft_state(qlt_state, 0);
 	ret = stmf_copyin_iocdata(data, mode, &iocd, &ibuf, &obuf);
 	if (ret)
 		return (ret);
@@ -3721,7 +3744,7 @@ qlt_mailbox_command(qlt_state_t *qlt, mbox_cmd_t *mcp)
 	int	i;
 	char	info[80];
 
-	if (curthread->t_flag & T_INTR_THREAD) {
+	if (in_interrupt()) {
 		ASSERT(0);
 		return (QLT_MBOX_FAILED);
 	}
@@ -3809,8 +3832,8 @@ qlt_mbox_wait_loop:;
  * **SHOULD ONLY BE CALLED FROM INTERRUPT CONTEXT. DO NOT CALL ELSEWHERE**
  */
 /* ARGSUSED */
-static uint_t
-qlt_msix_resp_handler(caddr_t arg, caddr_t arg2)
+irqreturn_t
+qlt_msix_resp_handler(int irq, void *arg)
 {
 	qlt_state_t	*qlt = (qlt_state_t *)arg;
 	uint32_t	risc_status;
@@ -3830,7 +3853,7 @@ qlt_msix_resp_handler(caddr_t arg, caddr_t arg2)
 			REG_WR32(qlt, REG_HCCR,
 			    HCCR_CMD(CLEAR_RISC_TO_PCI_INTR));
 			mutex_exit(&qlt->mq_resp[qi].mq_lock);
-			return (DDI_INTR_UNCLAIMED);
+			return (IRQ_NONE);
 		}
 
 		qlt->mq_resp[qi].mq_ndx_from_fw =
@@ -3848,7 +3871,7 @@ qlt_msix_resp_handler(caddr_t arg, caddr_t arg2)
 			REG_WR32(qlt, REG_HCCR,
 			    HCCR_CMD(CLEAR_RISC_TO_PCI_INTR));
 			mutex_exit(&qlt->intr_lock);
-			return (DDI_INTR_UNCLAIMED);
+			return (IRQ_NONE);
 		}
 
 		qlt->atio_ndx_from_fw =
@@ -3863,7 +3886,7 @@ qlt_msix_resp_handler(caddr_t arg, caddr_t arg2)
 	if (risc_status & BIT_15) {
 		REG_WR32(qlt, REG_HCCR, HCCR_CMD(CLEAR_RISC_TO_PCI_INTR));
 	}
-	return (DDI_INTR_CLAIMED);
+	return (IRQ_HANDLED);
 }
 
 
@@ -3871,8 +3894,8 @@ qlt_msix_resp_handler(caddr_t arg, caddr_t arg2)
  * **SHOULD ONLY BE CALLED FROM INTERRUPT CONTEXT. DO NOT CALL ELSEWHERE**
  */
 /* ARGSUSED */
-static uint_t
-qlt_msix_default_handler(caddr_t arg, caddr_t arg2)
+irqreturn_t
+qlt_msix_default_handler(int irq, void *arg)
 {
 	qlt_state_t	*qlt = (qlt_state_t *)arg;
 	uint32_t	risc_status, intr_type;
@@ -3891,13 +3914,13 @@ qlt_msix_default_handler(caddr_t arg, caddr_t arg2)
 		 * of a interrupt after driver has grabbed the lock.
 		 */
 		if ((risc_status & BIT_15) == 0) {
-			return (DDI_INTR_UNCLAIMED);
+			return (IRQ_NONE);
 		} else {
 			/* try again */
 			drv_usecwait(10);
 			if (!mutex_tryenter(&qlt->intr_lock)) {
 				/* really bad! */
-				return (DDI_INTR_CLAIMED);
+				return (IRQ_HANDLED);
 			}
 		}
 	}
@@ -3912,7 +3935,7 @@ qlt_msix_default_handler(caddr_t arg, caddr_t arg2)
 		 * disabled mode handle it.
 		 */
 		mutex_exit(&qlt->intr_lock);
-		return (DDI_INTR_UNCLAIMED);
+		return (IRQ_NONE);
 	}
 
 	/* REG_WR32(qlt, REG_INTR_CTRL, 0); */
@@ -4181,15 +4204,15 @@ qlt_msix_default_handler(caddr_t arg, caddr_t arg2)
 	/* REG_WR32(qlt, REG_INTR_CTRL, ENABLE_RISC_INTR); */
 	mutex_exit(&qlt->intr_lock);
 
-	return (DDI_INTR_CLAIMED);
+	return (IRQ_HANDLED);
 }
 
 /*
  * **SHOULD ONLY BE CALLED FROM INTERRUPT CONTEXT. DO NOT CALL ELSEWHERE**
  */
 /* ARGSUSED */
-static uint_t
-qlt_isr(caddr_t arg, caddr_t arg2)
+irqreturn_t
+qlt_isr(int irq, void *arg)
 {
 	qlt_state_t	*qlt = (qlt_state_t *)arg;
 	uint32_t	risc_status, intr_type;
@@ -4210,12 +4233,12 @@ qlt_isr(caddr_t arg, caddr_t arg2)
 		 */
 		if (risc_status & BIT_15) {
 			drv_usecwait(10);
-			return (DDI_INTR_CLAIMED);
+			return (IRQ_HANDLED);
 		} else if (qlt->intr_sneak_counter) {
 			qlt->intr_sneak_counter--;
-			return (DDI_INTR_CLAIMED);
+			return (IRQ_HANDLED);
 		} else {
-			return (DDI_INTR_UNCLAIMED);
+			return (IRQ_NONE);
 		}
 	}
 	if (((risc_status & BIT_15) == 0) ||
@@ -4229,7 +4252,7 @@ qlt_isr(caddr_t arg, caddr_t arg2)
 		 * disabled mode handle it.
 		 */
 		mutex_exit(&qlt->intr_lock);
-		return (DDI_INTR_UNCLAIMED);
+		return (IRQ_NONE);
 	}
 
 	/*
@@ -4517,7 +4540,7 @@ intr_again:;
 		REG_WR32(qlt, REG_INTR_CTRL, ENABLE_RISC_INTR);
 	}
 
-	return (DDI_INTR_CLAIMED);
+	return (IRQ_HANDLED);
 }
 
 /* **************** NVRAM Functions ********************** */
@@ -4556,7 +4579,7 @@ qlt_read_flash_word(qlt_state_t *qlt, uint32_t faddr, uint32_t *bp)
 fct_status_t
 qlt_read_nvram(qlt_state_t *qlt)
 {
-	uint32_t index, addr, chksum;
+	uint32_t index, addr=0, chksum;
 	uint32_t val, *ptr;
 	fct_status_t ret;
 	qlt_nvram_t *nv;
@@ -4643,7 +4666,7 @@ qlt_read_nvram(qlt_state_t *qlt)
 fct_status_t
 qlt_read_vpd(qlt_state_t *qlt)
 {
-	uint32_t index, addr, chksum;
+	uint32_t index, addr=0, chksum;
 	uint32_t val, *ptr;
 	fct_status_t ret;
 
@@ -5444,6 +5467,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	uint16_t cookie_count;
 	uint32_t ent_cnt;
 	uint16_t qi;
+	qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
 
 	qi = qcmd->qid;
 
@@ -5453,10 +5477,13 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
 		flags = (uint16_t)(flags | 2);
 		qlt_dmem_dma_sync(dbuf, DDI_DMA_SYNC_FORDEV);
+		qsgl->handle_list->sc_list.nents = dma_map_sg(&qlt->dip->dev, 
+				qsgl->handle_list->sc_list.sgl, qsgl->handle_list->sc_list.orig_nents, DMA_TO_DEVICE);
 	} else {
 		flags = (uint16_t)(flags | 1);
+		qsgl->handle_list->sc_list.nents = dma_map_sg(&qlt->dip->dev, 
+				qsgl->handle_list->sc_list.sgl, qsgl->handle_list->sc_list.orig_nents, DMA_FROM_DEVICE);
 	}
-	dma_sync_sg_for_device(dev_info_to_device(qlt->dip), handle_list->sc_list.sgl, numbufs, DMA_BIDIRECTIONAL);
 
 	if (dbuf->db_flags & DB_SEND_STATUS_GOOD)
 		flags = (uint16_t)(flags | BIT_15);
@@ -5495,8 +5522,8 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 		uint8_t			*qptr;	/* qlt continuation segs */
 		uint16_t		cookie_resid;
 		uint16_t		cont_segs;
-		ddi_dma_cookie_t	cookie, *ckp;
-		struct sg_table * sc_list = (qlt_dma_sgl_t *(dbuf->db_port_private))->handle_list->sc_list;
+		//ddi_dma_cookie_t	cookie, *ckp;
+		struct sg_table * sc_list = &(((qlt_dma_sgl_t *)(dbuf->db_port_private))->handle_list->sc_list);
 
 		/*
 		 * See if the dma cookies are in simple array format.
@@ -5606,7 +5633,7 @@ qlt_send_status(qlt_state_t *qlt, fct_cmd_t *cmd)
 	uint8_t *req, *fcp_rsp_iu;
 	uint8_t *psd, sensbuf[24];		/* sense data */
 	uint16_t flags;
-	uint16_t scsi_status;
+	uint16_t scsi_status=0;
 	int use_mode2;
 	int ndx;
 	uint16_t qi;
@@ -9516,91 +9543,6 @@ qlt_el_msg(qlt_state_t *qlt, const char *fn, int ce, ...)
 	}
 }
 
-static int
-qlt_read_int_prop(qlt_state_t *qlt, char *prop, int defval)
-{
-	return (ddi_getprop(DDI_DEV_T_ANY, qlt->dip,
-	    DDI_PROP_DONTPASS | DDI_PROP_CANSLEEP, prop, defval));
-}
-
-static int
-qlt_read_string_prop(qlt_state_t *qlt, char *prop, char **prop_val)
-{
-	return (ddi_prop_lookup_string(DDI_DEV_T_ANY, qlt->dip,
-	    DDI_PROP_DONTPASS, prop, prop_val));
-}
-
-static int
-qlt_read_int_instance_prop(qlt_state_t *qlt, char *prop, int defval)
-{
-	char		inst_prop[256];
-	int		val;
-
-	/*
-	 * Get adapter instance specific parameters. If the instance
-	 * specific parameter isn't there, try the global parameter.
-	 */
-
-	(void) sprintf(inst_prop, "hba%d-%s", qlt->instance, prop);
-
-	if ((val = qlt_read_int_prop(qlt, inst_prop, defval)) == defval) {
-		val = qlt_read_int_prop(qlt, prop, defval);
-	}
-
-	return (val);
-}
-
-static int
-qlt_read_string_instance_prop(qlt_state_t *qlt, char *prop, char **prop_val)
-{
-	char		instance_prop[256];
-
-	/* Get adapter instance specific parameter. */
-	(void) sprintf(instance_prop, "hba%d-%s", qlt->instance, prop);
-	return (qlt_read_string_prop(qlt, instance_prop, prop_val));
-}
-
-static int
-qlt_convert_string_to_ull(char *prop, int radix,
-    u_longlong_t *result)
-{
-	return (ddi_strtoull((const char *)prop, 0, radix, result));
-}
-
-static boolean_t
-qlt_wwn_overload_prop(qlt_state_t *qlt)
-{
-	char		*prop_val = 0;
-	int		rval;
-	int		radix;
-	u_longlong_t	wwnn = 0, wwpn = 0;
-	boolean_t	overloaded = FALSE;
-
-	radix = 16;
-
-	rval = qlt_read_string_instance_prop(qlt, "adapter-wwnn", &prop_val);
-	if (rval == DDI_PROP_SUCCESS) {
-		rval = qlt_convert_string_to_ull(prop_val, radix, &wwnn);
-	}
-	if (rval == DDI_PROP_SUCCESS) {
-		rval = qlt_read_string_instance_prop(qlt, "adapter-wwpn",
-		    &prop_val);
-		if (rval == DDI_PROP_SUCCESS) {
-			rval = qlt_convert_string_to_ull(prop_val, radix,
-			    &wwpn);
-		}
-	}
-	if (rval == DDI_PROP_SUCCESS) {
-		overloaded = TRUE;
-		/* Overload the current node/port name nvram copy */
-		bcopy((char *)&wwnn, qlt->nvram->node_name, 8);
-		BIG_ENDIAN_64(qlt->nvram->node_name);
-		bcopy((char *)&wwpn, qlt->nvram->port_name, 8);
-		BIG_ENDIAN_64(qlt->nvram->port_name);
-	}
-	return (overloaded);
-}
-
 /*
  * prop_text - Return a pointer to a string describing the status
  *
@@ -9766,52 +9708,53 @@ qlt_raw_rd_risc_ram_word(qlt_state_t *qlt, uint32_t risc_address,
 	}
 	return (ret);
 }
+int extended_logging = 0;
+module_param(extended_logging, int, S_IRUGO);
+int bucketcnt2k  = 0;
+module_param(bucketcnt2k, int, S_IRUGO);
+int bucketcnt8k  = 0;
+module_param(bucketcnt8k, int, S_IRUGO);
+int bucketcnt64k = 0;
+module_param(bucketcnt64k, int, S_IRUGO);
+int bucketcnt128k = 0;
+module_param(bucketcnt128k, int, S_IRUGO);
+int bucketcnt256k = 0;
+module_param(bucketcnt256k, int, S_IRUGO);
 
 static void
 qlt_properties(qlt_state_t *qlt)
 {
-	int32_t		cnt = 0;
-	int32_t		defval = 0xffff;
 
-	if (qlt_wwn_overload_prop(qlt) == TRUE) {
-		EL(qlt, "wwnn overloaded.\n");
-	}
 
 	/* configure extended logging from conf file */
-	if ((cnt = qlt_read_int_instance_prop(qlt, "extended-logging",
-	    defval)) != defval) {
-		qlt->qlt_eel_level = (uint8_t)(cnt & 0xff);
-		EL(qlt, "extended error logging=%d\n", cnt);
+
+	if (extended_logging!=0) {
+		qlt->qlt_eel_level = (uint8_t)(extended_logging & 0xff);
 	}
 
-	if ((cnt = qlt_read_int_instance_prop(qlt, "bucketcnt2k", defval)) !=
-	    defval) {
-		qlt->qlt_bucketcnt[0] = cnt;
-		EL(qlt, "2k bucket o/l=%d\n", cnt);
+
+	if (bucketcnt2k!=0) {
+		qlt->qlt_bucketcnt[0] = bucketcnt2k;
 	}
 
-	if ((cnt = qlt_read_int_instance_prop(qlt, "bucketcnt8k", defval)) !=
-	    defval) {
-		qlt->qlt_bucketcnt[1] = cnt;
-		EL(qlt, "8k bucket o/l=%d\n", cnt);
+
+	if (bucketcnt8k!=0) {
+		qlt->qlt_bucketcnt[0] = bucketcnt8k;
 	}
 
-	if ((cnt = qlt_read_int_instance_prop(qlt, "bucketcnt64k", defval)) !=
-	    defval) {
-		qlt->qlt_bucketcnt[2] = cnt;
-		EL(qlt, "64k bucket o/l=%d\n", cnt);
+
+	if (bucketcnt64k!=0) {
+		qlt->qlt_bucketcnt[0] = bucketcnt64k;
 	}
 
-	if ((cnt = qlt_read_int_instance_prop(qlt, "bucketcnt128k", defval)) !=
-	    defval) {
-		qlt->qlt_bucketcnt[3] = cnt;
-		EL(qlt, "128k bucket o/l=%d\n", cnt);
+
+	if (bucketcnt128k!=0) {
+		qlt->qlt_bucketcnt[0] = bucketcnt128k;
 	}
 
-	if ((cnt = qlt_read_int_instance_prop(qlt, "bucketcnt256", defval)) !=
-	    defval) {
-		qlt->qlt_bucketcnt[4] = cnt;
-		EL(qlt, "256k bucket o/l=%d\n", cnt);
+
+	if (bucketcnt256k!=0) {
+		qlt->qlt_bucketcnt[0] = bucketcnt256k;
 	}
 }
 
@@ -10681,7 +10624,8 @@ qlt_27xx_dmp_parse_template(qlt_state_t *qlt, qlt_dt_hdr_t *template_hdr,
 		return (0);
 	}
 	if (dbuff != NULL) {
-		(void) drv_getparm(TIME, &time);
+		//(void) drv_getparm(TIME, &time);
+		time = current_kernel_time().tv_sec;
 		template_hdr->driver_timestamp = LSD(time);
 	}
 

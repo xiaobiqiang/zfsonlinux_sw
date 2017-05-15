@@ -128,7 +128,7 @@ stmf_status_t qlt_dma_setup_dbuf(fct_local_port_t *port,
 void qlt_dma_teardown_dbuf(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf);
 void qlt_dmem_dma_sync(stmf_data_buf_t *dbuf, uint_t sync_type);
 uint8_t qlt_get_iocb_count(uint32_t cookie_cnt);
-uint64_t qlt_ddi_vtop(caddr_t vaddr);
+//uint64_t qlt_ddi_vtop(caddr_t vaddr);
 /*
  * XXX move the following into the fct layer
  */

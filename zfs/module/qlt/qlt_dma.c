@@ -445,18 +445,7 @@ qlt_dmem_dma_sync(stmf_data_buf_t *dbuf, uint_t sync_type)
 /*
  * A very lite version of ddi_dma_addr_bind_handle()
  */
-uint64_t
-qlt_ddi_vtop(caddr_t vaddr)
-{
-	uint64_t offset, paddr;
-	pfn_t pfn;
 
-	pfn = hat_getpfnum(kas.a_hat, vaddr);
-	ASSERT(pfn != PFN_INVALID && pfn != PFN_SUSPENDED);
-	offset = ((uintptr_t)vaddr) & MMU_PAGEOFFSET;
-	paddr = mmu_ptob(pfn);
-	return (paddr+offset);
-}
 
 static ddi_dma_attr_t 	qlt_sgl_dma_attr = {
 	DMA_ATTR_V0,		/* dma_attr_version */
@@ -474,78 +463,23 @@ static ddi_dma_attr_t 	qlt_sgl_dma_attr = {
 };
 
 /*
- * Allocate a qlt_dma_handle container and fill it with a ddi_dma_handle
-
-static qlt_dma_handle_t *
-qlt_dma_alloc_handle(qlt_state_t *qlt)
-{
-	ddi_dma_handle_t ddi_handle;
-	qlt_dma_handle_t *qlt_handle;
-	int rv;
-
-	rv = ddi_dma_alloc_handle(qlt->dip, &qlt_sgl_dma_attr,
-	    DDI_DMA_SLEEP, 0, &ddi_handle);
-	if (rv != DDI_SUCCESS) {
-		EL(qlt, "ddi_dma_alloc_handle status=%xh\n", rv);
-		return (NULL);
-	}
-	qlt_handle = kmem_zalloc(sizeof (qlt_dma_handle_t), KM_SLEEP);
-	qlt_handle->dma_handle = ddi_handle;
-	return (qlt_handle);
-} */
-
-/*
  * Allocate a list of qlt_dma_handle containers from the free list
  */
 static qlt_dma_handle_t *
 qlt_dma_alloc_handle_list(qlt_state_t *qlt, int handle_count)
 {
-	qlt_dma_handle_pool_t	*pool;
-	qlt_dma_handle_t	*tmp_handle, *first_handle, *last_handle;
-	int i;
+	qlt_dma_handle_t	*tmp_handle;
 
-	/*
-	 * Make sure the free list can satisfy the request.
-	 * Once the free list is primed, it should satisfy most requests.
-	 * XXX Should there be a limit on pool size?
-	 */
-	/*pool = qlt->qlt_dma_handle_pool;
-	mutex_enter(&pool->pool_lock);
-	while (handle_count > pool->num_free) {
-		mutex_exit(&pool->pool_lock);
-		if ((tmp_handle = qlt_dma_alloc_handle(qlt)) == NULL)
-			return (NULL);
-		mutex_enter(&pool->pool_lock);
-		tmp_handle->next = pool->free_list;
-		pool->free_list = tmp_handle;
-		pool->num_free++;
-		pool->num_total++;
-	}*/
-
-	/*
-	 * The free list lock is held and the list is large enough to
-	 * satisfy this request. Run down the freelist and snip off
-	 * the number of elements needed for this request.
-	 */
-	/*first_handle = pool->free_list;
-	tmp_handle = first_handle;
-	for (i = 0; i < handle_count; i++) {
-		last_handle = tmp_handle;
-		tmp_handle = tmp_handle->next;
-	}
-	pool->free_list = tmp_handle;
-	pool->num_free -= handle_count;
-	mutex_exit(&pool->pool_lock);
-	last_handle->next = NULL;	*//* sanity */
 	tmp_handle = kmem_zalloc(sizeof (qlt_dma_handle_t), KM_SLEEP);
 	if (tmp_handle == NULL)
 		return NULL;
-	tmp_handle->sc_list.nents = handle_count;
+	tmp_handle->sc_list.nents = tmp_handle->sc_list.orig_nents = handle_count;
 	tmp_handle->sc_list.sgl = kmem_zalloc(sizeof(struct scatterlist) * handle_count, KM_SLEEP);
 	if (tmp_handle->sc_list.sgl == NULL) {
 		kmem_free(tmp_handle, sizeof(qlt_dma_handle_t));
 		return NULL;
 	}
+	sg_init_table(tmp_handle->sc_list.sgl, tmp_handle->sc_list.orig_nents);
 	return tmp_handle;
 }
 
@@ -613,9 +547,9 @@ ddi_dma_cookie_t
 
 	ASSERT(dbuf->db_flags & DB_LU_DATA_BUF);
 
-	/*if (qsgl->cookie_prefetched)
+	if (qsgl->cookie_prefetched)
 		return (&qsgl->cookie[0]);
-	else*/
+	else
 		return (NULL);
 }
 
@@ -703,37 +637,6 @@ qlt_dma_setup_dbuf(fct_local_port_t *port, stmf_data_buf_t *dbuf,
 	cookie_count = 0;
 	for (i = 0; i < numbufs; i++, sglp++) {
 		sg_set_buf(handle_list->sc_list.sgl+i, sglp->seg_addr, sglp->seg_length);
-		/*
-		 * Bind this sgl entry to a DDI dma handle
-		 */
-		/*if ((rv = ddi_dma_addr_bind_handle(
-		    th->dma_handle,
-		    NULL,
-		    (caddr_t)(sglp->seg_addr),
-		    (size_t)sglp->seg_length,
-		    DDI_DMA_RDWR | DDI_DMA_STREAMING,
-		    DDI_DMA_DONTWAIT,
-		    NULL,
-		    &th->first_cookie,
-		    &th->num_cookies)) != DDI_DMA_MAPPED) {
-			cmn_err(CE_NOTE, "ddi_dma_addr_bind_handle %d", rv);
-			qlt_dma_free_handles(qlt, handle_list);
-			return (STMF_FAILURE);
-		}*/
-
-		/*
-		 * Add to total cookie count
-		 */
-		//cookie_count += th->num_cookies;
-		//if (cookie_count > QLT_DMA_SG_LIST_LENGTH) {
-			/*
-			 * Request exceeds HBA limit
-			 */
-		//	qlt_dma_free_handles(qlt, handle_list);
-		//	return (STMF_FAILURE);
-		//}
-		/* move to next ddi_dma_handle */
-		//th = th->next;
 	}
 
 	/*
@@ -745,7 +648,7 @@ qlt_dma_setup_dbuf(fct_local_port_t *port, stmf_data_buf_t *dbuf,
 		/* one extra ddi_dma_cookie allocated for alignment padding */
 		qsize += cookie_count * sizeof (ddi_dma_cookie_t);
 	}
-	qsgl = kmem_zalloc(qsize, KM_SLEEP);
+	qsgl = kmem_alloc(qsize, KM_SLEEP);
 	/*
 	 * Fill in the sgl
 	 */
@@ -757,13 +660,11 @@ qlt_dma_setup_dbuf(fct_local_port_t *port, stmf_data_buf_t *dbuf,
 	qsgl->cookie_next_fetch = 0;
 	qsgl->handle_list = handle_list;
 	qsgl->handle_next_fetch = handle_list;
-	dma_map_sg(dev_info_to_device(qlt->dip), handle_list->sc_list.sgl, numbufs, DMA_BIDIRECTIONAL);
-	dma_sync_sg_for_cpu(dev_info_to_device(qlt->dip), handle_list->sc_list.sgl, numbufs, DMA_BIDIRECTIONAL);
-	/*if (prefetch) {
-		//
-		// traverse handle list and move cookies to db_port_private
-		//
-		th = handle_list;
+	//if (prefetch) {
+		/*
+		 * traverse handle list and move cookies to db_port_private
+		 */
+	/*	th = handle_list;
 		cookie_p = &qsgl->cookie[0];
 		for (i = 0; i < numbufs; i++) {
 			uint_t cc = th->num_cookies;
@@ -794,8 +695,6 @@ qlt_dma_teardown_dbuf(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
 	 * unbind and free the dma handles
 	 */
 	if (qsgl->handle_list) {
-		/* go through ddi handle list */
-		//qlt_dma_free_handles(qlt, qsgl->handle_list);
 		if (qsgl->handle_list->sc_list.sgl) {
 			dma_unmap_sg(dev_info_to_device(qlt->dip), qsgl->handle_list->sc_list.sgl, 
 					qsgl->handle_list->sc_list.nents, DMA_BIDIRECTIONAL);

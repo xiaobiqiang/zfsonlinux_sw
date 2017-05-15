@@ -983,11 +983,11 @@ fct_alloc(fct_struct_id_t struct_id, int additional_size, int flags)
 		return (NULL);
 
 //#ifdef SOLARIS
-//	if ((curthread->t_flag & T_INTR_THREAD) || (flags & AF_FORCE_NOSLEEP)) {
+	if ((in_interrupt()) || (flags & AF_FORCE_NOSLEEP)) {
 		kmem_flag = KM_NOSLEEP;
-//	} else {
-//		kmem_flag = KM_SLEEP;
-//	}
+	} else {
+		kmem_flag = KM_SLEEP;
+	}
 //#endif
 	additional_size = (additional_size + 7) & (~7);
 	fct_size = fct_sizes[struct_id].shared +

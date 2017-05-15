@@ -56,12 +56,12 @@ typedef	void *opaque_t;
 #include <sys/systm.h>
 #include <sys/cmn_err.h>
 #include <sys/debug.h>
-#include <sys/devops.h>
+//#include <sys/devops.h>
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/stat.h>
-#include <sys/sunndi.h>
-#include <sys/devctl.h>
+//#include <sys/sunndi.h>
+//#include <sys/devctl.h>
 #endif	/* _KERNEL */
 
 /*

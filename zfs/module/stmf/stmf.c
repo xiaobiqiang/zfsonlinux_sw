@@ -434,24 +434,24 @@ stmf_fini(void)
 	void			*avl_dest_cookie = NULL;
 
 	if (stmf_state.stmf_service_running)
-		return (EBUSY);
+		return;
 	if ((!stmf_allow_modunload) &&
 	    (stmf_state.stmf_config_state != STMF_CONFIG_NONE)) {
-		return (EBUSY);
+		return;
 	}
 	if (stmf_state.stmf_nlps || stmf_state.stmf_npps) {
-		return (EBUSY);
+		return;
 	}
 	if (stmf_dlun_fini() != STMF_SUCCESS)
-		return (EBUSY);
+		return;
 	if (stmf_worker_fini() != STMF_SUCCESS) {
 		stmf_dlun_init();
-		return (EBUSY);
+		return;
 	}
 	if (stmf_svc_fini() != STMF_SUCCESS) {
 		stmf_dlun_init();
 		stmf_worker_init();
-		return (EBUSY);
+		return;
 	}
 	
 	stmf_view_clear_config();
@@ -476,7 +476,7 @@ stmf_fini(void)
 	mutex_destroy(&stmf_state.stmf_lock);
 	cv_destroy(&stmf_state.stmf_cv);
 	misc_deregister(&stmf_misc);
-	return (ret);
+	return;
 }
 
 static int 
