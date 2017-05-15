@@ -27,30 +27,35 @@
 #include <linux/hdreg.h>
 
 /*
+ *************************************************************************
  * linux disk info interface
+ *************************************************************************
  */
 #define DEFAULT_DISK_INFO_PATH	"/proc/partitions"
 #define DEFAULT_PATH			"/dev/"
-#define FDISK_CMD				"fdisk -l "
-#define DISK_NAME		100
-#define READ_NAME		50
-#define CAP_LEN			11	
-#define DISK_FORMAT		15
-#define DISK_SERIAL		100
+#define SAS2IRCU		"sas2ircu 0 display"
+#define SLOT			"Slot"
+#define ENCLOSURE		"Enclosure"
+#define SERIALNO		"Serial"
+#define CMD_TMP_LEN		1024
+#define ARGS_LEN		100
+#define DEV_LEN			50
+#define PARAM_LEN		10
 #define	INQ_REPLY_LEN	96
 #define	INQ_CMD_LEN		6
-#define	POPEN_CMD		50
-#define	POPEN_LINE		100
 
 typedef struct disk_info {
 	int		dk_major;
 	int		dk_minor;
+	int		dk_enclosure;
+	int		dk_slot;
+	int		dk_is_sys;
 	long	dk_gsize;
 	long	dk_blocks;
-	char	dk_vendor[10];
-	char	dk_busy[10];
-	char	dk_name[DISK_NAME];
-	char	dk_serial[DISK_SERIAL];
+	char	dk_vendor[PARAM_LEN];
+	char	dk_busy[PARAM_LEN];
+	char	dk_name[ARGS_LEN];
+	char	dk_serial[ARGS_LEN];
 	struct disk_info *next;
 } disk_info_t;
 
@@ -63,6 +68,40 @@ static xmlNodePtr create_xml_file();
 static void close_xml_file();
 static void create_lun_node(disk_info_t *di);
 
+static void
+get_system_disk(char *name)
+{
+	int ret = -1;
+	FILE *fp = -1;
+	char args[ARGS_LEN] = {0};
+	char dev[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	fp = fopen("/etc/mtab", "r");
+	if (fp == NULL) {
+		return; 
+	}
+	
+	while (fgets(tmp, sizeof(tmp), fp)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r') 
+			continue;
+		
+		sscanf(tmp, "%s", dev);
+		if (strncmp(dev, "/dev/sd", 7) == 0) {
+			sscanf(tmp, "%*s %s", args);
+			if (strcasecmp(args, "/") == 0 || strcasecmp(args, "/boot") == 0
+				|| strcasecmp(args, "/home") == 0) {
+				memcpy(name, dev, 8);
+				break;
+			}
+		} else {
+			continue;
+		}
+	}
+
+	(void) fclose(fp);
+	return;
+}
 	
 static void
 get_scsi_gsize(uint64_t blocks)
@@ -72,42 +111,110 @@ get_scsi_gsize(uint64_t blocks)
 		if (bs / 1024 > 1024)
 			printf("%-3.2lf T\n", (bs / 1024) / 1024);
 		else
-			printf("%-3.2lf GB\n",bs / 1024);
+			printf("%-3.2lfGB\n",bs / 1024);
 	} else {
-		printf("%-3.2lf MB\n",bs);
+		printf("%-3.2lfMB\n",bs);
 	}
 
 	return;
 }
 
-static int
-get_scsi_pool(disk_info_t *di)
+void print_info(disk_info_t *di, int count)
 {
-	FILE *fp;
-	int len = 0;
-	char *cstr = NULL;
-	char *buf[1024] = {0};
-	char *name[DISK_NAME] = {0};
+	if (di->dk_is_sys == 1) {
+		strcat(di->dk_name, " [system]");
+	}
 
-	fp = popen("blkid","r");
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		sscanf(buf,"%8s",name);
-		cstr = strstr(buf, "TYPE");
-		if (strncasecmp(di->dk_name, name, 8) == 0 && cstr != NULL) {
-			memcpy(di->dk_busy, "busy", 4);
-			return (1);
+	(void) printf("%3d. %-20s %-5s %20s %8s %3d %3d ", count,
+			di->dk_name,di->dk_vendor,di->dk_serial,di->dk_busy,
+			di->dk_enclosure, di->dk_slot);
+
+	(void) get_scsi_gsize(di->dk_blocks);
+
+	return;
+}
+
+static int
+get_scsi_slot(disk_info_t *di)
+{
+	FILE *fd = -1;
+	int len = -1;
+	int slot = -1;
+	int enclosure = -1;
+	char value_sn[ARGS_LEN] = {0};
+	char args[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	len = strlen(di->dk_name);
+	if (di->dk_name[len -1] >= '0' &&
+		di->dk_name[len - 1] <= '9')
+		return (0);
+
+	fd = popen(SAS2IRCU, "r");
+	if (fd == NULL)
+		return (0);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
+			continue;
+
+		sscanf(tmp, "%s", args);	
+		if (strcasecmp(args, ENCLOSURE) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &enclosure);
+		} else if (strcasecmp(args, SLOT) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &slot);
+		} else if (strcasecmp(args, SERIALNO) == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_sn);
+			if (di->dk_serial != NULL && slot != -1 && value_sn != -1
+				&& strcasestr(di->dk_serial, value_sn) != NULL) {
+				di->dk_enclosure = enclosure;
+				di->dk_slot = slot;
+			} else {
+				slot = -1;
+				enclosure = -1;
+			}
 		}
 	}
 
-	memcpy(di->dk_busy, "free", 4);
+	pclose(fd);
 	return (1);
 }
 
-void print_info(disk_info_t *di, int count)
+static void
+get_scsi_status(disk_info_t *di)
 {
-	printf("%3d. %-15s %-8s %-20s %8s  ", count, di->dk_name, di->dk_vendor, di->dk_serial,
-			di->dk_busy);
-	get_scsi_gsize(di->dk_blocks);
+	int i = 0;
+	int fd = -1;
+	int err = -1;
+	int count = 0;
+	struct dk_gpt *vtoc = NULL;
+
+	if (di->dk_is_sys == 1) {
+		memcpy(di->dk_busy, "busy", 4);
+		return; 
+	}
+
+	fd = open(di->dk_name, O_RDWR|O_DIRECT);
+	if (fd > 0) {
+		err = efi_alloc_and_read(fd, &vtoc);
+		if (err >= 0) {
+			for (i = 0; i < vtoc->efi_nparts; i++) {
+				if (vtoc->efi_parts[i].p_size != 0) {
+					count = i;
+					break;
+				}
+			}
+		}
+	}
+
+	if (count == 8)
+		memcpy(di->dk_busy, "free", 4);
+	else
+		memcpy(di->dk_busy, "busy", 4);
+
+	efi_free(vtoc);
+	(void) close(fd);
+	return;
 }
 
 static int 
@@ -244,14 +351,16 @@ static char *disk_info_find_value(disk_info_t *di, int type)
 static void disk_info_free(disk_table_t *tb)
 {
 	int i = 0;
+	disk_info_t *temp = NULL;
 	disk_info_t *cur = tb->next;
 
 	for (i = 0; i < tb->total; i++) {
 		if (cur == NULL)
 			break;
 
-		kmem_free(cur, sizeof(disk_info_t));
-		cur = cur->next;
+		temp = cur->next;
+		free(cur);
+		cur = temp;
 	}
 }
 
@@ -310,8 +419,9 @@ int list_disks(int all)
 {
 	int len = 0;
 	int count = 0;
-	char line[DISK_NAME] = {0};
-	char name[READ_NAME] = {0};
+	char line[ARGS_LEN] = {0};
+	char name[DEV_LEN] = {0};
+	char sysdisk[ARGS_LEN] = {0};
 	disk_info_t di;
 
 	FILE *fd = fopen(DEFAULT_DISK_INFO_PATH, "r");
@@ -354,12 +464,19 @@ int list_disks(int all)
 		di_tb.total++;
 	}
 
+	(void) get_system_disk(sysdisk);
+
 	di_cur = di_tb.next;
 	for (i = 0; i < di_tb.total; i++)
 	{
+		if (strncmp(di_cur->dk_name, sysdisk, 8) == 0)
+			di_cur->dk_is_sys = 1;
+
 		get_scsi_vendor(di_cur);
 		get_scsi_serial(di_cur);
-		get_scsi_pool(di_cur);
+		get_scsi_status(di_cur);
+		get_scsi_slot(di_cur);
+
 		di_cur = di_cur->next;
 	}
 
@@ -375,22 +492,22 @@ int list_disks(int all)
 static void disk_init_efi(char *path)
 {
 	int fd, ret, i;
-	dk_gpt_t *table;
+	struct dk_gpt *table;
 
-	fd = open(path, O_RDONLY|O_DIRECT);
+	fd = open(path, O_RDWR|O_DIRECT);
 	if (fd < 0) {
 		syslog(LOG_ERR, "disk_init: open <%s> fails",path);
 		return;
 	}
-
+	
 	ret = efi_alloc_and_init(fd, EFI_NUMPAR, &table);
-	if (ret != 0) {
+	if (ret < 0) {
 		syslog(LOG_ERR, "disk_init: get disk table <%s> fails",path);
 		(void) close(fd);
 		return;
 	}
 
-	for (i = 0; i < EFI_NUMPAR; i++) {
+	for (i = 0; i < 8; i++) {
 		table->efi_parts[i].p_start = 0;
 		table->efi_parts[i].p_size = 0;
 		table->efi_parts[i].p_tag = V_UNASSIGNED;
@@ -401,15 +518,19 @@ static void disk_init_efi(char *path)
 	table->efi_parts[8].p_tag = V_RESERVED;
 
 	ret = efi_write(fd, table);
-	if (ret != 0) {
+	if (ret < 0) {
 		syslog(LOG_ERR, "Destroy devs: write   disk table  (%s) fails", path);
 	}
-	efi_free(table);
 	(void) close(fd);
+	efi_free(table);
 
 	return;
 }
-/* end disk info interface */
+/*
+ ******************************************************************************************
+ * end disk info interface
+ ******************************************************************************************
+ */
 
 #define	OPTION_LETTERS "d:i:s:p:g:o:x"
 #define	DISK_NAME_OPTION    'd'
@@ -930,12 +1051,13 @@ static int disk_analyze_partition(const char *dev)
 	zpool_handle_t	*zhp;
 	libzfs_handle_t *tmp_gzfs;
 	nvlist_t *nvroot;
-
+#if 0
 	bzero(dev_path,256);
 	if (strncmp(dev, "/dev/rdsk/", 10) != 0){
 		printf("can't find the disk please check it\n");
 		return c;
 	}
+#endif
 	
 	/* get en_id & slot_id */
 	ret = disk_get_enid_slotid(dev,&en_id,&slot_id);
@@ -1583,10 +1705,17 @@ disk_init(slice_req_t *req)
 	int status;
 	zpool_stamp_t *stamp = NULL;
 	zpool_stamp_t *stamp_tmp = NULL;
+	char args[ARGS_LEN] = {0};
 	
 	if (status = get_disk_name(req, SUBC_INIT))
 		return (status);
 	
+	(void) get_system_disk(args);
+	if (strncmp(args, req->disk_name, 8) == 0) {
+		printf("sorry, this is system disk!\n");
+		return (-1); 
+	}
+
 	/*
 	 * Initialize zfs label info
 	 */
@@ -1639,7 +1768,6 @@ disk_init(slice_req_t *req)
 		free(stamp);
 		
 	}
-	syslog(LOG_ERR,"disk init  %s",req->disk_name);
 	free(stamp_tmp);
 	//system("/usr/sbin/devfsadm");
 	return (0);
@@ -1770,7 +1898,7 @@ static int disk_mark(slice_req_t *req)
 	if (stamp != NULL) {
 		bzero(stamp, sizeof(zpool_stamp_t));
 		stamp->para.company_name = COMPANY_NAME;
-		ret=zpool_write_dev_stamp_mark(buffer, stamp);
+		ret=zpool_write_dev_stamp_mark(req->disk_name, stamp);
 		free(stamp);
 	}
 	if(ret)
