@@ -4892,12 +4892,13 @@ zfs_ioc_get_mirror(zfs_cmd_t *zc)
 
 extern void zfs_mirror_stop_watchdog_thread(void);
 extern void cluster_san_hb_stop(void);
-extern int zfs_mirror_tx_speed_data(char *buf, size_t len);
+extern int zfs_mirror_tx_speed_data(char *buf, size_t len, boolean_t need_reply);
 
 static int
 zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
 {
 	uint64_t bs, cnt;
+	boolean_t need_reply;
 	void *buf;
 	uint64_t *index;
 	uint64_t i;
@@ -4907,6 +4908,8 @@ zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
 	bs = zc->zc_guid;
 	/* block cnt */
 	cnt = zc->zc_cookie;
+	/* need reply */
+	need_reply = zc->zc_simple;
 
 	if (bs > 1048576) {
 		printk("%s: bs too big\n", __func__);
@@ -4927,7 +4930,7 @@ zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
 	for (i = 0; i < cnt; i++) {
 		*index = i;
 		/* FIXME: send msg */
-		ret = zfs_mirror_tx_speed_data(buf, bs);
+		ret = zfs_mirror_tx_speed_data(buf, bs, need_reply);
 		if (ret) {
 			printk("%s: send data failed: %d\n", __func__, ret);
 			break;

@@ -1790,7 +1790,7 @@ zfs_mirror_host_fini(void)
 }
 
 int
-zfs_mirror_tx_speed_data(char *buf, size_t len)
+zfs_mirror_tx_speed_data(char *buf, size_t len, boolean_t need_reply)
 {
     cluster_san_hostinfo_t *cshi = NULL;
     zfs_mirror_msg_header_t msg_head;
@@ -1818,7 +1818,7 @@ zfs_mirror_tx_speed_data(char *buf, size_t len)
     msg_head.msg_type = ZFS_MIRROR_SPEED_TEST;
     ret = cluster_san_host_send(cshi, (void *)buf, len, &msg_head,
 		    sizeof(zfs_mirror_msg_header_t),
-		    CLUSTER_SAN_MSGTYPE_ZFS_MIRROR, 0, B_FALSE, 0);
+		    CLUSTER_SAN_MSGTYPE_ZFS_MIRROR, 0, need_reply, 0);
     cluster_san_hostinfo_rele(cshi);
 
     return ret;
