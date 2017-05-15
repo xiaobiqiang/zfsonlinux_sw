@@ -778,7 +778,7 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
 	mp = kzalloc(sizeof(mblk_t), GFP_ATOMIC);
 	mp->skb = skb;
-	printk("%s %d: wake up ctp_mac_rx_worker\n", __func__, __LINE__);
+	POSITION("wake up ctp_mac_rx_worker");
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
 		
 out:

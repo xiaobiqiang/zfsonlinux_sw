@@ -49,7 +49,7 @@ kmutex_t clustersan_lock;
 krwlock_t clustersan_rwlock;
 cluster_san_t *clustersan = NULL;
 
-uint32_t cluster_target_tran_work_ndefault = 1;
+uint32_t cluster_target_tran_work_ndefault = 0;
 uint64_t cluster_target_broadcast_index = 0;
 
 uint32_t cluster_target_session_ntranwork = 1;
@@ -3500,6 +3500,7 @@ int cts_send_wait(cluster_target_session_t *cts,
 	mutex_init(&mtx, NULL, MUTEX_DRIVER, NULL);
 	cv_init(&cv, NULL, CV_DRIVER, NULL);
 
+	/* FIXME: wait should be 1 */
 	ret = cts_tran_entry(cts, data_array, cnt, pri, 1, &cv, &mtx);
 
 	mutex_destroy(&mtx);
@@ -4318,7 +4319,7 @@ static int cluster_target_tran_worker_entry(
 	int i;
 	int ret = 0;
 	cluster_target_tran_node_t *tran_node;
-	cluster_target_tran_node_t *tran_wait_node;
+	cluster_target_tran_node_t *tran_wait_node = NULL;
 	list_t tran_list;
 
 	list_create(&tran_list, sizeof(cluster_target_tran_node_t),
@@ -4593,8 +4594,6 @@ void cluster_san_broadcast_send(
 	}
 	rw_exit(&clustersan_rwlock);
 }
-#define	ENTRY	do {printk("%s ENTER %d\n", __func__, __LINE__);} while (0)
-#define	EXIT	do {printk("%s EXIT %d\n", __func__, __LINE__);} while (0)
 
 int cluster_san_host_send(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
