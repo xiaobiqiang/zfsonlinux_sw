@@ -46,7 +46,7 @@ uint32_t cts_mac_throttle_default = 128 * 1024;
 
 uint8_t mac_broadcast_addr[ETHERADDRL] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-uint32_t cluster_target_mac_nrxworker = 1;
+uint32_t cluster_target_mac_nrxworker = 4;
 
 #ifndef SOLARIS
 #define	ETHERTYPE_CLUSTERSAN	(0x8908)	/* cluster san */
@@ -990,11 +990,11 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						cts_mac_fragment_free(fragment);
 						break;
 					default:
+						atomic_add_32(&sess_mac->sess_fc_rx_bytes, ct_head->fc_tx_len);
 						cts_rx_msg(cts, fragment);
 						cluster_target_session_rele(cts, "cts_find");
 #if 0
 						{
-						atomic_add_32(&sess_mac->sess_fc_rx_bytes, ct_head->fc_tx_len);
 						cts_w = &cts->sess_rx_worker[ct_head->index % cts->sess_rx_worker_n];
 						cts_para = kmem_zalloc(sizeof(cts_worker_para_t), KM_SLEEP);
 						cts_para->msg_type = ct_head->msg_type;
@@ -1024,9 +1024,9 @@ static void ctp_mac_rx_worker_handle(void *arg)
 				break;
 			}
 		}
-		if (w->worker_ntasks == 0) { /* can't hold w->worker_mtx */
+//		if (w->worker_ntasks == 0) { /* can't hold w->worker_mtx */
 			ctp_mac_rx_throttle_handle(ctp);
-		}
+//		}
 		
 		if (w->worker_ntasks == 0) {
 			wait_event_timeout(w->worker_queue, (w->worker_ntasks != 0 || w->worker_flags & CLUSTER_TARGET_TH_STATE_STOP), 60 * HZ);
