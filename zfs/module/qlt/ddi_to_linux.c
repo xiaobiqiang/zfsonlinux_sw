@@ -369,5 +369,5 @@ int ddi_intr_get_supported_types(dev_info_t *dip, int *typesp)
 }
 void drv_usecwait(unsigned int n)
 {
-	mdelay(n);
+	msleep(n);
 }

@@ -779,7 +779,8 @@ void	qlt_chg_endian(uint8_t *, size_t);
 
 void qlt_el_msg(qlt_state_t *qlt, const char *fn, int ce, ...);
 void qlt_dump_el_trace_buffer(qlt_state_t *qlt);
-#define	EL(qlt, ...) 	qlt_el_msg(qlt, __func__, 0, __VA_ARGS__);
+//#define	EL(qlt, ...) 	qlt_el_msg(qlt, __func__, 0, __VA_ARGS__);
+#define EL(qlt, fmt, ...)	do{printk(fmt, ...)}while(0)
 #define	EL_TRACE_BUF_SIZE	8192
 #define	EL_BUFFER_RESERVE	256
 #define	DEBUG_STK_DEPTH		24
