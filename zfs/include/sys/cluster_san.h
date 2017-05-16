@@ -472,7 +472,7 @@ nvlist_t *cluster_san_get_targetinfo(char *name, uint32_t flags);
 nvlist_t *cluster_san_get_state(void);
 int cluster_san_set_prop(const char *prop, const char *value);
 nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str, int timeout, int remote_hostid);
-void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
+uint64_t cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
 uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid);
 int cluster_target_session_hold(cluster_target_session_t *cts, void *tag);
@@ -489,6 +489,8 @@ int cts_rx_hook_remove(uint32_t msg_type);
 int csh_rx_hook_add(uint32_t msg_type, cs_rx_cb_t rx_cb, void *arg);
 int csh_rx_hook_remove(uint32_t msg_type);
 void csh_rx_data_free(cs_rx_data_t *cs_data, boolean_t csh_hold);
+void csh_rx_data_free_ext(cs_rx_data_t *cs_data);
+
 int cluster_san_host_send(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, int pri, boolean_t need_reply, int retry_times);

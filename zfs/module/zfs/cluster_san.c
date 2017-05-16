@@ -1709,12 +1709,13 @@ int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf)
 	return (0);
 }
 
-void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi)
+uint64_t cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi)
 {
 	if (cshi == NULL || (cshi == CLUSTER_SAN_BROADCAST_SESS)) {
-		return;
+		return (0);
 	}
 	atomic_inc_64(&cshi->ref_count);
+	return (cshi->ref_count);
 }
 
 uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
@@ -5350,4 +5351,19 @@ clustersan_get_ipmi_switch(void)
 	return (cluster_failover_ipmi_switch);
 }
 
-
+EXPORT_SYMBOL(cluster_san_hostinfo_rele);
+EXPORT_SYMBOL(cts_link_up_to_down_handle);
+EXPORT_SYMBOL(cluster_san_hostinfo_hold);
+EXPORT_SYMBOL(cluster_san_host_sync_msg_ret);
+EXPORT_SYMBOL(cs_kmem_free);
+EXPORT_SYMBOL(cluster_san_host_asyn_send_clean);
+EXPORT_SYMBOL(csh_rx_hook_remove);
+EXPORT_SYMBOL(csh_link_evt_hook_add);
+EXPORT_SYMBOL(csh_rx_hook_add);
+EXPORT_SYMBOL(csh_link_evt_hook_remove);
+EXPORT_SYMBOL(cluster_san_host_asyn_send);
+EXPORT_SYMBOL(cluster_san_broadcast_send);
+EXPORT_SYMBOL(cluster_san_host_send);
+EXPORT_SYMBOL(csh_rx_data_free_ext);
+EXPORT_SYMBOL(cs_kmem_alloc);
+EXPORT_SYMBOL(cluster_san_host_sync_send_msg);

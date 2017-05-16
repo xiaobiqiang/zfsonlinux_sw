@@ -130,6 +130,8 @@ AC_CONFIG_FILES([
 	module/fct/Makefile
 	module/qlt/Makefile
 	module/stmf/Makefile
+	module/stmf_sbd/Makefile
+	module/pppt/Makefile
 	include/Makefile
 	include/linux/Makefile
 	include/sys/Makefile

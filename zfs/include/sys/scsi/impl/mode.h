@@ -45,17 +45,17 @@ extern "C" {
 struct 	modeheader_seq {
 	uchar_t	datalen;	/* sense data length */
 	uchar_t	mediumtype;	/* medium type */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t	speed	:4,	/* speed */
 		bufm	:3,	/* buffered mode */
 		wp	:1;	/* write protected */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t	wp	:1,	/* write protected */
 		bufm	:3,	/* buffered mode */
 		speed	:4;	/* speed */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	bd_len;		/* block length in bytes */
 	struct  block_descriptor blk_desc;
 };
@@ -72,7 +72,7 @@ struct 	modeheader_seq {
 
 struct mode_err_recov_ccs {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		dcr	: 1,	/* disable correction */
 			dte	: 1,	/* disable transfer on error */
 			per	: 1,	/* post error */
@@ -81,7 +81,7 @@ struct mode_err_recov_ccs {
 			tb	: 1,	/* transfer block */
 			arre	: 1,	/* auto read realloc enabled */
 			awre	: 1;	/* auto write realloc enabled */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		awre	: 1,	/* auto write realloc enabled */
 			arre	: 1,	/* auto read realloc enabled */
 			tb	: 1,	/* transfer block */
@@ -91,8 +91,8 @@ struct mode_err_recov_ccs {
 			dte	: 1,	/* disable transfer on error */
 			dcr	: 1;	/* disable correction */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	retry_count;
 	uchar_t	correction_span;
 	uchar_t	head_offset_count;
@@ -117,14 +117,14 @@ struct mode_err_recov_ccs {
 
 struct mode_cache {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		rcd	: 1,	/* Read Cache Disable */
 			mf	: 1,	/* Multiplication Factor */
 			wce	: 1,	/* Write Cache Enable */
 				: 5;
 	uchar_t	write_reten_pri	: 4,	/* Write Retention Priority */
 		read_reten_pri	: 4;	/* Demand Read Retention Priority */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t			: 5,
 			wce	: 1,	/* Write Cache Enable */
 			mf	: 1,	/* Multiplication Factor */
@@ -132,8 +132,8 @@ struct mode_cache {
 	uchar_t	read_reten_pri	: 4,	/* Demand Read Retention Priority */
 		write_reten_pri	: 4;	/* Write Retention Priority */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	ushort_t dis_prefetch_len;	/* Disable prefetch xfer length */
 	ushort_t min_prefetch;		/* minimum prefetch length */
 	ushort_t max_prefetch;		/* maximum prefetch length */
@@ -163,7 +163,7 @@ struct mode_cache_ccs {
 
 struct mode_control {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		rlec	: 1,	/* Report Log Exception bit */
 				: 7;
 	uchar_t		qdisable: 1,	/* Queue disable */
@@ -175,7 +175,7 @@ struct mode_control {
 			raenp   : 1,
 				: 4,
 			eeca	: 1;
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t			: 7,
 			rlec	: 1;	/* Report Log Exception bit */
 	uchar_t		que_mod	: 4,	/* Queue algorithm modifier */
@@ -188,8 +188,8 @@ struct mode_control {
 			uaaenp	: 1,
 			eanp	: 1;
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	reserved;
 	ushort_t ready_aen_holdoff;
 };
@@ -225,19 +225,19 @@ struct mode_control {
 
 struct emulex_format_params {
 	uchar_t	alt_cyl;	/* number of alternate cylinders */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		: 1,
 		sst	: 2,	/* spare sectors per track */
 		ssz	: 1,	/* sector size. 1 == 256 bps, 0 == 512 bps */
 		nheads	: 4;	/* number of heads */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t	nheads	: 4,	/* number of heads */
 		ssz	: 1,	/* sector size. 1 == 256 bps, 0 == 512 bps */
 		sst	: 2,	/* spare sectors per track */
 			: 1;
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	nsect;		/* logical sectors/track */
 	uchar_t	ncyl_hi;	/* logical number of cylinders, msb */
 	uchar_t	ncyl_lo;	/* logical number of cylinders, lsb */

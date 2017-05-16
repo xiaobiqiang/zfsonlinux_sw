@@ -51,6 +51,32 @@ extern spinlock_t atomic32_lock;
 extern spinlock_t atomic64_lock;
 
 static __inline__ uint8_t
+atomic_or_8(volatile uint8_t *target,  uint8_t bits)
+{
+	uint32_t rc;
+
+	spin_lock(&atomic32_lock);
+	rc = *target;
+	*target |= bits;
+	spin_unlock(&atomic32_lock);
+
+	return rc;
+}
+
+static __inline__ uint8_t
+atomic_and_8(volatile uint8_t *target,  uint8_t mask)
+{
+	uint8_t rc;
+
+	spin_lock(&atomic32_lock);
+	rc = *target;
+	*target &= mask;
+	spin_unlock(&atomic32_lock);
+
+	return rc;
+}
+
+static __inline__ uint8_t
 atomic_cas_8(volatile uint8_t *target,  uint8_t cmp,
               uint8_t newval)
 {
@@ -369,6 +395,8 @@ atomic_and_64(volatile uint64_t *target,  uint64_t mask)
 
 #else /* ATOMIC_SPINLOCK */
 
+#define	atomic_or_8(v, i)	atomic_or_long((unsigned long *)(v), (i))
+#define	atomic_and_8(v, i)	atomic_clear_mask((i), (atomic_t *)(v))
 #define	atomic_cas_8(v, x, y)	atomic_cmpxchg((atomic_t *)(v), x, y)
 #define	atomic_add_16_nv(v, i)	atomic_add_return((i), (atomic_t *)(v))
 #define atomic_inc_16(v)	atomic_inc((atomic_t *)(v))

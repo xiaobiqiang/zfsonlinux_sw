@@ -103,7 +103,7 @@ extern "C" {
 
 struct mode_err_recov {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		dcr	: 1,	/* disable correction */
 			dte	: 1,	/* disable transfer on error */
 			per	: 1,	/* post error */
@@ -112,7 +112,7 @@ struct mode_err_recov {
 			tb	: 1,	/* transfer block */
 			arre	: 1,	/* auto read realloc enabled */
 			awre	: 1;	/* auto write realloc enabled */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		awre	: 1,	/* auto write realloc enabled */
 			arre	: 1,	/* auto read realloc enabled */
 			tb	: 1,	/* transfer block */
@@ -122,8 +122,8 @@ struct mode_err_recov {
 			dte	: 1,	/* disable transfer on error */
 			dcr	: 1;	/* disable correction */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	read_retry_count;
 	uchar_t	correction_span;
 	uchar_t	head_offset_count;
@@ -149,14 +149,14 @@ struct mode_format {
 	ushort_t interleave;
 	ushort_t track_skew;
 	ushort_t cylinder_skew;
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t			: 3,
 		_reserved_ins	: 1,	/* see <scsi/impl/mode.h> */
 			surf	: 1,
 			rmb	: 1,
 			hsec	: 1,
 			ssec	: 1;	/* Drive Type Field */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		ssec	: 1,	/* Drive Type Field */
 			hsec	: 1,
 			rmb	: 1,
@@ -164,8 +164,8 @@ struct mode_format {
 		_reserved_ins	: 1,	/* see <scsi/impl/mode.h> */
 				: 3;
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	reserved[2];
 };
 
@@ -189,15 +189,15 @@ struct mode_geometry {
 	uchar_t	landing_cyl_ub;		/* landing zone cylinder */
 	uchar_t	landing_cyl_mb;
 	uchar_t	landing_cyl_lb;
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		rpl	: 2,	/* rotational position locking */
 				: 6;
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t			: 6,
 			rpl	: 2;	/* rotational position locking */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	rotational_offset;	/* rotational offset */
 	uchar_t	reserved;
 	ushort_t rpm;			/* rotations per minute */
@@ -222,7 +222,7 @@ struct mode_geometry {
 
 struct mode_cache_scsi3 {
 	struct	mode_page mode_page;	/* common mode page header */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t		rcd	: 1,	/* Read Cache Disable */
 			mf	: 1,	/* Multiplication Factor */
 			wce	: 1,	/* Write Cache Enable */
@@ -233,7 +233,7 @@ struct mode_cache_scsi3 {
 			ic	: 1;	/* Initiator Control */
 	uchar_t	write_reten_pri	: 4,	/* Write Retention Priority */
 		read_reten_pri	: 4;	/* Demand Read Retention Priority */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		ic	: 1,	/* Initiator Control */
 			abpf	: 1,	/* Abort Pre-Fetch */
 			cap	: 1,	/* Caching Analysis Permitted */
@@ -245,20 +245,20 @@ struct mode_cache_scsi3 {
 	uchar_t	read_reten_pri	: 4,	/* Demand Read Retention Priority */
 		write_reten_pri	: 4;	/* Write Retention Priority */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	ushort_t dis_prefetch_len;	/* Disable prefetch xfer length */
 	ushort_t min_prefetch;		/* minimum prefetch length */
 	ushort_t max_prefetch;		/* maximum prefetch length */
 	ushort_t prefetch_ceiling;	/* max prefetch ceiling */
-#if defined(_BIT_FIELDS_LTOH)
+#if defined(__LITTLE_ENDIAN)
 	uchar_t			: 3,	/* reserved */
 			vu_123	: 1,	/* Vendor Specific, byte 12 bit 3 */
 			vu_124	: 1,	/* Vendor Specific, byte 12 bit 4 */
 			dra	: 1,	/* Disable Read-Ahead */
 			lbcss	: 1,	/* Logical Block Cache Segment Size */
 			fsw	: 1;	/* Force Sequential Write */
-#elif defined(_BIT_FIELDS_HTOL)
+#elif defined(__BIG_ENDIAN)
 	uchar_t		fsw	: 1,	/* Force Sequential Write */
 			lbcss	: 1,	/* Logical Block Cache Segment Size */
 			dra	: 1,	/* Disable Read-Ahead */
@@ -266,8 +266,8 @@ struct mode_cache_scsi3 {
 			vu_123	: 1,	/* Vendor Specific, byte 12 bit 3 */
 				: 3;	/* reserved */
 #else
-#error	One of _BIT_FIELDS_LTOH or _BIT_FIELDS_HTOL must be defined
-#endif	/* _BIT_FIELDS_LTOH */
+#error	One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined
+#endif	/* __LITTLE_ENDIAN */
 	uchar_t	num_cache_seg;		/* Number of cache segments */
 	ushort_t cache_seg_size;	/* Cache segment size */
 	uchar_t	reserved;

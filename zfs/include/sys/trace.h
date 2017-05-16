@@ -57,6 +57,14 @@
 #define	DTRACE_PROBE4(name, t1, arg1, t2, arg2, t3, arg3, t4, arg4) \
 	trace_zfs_##name((arg1), (arg2), (arg3), (arg4))
 
+#undef DTRACE_PROBE5
+#define	DTRACE_PROBE5(name, t1, arg1, t2, arg2, t3, arg3, t4, arg4, t5, arg5) \
+	trace_zfs_##name((arg1), (arg2), (arg3), (arg4), (arg5))
+
+#undef DTRACE_PROBE6
+#define	DTRACE_PROBE6(name, t1, arg1, t2, arg2, t3, arg3, t4, arg4, t5, arg5, t6, arg6) \
+	trace_zfs_##name((arg1), (arg2), (arg3), (arg4), (arg5), (arg6))
+
 #endif /* _TRACE_ZFS_H */
 
 #undef TRACE_INCLUDE_PATH

@@ -27,10 +27,6 @@
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/modctl.h>
-/*
-#include <sys/scsi/scsi.h>
-#include <sys/scsi/impl/scsi_reset_notify.h>
-*/
 #include <sys/disp.h>
 #include <sys/byteorder.h>
 #include <sys/atomic.h>
@@ -41,8 +37,7 @@
 #include <sys/stmf_ioctl.h>
 #include <sys/cmn_err.h>
 #include <sys/stmf_sbd.h>
-
-#include "stmf_impl.h"
+#include <sys/stmf_impl.h>
 #include "lun_map.h"
 #include "stmf_state.h"
 

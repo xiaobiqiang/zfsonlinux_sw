@@ -195,6 +195,20 @@ extern int aok;
 	ZFS_PROBE4(#a, (unsigned long)c, (unsigned long)e, (unsigned long)g, \
 	(unsigned long)i)
 
+#ifdef DTRACE_PROBE5
+#undef	DTRACE_PROBE5
+#endif	/* DTRACE_PROBE5 */
+#define	DTRACE_PROBE5(a, b, c, d, e, f, g, h, i, j, k) \
+	ZFS_PROBE5(#a, (unsigned long)c, (unsigned long)e, (unsigned long)g, \
+	(unsigned long)i, (unsigned long)k)
+
+#ifdef DTRACE_PROBE6
+#undef	DTRACE_PROBE6
+#endif	/* DTRACE_PROBE6 */
+#define	DTRACE_PROBE6(a, b, c, d, e, f, g, h, i, j, k, l, m) \
+	ZFS_PROBE4(#a, (unsigned long)c, (unsigned long)e, (unsigned long)g, \
+	(unsigned long)i, (unsigned long)k, (unsigned long)m)
+
 /*
  * We use the comma operator so that this macro can be used without much
  * additional code.  For example, "return (EINVAL);" becomes
