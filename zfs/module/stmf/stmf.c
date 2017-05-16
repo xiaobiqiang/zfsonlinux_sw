@@ -1787,7 +1787,7 @@ void stmf_check_fc_offline(char *fc_iport_wwn)
 		fc_iport_wwn, ret);
 	kmem_free(lport_wwn, wwn_len);
 }
-
+EXPORT_SYMBOL(stmf_check_fc_offline);
 void stmf_check_reboot()
 {
 /*
@@ -1821,7 +1821,7 @@ void stmf_check_reboot()
 	}
 */
 }
-
+EXPORT_SYMBOL(stmf_check_reboot);
 static int
 stmf_get_stmf_state(stmf_state_desc_t *std)
 {
@@ -4424,7 +4424,7 @@ stmf_set_port_alua(stmf_local_port_t *lport)
 	    (stmf_i_local_port_t *)lport->lport_stmf_private;
 	ilport->ilport_alua = 1;
 }
-
+EXPORT_SYMBOL(stmf_set_port_alua);
 stmf_status_t
 stmf_register_local_port(stmf_local_port_t *lport)
 {
@@ -5701,7 +5701,7 @@ stmf_handle_to_buf(scsi_task_t *task, uint8_t h)
 		return (NULL);
 	return (itask->itask_dbufs[h]);
 }
-
+EXPORT_SYMBOL(stmf_handle_to_buf);
 int stmf_get_lun_id(stmf_scsi_session_t *ss,  uint8_t *ident, int *entry)
 {
 	int err;
@@ -7212,7 +7212,7 @@ stmf_task_lport_aborted(scsi_task_t *task, stmf_status_t s, uint32_t iof)
 
 	stmf_abort_task_offline(task, 0, info);
 }
-
+EXPORT_SYMBOL(stmf_task_lport_aborted);
 stmf_status_t
 stmf_task_poll_lu(scsi_task_t *task, uint32_t timeout)
 {
@@ -7714,7 +7714,7 @@ stmf_wwn_to_devid_desc(scsi_devid_desc_t *sdid, uint8_t *wwn,
 	    wwn[0], wwn[1], wwn[2], wwn[3], wwn[4], wwn[5], wwn[6], wwn[7]);
 	bcopy(wwn_str, (char *)sdid->ident, 20);
 }
-
+EXPORT_SYMBOL(stmf_wwn_to_devid_desc);
 stmf_xfer_data_t *
 stmf_prepare_tpgs_data(uint8_t ilu_alua)
 {
@@ -9651,7 +9651,7 @@ stmf_lport_add_event(stmf_local_port_t *lport, int eventid)
 	STMF_EVENT_ADD(ilport->ilport_event_hdl, eventid);
 	return (STMF_SUCCESS);
 }
-
+EXPORT_SYMBOL(stmf_lport_add_event);
 stmf_status_t
 stmf_lport_remove_event(stmf_local_port_t *lport, int eventid)
 {

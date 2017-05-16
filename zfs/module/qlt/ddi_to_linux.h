@@ -115,14 +115,6 @@ typedef struct ddi_device_acc_attr {
 #define	DDI_STORECACHING_OK_ACC 0x04
 
 
-#define	DDI_SUCCESS	(0)	/* successful return */
-#define	DDI_FAILURE	(-1)	/* unsuccessful return */
-#define	DDI_NOT_WELL_FORMED (-2)  /* A dev_info node is not valid */
-#define	DDI_EAGAIN	(-3)	/* not enough interrupt resources */
-#define	DDI_EINVAL	(-4)	/* invalid request or arguments */
-#define	DDI_ENOTSUP	(-5)	/* operation is not supported */
-#define	DDI_EPENDING	(-6)	/* operation or an event is pending */
-#define	DDI_EALREADY	(-7)	/* operation already in progress */
 
 struct as
 {

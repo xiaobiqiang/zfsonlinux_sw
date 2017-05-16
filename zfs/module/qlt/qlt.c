@@ -306,7 +306,7 @@ int enable_extended_logging = 0;
 static char qlt_provider_name[] = "qlt";
 static struct stmf_port_provider *qlt_pp;
 static int qlt_apidev_major;
-
+MODULE_LICENSE("GPL");
 int pci_max_read_request=2048;
 module_param(pci_max_read_request, int, S_IRUGO);
 int pcie_max_payload_size=0;

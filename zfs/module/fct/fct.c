@@ -314,7 +314,6 @@ fct_get_port_list(char *pathList, int count)
 	mutex_exit(&fct_global_mutex);
 	return (maxPorts);
 }
-
 /* invoked with fct_global_mutex locked */
 fct_i_local_port_t *
 fct_get_iport_per_wwn(uint8_t *pwwn)
@@ -1046,7 +1045,7 @@ fct_alloc(fct_struct_id_t struct_id, int additional_size, int flags)
 
 	return (sh);
 }
-
+EXPORT_SYMBOL(fct_alloc);
 void
 fct_free(void *ptr)
 {
@@ -1083,7 +1082,7 @@ fct_free(void *ptr)
 		kmem_free(ptr, sh->fp->alloc_size);
 	}
 }
-
+EXPORT_SYMBOL(fct_free);
 stmf_data_buf_t *
 fct_alloc_dbuf(scsi_task_t *task, uint32_t size, uint32_t *pminsize,
     uint32_t flags)
@@ -1275,7 +1274,7 @@ fct_regport_fail1:;
 	}
 	return (FCT_FAILURE);
 }
-
+EXPORT_SYMBOL(fct_register_local_port);
 fct_status_t
 fct_deregister_local_port(fct_local_port_t *port)
 {
@@ -1370,7 +1369,7 @@ fct_deregport_fail1:;
 	}
 	return (FCT_FAILURE);
 }
-
+EXPORT_SYMBOL(fct_deregister_local_port);
 /* ARGSUSED */
 void
 fct_handle_event(fct_local_port_t *port, int event_id, uint32_t event_flags,
@@ -1407,7 +1406,7 @@ fct_handle_event(fct_local_port_t *port, int event_id, uint32_t event_flags,
 		cv_signal(&iport->iport_worker_cv);
 	mutex_exit(&iport->iport_worker_lock);
 }
-
+EXPORT_SYMBOL(fct_handle_event);
 /*
  * Called with iport_lock held as reader.
  */
@@ -1736,7 +1735,7 @@ fct_scsi_task_alloc(fct_local_port_t *port, uint16_t rp_handle,
 
 	return (NULL);
 }
-
+EXPORT_SYMBOL(fct_scsi_task_alloc);
 void
 fct_scsi_task_free(scsi_task_t *task)
 {
@@ -1819,7 +1818,7 @@ fct_post_rcvd_cmd(fct_cmd_t *cmd, stmf_data_buf_t *dbuf)
 
 	ASSERT(0);
 }
-
+EXPORT_SYMBOL(fct_post_rcvd_cmd);
 /*
  * This function bypasses fct_handle_els()
  */
@@ -1963,7 +1962,7 @@ fct_scsi_data_xfer_done(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 		return;
 	stmf_data_xfer_done((scsi_task_t *)cmd->cmd_specific, dbuf, iof);
 }
-
+EXPORT_SYMBOL(fct_scsi_data_xfer_done);
 stmf_status_t
 fct_send_scsi_status(scsi_task_t *task, uint32_t ioflags)
 {
@@ -2014,7 +2013,7 @@ fct_send_response_done(fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 		ASSERT(0);
 	}
 }
-
+EXPORT_SYMBOL(fct_send_response_done);
 void
 fct_cmd_free(fct_cmd_t *cmd)
 {
@@ -2258,7 +2257,7 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 		break;
 	}
 }
-
+EXPORT_SYMBOL(fct_ctl);
 /* ARGSUSED */
 stmf_status_t
 fct_info(uint32_t cmd, stmf_local_port_t *lport, void *arg, uint8_t *buf,
@@ -2815,7 +2814,7 @@ fct_send_cmd_done(fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 	/* XXX For now just call send_resp_done() */
 	fct_send_response_done(cmd, s, ioflags);
 }
-
+EXPORT_SYMBOL(fct_send_cmd_done);
 void
 fct_cmd_fca_aborted(fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 {
@@ -2842,7 +2841,7 @@ fct_cmd_fca_aborted(fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 		    s, STMF_IOF_LPORT_DONE);
 	}
 }
-
+EXPORT_SYMBOL(fct_cmd_fca_aborted);
 /*
  * FCA drivers will use it, when they want to abort some FC transactions
  * due to lack of resource.
@@ -2860,7 +2859,7 @@ fct_get_rp_handle(fct_local_port_t *port, uint32_t rportid)
 		return (irp->irp_rp->rp_handle);
 	}
 }
-
+EXPORT_SYMBOL(fct_get_rp_handle);
 fct_cmd_t *
 fct_handle_to_cmd(fct_local_port_t *port, uint32_t fct_handle)
 {
@@ -2879,7 +2878,7 @@ fct_handle_to_cmd(fct_local_port_t *port, uint32_t fct_handle)
 		return (NULL);
 	return (slot->slot_cmd->icmd_cmd);
 }
-
+EXPORT_SYMBOL(fct_handle_to_cmd);
 void
 fct_queue_scsi_task_for_termination(fct_cmd_t *cmd, fct_status_t s)
 {
@@ -3221,7 +3220,7 @@ fct_port_initialize(fct_local_port_t *port, uint32_t rflags,
 	    additional_info? additional_info : "no more information");
 	return (stmf_ctl(STMF_CMD_LPORT_ONLINE, port->port_lport, &st));
 }
-
+EXPORT_SYMBOL(fct_port_initialize);
 fct_status_t
 fct_port_shutdown(fct_local_port_t *port, uint32_t rflags,
 				char *additional_info)
@@ -3234,7 +3233,7 @@ fct_port_shutdown(fct_local_port_t *port, uint32_t rflags,
 	    additional_info? additional_info : "no more information");
 	return (stmf_ctl(STMF_CMD_LPORT_OFFLINE, port->port_lport, &st));
 }
-
+EXPORT_SYMBOL(fct_port_shutdown);
 /*
  * Called by worker thread. The aim is to terminate the command
  * using whatever means it takes.
@@ -3556,7 +3555,7 @@ fct_wwn_to_str(char *to_ptr, const uint8_t *from_ptr)
 	    from_ptr[0], from_ptr[1], from_ptr[2], from_ptr[3],
 	    from_ptr[4], from_ptr[5], from_ptr[6], from_ptr[7]);
 }
-
+EXPORT_SYMBOL(fct_wwn_to_str);
 static int
 fct_update_stats(kstat_t *ks, int rw)
 {

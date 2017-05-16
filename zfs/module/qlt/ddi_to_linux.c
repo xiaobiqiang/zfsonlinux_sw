@@ -17,27 +17,27 @@
 
 uint8_t pci_config_get8(struct pci_dev *dev, off_t offset)
 {
-		uint8_t val = 0;
-			if (pci_read_config_byte(dev, offset, &val) < 0) {
-						printk("%s %d error\n", __func__, __LINE__);
-							}
-				return val;
+	uint8_t val = 0;
+	if (pci_read_config_byte(dev, offset, &val) < 0) {
+		printk("%s %d error\n", __func__, __LINE__);
+	}
+	return val;
 }
 uint16_t pci_config_get16(struct pci_dev *dev, off_t offset)
 {
-		uint16_t val = 0;
-			if (pci_read_config_word(dev, offset, &val) < 0) {
-						printk("%s %d error\n", __func__, __LINE__);
-							}
-				return val;
+	uint16_t val = 0;
+	if (pci_read_config_word(dev, offset, &val) < 0) {
+		printk("%s %d error\n", __func__, __LINE__);
+	}
+	return val;
 }
 uint32_t pci_config_get32(struct pci_dev *dev, off_t offset)
 {
-		uint32_t val = 0;
-			if (pci_read_config_dword(dev, offset, &val) < 0) {
-						printk("%s %d error\n", __func__, __LINE__);
-							}
-				return val;
+	uint32_t val = 0;
+	if (pci_read_config_dword(dev, offset, &val) < 0) {
+		printk("%s %d error\n", __func__, __LINE__);
+	}
+	return val;
 }
 void ddi_rep_put32(ddi_acc_handle_t handle, uint32_t *host_addr, uint32_t *dev_addr,
 	size_t repcount, uint_t flags)
@@ -124,7 +124,7 @@ ddi_dma_mem_alloc(ddi_dma_handle_t dma_handle, size_t length,
 	dma_handle->size = length;
 	*kaddrp = dma_handle->ptr;
 	*real_length = length;
-	return (0);
+	return DDI_SUCCESS;
 }
 
 int
@@ -134,12 +134,13 @@ ddi_dma_addr_bind_handle(ddi_dma_handle_t handle, struct as *as,
 {
 	*ccountp = 1;
 	cookiep->dmac_laddress = handle->dma_handle;
+	return DDI_SUCCESS;
 }
 
 int
 ddi_dma_unbind_handle(ddi_dma_handle_t h)
 {
-	return (0);
+	return DDI_SUCCESS;
 }
 
 void
@@ -172,6 +173,7 @@ int
 ddi_dev_regsize(dev_info_t *dev, uint_t rnumber, off_t *result)
 {
 	*result = pci_resource_len(dev, rnumber);
+	return DDI_SUCCESS;
 }
 
 int
@@ -325,10 +327,10 @@ qla2x00_set_isp_flags(struct qla_hw_data *ha)
 
 int ddi_intr_get_supported_types(dev_info_t *dip, int *typesp)
 {
-	*typesp = 0;
 	
 	struct qla_hw_data *ha = kzalloc(sizeof(struct qla_hw_data), GFP_KERNEL);
 	ha->pdev = dip;
+	*typesp = 0;
 	qla2x00_set_isp_flags(ha);
 	
 	/* If possible, enable MSI-X. */
@@ -363,6 +365,7 @@ int ddi_intr_get_supported_types(dev_info_t *dip, int *typesp)
 	}
 	*typesp = DDI_INTR_TYPE_MSIX;
 	kfree(ha);
+	return DDI_SUCCESS;
 }
 void drv_usecwait(unsigned int n)
 {
