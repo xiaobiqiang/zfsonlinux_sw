@@ -352,7 +352,7 @@ get_usage(zfs_help_t idx)
 			"\tclustersan hostname <hostname>\n"
 			"\tclustersan hostid <hostid>\n"));
 	case HELP_SPEEDTEST:
-		return (gettext("\tspeed -s blocksize -n cnt\n"));
+		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
 			
 	}
 
@@ -6732,10 +6732,11 @@ zfs_do_speed_test(int argc, char **argv)
 {
 	char *end;
 	long int bs = 0, cnt = 0;
+	uint8_t need_reply = 0;
 	int c;
 	int ret;
 
-	while ((c = getopt(argc, argv, "s:n:")) != -1) {
+	while ((c = getopt(argc, argv, "s:n:r")) != -1) {
 		switch (c) {
 		case 's':
 			end = NULL;
@@ -6753,6 +6754,9 @@ zfs_do_speed_test(int argc, char **argv)
 				return -EINVAL;
 			}
 			break;
+		case 'r':
+			need_reply = 1;
+			break;
 		default:
 			fprintf(stderr, "invalid option\n");
 			usage(B_FALSE);
@@ -6765,7 +6769,7 @@ zfs_do_speed_test(int argc, char **argv)
 		return -EINVAL;
 	}
 
-	ret = zfs_test_mirror(g_zfs, bs, cnt);
+	ret = zfs_test_mirror(g_zfs, bs, cnt, need_reply);
 	if (ret) {
 		fprintf(stderr, "mirro test failed: %d\n", ret);
 	}
