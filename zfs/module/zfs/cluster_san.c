@@ -2973,6 +2973,45 @@ static void csh_send_reply(cs_rx_data_t *cs_data)
 	EXIT;
 }
 
+void cts_send_reply(cluster_target_session_t *cts, cts_fragment_data_t *fragment)
+{
+	cluster_target_port_t *ctp;
+	cluster_target_tran_data_t *data_array = NULL;
+	int fragment_cnt = 0;
+	cluster_tran_data_origin_t origin_data;
+	int ret;
+
+	ctp = cts->sess_port_private;
+
+	origin_data.msg_type = CLUSTER_SAN_MSGTYPE_REPLY;
+	origin_data.need_reply = B_FALSE;
+	origin_data.retry_times = 0;
+	origin_data.index = fragment->ct_head->index;
+	origin_data.data = 0;
+	origin_data.data_len = 0;
+	origin_data.header = 0;
+	origin_data.header_len = 0;
+
+	if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
+		ret = ctp->f_session_tran_start(cts, &origin_data);
+		ctp_tx_rele(ctp);
+		cluster_target_session_rele(cts, "sel_cts");
+		EXIT;
+		return;
+	}
+
+	ret = ctp->f_tran_fragment(ctp->target_private, cts->sess_target_private,
+		&origin_data, &data_array, &fragment_cnt);
+
+	if (ret == 0) {
+		ASSERT(fragment_cnt == 1);
+		ret = ctp->f_send_msg(ctp, data_array[0].fragmentation);
+		kmem_free(data_array, sizeof(cluster_target_tran_data_t) * fragment_cnt);
+	}
+
+	return;
+}
+
 static void cluster_san_rx_clusterevt_handle(cs_rx_data_t *cs_data)
 {
 	cluster_evt_header_t *evt_header = cs_data->ex_head;
@@ -3024,6 +3063,7 @@ static void cluster_san_host_rx_handle(
 	if (cs_data->need_reply != 0) {
 		csh_send_reply(cs_data);
 	}
+
 	switch (msg_type) {
 	case CLUSTER_SAN_MSGTYPE_CLUSTER:
 		cluster_san_rx_clusterevt_handle(cs_data);

@@ -892,6 +892,21 @@ static void cts_mac_send_direct_impl(cluster_target_session_t *cts,
 	ctp_tx_rele(ctp);
 }
 
+static void cts_send_sess_fc_rx_bytes(cluster_target_session_t *cts)
+{
+	cluster_target_session_mac_t *sess_mac;
+	uint32_t rx_bytes;
+
+	sess_mac = cts->sess_target_private;
+	rx_bytes = atomic_swap_32(&sess_mac->sess_fc_rx_bytes, 0);
+	if (rx_bytes == 0) {
+		return;
+	}
+
+	cts_mac_send_direct_impl(cts, CLUSTER_SAN_MSGTYPE_NOP, 0, rx_bytes);
+	return;
+}
+
 static void ctp_mac_rx_throttle_handle(cluster_target_port_t *ctp)
 {
 	cluster_target_session_t *cts;
@@ -923,7 +938,9 @@ static void ctp_mac_rx_throttle_handle(cluster_target_port_t *ctp)
 	}
 	mutex_exit(&ctp->ctp_lock);
 }
+
 extern void cts_rx_msg(cluster_target_session_t *cts, cts_fragment_data_t *fragment);
+extern void cts_send_reply(cluster_target_session_t *cts, cts_fragment_data_t *fragment);
 
 static void ctp_mac_rx_worker_handle(void *arg)
 {
@@ -969,6 +986,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 					sess_mac = cts->sess_target_private;
 					atomic_swap_32(&cts->sess_hb_timeout_cnt, 0);
 					atomic_add_32(&sess_mac->sess_fc_throttle_rx, ct_head->fc_rx_len);
+					ctp_mac_rx_throttle_handle(ctp);
 					switch (ct_head->msg_type) {
 					case CLUSTER_SAN_MSGTYPE_JOIN:
 						if (cts->sess_linkstate == CTS_LINK_DOWN) {
@@ -991,6 +1009,12 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						break;
 					default:
 						atomic_add_32(&sess_mac->sess_fc_rx_bytes, ct_head->fc_tx_len);
+//						cts_send_sess_fc_rx_bytes(cts);
+#if 0
+						if (ct_head->need_reply) {
+							cts_send_reply(cts, fragment);
+						}
+#endif
 						cts_rx_msg(cts, fragment);
 						cluster_target_session_rele(cts, "cts_find");
 #if 0
@@ -1024,9 +1048,6 @@ static void ctp_mac_rx_worker_handle(void *arg)
 				break;
 			}
 		}
-//		if (w->worker_ntasks == 0) { /* can't hold w->worker_mtx */
-			ctp_mac_rx_throttle_handle(ctp);
-//		}
 		
 		if (w->worker_ntasks == 0) {
 			wait_event_timeout(w->worker_queue, (w->worker_ntasks != 0 || w->worker_flags & CLUSTER_TARGET_TH_STATE_STOP), 60 * HZ);
