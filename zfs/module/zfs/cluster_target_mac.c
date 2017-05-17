@@ -41,8 +41,8 @@ TARGET_PORT_ARRAY_t target_port_array[TARGET_PORT_NUM]=
 };
 
 //extern pri_t minclsyspri, maxclsyspri;
-uint32_t cts_mac_throttle_max = 512 * 1024;
-uint32_t cts_mac_throttle_default = 128 * 1024;
+uint32_t cts_mac_throttle_max = 2048 * 1024;
+uint32_t cts_mac_throttle_default = 1024 * 1024;
 
 uint8_t mac_broadcast_addr[ETHERADDRL] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
@@ -503,6 +503,7 @@ static int cluster_target_mac_tran_data_fragment(
 			memcpy(skb_push(head_mp->skb, ex_len), origin_data->header, ex_len);
 		}
 		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, sizeof(cluster_target_msg_header_t));
+		memset(ct_head, 0, sizeof(*ct_head));
 		eth_head = (struct ether_header *)skb_push(head_mp->skb, sizeof(struct ether_header));
 		skb_reset_mac_header(head_mp->skb);
 		memcpy(eth_head->h_source, port_mac->dev->dev_addr, ETH_ALEN);
@@ -779,7 +780,6 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	ctp_w = &port_mac->rx_worker[ct_head->index % port_mac->rx_worker_n];
 	mp = kzalloc(sizeof(mblk_t), GFP_ATOMIC);
 	mp->skb = skb;
-	POSITION("wake up ctp_mac_rx_worker");
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
 		
 #if 0
@@ -966,7 +966,6 @@ static void ctp_mac_rx_worker_handle(void *arg)
 		while (1) {
 			mp = ctp_mac_mplist_remove_head(w->mplist_r);
 			if (mp != NULL) {
-				POSITION("");
 				atomic_dec_32(&w->worker_ntasks);
 				fragment = cts_mac_mblk_to_fragment(ctp, mp);
 				if (fragment == NULL) {
@@ -986,16 +985,11 @@ static void ctp_mac_rx_worker_handle(void *arg)
 					sess_mac = cts->sess_target_private;
 					atomic_swap_32(&cts->sess_hb_timeout_cnt, 0);
 					atomic_add_32(&sess_mac->sess_fc_throttle_rx, ct_head->fc_rx_len);
-					ctp_mac_rx_throttle_handle(ctp);
 					switch (ct_head->msg_type) {
 					case CLUSTER_SAN_MSGTYPE_JOIN:
 						if (cts->sess_linkstate == CTS_LINK_DOWN) {
 							atomic_inc_64(&ctp->ref_count);
 							cs_join_msg_handle(fragment);
-#if 0
-							taskq_dispatch(clustersan->cs_async_taskq,
-								cs_join_msg_handle, fragment, TQ_SLEEP);
-#endif
 						} else {
 							cts_mac_fragment_free(fragment);
 						}
@@ -1009,27 +1003,8 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						break;
 					default:
 						atomic_add_32(&sess_mac->sess_fc_rx_bytes, ct_head->fc_tx_len);
-//						cts_send_sess_fc_rx_bytes(cts);
-#if 0
-						if (ct_head->need_reply) {
-							cts_send_reply(cts, fragment);
-						}
-#endif
 						cts_rx_msg(cts, fragment);
 						cluster_target_session_rele(cts, "cts_find");
-#if 0
-						{
-						cts_w = &cts->sess_rx_worker[ct_head->index % cts->sess_rx_worker_n];
-						cts_para = kmem_zalloc(sizeof(cts_worker_para_t), KM_SLEEP);
-						cts_para->msg_type = ct_head->msg_type;
-						cts_para->worker = cts_w;
-						cts_para->fragment = fragment;
-						cts_para->sess = cts;
-						cts_para->index = ct_head->index;
-						POSITION("wake up cts rx worker");
-						cts_rx_worker_wakeup(cts_w, cts_para);
-						}
-#endif
 						break;
 					}
 				} else {
@@ -1049,6 +1024,7 @@ static void ctp_mac_rx_worker_handle(void *arg)
 			}
 		}
 		
+		ctp_mac_rx_throttle_handle(ctp);
 		if (w->worker_ntasks == 0) {
 			wait_event_timeout(w->worker_queue, (w->worker_ntasks != 0 || w->worker_flags & CLUSTER_TARGET_TH_STATE_STOP), 60 * HZ);
 			//cv_timedwait(&w->worker_cv, &w->worker_mtx, ddi_get_lbolt() + msecs_to_jiffies(60000));

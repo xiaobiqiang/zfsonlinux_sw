@@ -7,6 +7,7 @@
 #define	EXIT	do {printk("%s EXIT %d\n", __func__, __LINE__);} while (0)
 #define	POSITION(x)	do {printk("%s %d: %s\n", __func__, __LINE__, x);} while (0)
 #define	TPOSITION(x)	do {printk("%s %d: :%p, %s\n", __func__, __LINE__, curthread, (x));} while (0)
+#define	DPRINTK		printk
 
 #else
 

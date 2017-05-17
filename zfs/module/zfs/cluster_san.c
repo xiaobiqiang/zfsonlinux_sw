@@ -2449,7 +2449,6 @@ cluster_target_session_worker_handle(void *arg)
 		while (1) {
 			para = list_remove_head(w->worker_list_r);
 			if (para != NULL) {
-				POSITION("");
 				atomic_dec_32(&w->worker_ntasks);
 				cts_rx_data_check_link(cts);
 				cluster_target_session_rele(cts, "cts_find");
@@ -2458,7 +2457,6 @@ cluster_target_session_worker_handle(void *arg)
 					kmem_free(para, sizeof(cts_worker_para_t));
 					continue;
 				}
-				POSITION("wake up host rx worker");
 				host_rxworker =
 					&cshi->host_rx_worker[para->index % cshi->host_rx_worker_n];
 				para->worker = host_rxworker;
@@ -2923,22 +2921,18 @@ static void csh_send_reply(cs_rx_data_t *cs_data)
 	cluster_tran_data_origin_t origin_data;
 	int ret;
 
-	ENTRY;
 	cts = cts_select_from_host(cshi);
 
 	if (cts == NULL) {
-		EXIT;
 		return;
 	}
 	if ((cts->sess_flags & CLUSTER_TARGET_SESS_FLAG_UINIT) != 0) {
 		cluster_target_session_rele(cts, "sel_cts");
-		EXIT;
 		return;
 	}
 	ctp = cts->sess_port_private;
 	if (ctp_tx_hold(ctp) != 0) {
 		cluster_target_session_rele(cts, "sel_cts");
-		EXIT;
 		return;
 	}
 
@@ -2955,7 +2949,6 @@ static void csh_send_reply(cs_rx_data_t *cs_data)
 		ret = ctp->f_session_tran_start(cts, &origin_data);
 		ctp_tx_rele(ctp);
 		cluster_target_session_rele(cts, "sel_cts");
-		EXIT;
 		return;
 	}
 
@@ -2970,7 +2963,6 @@ static void csh_send_reply(cs_rx_data_t *cs_data)
 
 	ctp_tx_rele(ctp);
 	cluster_target_session_rele(cts, "sel_cts");
-	EXIT;
 }
 
 void cts_send_reply(cluster_target_session_t *cts, cts_fragment_data_t *fragment)
@@ -2996,7 +2988,6 @@ void cts_send_reply(cluster_target_session_t *cts, cts_fragment_data_t *fragment
 		ret = ctp->f_session_tran_start(cts, &origin_data);
 		ctp_tx_rele(ctp);
 		cluster_target_session_rele(cts, "sel_cts");
-		EXIT;
 		return;
 	}
 
@@ -3058,7 +3049,6 @@ static void cluster_san_host_rx_handle(
 {
 	/* cluster_san_hostinfo_t *cshi = cs_data->cs_private; */
 	uint8_t msg_type = cs_data->msg_type;
-	ENTRY;
 
 	if (cs_data->need_reply != 0) {
 		csh_send_reply(cs_data);
@@ -3077,7 +3067,6 @@ static void cluster_san_host_rx_handle(
 		csh_rx_handle_ext(cs_data);
 		break;
 	}
-	EXIT;
 }
 
 static void
@@ -3103,7 +3092,6 @@ cluster_san_host_rxworker_handle(void *arg)
 		while (1) {
 			para = list_remove_head(w->worker_list_r);
 			if (para != NULL) {
-				TPOSITION("");
 				atomic_dec_32(&w->worker_ntasks);
 				ct_head = (cluster_target_msg_header_t *)para->fragment->ct_head;
 				total_len = ct_head->total_len;
@@ -4096,7 +4084,6 @@ static void cluster_target_port_broadcase_thread(void *arg)
 			ddi_get_lbolt() + drv_usectohz(1000 * 1000));
 	}
 
-	EXIT;
 	ctp->brosan_state = 0;
 	mutex_exit(&ctp->brosan_mtx);
 }
@@ -4655,6 +4642,7 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 	cluster_target_tran_data_t *data_array = NULL;
 	int fragment_cnt = 0;
 	int i;
+	ENTRY;
 
 	if (cts == NULL) {
 		return (-1);
@@ -4688,6 +4676,7 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 		kmem_free(data_array, sizeof(cluster_target_tran_data_t) * fragment_cnt);
 	}
 
+	EXIT;
 	return (ret);
 }
 
@@ -4755,11 +4744,9 @@ int cluster_san_host_send(cluster_san_hostinfo_t *cshi,
 	boolean_t is_replyed;
 	int retry_cnt = 0;
 	int ret;
-
 	ENTRY;
 
 	if (cshi == NULL) {
-		EXIT;
 		return (-1);
 	}
 	/* retry and reply */
@@ -4784,7 +4771,6 @@ SEND_RETRY:
 		if (need_reply) {
 			csh_remove_and_destroy_reply(cshi, reply_val);
 		}
-		EXIT;
 		return (-1);
 	}
 	ret = cluster_target_session_send(cts, &origin_data, pri);
