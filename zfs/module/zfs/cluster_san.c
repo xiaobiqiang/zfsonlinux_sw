@@ -4780,6 +4780,7 @@ SEND_RETRY:
 		if (ret == 0) {
 			is_replyed = cts_reply_wait(reply_val);
 			if (!is_replyed) {
+				printk("%s: %u wait reply timed out\n", __func__, msg_type);
 				if (retry_cnt < retry_times) {
 					retry_cnt++;
 					goto SEND_RETRY;
