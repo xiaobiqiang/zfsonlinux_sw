@@ -21,7 +21,7 @@
 #include <linux/mutex.h>
 #include <linux/device.h>
 typedef struct __ddi_dma_handle {
-	struct device *dev;
+	struct pci_dev *dev;
 	void * ptr;
 	size_t size;
 	dma_addr_t *dma_handle;
@@ -191,4 +191,5 @@ int pci_config_setup(dev_info_t *dip, ddi_acc_handle_t *handle);
 void pci_config_teardown(ddi_acc_handle_t *handle);
 int ddi_intr_get_supported_types(dev_info_t *dip, int *typesp);
 void drv_usecwait(unsigned int n);
+int qla24xx_pci_config(struct pci_dev* pdev);
 #endif

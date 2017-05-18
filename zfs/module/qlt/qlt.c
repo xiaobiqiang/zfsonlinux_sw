@@ -403,7 +403,7 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	}
 
 	EL(qlt, "instance=%d, ptr=%p\n", instance, (void *)qlt);
-
+	EL(qlt, "IO/MEM bar=0x%x\n", pci_select_bars(dip, IORESOURCE_MEM | IORESOURCE_IO));
 	if (pci_config_setup(dip, &qlt->pcicfg_acc_handle) != DDI_SUCCESS) {
 		cmn_err(CE_WARN, "qlt(%d): pci_config_setup failed", instance);
 		goto attach_fail_3;
@@ -418,7 +418,9 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 		    instance, did);
 		goto attach_fail_4;
 	}
-
+	if (did != dip->device) {
+		EL(qlt, "DevID=0x%x, did=0x%x\n", dip->device, did);
+	}
 	if ((did & 0xFFFF) == 0x2071) {
 		qlt->qlt_27xx_chip = 1;
 		qlt->qlt_fcoe_enabled = 0;
@@ -462,7 +464,7 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 		 * rnumber 1 is for IO space
 		 * rnumber 2 is for MBAR0: ISP, MSIX, PBA
 		 */
-		if (ddi_regs_map_setup(dip, 2, &qlt->regs, 0, 0x100,
+		if (ddi_regs_map_setup(dip, 1, &qlt->regs, 0, 0x100,
 		    &dev_acc_attr, &qlt->regs_acc_handle) != DDI_SUCCESS) {
 			goto attach_fail_4;
 		}
@@ -659,7 +661,7 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	/* This may fail but that's ok */
 	pci_enable_pcie_error_reporting(dip);
 
-
+	qla24xx_pci_config(dip);
 	if (qlt->qlt_mq_enabled) {
 		qlt->mq_req = kmem_zalloc(
 		    ((sizeof (qlt_mq_req_ptr_blk_t)) * MQ_MAX_QUEUES),
@@ -4553,7 +4555,6 @@ qlt_read_flash_word(qlt_state_t *qlt, uint32_t faddr, uint32_t *bp)
 	/* Clear access error flag */
 	REG_WR32(qlt, REG_CTRL_STATUS,
 	    REG_RD32(qlt, REG_CTRL_STATUS) | FLASH_ERROR);
-
 	REG_WR32(qlt, REG_FLASH_ADDR, faddr & ~BIT_31);
 
 	/* Wait for READ cycle to complete. */

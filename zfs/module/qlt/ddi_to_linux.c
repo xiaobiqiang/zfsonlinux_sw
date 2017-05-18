@@ -14,7 +14,37 @@
 #include "qlt.h"
 #include <asm/io.h>
 
+int
+qla24xx_pci_config(struct pci_dev *pdev)
+{
+	uint16_t w;
+	unsigned long flags = 0;
 
+	pci_set_master(pdev);
+	pci_try_set_mwi(pdev);
+
+	pci_read_config_word(pdev, PCI_COMMAND, &w);
+	w |= (PCI_COMMAND_PARITY | PCI_COMMAND_SERR);
+	w &= ~PCI_COMMAND_INTX_DISABLE;
+	pci_write_config_word(pdev, PCI_COMMAND, w);
+
+	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0x80);
+
+	/* PCI-X -- adjust Maximum Memory Read Byte Count (2048). */
+	if (pci_find_capability(pdev, PCI_CAP_ID_PCIX))
+		pcix_set_mmrbc(pdev, 2048);
+
+	/* PCIe -- adjust Maximum Read Request Size (2048). */
+	if (pci_is_pcie(pdev))
+		pcie_set_readrq(pdev, 4096);
+
+	pci_disable_rom(pdev);
+
+
+//	ha->pci_attr = RD_REG_DWORD(&reg->ctrl_status);
+
+	return QLA_SUCCESS;
+}
 uint8_t pci_config_get8(struct pci_dev *dev, off_t offset)
 {
 	uint8_t val = 0;
@@ -70,12 +100,12 @@ void qla2x00_config_dma_addressing(struct pci_dev *pdev)
 	/* Assume a 32bit DMA mask. */
 	//ha->flags.enable_64bit_addressing = 0;
 
-	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
+//	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
 		/* Any upper-dword bits set? */
-		if (MSD(dma_get_required_mask(&pdev->dev)) &&
-		    !pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
+//		if (MSD(dma_get_required_mask(&pdev->dev)) &&
+//		    !pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
 			/* Ok, a 64bit DMA mask is applicable. */
-			//ha->flags.enable_64bit_addressing = 1;
+/*			//ha->flags.enable_64bit_addressing = 1;
 			//ha->isp_ops->calc_req_entries = qla2x00_calc_iocbs_64;
 			//ha->isp_ops->build_iocbs = qla2x00_build_scsi_iocbs_64;
 			return;
@@ -83,7 +113,7 @@ void qla2x00_config_dma_addressing(struct pci_dev *pdev)
 	}
 
 	dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
-	pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
+	pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));*/
 }
 
 
@@ -97,7 +127,7 @@ ddi_dma_alloc_handle(struct pci_dev *pdev, ddi_dma_attr_t *attr,
 	int (*waitfp)(caddr_t), caddr_t arg, ddi_dma_handle_t *handlep)
 {
 	*handlep = kzalloc(sizeof(struct __ddi_dma_handle), GFP_KERNEL);
-	(*handlep)->dev = dev_info_to_device(pdev);
+	(*handlep)->dev = pdev;
 	return ((*handlep)->dev == NULL ? -1 : 0);
 }
 
@@ -113,8 +143,7 @@ ddi_dma_mem_alloc(ddi_dma_handle_t dma_handle, size_t length,
 		return -1;
 	}
 	(*handle)->dma_handle = dma_handle;
-	
-	dma_handle->ptr = dma_alloc_coherent(dma_handle->dev, length, &dma_handle->dma_handle, GFP_ATOMIC);
+	dma_handle->ptr = dma_alloc_coherent(&dma_handle->dev->dev, length, &dma_handle->dma_handle, GFP_KERNEL);
 	if (dma_handle->ptr == NULL) {
 		kfree(*handle);
 		printk("%s %d error\n", __func__, __LINE__);
