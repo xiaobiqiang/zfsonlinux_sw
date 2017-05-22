@@ -309,7 +309,7 @@ static int qlt_apidev_major;
 MODULE_LICENSE("GPL");
 int pci_max_read_request=2048;
 module_param(pci_max_read_request, int, S_IRUGO);
-int pcie_max_payload_size=0;
+int pcie_max_payload_size=1024;
 module_param(pcie_max_payload_size, int, S_IRUGO);
 static int __init
 _init(void)
@@ -375,6 +375,7 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	/* No support for suspend resume yet */
 	//if (cmd != DDI_ATTACH)
 	//	return (DDI_FAILURE);
+	ddi_add_dev(dip);
 	instance = ddi_get_instance(dip);
 
 	cmn_err(CE_CONT, "!Qlogic %s(%d) FCA Driver v%s\n",
@@ -1008,7 +1009,7 @@ qlt_detach(dev_info_t *dip)
 	cv_destroy(&qlt->rp_dereg_cv);
 	(void) qlt_el_trace_desc_dtor(qlt);
 	ddi_soft_state_free(qlt_state, instance);
-
+	ddi_remove_dev(dip);
 }
 
 /*

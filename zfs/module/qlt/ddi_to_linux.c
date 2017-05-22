@@ -175,7 +175,7 @@ ddi_dma_unbind_handle(ddi_dma_handle_t h)
 void
 ddi_dma_mem_free(ddi_acc_handle_t *handlep)
 {
-	dma_free_coherent((*handlep)->dma_handle->dev, (*handlep)->dma_handle->size, 
+	dma_free_coherent(&(*handlep)->dma_handle->dev->dev, (*handlep)->dma_handle->size, 
 		(*handlep)->dma_handle->ptr, (*handlep)->dma_handle->dma_handle);
 	kfree(*handlep);
 	*handlep = NULL;
@@ -237,16 +237,52 @@ ddi_regs_map_free(ddi_acc_handle_t *handlep)
 	*handlep = NULL;
 }
 
+struct instance_dev
+{
+	dev_info_t *dip;
+	void *buf;
+};
+static struct instance_dev global_dev[10] = {0};
+
+int ddi_add_dev(dev_info_t *dip)
+{
+	int i=0;
+	for(i=0; i<10; i++) {
+		if (global_dev[i].dip==0) {
+			global_dev[i].dip = dip;
+			break;
+		}
+	}
+}
+int ddi_remove_dev(dev_info_t *dip)
+{
+	int i=0;
+	for(i=0; i<10; i++) {
+		if (global_dev[i].dip==dip) {
+			global_dev[i].dip = 0;
+			break;
+		}
+	}
+}
 int ddi_get_instance(dev_info_t *dip)
 {
-	return 0;
+	int i=0;
+	for(i=0; i<10; i++) {
+		if (global_dev[i].dip==dip) {
+			return i;
+		}
+	}
+	return -1;
 }
 
 int
 ddi_soft_state_zalloc(void **state, int item)
 {
-	*state = kzalloc(sizeof(qlt_state_t), GFP_KERNEL);
-	if (*state == NULL) {
+	if (item < 0 || item >= 10) {
+		return -1;
+	}
+	global_dev[item].buf = kzalloc(sizeof(qlt_state_t), GFP_KERNEL);
+	if (global_dev[item].buf == NULL) {
 		printk("%s %d error\n", __func__, __LINE__);
 		return -1;
 	}
@@ -254,7 +290,10 @@ ddi_soft_state_zalloc(void **state, int item)
 }
 void *ddi_get_soft_state(void *state, int item)
 {
-	struct qlt_state *pstate = (struct qlt_state *)state;
+	if (item < 0 || item >= 10) {
+		return NULL;
+	}
+	struct qlt_state *pstate = (struct qlt_state *)global_dev[item].buf;
 	
 	return pstate;
 }
@@ -262,7 +301,7 @@ void *ddi_get_soft_state(void *state, int item)
 void
 ddi_soft_state_free(void *state, int item)
 {
-	kfree(state);
+	kfree(global_dev[item].buf);
 }
 
 int pci_config_setup(dev_info_t *dip, ddi_acc_handle_t *handle)

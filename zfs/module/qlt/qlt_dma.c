@@ -257,6 +257,7 @@ qlt_dma_handle_pool_fini(qlt_state_t *qlt)
 		handle = next_handle;
 	}
 	qlt->qlt_dma_handle_pool = NULL;
+	mutex_exit(&pool->pool_lock);
 	mutex_destroy(&pool->pool_lock);
 	kmem_free(pool, sizeof (*pool));
 }

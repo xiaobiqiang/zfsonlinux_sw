@@ -184,6 +184,8 @@ int ddi_regs_map_setup(dev_info_t *dip, uint_t rnumber, caddr_t *addrp,
 	ddi_acc_handle_t *handle);
 void ddi_regs_map_free(ddi_acc_handle_t *handlep);
 int ddi_get_instance(dev_info_t *dip);
+int ddi_add_dev(dev_info_t *dip);
+int ddi_remove_dev(dev_info_t *dip);
 int ddi_soft_state_zalloc(void **state, int item);
 void *ddi_get_soft_state(void *state, int item);
 void ddi_soft_state_free(void *state, int item);
