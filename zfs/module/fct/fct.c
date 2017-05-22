@@ -1347,11 +1347,11 @@ fct_deregister_local_port(fct_local_port_t *port)
 		    sizeof (fct_i_remote_port_t *));
 	}
 
-#ifdef SOLARIS
+
 	if (iport->iport_kstat_portstat) {
 		kstat_delete(iport->iport_kstat_portstat);
 	}
-#endif
+
 #ifdef SOLARIS
 	fct_log_local_port_event(port, ESC_SUNFC_PORT_DETACH);
 #endif
