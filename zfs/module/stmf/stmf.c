@@ -431,6 +431,7 @@ stmf_fini(void)
 	if (stmf_state.stmf_nlps || stmf_state.stmf_npps) {
 		return;
 	}
+	stmf_fini_task_checker();
 	if (stmf_dlun_fini() != STMF_SUCCESS)
 		return;
 	if (stmf_worker_fini() != STMF_SUCCESS) {
@@ -442,7 +443,6 @@ stmf_fini(void)
 		stmf_worker_init();
 		return;
 	}
-	stmf_fini_task_checker();
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,

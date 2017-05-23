@@ -113,6 +113,7 @@ static void __exit fct_fini(void)
 #endif
 	/* XXX */
 	mutex_destroy(&fct_global_mutex);
+	misc_deregister(&fct_misc);
 }
 
 #ifdef SOLARIS

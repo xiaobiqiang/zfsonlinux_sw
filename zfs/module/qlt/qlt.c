@@ -53,6 +53,7 @@
 #include <sys/stmf_ioctl.h>
 #include <sys/qla_def.h>
 #include <linux/device.h>
+#include <linux/miscdevice.h>
 #include "ddi_to_linux.h"
 
 
@@ -300,22 +301,34 @@ static const struct file_operations qlt_apidev_fops = {
 	.llseek = noop_llseek,
 };
 
-#define QLT_APIDEV "qlt_apidev"
+#define QLT_MODULE_NAME "qlt"
 /* qlogic logging */
 int enable_extended_logging = 0;
 static char qlt_provider_name[] = "qlt";
 static struct stmf_port_provider *qlt_pp;
-static int qlt_apidev_major;
+
 MODULE_LICENSE("GPL");
 int pci_max_read_request=2048;
 module_param(pci_max_read_request, int, S_IRUGO);
 int pcie_max_payload_size=1024;
 module_param(pcie_max_payload_size, int, S_IRUGO);
+
+static struct miscdevice qlt_misc = {
+	.minor		= MISC_DYNAMIC_MINOR,
+	.name		= QLT_MODULE_NAME,
+	.fops		= &qlt_apidev_fops,
+};
+
 static int __init
 _init(void)
 {
 	int ret;
 
+	ret = misc_register(&qlt_misc);
+	if (ret != 0) {
+		printk("qlt insmod err\n");
+		return (-1);
+	}
 	mutex_init(&qlt_global_lock, 0, MUTEX_DEFAULT, 0);
 	qlt_pp = (stmf_port_provider_t *)stmf_alloc(
 	    STMF_STRUCT_PORT_PROVIDER, 0, 0);
@@ -325,10 +338,6 @@ _init(void)
 		stmf_free(qlt_pp);
 		mutex_destroy(&qlt_global_lock);
 		return (EIO);
-	}
-
-	qlt_apidev_major = register_chrdev(0, QLT_APIDEV, &qlt_apidev_fops);
-	if (qlt_apidev_major < 0) {
 	}
 
 	ret = pci_register_driver(&qlt_pci_driver);
@@ -347,7 +356,7 @@ _fini(void)
 
 	if (qlt_loaded_counter)
 		return ;
-	unregister_chrdev(qlt_apidev_major, QLT_APIDEV);
+	misc_deregister(&qlt_misc);
 	pci_unregister_driver(&qlt_pci_driver);
 	
 	(void) stmf_deregister_port_provider(qlt_pp);
