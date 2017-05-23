@@ -94,6 +94,7 @@ AC_CONFIG_FILES([
 	lib/libzfs/libzfs_core.pc
 	lib/libzfs/Makefile
 	lib/libzfs_core/Makefile
+	lib/libstmf/Makefile
 	lib/libshare/Makefile
 	lib/libclumgt/Makefile
 	cmd/Makefile
@@ -115,6 +116,7 @@ AC_CONFIG_FILES([
 	cmd/zed/Makefile
 	cmd/clumgt/Makefile
 	cmd/disk/Makefile
+	cmd/stmfadm/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
