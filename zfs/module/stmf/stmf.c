@@ -164,6 +164,7 @@ void stmf_trace_clear(void);
 void stmf_worker_init(void);
 stmf_status_t stmf_worker_fini(void);
 void stmf_init_task_checker(void);
+void stmf_fini_task_checker();
 void stmf_worker_mgmt(void);
 void stmf_worker_task(void *arg);
 static void stmf_task_lu_free(scsi_task_t *task, stmf_i_scsi_session_t *iss);
@@ -441,7 +442,7 @@ stmf_fini(void)
 		stmf_worker_init();
 		return;
 	}
-	
+	stmf_fini_task_checker();
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,
@@ -9437,13 +9438,20 @@ stmf_worker_remove_task(stmf_worker_t *w)
 		kmem_free(task_node, sizeof(stmf_task_node_t));
 	}
 }
-
+atomic_t stc_flag = ATOMIC_INIT(0);
+typedef enum stmf_task_checker_f {
+	STC_RUNNING = 0,
+	STC_STOP = 1,
+	STC_EXIT = 2,
+}stc_f;
 void
 stmf_task_checker_thread(void *arg)
 {
 	int i = 0;
-	
-	while (1) {
+	atomic_t *stc_flagp = (atomic_t*)arg;
+
+	atomic_set(stc_flagp, STC_RUNNING);
+	while (atomic_read(stc_flagp) == STC_RUNNING) {
 		mutex_enter(&stmf_state.stmf_task_checker_mtx);
 		cv_timedwait(&stmf_state.stmf_task_checker_cv, &stmf_state.stmf_task_checker_mtx,
 			ddi_get_lbolt() + drv_usectohz(stmf_checker_time * 1000));
@@ -9452,19 +9460,33 @@ stmf_task_checker_thread(void *arg)
 		for (i = 0; i < stmf_i_max_nworkers; i++)
 			stmf_worker_remove_task(&stmf_workers[i]);
 	}
+	atomic_set(stc_flagp, STC_EXIT);
 }
 
 void
 stmf_init_task_checker()
 {
+	atomic_set(&stc_flag, STC_RUNNING);
 	mutex_init(&stmf_state.stmf_task_checker_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&stmf_state.stmf_task_checker_cv, NULL, CV_DRIVER, NULL);
 	stmf_state.stmf_task_checker_tq = taskq_create("stmf_task_checker",
 		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
 	taskq_dispatch(stmf_state.stmf_task_checker_tq, stmf_task_checker_thread,
-		NULL, TQ_SLEEP);
+		&stc_flag, TQ_SLEEP);
 }
-
+void 
+stmf_fini_task_checker()
+{
+	int i=0;
+	for(i=0; i<5; i++) {
+		atomic_set(&stc_flag, STC_STOP);
+		cv_broadcast(&stmf_state.stmf_task_checker_cv);
+		msleep(100);
+		if (atomic_read(&stc_flag) == STC_EXIT)
+			return;
+	}
+	printk("%s line(%d) thread(stmf_task_checker) over failed\n", __func__, __LINE__);
+}
 void
 stmf_abort_target_reset(scsi_task_t *task)
 {
