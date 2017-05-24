@@ -2848,7 +2848,7 @@ listTargetFunc(int operandLen, char *operands[], cmdOptions_t *options,
 	stmfDevid devid;
 	boolean_t operandEntered, found, verbose = B_FALSE;
 	stmfDevidList *targetList;
-	wchar_t targetIdent[STMF_IDENT_LENGTH + 1];
+	char targetIdent[STMF_IDENT_LENGTH + 1];
 	stmfTargetProperties targetProps;
 
 	if ((stmfRet = stmfGetTargetList(&targetList)) != STMF_STATUS_SUCCESS) {
@@ -2909,11 +2909,12 @@ listTargetFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				}
 			}
 			if ((found && operandEntered) || !operandEntered) {
-				(void) mbstowcs(targetIdent,
+				/*(void) mbstowcs(targetIdent,
 				    (char *)targetList->devid[j].ident,
-				    STMF_IDENT_LENGTH);
+				    STMF_IDENT_LENGTH);*/
+				bcopy(targetList->devid[j].ident, targetIdent, STMF_IDENT_LENGTH);
 				targetIdent[STMF_IDENT_LENGTH] = 0;
-				(void) wprintf("Target: "L"%s\n", targetIdent);
+				(void) printf("Target: %s\n", targetIdent);
 				if (verbose) {
 					stmfRet = stmfGetTargetProperties(
 					    &(targetList->devid[j]),
