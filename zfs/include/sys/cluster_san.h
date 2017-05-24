@@ -523,7 +523,7 @@ void cts_reply_notify(cluster_san_hostinfo_t *cshi, uint64_t index);
 void cts_link_down_to_up_handle(void *arg);
 void cts_link_up_to_down_handle(void *arg);
 
-void cts_rx_worker_wakeup(cts_rx_worker_t *w, cs_rx_data_t *cs_data);
+void cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para);
 void cs_join_msg_handle(void *arg);
 
 int cluster_change_failover_host(cluster_san_hostinfo_t *cshi);

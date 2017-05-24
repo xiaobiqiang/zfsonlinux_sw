@@ -132,10 +132,12 @@ static void zfs_mirror_clean_cache_txg_list(mirror_cache_txg_list_t *txg_list);
 static void zfs_mirror_rx_spa_txg_handle(void *arg);
 
 
+#if 0
 static void
 debug_zfs_mirror_data_check_sum(uint64_t size, uint64_t sum1, uint64_t sum2)
 {
 }
+#endif
 
 /*
 static void
@@ -206,6 +208,7 @@ static void zfs_mirror_aligned_txg_list_free(
     kmem_cache_free(mirror_aligned_txg_cache, txg_list);
 }
 
+#if 0
 static void zfs_mirror_init_kstat(zfs_mirror_mac_t *mirror_mac)
 {
     if (mirror_mac == NULL)
@@ -241,6 +244,7 @@ static void zfs_mirror_init_kstat(zfs_mirror_mac_t *mirror_mac)
     mirror_mac->rx_ali_clr_frames = 0;
     mirror_mac->rx_nonali_clr_frames = 0;
 }
+#endif
 
 static int
 zfs_mirror_stats_update(kstat_t *ks, int rw)

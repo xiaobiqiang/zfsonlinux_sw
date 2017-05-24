@@ -892,6 +892,7 @@ static void cts_mac_send_direct_impl(cluster_target_session_t *cts,
 	ctp_tx_rele(ctp);
 }
 
+#if 0
 static void cts_send_sess_fc_rx_bytes(cluster_target_session_t *cts)
 {
 	cluster_target_session_mac_t *sess_mac;
@@ -906,6 +907,7 @@ static void cts_send_sess_fc_rx_bytes(cluster_target_session_t *cts)
 	cts_mac_send_direct_impl(cts, CLUSTER_SAN_MSGTYPE_NOP, 0, rx_bytes);
 	return;
 }
+#endif
 
 static void ctp_mac_rx_throttle_handle(cluster_target_port_t *ctp)
 {
@@ -951,8 +953,6 @@ static void ctp_mac_rx_worker_handle(void *arg)
 	cluster_target_session_mac_t *sess_mac;
 	cluster_san_hostinfo_t *cshi;
 	mblk_t *mp;
-	cts_rx_worker_t *cts_w;
-	cts_worker_para_t *cts_para;
 	cts_fragment_data_t *fragment;
 	struct ether_header *eth_head;
 	cluster_target_msg_header_t *ct_head;

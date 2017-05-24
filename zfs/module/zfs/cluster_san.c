@@ -688,6 +688,7 @@ int cts_rx_hook_remove(uint32_t msg_type)
 	return (ret);
 }
 
+#if 0
 static void
 cts_rx_handle_ext(cs_rx_data_t *cs_data)
 {
@@ -704,6 +705,7 @@ cts_rx_handle_ext(cs_rx_data_t *cs_data)
 		rx_cb_node->rx_cb(cs_data, rx_cb_node->arg);
 	}
 }
+#endif
 
 static void cts_link_evt_hook_init(void)
 {
@@ -2414,10 +2416,12 @@ static void cts_rx_data_check_link(cluster_target_session_t *cts)
 	}
 }
 
+#if 0
 static void cts_rx_hb_handle(cs_rx_data_t *cs_data)
 {
 	cts_rx_data_free(cs_data, B_TRUE);
 }
+#endif
 
 void
 cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para)
