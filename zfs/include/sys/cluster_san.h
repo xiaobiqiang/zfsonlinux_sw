@@ -110,6 +110,7 @@ typedef struct cluster_target_tran_data {
 } cluster_target_tran_data_t;
 
 typedef struct cs_rx_data {
+	list_node_t		node;
 	uint64_t		data_index;
 	uint64_t		data_len;
 	uint8_t			msg_type;
@@ -198,6 +199,11 @@ typedef struct cluster_san_hostinfo {
 	taskq_t *host_rx_worker_tq;
 	cts_rx_worker_t *host_rx_worker;
 
+	/* FIXME: add by wml, to replace them in workers */
+	kmutex_t 	host_fragment_lock;
+	avl_tree_t	host_fragment_avl;
+	list_t		host_fragment_list; /* time sort */
+
 	/* async send */
 	kmutex_t host_asyn_tx_mtx;
 	kcondvar_t host_asyn_tx_cv;
@@ -208,6 +214,7 @@ typedef struct cluster_san_hostinfo {
 	/* sync send */
 	kmutex_t host_sync_tx_msg_mtx;
 	list_t host_sync_tx_msgs;
+
 } cluster_san_hostinfo_t;
 
 typedef struct cs_sync_cmd_host_node {
@@ -516,8 +523,7 @@ void cts_reply_notify(cluster_san_hostinfo_t *cshi, uint64_t index);
 void cts_link_down_to_up_handle(void *arg);
 void cts_link_up_to_down_handle(void *arg);
 
-void
-cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para);
+void cts_rx_worker_wakeup(cts_rx_worker_t *w, cs_rx_data_t *cs_data);
 void cs_join_msg_handle(void *arg);
 
 int cluster_change_failover_host(cluster_san_hostinfo_t *cshi);
