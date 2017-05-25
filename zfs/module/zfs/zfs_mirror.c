@@ -72,7 +72,7 @@ uint64_t zfs_mirror_send_txg_gap = 5;
 boolean_t zfs_mirror_timeout_switch = B_TRUE;
 
 #define	ZFS_MIRROR_WD_CHECK_GUID_N		64
-#define	ZFS_MIRROR_WD_CHECK_NONALI_N	10000
+#define	ZFS_MIRROR_WD_CHECK_NONALI_N		800
 
 #define	ZFS_MIRROR_TRACE_TIME_DEBUG		0
 
@@ -2828,7 +2828,11 @@ void zfs_mirror_data_expired_switch(boolean_t on_off)
     zfs_mirror_timeout_switch = on_off;
 }
 
-#define	ZFS_MIRROR_SPS_OS_CNT_MAX	4096
+/*
+ * make sure sizeof(struct zfs_mirror_spa_os_pair) won't cause spl to complain
+ * about large mem alloc
+ */
+#define	ZFS_MIRROR_SPS_OS_CNT_MAX	1024
 typedef struct zfs_mirror_spa_os_pair {
     uint64_t spa_id[ZFS_MIRROR_SPS_OS_CNT_MAX];
     uint64_t os_id[ZFS_MIRROR_SPS_OS_CNT_MAX];
