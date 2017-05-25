@@ -387,6 +387,7 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	ddi_add_dev(dip);
 	instance = ddi_get_instance(dip);
 
+	pci_enable_device(dip);
 	cmn_err(CE_CONT, "!Qlogic %s(%d) FCA Driver v%s\n",
 	    QLT_NAME, instance, QLT_VERSION);
 
@@ -881,7 +882,7 @@ over_max_payload_setting:;
 		qlt_disable_intr(qlt);
 		goto attach_fail_10;
 	}
-
+	pci_set_master(dip);
 	//ddi_report_dev(dip);
 	return (DDI_SUCCESS);
 
@@ -1177,6 +1178,8 @@ qlt_enable_intr(qlt_state_t *qlt)
 			    "ddi_intr_enable failed:%x", qlt->instance, stat);
 		}
 	}*/
+	REG_WR32(qlt, REG_INTR_CTRL, ENABLE_RISC_INTR);
+	REG_RD32(qlt, REG_INTR_CTRL);
 }
 
 static void
@@ -3080,7 +3083,7 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 
 	EL(qlt, "port (%p) qlt_state (%xh) cmd (%xh) arg (%p)\n",
 	    port, qlt->qlt_state, cmd, arg);
-
+	
 	switch (cmd) {
 	case FCT_CMD_PORT_ONLINE:
 		if (qlt->qlt_state == FCT_STATE_ONLINE)
@@ -3593,7 +3596,7 @@ qlt_load_risc_ram(qlt_state_t *qlt, uint32_t *host_addr,
 	uint32_t cur_risc_addr;
 	uint64_t da;
 	fct_status_t ret;
-
+	
 	while (words_sent < word_count) {
 		cur_host_addr = &(host_addr[words_sent]);
 		cur_risc_addr = risc_addr + (words_sent << 2);
@@ -4231,8 +4234,8 @@ qlt_isr(int irq, void *arg)
 	int		i;
 	int		intr_loop_count;
 	char		info[80];
-
 	risc_status = REG_RD32(qlt, REG_RISC_STATUS);
+	
 	if (!mutex_tryenter(&qlt->intr_lock)) {
 		/*
 		 * Normally we will always get this lock. If tryenter is
