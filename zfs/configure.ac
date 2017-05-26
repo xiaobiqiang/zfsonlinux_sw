@@ -84,6 +84,7 @@ AC_CONFIG_FILES([
 	lib/libspl/include/sys/dktp/Makefile
 	lib/libspl/include/util/Makefile
 	lib/libdiskmgt/Makefile
+	lib/libfmd/Makefile
 	lib/libavl/Makefile
 	lib/libefi/Makefile
 	lib/libnvpair/Makefile
@@ -124,6 +125,7 @@ AC_CONFIG_FILES([
 	module/Makefile
 	module/avl/Makefile
 	module/cn_hbx/Makefile
+	module/fmd_transport/Makefile
 	module/nvpair/Makefile
 	module/unicode/Makefile
 	module/zcommon/Makefile

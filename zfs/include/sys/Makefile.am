@@ -7,6 +7,7 @@ COMMON_H = \
 	$(top_srcdir)/include/sys/avl_impl.h \
 	$(top_srcdir)/include/sys/cluster_san.h \
 	$(top_srcdir)/include/sys/cn_hbx.h \
+	$(top_srcdir)/include/sys/fmd_transport.h \
 	$(top_srcdir)/include/sys/blkptr.h \
 	$(top_srcdir)/include/sys/bplist.h \
 	$(top_srcdir)/include/sys/bpobj.h \

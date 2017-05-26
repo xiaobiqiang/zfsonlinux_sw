@@ -46,6 +46,7 @@
 #include <sys/zfs_fuid.h>
 #include <sys/ddi.h>
 #include <sys/dsl_dataset.h>
+#include <sys/fmd_transport.h>
 
 /*
  * These zfs_log_* functions must be called within a dmu tx, in one
@@ -361,6 +362,7 @@ zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	itx->itx_oid = foid;
 
 	zil_itx_assign(zilog, itx, tx);
+	fmd_module_is_exit();
 }
 
 /*
