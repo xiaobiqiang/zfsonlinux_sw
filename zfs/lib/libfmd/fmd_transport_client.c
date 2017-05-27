@@ -208,7 +208,7 @@ static void *fmd_getmsg_thread(void *arg)
 			if (state > 0) {
 				memcpy(&sfm, NLMSG_DATA(nlh), hlen);
 				fmsg = fmd_msg_new(sfm.fm_len);
-				fmsg->fm_type = sfm.fm_type;
+				fmsg->fm_type = FMD_DISK_ERR;
 				fmsg->fm_len = sfm.fm_len;
 				memcpy(fmsg->fm_buf, NLMSG_DATA(nlh) + hlen, fmsg->fm_len);
 				fmd_manage->ft_handle(fmsg);

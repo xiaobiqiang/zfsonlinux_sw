@@ -30,15 +30,13 @@ fmd_msg_t *fmd_kernel_msg_new(int len)
 	char *nbuf = NULL;
 	fmd_msg_t *new = NULL;
 
-	new = kmalloc(sizeof(fmd_msg_t), GFP_KERNEL);
+	new = kmem_zalloc(sizeof(fmd_msg_t), KM_SLEEP);
 	
 	if (new != NULL) {
-		memset(new, 0, sizeof(fmd_msg_t));
-		nbuf = kmalloc(len, GFP_KERNEL);
+		nbuf = kmem_zalloc(len, KM_SLEEP);
 		if (nbuf != NULL) {
 			new->fm_len = len;
 			new->fm_buf = nbuf;
-			memset(nbuf, 0, len);
 			return (new);
 		} 
 	}
@@ -50,11 +48,11 @@ void fmd_kernel_msg_free(fmd_msg_t *fmsg)
 {
 	if (fmsg != NULL) {
 		if (fmsg->fm_buf != NULL) {
-			kfree(fmsg->fm_buf);
+			kmem_free(fmsg->fm_buf, fmsg->fm_len);
 			fmsg->fm_buf = NULL;
 		}
 
-		kfree(fmsg);
+		kmem_free(fmsg, sizeof(fmd_msg_t));
 		fmsg = NULL;
 	}
 }
