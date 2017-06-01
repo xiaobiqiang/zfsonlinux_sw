@@ -14,7 +14,7 @@
 #endif
 
 #define c_err  printf
-#define MAX_PAYLOAD 256
+#define MAX_PAYLOAD 4096
 #define UEVENT_MSG_LEN 4096
 #define HAND_MSG	"hello kernel"
 #define HAND_MSG_LEN 15

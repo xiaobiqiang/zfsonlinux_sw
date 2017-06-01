@@ -60,13 +60,15 @@ void fmd_kernel_msg_free(fmd_msg_t *fmsg)
 int fmd_kernel_send_msg(const fmd_msg_t *fmsg)
 {
 	int ret = -1;
+	int len = 0;
 	struct nlmsghdr *nlh = NULL;
 	struct sk_buff *nl_skb = NULL;
-	int len = NLMSG_SPACE(MAX_PAYLOAD);
+	int hlen = sizeof(int) + sizeof(fmd_type_t);
 
 	if (fmsg == NULL)
 		return;
 
+	len = hlen + fmsg->fm_len + 2;
 	nl_skb = alloc_skb(len, GFP_ATOMIC);
 	if (nl_skb == NULL) {
 		printk("fmd netlink alloc failure.\n");
@@ -81,7 +83,6 @@ int fmd_kernel_send_msg(const fmd_msg_t *fmsg)
 
 	NETLINK_CB(nl_skb).dst_group = 0;
 
-	int hlen = sizeof(int) + sizeof(fmd_type_t);
 	memcpy(NLMSG_DATA(nlh), (char*)fmsg, hlen);
 	memcpy(NLMSG_DATA(nlh) + hlen, (char*)fmsg->fm_buf, fmsg->fm_len);
 
