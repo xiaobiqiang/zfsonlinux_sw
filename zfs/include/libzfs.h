@@ -815,6 +815,9 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid);
 int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
 
+int zfs_create_lu(char *lu_name);
+
+
 #ifdef	__cplusplus
 }
 #endif

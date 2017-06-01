@@ -969,6 +969,8 @@ typedef enum {
 #define	ZFS_IMPORT_ONLY		0x8
 #define	ZFS_IMPORT_TEMP_NAME	0x10
 
+#define	ZFS_SINGLE_DATA		"zfs:single_data"
+
 /*
  * Sysevent payload members.  ZFS will generate the following sysevents with the
  * given payloads:

@@ -44,9 +44,11 @@
 #include <sys/mntent.h>
 #include <sys/types.h>
 #include <wait.h>
+#include <syslog.h>
 
 #include <libzfs.h>
 #include <libzfs_core.h>
+#include <libstmf.h>
 
 #include "libzfs_impl.h"
 #include "zfs_prop.h"
@@ -2110,3 +2112,37 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	zcmd_free_nvlists(&zc);
 	return (nvl);
 }
+
+int zfs_create_lu(char *lu_name)
+{
+	int stmf_proxy_door_fd;
+	char dev_buf[512];
+	luResource hdl = NULL;
+	int ret = 0;
+	stmfGuid createdGuid;
+	boolean_t b_create_par = B_TRUE;
+	stmf_add_proxy_view_t *proxy_view_entry;
+	sprintf(dev_buf, "%s%s", ZVOL_FULL_DIR, lu_name);
+	ret = stmfCreateLuResource(STMF_DISK, &hdl);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "Can not Create LU Resource");
+		return (1);
+	}
+	ret = stmfSetLuProp(hdl, STMF_LU_PROP_FILENAME, dev_buf);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "Can Assign Name for LU");
+		(void) stmfFreeLuResource(hdl);
+		return (1);
+	}
+
+	ret = stmfCreateLu(hdl, &createdGuid);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "Create LU fails");
+		(void) stmfFreeLuResource(hdl);
+		return (1);;
+	}
+	(void) stmfFreeLuResource(hdl);
+
+	return (0);
+}
+

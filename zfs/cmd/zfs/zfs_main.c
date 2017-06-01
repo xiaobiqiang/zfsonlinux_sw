@@ -55,6 +55,7 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include <libstmf.h>
 #include <libzfs.h>
 #include <libzfs_core.h>
 #include <zfs_prop.h>
@@ -908,6 +909,10 @@ zfs_do_create(int argc, char **argv)
 	}
 
 	ret = zfs_mount_and_share(g_zfs, argv[0], ZFS_TYPE_DATASET);
+
+	if (ret == 0 && type == ZFS_TYPE_VOLUME) {
+		zfs_create_lu(argv[0]);
+	}
 error:
 	nvlist_free(props);
 	return (ret);
@@ -3505,6 +3510,16 @@ typedef struct set_cbdata {
 	char		*cb_value;
 } set_cbdata_t;
 
+int 
+zfs_is_single_data_prop(const char *prop)
+{
+	if (strncmp(prop, ZFS_SINGLE_DATA, strlen(prop)) == 0)
+		return (1);
+
+	return (0);
+}
+
+
 static int
 set_callback(zfs_handle_t *zhp, void *data)
 {
@@ -3523,6 +3538,14 @@ set_callback(zfs_handle_t *zhp, void *data)
 		}
 		return (1);
 	}
+
+	if (zfs_is_single_data_prop(cbp->cb_propname)) {
+		if (atoi(cbp->cb_value) == 1) {
+			if (strchr(zfs_get_name(zhp), '/') != NULL)
+				stmfNotifyLuActive(zfs_get_name(zhp));
+		}
+	}
+	
 	return (0);
 }
 
