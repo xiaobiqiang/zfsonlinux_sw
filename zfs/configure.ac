@@ -88,6 +88,7 @@ AC_CONFIG_FILES([
 	lib/libnvpair/Makefile
 	lib/libunicode/Makefile
 	lib/libuutil/Makefile
+	lib/libcomm/Makefile
 	lib/libzpool/Makefile
 	lib/libzfs/libzfs.pc
 	lib/libzfs/libzfs_core.pc
@@ -113,6 +114,7 @@ AC_CONFIG_FILES([
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
 	cmd/stmfadm/Makefile
+	cmd/configd/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile

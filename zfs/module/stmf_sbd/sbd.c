@@ -48,6 +48,7 @@
 
 #include <sys/zvol.h>
 #include <sys/dmu_objset.h>
+#include <sys/zfs_ioctl.h>
 /* #include <sys/dsl_crypto.h> */
 #include <sys/cluster_san.h>
 #include <sys/stmf_sbd.h>
@@ -76,8 +77,9 @@ rdc_reg_set_remote_sync_flag_func_t rdc_reg_set_remote_sync_flag = NULL;
 rdc_reg_transition_to_standby_func_t rdc_reg_transition_to_standby = NULL;
 rdc_request_role_func_t rdc_request_role = NULL;
 rdc_set_sync_flag_func_t rdc_set_sync_flag = NULL;
-
+*/
 static void sbd_rdc_role_notify_cb(char *data_fname, int role);
+/*
 static void sbd_rdc_mode_notify_cb(char *data_fname, int mode);
 static void sbd_rdc_stop_notify_cb(char *data_fname);
 static void sbd_set_remote_sync_flag(char *data_fname, int need_synced);
@@ -118,7 +120,6 @@ int sbd_get_global_props(sbd_global_props_t *oslp, uint32_t oslp_sz,
     uint32_t *err_ret);
 int sbd_get_lu_props(sbd_lu_props_t *islp, uint32_t islp_sz,
     sbd_lu_props_t *oslp, uint32_t oslp_sz, uint32_t *err_ret);
-static char *sbd_get_zvol_name(sbd_lu_t *);
 static int sbd_get_unmap_props(sbd_unmap_props_t *sup, sbd_unmap_props_t *osup,
     uint32_t *err_ret);
 sbd_status_t sbd_create_zfs_meta_object(sbd_lu_t *sl);
@@ -168,7 +169,7 @@ uint64_t zfs_dirty_data_max_bak = ZFS_DIRTY_MAX_BAK_INIT_VAL;
 /* static int32_t syspool_lu_count = -1; */
 
 #define	SBD_NAME		"COMSTAR SBD"
-#define	SBD_MODULE_NAME	"stmf_sbd"
+#define	SBD_MODULE_NAME	"sbd"
 
 static const struct file_operations stmf_sbd_dev_fops = {
 	.open		= sbd_open,
@@ -2201,6 +2202,7 @@ sbd_transition_to_trans_standby_lu(char *data_fname)
 	}
 
 }
+#endif
 
 int 
 sbd_transition_to_active_lu(char *data_fname)
@@ -2286,7 +2288,7 @@ sbd_transition_to_active_lu(char *data_fname)
 void 
 sbd_try_transition_to_active_lu(sbd_lu_t *sl, int context)
 {
-	rdc_request_info_t info;
+	/* rdc_request_info_t info; */
 	cmn_err(CE_NOTE, "%s: access_state(%d), avs sync state(%d),"
 		" flags(0x%x), lu(%s)", __func__, sl->sl_access_state, 
 		sl->sl_avs_master_state, sl->sl_flags, sl->sl_name);
@@ -2304,12 +2306,15 @@ sbd_try_transition_to_active_lu(sbd_lu_t *sl, int context)
 		return;
 	}
 
+	/*
 	info.role = RDC_ROLE_MASTER;
 	info.context = context;
 	info.hostid = sl->sl_active_hostid;
 	rdc_request_role(sl->sl_name, &info);
+	*/
 }
 
+#if 0
 static void 
 sbd_set_remote_sync_flag(char *data_fname, int need_synced)
 {
@@ -2338,6 +2343,7 @@ sbd_set_remote_sync_flag(char *data_fname, int need_synced)
 		cmn_err(CE_WARN, "%s: lu(%s) is busy", __func__, data_fname);
 	}
 }
+#endif
 
 static void sbd_rdc_role_notify_cb(char *data_fname, int role)
 {
@@ -2347,7 +2353,8 @@ static void sbd_rdc_role_notify_cb(char *data_fname, int role)
 		return;
 	}
 
-	if (role != RDC_ROLE_MASTER) {
+	/* role: 0: master; 1: slave */
+	if (role != 0) {
 		cmn_err(CE_NOTE, "%s: lu() avs role is %d", __func__, role);
 		return;
 	}
@@ -2362,6 +2369,7 @@ static void sbd_rdc_role_notify_cb(char *data_fname, int role)
 	}
 }
 
+#if 0
 static void sbd_rdc_mode_notify_cb(char *data_fname, int mode)
 {
 	uint32_t is_replication = 0;
@@ -2607,6 +2615,8 @@ sbd_open_data_file(sbd_lu_t *sl, uint32_t *err_ret, int lu_size_valid,
 	enum vtype vt;
 	stmf_lu_t *lu;
 	struct kstat stat;
+	char *zvol_name = NULL;
+	char disk_name[256] = {0};
 
 	mutex_enter(&sl->sl_lock);
 	if (vp_valid) {
@@ -2614,47 +2624,78 @@ sbd_open_data_file(sbd_lu_t *sl, uint32_t *err_ret, int lu_size_valid,
 	}
 	if (sl->sl_data_filename[0] != '/') {
 		*err_ret = SBD_RET_DATA_PATH_NOT_ABSOLUTE;
-		mutex_exit(&sl->sl_lock);
-		return (EINVAL);
-	}
-	
-	if ((ret = get_file_attr(sl->sl_data_filename, &stat)) != 0) {
-		*err_ret = SBD_RET_DATA_FILE_LOOKUP_FAILED;
-		mutex_exit(&sl->sl_lock);
-		return (ret);
+		ret = EINVAL;
+		goto out;
 	}
 
-	sl->sl_data_vp->v_type = vn_mode_to_vtype(stat.mode);
-	sl->sl_data_vtype = vt = sl->sl_data_vp->v_type;
+	if (sbd_is_zvol(sl->sl_data_filename)) {
+		zvol_name = sbd_get_zvol_name(sl);
+		ret = zvol_get_disk_name(zvol_name, disk_name, sizeof(disk_name));
+
+		if (ret) {
+			cmn_err(CE_WARN, "%s zvol %s get disk name failed", __func__,
+				zvol_name);
+			*err_ret = SBD_RET_DATA_FILE_LOOKUP_FAILED;
+			ret = EINVAL;
+			goto out;
+		}
+		
+	} else {
+		strncpy(disk_name, sl->sl_data_filename, strlen(sl->sl_data_filename));
+	}
+	
+	if ((ret = get_file_attr(disk_name, &stat)) != 0) {
+		*err_ret = SBD_RET_DATA_FILE_LOOKUP_FAILED;
+		goto out;
+	}
+
+	vt = vn_mode_to_vtype(stat.mode);
+	sl->sl_data_vtype = vt;
 	if ((vt != VREG) && (vt != VCHR) && (vt != VBLK)) {
 		*err_ret = SBD_RET_WRONG_DATA_FILE_TYPE;
-		mutex_exit(&sl->sl_lock);
-		return (EINVAL);
+		ret = EINVAL;
+		goto out;
 	}
 	if (sl->sl_flags & SL_WRITE_PROTECTED) {
 		flag = FREAD | FOFFMAX;
 	} else {
-		flag = FREAD | FWRITE | FOFFMAX ;
+		flag = FREAD | FWRITE | FOFFMAX;
 	}
-	if ((ret = vn_open(sl->sl_data_filename, UIO_SYSSPACE, flag, 0,
+
+	if ((ret = vn_open(disk_name, UIO_SYSSPACE, flag, 0,
 	    &sl->sl_data_vp, 0, 0)) != 0) {
 		*err_ret = SBD_RET_DATA_FILE_OPEN_FAILED;
-		mutex_exit(&sl->sl_lock);
-		return (ret);
+		goto out;
 	}
+
 odf_over_open:
-	vattr.va_mask = AT_SIZE;
-	if ((ret = VOP_GETATTR(sl->sl_data_vp, &vattr, 0, CRED(), NULL)) != 0) {
-		*err_ret = SBD_RET_DATA_FILE_GETATTR_FAILED;
-		goto odf_close_data_and_exit;
+	if (sbd_is_zvol(sl->sl_data_filename)) {
+		if (zvol_get_volsize(zvol_name, &vattr.va_size)) {
+			cmn_err(CE_WARN, "%s zvol_get_volsize name %s failed", 
+				__func__, zvol_name);
+			goto odf_close_data_and_exit;
+		}
+	} else {
+		vattr.va_mask = AT_SIZE;
+		if ((ret = VOP_GETATTR(sl->sl_data_vp, &vattr, 0, CRED(), NULL)) != 0) {
+			*err_ret = SBD_RET_DATA_FILE_GETATTR_FAILED;
+			goto odf_close_data_and_exit;
+		}
 	}
+
 	if ((vt != VREG) && (vattr.va_size == 0)) {
+		/*
+		 * Its a zero byte block or char device. This cannot be
+		 * a raw disk.
+		 */		
 		*err_ret = SBD_RET_WRONG_DATA_FILE_TYPE;
 		ret = EINVAL;
 		goto odf_close_data_and_exit;
 	}
-	
+	/* sl_data_readable size includes any metadata. */
 	sl->sl_data_readable_size = vattr.va_size;
+
+	/* nbits cannot be greater than 64 */	
 	nbits = highbit(vattr.va_size);
 	sl->sl_data_fs_nbits = (uint8_t)nbits;
 	if (lu_size_valid) {
@@ -2663,6 +2704,10 @@ odf_over_open:
 			sl->sl_total_data_size += SHARED_META_DATA_SIZE;
 		}
 		if ((nbits > 0) && (nbits < 64)) {
+			/*
+			 * The expression below is correct only if nbits is
+			 * positive and less than 64.
+			 */			
 			supported_size = (((uint64_t)1) << nbits) - 1;
 			if (sl->sl_total_data_size > supported_size) {
 				*err_ret = SBD_RET_SIZE_NOT_SUPPORTED_BY_FS;
@@ -2696,7 +2741,9 @@ odf_over_open:
 		ret = EINVAL;
 		goto odf_close_data_and_exit;
 	}
-
+	/*
+	 * Get the minor device for direct zvol access
+	 */
 	if (sl->sl_flags & SL_ZFS_META) {
 		sl->sl_zvol_minor = MINOR(sl->sl_data_vp->v_rdev);
 		if (sbd_zvol_get_volume_params(sl) == 0)
@@ -2705,6 +2752,9 @@ odf_over_open:
 	sl->sl_flags |= SL_MEDIA_LOADED;
 	lu = sl->sl_lu;
 	lu->lu_have_minor = 1;
+	if (zvol_name)
+		kmem_free(zvol_name, strlen(zvol_name) + 1);
+	
 	mutex_exit(&sl->sl_lock);
 	return (0);
 
@@ -2712,6 +2762,11 @@ odf_close_data_and_exit:
 	if (!keep_open) {
 		(void) VOP_CLOSE(sl->sl_data_vp, flag, 1, 0, CRED(), NULL);
 	}
+
+out:
+	if (zvol_name)
+		kmem_free(zvol_name, strlen(zvol_name) + 1);
+	
 	mutex_exit(&sl->sl_lock);
 	return (ret);
 }
@@ -2885,8 +2940,9 @@ sbd_notify_lu_active(sbd_notify_active_t *stlu, uint32_t *err_ret)
 {
 	char lu_name[512] = {0};
 	cmn_err(CE_NOTE, "%s %s", __func__, stlu->lu_meta_fname);
-	snprintf(lu_name, sizeof(lu_name), "/dev/zvol/rdsk/%s", stlu->lu_meta_fname);
-	/* sbd_rdc_role_notify_cb(lu_name, 0); */
+	snprintf(lu_name, sizeof(lu_name), "%s%s", ZVOL_FULL_DIR,
+		stlu->lu_meta_fname);
+	sbd_rdc_role_notify_cb(lu_name, 0);
 	return 0;
 }
 
@@ -3219,14 +3275,13 @@ sbd_create_register_lu(sbd_create_and_reg_lu_t *slu, int struct_sz,
 		goto over_meta_create;
 	}
 
-	if ((ret = get_file_attr(sl->sl_data_filename, &stat)) != 0) {
+	if ((ret = get_file_attr(sl->sl_meta_filename, &stat)) != 0) {
 		*err_ret = SBD_RET_DATA_FILE_LOOKUP_FAILED;
 		goto scm_err_out;
 	}
 
-	sl->sl_data_vp->v_type = vn_mode_to_vtype(stat.mode);	
-	sl->sl_meta_vtype = vt = sl->sl_meta_vp->v_type;
-	
+	vt = vn_mode_to_vtype(stat.mode);
+	sl->sl_meta_vtype = vt;
 	if ((vt != VREG) && (vt != VCHR) && (vt != VBLK)) {
 		*err_ret = SBD_RET_WRONG_META_FILE_TYPE;
 		ret = EINVAL;
@@ -3237,12 +3292,14 @@ sbd_create_register_lu(sbd_create_and_reg_lu_t *slu, int struct_sz,
 	} else {
 		sl->sl_meta_blocksize_shift = 9;
 	}
+
 	flag = FREAD | FWRITE | FOFFMAX | FEXCL;
 	if ((ret = vn_open(sl->sl_meta_filename, UIO_SYSSPACE, flag, 0,
 	    &sl->sl_meta_vp, 0, 0)) != 0) {
 		*err_ret = SBD_RET_META_FILE_OPEN_FAILED;
 		goto scm_err_out;
 	}
+	
 over_meta_create:
 	sl->sl_total_meta_size = sl->sl_meta_offset + sizeof (sbd_meta_start_t);
 	sl->sl_total_meta_size +=
@@ -3499,7 +3556,7 @@ sbd_proxy_reg_lu(uint8_t *luid, void *proxy_reg_arg, uint32_t proxy_reg_arg_len,
 			cmn_err(CE_NOTE, "%s change sl_access_state to SBD_LU_TRANSITION_TO_ACTIVE sl_name=%s"
 				" proxy hostid=%d",
 				__func__, sl->sl_name, proxy_hostid);
-			/*  sbd_try_transition_to_active_lu(sl, STMF_RECV_DEACTIVE_MSG); */
+			sbd_try_transition_to_active_lu(sl, STMF_RECV_DEACTIVE_MSG);
 		} else {
 			/* STMF_MSG_LU_REGISTER == type */
 			mutex_enter(&sl->sl_lock);
@@ -3790,29 +3847,34 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 			goto sim_err_out;
 		}
 	}
+	
+	/*
 	if (sbd_is_zvol(sl->sl_meta_filename)) {
 		char *zvol_name = sbd_get_zvol_name(sl);
 		zvol_create_minor(zvol_name);
 		kmem_free(zvol_name, strlen(zvol_name) + 1);
 	}
+	*/
 
 	if ((ret = get_file_attr(sl->sl_meta_filename, &stat)) != 0) {
 		*err_ret = SBD_RET_META_FILE_LOOKUP_FAILED;
 		goto sim_err_out;
 	}
 
-	sl->sl_data_vp->v_type = vn_mode_to_vtype(stat.mode);	
-	sl->sl_meta_vtype = vt = sl->sl_meta_vp->v_type;
+	vt = vn_mode_to_vtype(stat.mode);
+	sl->sl_meta_vtype = vt;
+	
 	if (sbd_is_zvol(sl->sl_meta_filename)) {
 		sl->sl_flags |= SL_ZFS_META;
 		sl->sl_data_filename = sl->sl_meta_filename;
 	}
-	sl->sl_meta_vtype = vt = sl->sl_meta_vp->v_type;
+	
 	if ((vt != VREG) && (vt != VCHR) && (vt != VBLK)) {
 		*err_ret = SBD_RET_WRONG_META_FILE_TYPE;
 		ret = EINVAL;
 		goto sim_err_out;
 	}
+	
 	if (sl->sl_flags & SL_ZFS_META) {
 		if (sbd_open_zfs_meta(sl) != SBD_SUCCESS) {
 			/* let see if metadata is in the 64k block */
@@ -4896,7 +4958,7 @@ sbd_get_zvol_name(sbd_lu_t *sl)
 	if (SBD_IS_ZVOL(src) != 0) {
 		ASSERT(0);
 	}
-	src += 14;
+	src += strlen(ZVOL_FULL_DIR);
 	if (*src == '/')
 		src++;
 	p = (char *)kmem_alloc(strlen(src) + 1, KM_SLEEP);
@@ -5038,7 +5100,7 @@ sbd_update_zfs_prop(sbd_lu_t *sl)
 	sbd_status_t ret = SBD_SUCCESS;
 
 	ASSERT(sl->sl_zfs_meta);
-	ptr = ah_meta = kmem_zalloc(ZAP_MAXVALUELEN, KM_SLEEP);
+	ptr = ah_meta = vmem_zalloc(ZAP_MAXVALUELEN, KM_SLEEP);
 	rw_enter(&sl->sl_zfs_meta_lock, RW_READER);
 	/* convert local copy to ascii hex */
 	dp = sl->sl_zfs_meta;
@@ -5078,8 +5140,8 @@ sbd_status_t
 sbd_wcd_set(int wcd, sbd_lu_t *sl)
 {
 	/* translate to wce bit */
-	struct file *fp;
 	int wce = wcd ? 0 : 1;
+	char *name = NULL;
 	int ret;
 	sbd_status_t sret = SBD_SUCCESS;
 
@@ -5091,8 +5153,10 @@ sbd_wcd_set(int wcd, sbd_lu_t *sl)
 		goto done;
 	}
 
-	fp = sl->sl_data_vp->v_file;
-	ret = fp->f_op->unlocked_ioctl(fp, DKIOCSETWCE, (intptr_t)&wce);
+	name = sbd_get_zvol_name(sl);
+	ret = zvol_set_wce(name, wce);
+	if (name)
+		kmem_free(name, strlen(name) + 1);
 	if (ret == 0) {
 		sl->sl_flags &= ~SL_WRITEBACK_CACHE_SET_UNSUPPORTED;
 		sl->sl_flags &= ~SL_FLUSH_ON_DISABLED_WRITECACHE;
@@ -5115,7 +5179,7 @@ done:
 void
 sbd_wcd_get(int *wcd, sbd_lu_t *sl)
 {
-	struct file *fp;
+	char *name = NULL;
 	int wce;
 	int ret;
 
@@ -5124,8 +5188,11 @@ sbd_wcd_get(int *wcd, sbd_lu_t *sl)
 		return;
 	}
 
-	fp = sl->sl_data_vp->v_file;
-	ret = fp->f_op->unlocked_ioctl(fp, DKIOCGETWCE, (intptr_t)&wce);
+	name = sbd_get_zvol_name(sl);
+	ret = zvol_get_wce(name, &wce);
+	if (name)
+		kmem_free(name, strlen(name) + 1);
+
 	/* if write cache get failed, assume disabled */
 	if (ret) {
 		*wcd = 1;
@@ -5138,18 +5205,11 @@ sbd_wcd_get(int *wcd, sbd_lu_t *sl)
 int
 sbd_zvolget(char *zvol_name, char **comstarprop)
 {
-	struct file *fp;
 	nvlist_t	*nv = NULL, *nv2;
 	zfs_cmd_t	*zc;
 	char		*ptr;
 	int size = 1024;
 	int rc;
-
-	fp = filp_open("/dev/zfs", FREAD | FWRITE, 0);
-	if (IS_ERR(fp)) {
-		cmn_err(CE_WARN, "filp_open /dev/zfs %d", -PTR_ERR(fp));
-		return (ENXIO);
-	}
 	
 	zc = kmem_zalloc(sizeof (zfs_cmd_t), KM_SLEEP);
 	(void) strlcpy(zc->zc_name, zvol_name, sizeof (zc->zc_name));
@@ -5157,7 +5217,7 @@ again:
 	zc->zc_nvlist_dst = (uint64_t)(intptr_t)kmem_alloc(size,
 	    KM_SLEEP);
 	zc->zc_nvlist_dst_size = size;
-	rc = fp->f_op->unlocked_ioctl(fp, ZFS_IOC_OBJSET_STATS, (intptr_t)zc);
+	rc = zfs_objset_stats(zc);
 
 	if (rc == ENOMEM) {
 		int newsize;
@@ -5186,7 +5246,6 @@ out:
 		nvlist_free(nv);
 	kmem_free((void *)(uintptr_t)zc->zc_nvlist_dst, size);
 	kmem_free(zc, sizeof (zfs_cmd_t));
-	filp_close(fp, 0);
 
 	return (rc);
 }
@@ -5194,18 +5253,11 @@ out:
 int
 sbd_zvolset(char *zvol_name, char *comstarprop)
 {
-	struct file *fp;
 	nvlist_t	*nv;
 	char		*packed = NULL;
 	size_t		len;
 	zfs_cmd_t	*zc;
 	int rc;
-
-	fp = filp_open("/dev/zfs", FREAD | FWRITE, 0);
-	if (IS_ERR(fp)) {
-		cmn_err(CE_WARN, "filp_open /dev/zfs %d", -PTR_ERR(fp));
-		return (ENXIO);
-	}
 
 	(void) nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP);
 	(void) nvlist_add_string(nv, "stmf_sbd_lu", comstarprop);
@@ -5217,18 +5269,18 @@ sbd_zvolset(char *zvol_name, char *comstarprop)
 	(void) strlcpy(zc->zc_name, zvol_name, sizeof (zc->zc_name));
 	zc->zc_nvlist_src = (uint64_t)(intptr_t)packed;
 	zc->zc_nvlist_src_size = len;
-	rc = fp->f_op->unlocked_ioctl(fp, ZFS_IOC_SET_PROP, (intptr_t)zc);
+	zc->zc_iflags = FKIOCTL;
+	rc = zfs_set_prop(zc);
 	
 	if (rc != 0) {
-		cmn_err(CE_NOTE, "ioctl failed %d", rc);
+		cmn_err(CE_WARN, "%s zfs_set_prop failed %d", __func__, rc);
 	}
 	kmem_free(zc, sizeof (zfs_cmd_t));
 	if (packed)
 		kmem_free(packed, len);
 out:
 	nvlist_free(nv);
-	filp_close(fp, 0);
-
+	
 	return (rc);
 }
 
@@ -5240,7 +5292,7 @@ sbd_unmap(sbd_lu_t *sl, uint64_t offset, uint64_t length)
 {
 	vnode_t *vp;
 	dkioc_free_t df;
-	struct file *fp;
+	char *name = NULL;
 	int ret;
 
 	if (!(sl->sl_flags & SL_ZFS_META))
@@ -5257,8 +5309,10 @@ sbd_unmap(sbd_lu_t *sl, uint64_t offset, uint64_t length)
 		return (EIO);
 	}
 
-	fp = vp->v_file;
-	ret = fp->f_op->unlocked_ioctl(fp, DKIOCFREE, (intptr_t)(&df));
+	name = sbd_get_zvol_name(sl);
+	ret = zvol_dkio_free(name, &df);
+	if (name)
+		kmem_free(name, strlen(name) + 1);
 	return (ret);
 }
 

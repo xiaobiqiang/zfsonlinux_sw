@@ -2052,6 +2052,13 @@ zfs_ioc_objset_stats(zfs_cmd_t *zc)
 	return (error);
 }
 
+int
+zfs_objset_stats(zfs_cmd_t *zc)
+{
+	return zfs_ioc_objset_stats(zc);
+}
+EXPORT_SYMBOL(zfs_objset_stats);
+
 /*
  * inputs:
  * zc_name		name of filesystem
@@ -2696,6 +2703,14 @@ zfs_ioc_set_prop(zfs_cmd_t *zc)
 	nvlist_free(nvl);
 	return (error);
 }
+
+
+int
+zfs_set_prop(zfs_cmd_t *zc)
+{
+	return zfs_ioc_set_prop(zc);
+}
+EXPORT_SYMBOL(zfs_set_prop);
 
 /*
  * inputs:

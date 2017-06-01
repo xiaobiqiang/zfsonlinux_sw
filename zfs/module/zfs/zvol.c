@@ -37,6 +37,7 @@
  * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  */
 
+#include <sys/file.h>
 #include <sys/dbuf.h>
 #include <sys/dmu_traverse.h>
 #include <sys/dsl_dataset.h>
@@ -418,6 +419,29 @@ out:
 	return (error);
 }
 
+int
+zvol_get_volsize(const char *name, uint64_t *volsize)
+{
+	zvol_state_t *zv = NULL;
+
+	ASSERT(volsize != NULL);
+	*volsize = 0;
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	*volsize = zv->zv_volsize;
+	mutex_exit(&zvol_state_lock);
+
+	return (0);
+}
+EXPORT_SYMBOL(zvol_get_volsize);
+
 /*
  * Sanity check volume block size.
  */
@@ -497,6 +521,29 @@ out:
 
 	return (SET_ERROR(error));
 }
+
+int
+zvol_get_volblocksize(const char *name, uint64_t *volblocksize)
+{
+	zvol_state_t *zv = NULL;
+
+	ASSERT(volblocksize != NULL);
+	*volblocksize = 0;
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	*volblocksize = zv->zv_volblocksize;
+	mutex_exit(&zvol_state_lock);
+
+	return (0);
+}
+EXPORT_SYMBOL(zvol_get_volblocksize);
 
 /*
  * Replay a TX_WRITE ZIL transaction that didn't get committed
@@ -1096,17 +1143,185 @@ zvol_log_truncate(zvol_state_t *zv, dmu_tx_t *tx, uint64_t off, uint64_t len,
 	zil_itx_assign(zilog, itx, tx);
 }
 
+int
+zvol_get_disk_name(const char *name, char *disk_name, int len)
+{
+	zvol_state_t *zv = NULL;
+
+	if (!disk_name)
+		return (EINVAL);
+
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	snprintf(disk_name, len, "/dev/%s", zv->zv_disk->disk_name);
+	mutex_exit(&zvol_state_lock);
+
+	return (0);
+}
+EXPORT_SYMBOL(zvol_get_disk_name);
+
+int
+zvol_flush_write_cache(const char *name, void *arg)
+{
+	zvol_state_t *zv = NULL;
+	struct dk_callback *dkc = (struct dk_callback *)arg;
+	int error = 0;
+	
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	mutex_exit(&zvol_state_lock);
+	zil_commit(zv->zv_zilog, ZVOL_OBJ);
+	if (dkc != NULL && dkc->dkc_callback)
+		(*dkc->dkc_callback)(dkc->dkc_cookie, error);
+
+	return (error);
+}
+EXPORT_SYMBOL(zvol_flush_write_cache);
+
+int
+zvol_get_wce(const char *name, int *wce)
+{
+	zvol_state_t *zv = NULL;
+
+	ASSERT(wce != NULL);
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	*wce = (zv->zv_flags & ZVOL_WCE) ? 1 : 0;
+	mutex_exit(&zvol_state_lock);
+
+	return (0);
+}
+EXPORT_SYMBOL(zvol_get_wce);
+
+int
+zvol_set_wce(const char *name, int wce)
+{
+	zvol_state_t *zv = NULL;
+
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	zil_set_sync(zv->zv_objset->os_zil, zv->zv_objset->os_sync);
+	mutex_exit(&zvol_state_lock);
+
+	return (0);
+}
+EXPORT_SYMBOL(zvol_set_wce);
+
+int
+zvol_dkio_free(const char *name, void *arg)
+{
+	zvol_state_t *zv = NULL;
+	dkioc_free_t df = *((dkioc_free_t *)arg);
+	dmu_tx_t *tx;
+	rl_t *rl;
+	int error = 0;
+	
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+	
+	if (!zvol_unmap_enabled)
+		goto out;
+	
+	if (df.df_start == 0 && df.df_length == 0) {
+		/* do free all vol */
+		df.df_start = 0;
+		df.df_length = zv->zv_volsize;
+	}
+	/*
+	 * Apply Postel's Law to length-checking.  If they overshoot,
+	 * just blank out until the end, if there's a need to blank
+	 * out anything.
+	 */
+	if (df.df_start >= zv->zv_volsize)
+		goto out;	/* No need to do anything... */
+
+	rl = zfs_range_lock(&zv->zv_range_lock, df.df_start, df.df_length,
+	 	RL_WRITER);
+	tx = dmu_tx_create(zv->zv_objset);
+	dmu_tx_mark_netfree(tx);
+	error = dmu_tx_assign(tx, TXG_WAIT);
+	if (error != 0) {
+		dmu_tx_abort(tx);
+	} else {
+		zvol_log_truncate(zv, tx, df.df_start,
+			df.df_length, B_TRUE);
+		dmu_tx_commit(tx);
+		error = dmu_free_long_range(zv->zv_objset, ZVOL_OBJ,
+			df.df_start, df.df_length);
+	}
+	
+	zfs_range_unlock(rl);
+	
+	if (error == 0) {
+		/*
+		 * If the write-cache is disabled or 'sync' property
+		 * is set to 'always' then treat this as a synchronous
+		 * operation (i.e. commit to zil).
+		 */
+		if (!(zv->zv_flags & ZVOL_WCE) ||
+			(zv->zv_objset->os_sync != ZFS_SYNC_STANDARD))
+			zil_commit(zv->zv_zilog, ZVOL_OBJ);
+	
+		/*
+		 * If the caller really wants synchronous writes, and
+		 * can't wait for them, don't return until the write
+		 * is done.
+		 */
+		if (df.df_flags & DF_WAIT_SYNC) {
+			txg_wait_synced(
+				dmu_objset_pool(zv->zv_objset), 0);
+		}
+	}
+	
+out:
+	mutex_exit(&zvol_state_lock);
+	return (error);
+}
+EXPORT_SYMBOL(zvol_dkio_free);
+
+
 static int
 zvol_ioctl(struct block_device *bdev, fmode_t mode,
     unsigned int cmd, unsigned long arg)
 {
 	zvol_state_t *zv = bdev->bd_disk->private_data;
 	int error = 0;
-	rl_t *rl;
 
 	ASSERT(zv && zv->zv_open_count > 0);
-
-	mutex_enter(&zv->zv_mtx);
 
 	switch (cmd) {
 	case BLKFLSBUF:
@@ -1116,95 +1331,11 @@ zvol_ioctl(struct block_device *bdev, fmode_t mode,
 		error = copy_to_user((void *)arg, zv->zv_name, MAXNAMELEN);
 		break;
 
-	case DKIOCGETWCE:
-		{
-			int wce = (zv->zv_flags & ZVOL_WCE) ? 1 : 0;
-			if (ddi_copyout(&wce, (void *)arg, sizeof (int), 0))
-				error = EFAULT;
-			break;
-		}
-	case DKIOCSETWCE:
-		{			
-			zil_set_sync(zv->zv_objset->os_zil, zv->zv_objset->os_sync);
-			break;
-		}
-
-	case DKIOCFREE:
-	{
-		dkioc_free_t df;
-		dmu_tx_t *tx;
-
-		if (!zvol_unmap_enabled)
-			break;
-
-		if (ddi_copyin((void *)arg, &df, sizeof (df), 0)) {
-			error = EFAULT;
-			break;
-		}
-
-		if (df.df_start == 0 && df.df_length == 0) {
-			/* do free all vol */
-			df.df_start = 0;
-			df.df_length = zv->zv_volsize;
-		}
-		/*
-		 * Apply Postel's Law to length-checking.  If they overshoot,
-		 * just blank out until the end, if there's a need to blank
-		 * out anything.
-		 */
-		if (df.df_start >= zv->zv_volsize)
-			break;	/* No need to do anything... */
-
-		mutex_exit(&zv->zv_mtx);
-
-		rl = zfs_range_lock(&zv->zv_range_lock, df.df_start, df.df_length,
-		    RL_WRITER);
-		tx = dmu_tx_create(zv->zv_objset);
-		dmu_tx_mark_netfree(tx);
-		error = dmu_tx_assign(tx, TXG_WAIT);
-		if (error != 0) {
-			dmu_tx_abort(tx);
-		} else {
-			zvol_log_truncate(zv, tx, df.df_start,
-			    df.df_length, B_TRUE);
-			dmu_tx_commit(tx);
-			error = dmu_free_long_range(zv->zv_objset, ZVOL_OBJ,
-			    df.df_start, df.df_length);
-		}
-
-		zfs_range_unlock(rl);
-
-		if (error == 0) {
-			/*
-			 * If the write-cache is disabled or 'sync' property
-			 * is set to 'always' then treat this as a synchronous
-			 * operation (i.e. commit to zil).
-			 */
-			if (!(zv->zv_flags & ZVOL_WCE) ||
-			    (zv->zv_objset->os_sync != ZFS_SYNC_STANDARD))
-				zil_commit(zv->zv_zilog, ZVOL_OBJ);
-
-			/*
-			 * If the caller really wants synchronous writes, and
-			 * can't wait for them, don't return until the write
-			 * is done.
-			 */
-			if (df.df_flags & DF_WAIT_SYNC) {
-				txg_wait_synced(
-				    dmu_objset_pool(zv->zv_objset), 0);
-			}
-		}
-
-		return (error);
-	}
-
 	default:
 		error = -ENOTTY;
 		break;
 
 	}
-
-	mutex_exit(&zv->zv_mtx);
 
 	return (SET_ERROR(error));
 }

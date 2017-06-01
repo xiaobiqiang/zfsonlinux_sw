@@ -46,7 +46,9 @@ extern int zvol_get_stats(objset_t *os, nvlist_t *nv);
 extern boolean_t zvol_is_zvol(const char *);
 extern void zvol_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx);
 extern int zvol_set_volsize(const char *, uint64_t);
+extern int zvol_get_volsize(const char *name, uint64_t *volsize);
 extern int zvol_set_volblocksize(const char *, uint64_t);
+extern int zvol_get_volblocksize(const char *name, uint64_t *volblocksize);
 extern int zvol_set_snapdev(const char *, zprop_source_t, uint64_t);
 
 extern int zvol_get_volume_params(minor_t minor, uint64_t *blksize,
@@ -55,6 +57,12 @@ extern int zvol_get_volume_params(minor_t minor, uint64_t *blksize,
 extern uint64_t zvol_get_volume_size(void *minor_hdl);
 extern int zvol_get_volume_wce(void *minor_hdl);
 extern void zvol_mirror_replay_wait(void *minor_hdl);
+
+extern int zvol_get_disk_name(const char *name, char *disk_name, int len);
+extern int zvol_flush_write_cache(const char *name, void *arg);
+extern int zvol_get_wce(const char *name, int *wce);
+extern int zvol_set_wce(const char *name, int wce);
+extern int zvol_dkio_free(const char *name, void *arg);
 
 extern int zvol_init(void);
 extern void zvol_fini(void);

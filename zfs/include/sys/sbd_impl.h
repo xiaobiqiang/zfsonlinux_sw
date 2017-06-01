@@ -319,7 +319,8 @@ void sbd_ctl(struct stmf_lu *lu, int cmd, void *arg);
 stmf_status_t sbd_info(uint32_t cmd, stmf_lu_t *lu, void *arg,
 				uint8_t *buf, uint32_t *bufsizep);
 void sbd_zvol_mirror_replay_wait(sbd_lu_t *sl);
-/* void sbd_try_transition_to_active_lu(sbd_lu_t *sl, int context); */
+char *sbd_get_zvol_name(sbd_lu_t *);
+void sbd_try_transition_to_active_lu(sbd_lu_t *sl, int context);
 
 #ifdef	__cplusplus
 }

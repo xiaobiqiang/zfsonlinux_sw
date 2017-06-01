@@ -42,7 +42,7 @@
 #include <sys/atomic.h>
 #include <sys/sdt.h>
 #include <sys/dkio.h>
-
+#include <sys/zvol.h>
 #include <sys/stmf.h>
 #include <sys/lpif.h>
 #include <sys/portif.h>
@@ -4258,7 +4258,6 @@ sbd_ctl(struct stmf_lu *lu, int cmd, void *arg)
 		//cmn_err(CE_WARN,   "%s  status = %x",__func__, sl->sl_access_state);
 		break;
 	case STMF_CMD_SET_LU_STATUS:
-		/*
 		while (1) {
 			mutex_enter(&sl->sl_lock);
 			if (sl->sl_trans_op == SL_OP_NONE) {
@@ -4275,7 +4274,6 @@ sbd_ctl(struct stmf_lu *lu, int cmd, void *arg)
 			sbd_try_transition_to_active_lu(sl, STMF_RECV_LINK_DOWN);
 		}
 		sl->sl_trans_op = SL_OP_NONE;
-		*/
 		break;
 	}
 }
@@ -4318,6 +4316,7 @@ sbd_lu_reset_state(stmf_lu_t *lu)
 sbd_status_t
 sbd_flush_data_cache(sbd_lu_t *sl, int fsync_done)
 {
+	char *name = NULL;
 	int r = 0;
 	int ret;
 
@@ -4330,8 +4329,10 @@ sbd_flush_data_cache(sbd_lu_t *sl, int fsync_done)
 over_fsync:
 	if (((sl->sl_data_vtype == VCHR) || (sl->sl_data_vtype == VBLK)) &&
 	    ((sl->sl_flags & SL_NO_DATA_DKIOFLUSH) == 0)) {
-		struct file *fp = sl->sl_data_vp->v_file;		
-		ret = fp->f_op->unlocked_ioctl(fp, DKIOCFLUSHWRITECACHE, (intptr_t)&r);
+		name = sbd_get_zvol_name(sl);
+	    ret = zvol_flush_write_cache(name, &r);
+		if (name)
+			kmem_free(name, strlen(name) + 1);
 		if ((ret == ENOTTY) || (ret == ENOTSUP)) {
 			mutex_enter(&sl->sl_lock);
 			sl->sl_flags |= SL_NO_DATA_DKIOFLUSH;

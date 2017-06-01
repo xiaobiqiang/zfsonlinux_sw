@@ -39,6 +39,7 @@
 #include <libnvpair.h>
 #include <pthread.h>
 #include <syslog.h>
+#include <libcomm.h>
 #include <libstmf.h>
 #include <netinet/in.h>
 #include <inttypes.h>
@@ -48,11 +49,9 @@
 #include <sys/stmf_ioctl.h>
 #include <sys/stmf_sbd_ioctl.h>
 #include <sys/pppt_ioctl.h>
-
-#include "store.h"
+#include <stmf_msg.h>
 #include "libstmf_impl.h"
-
-extern cfg_store_t db_store;
+#include "stmf_comm.h"
 
 #define	STMF_PATH    "/dev/stmf"
 #define	SBD_PATH    "/dev/sbd"
@@ -96,9 +95,6 @@ extern cfg_store_t db_store;
 #define	LOGICAL_UNIT_TYPE 0
 #define	TARGET_TYPE 1
 #define	STMF_SERVICE_TYPE 2
-
-#define	HOST_GROUP   1
-#define	TARGET_GROUP 2
 
 /* set default persistence here */
 #define	STMF_DEFAULT_PERSIST	STMF_PERSIST_SMF
@@ -291,9 +287,6 @@ initializeConfig(void)
 		return (STMF_STATUS_SUCCESS);
 	}
 
-	/* store init */
-	psInit(&db_store);
-
 	ret = stmfLoadConfig();
 	if (ret != STMF_STATUS_SUCCESS) {
 		syslog(LOG_DEBUG,
@@ -349,7 +342,7 @@ groupIoctl(int fd, int cmd, stmfGroupName *groupName)
 	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&iGroupName;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EPERM:
 			case EACCES:
 				ret = STMF_ERROR_PERM;
@@ -417,7 +410,7 @@ groupMemberIoctl(int fd, int cmd, stmfGroupName *groupName, stmfDevid *devid)
 	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&stmfGroupData;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				switch (stmfIoctl.stmf_error) {
 					case STMF_IOCERR_TG_NEED_TG_OFFLINE:
@@ -545,7 +538,7 @@ stmfAddToHostGroup(stmfGroupName *hostGroupName, stmfDevid *hostName)
 		goto done;
 	}
 
-	ret = psAddHostGroupMember((char *)hostGroupName,
+	ret = stmfCommAddHostGroupMember((char *)hostGroupName,
 	    (char *)hostName->ident);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
@@ -568,7 +561,7 @@ stmfAddToHostGroup(stmfGroupName *hostGroupName, stmfDevid *hostName)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfAddToHostGroup:psAddHostGroupMember:error(%d)",
+			    "stmfAddToHostGroup:stmfCommAddHostGroupMember:error(%d)",
 			    ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -622,7 +615,7 @@ stmfAddToTargetGroup(stmfGroupName *targetGroupName, stmfDevid *targetName)
 		goto done;
 	}
 
-	ret = psAddTargetGroupMember((char *)targetGroupName,
+	ret = stmfCommAddTargetGroupMember((char *)targetGroupName,
 	    (char *)targetName->ident);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
@@ -645,7 +638,7 @@ stmfAddToTargetGroup(stmfGroupName *targetGroupName, stmfDevid *targetName)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfAddToTargetGroup:psAddTargetGroupMember:"
+			    "stmfAddToTargetGroup:stmfCommAddTargetGroupMember:"
 			    "error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -712,7 +705,7 @@ addViewEntryIoctl(int fd, stmfGuid *lu, stmfViewEntry *viewEntry)
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&ioctlViewEntry;
 	ioctlRet = ioctl(fd, STMF_IOCTL_ADD_VIEW_ENTRY, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -820,7 +813,7 @@ stmfAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 	viewEntry->veIndexValid = B_FALSE;
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -846,6 +839,18 @@ stmfAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 		goto done;
 	}
 
+	printf("addViewEntryIoctl %d\n", iViewEntry.luNbrValid);
+	printf("addViewEntryIoctl 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n", 
+		iViewEntry.luNbr[0],
+		iViewEntry.luNbr[1],
+		iViewEntry.luNbr[2],
+		iViewEntry.luNbr[3],
+		iViewEntry.luNbr[4],
+		iViewEntry.luNbr[5],
+		iViewEntry.luNbr[6],
+		iViewEntry.luNbr[7]
+		);
+
 	if (iGetPersistMethod() == STMF_PERSIST_NONE) {
 		goto done;
 	}
@@ -854,7 +859,7 @@ stmfAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 	 * If the add to driver was successful, add it to the persistent
 	 * store.
 	 */
-	ret = psAddViewEntry(lu, &iViewEntry);
+	ret = stmfCommAddViewEntry(lu, &iViewEntry);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -873,7 +878,7 @@ stmfAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfAddViewEntry:psAddViewEntry:error(%d)", ret);
+			    "stmfAddViewEntry:stmfCommAddViewEntry:error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
 	}
@@ -956,7 +961,7 @@ stmfClearProviderData(char *providerName, int providerType)
 
 	ioctlRet = ioctl(fd, STMF_IOCTL_CLEAR_PP_DATA, &stmfIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -981,7 +986,7 @@ stmfClearProviderData(char *providerName, int providerType)
 		goto done;
 	}
 
-	ret = psClearProviderData(providerName, providerType);
+	ret = stmfCommClearProviderData(providerName, providerType);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -1000,7 +1005,7 @@ stmfClearProviderData(char *providerName, int providerType)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfClearProviderData:psClearProviderData"
+			    "stmfClearProviderData:stmfCommClearProviderData"
 			    ":error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -1031,7 +1036,7 @@ stmfCreateHostGroup(stmfGroupName *hostGroupName)
 	}
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -1058,7 +1063,7 @@ stmfCreateHostGroup(stmfGroupName *hostGroupName)
 		goto done;
 	}
 
-	ret = psCreateHostGroup((char *)hostGroupName);
+	ret = stmfCommCreateHostGroup((char *)hostGroupName);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -1077,7 +1082,7 @@ stmfCreateHostGroup(stmfGroupName *hostGroupName)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfCreateHostGroup:psCreateHostGroup:error(%d)",
+			    "stmfCreateHostGroup:stmfCommCreateHostGroup:error(%d)",
 			    ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -1323,7 +1328,7 @@ createDiskLu(diskResource *disk, stmfGuid *createdGuid)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_CREATE_AND_REGISTER_LU, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -1476,7 +1481,7 @@ importDiskLu(char *fname, stmfGuid *createdGuid)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_IMPORT_LU, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -1579,7 +1584,7 @@ notifyLuActive(const char *fname)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_NOTIFY_LU_ACTIVE, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -1748,7 +1753,7 @@ deleteDiskLu(stmfGuid *luGuid)
 	sbdIoctl.stmf_ibuf = (uint64_t)(unsigned long)&deleteLu;
 	ioctlRet = ioctl(fd, SBD_IOCTL_DELETE_LU, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -1906,7 +1911,7 @@ setDiskStandby(stmfGuid *luGuid)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_SET_LU_STANDBY, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -1950,7 +1955,7 @@ stmfNarrowZfsDirtyMax()
 	
 	ioctlRet = ioctl(fd, SBD_IOCTL_NARROW_ZFS_DIRTY_MAX, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -1993,7 +1998,7 @@ stmfRestoreZfsDirtyMax()
 	
 	ioctlRet = ioctl(fd, SBD_IOCTL_RESTORE_ZFS_DIRTY_MAX, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -2042,7 +2047,7 @@ setDiskStandbyAccess(stmfGuid *luGuid)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_SET_LU_STANDBY_ACCESS, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -2091,7 +2096,7 @@ closeDiskStandby(stmfGuid *luGuid)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_CLOSE_STANDBY_LU, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -2146,7 +2151,7 @@ doUnmapLu(stmfGuid *luGuid, uint64_t offset, uint64_t length)
 
 	ret = ioctl(fd, SBD_IOCTL_SET_UNMPA_LU, &sbdIoctl);
 	if (ret != 0) {
-		syslog(LOG_ERR, " unmap lu failed, errno=%d", errno);
+		syslog(LOG_ERR, " unmap lu failed, errno=%d", ret);
 	}
 
 	free(sbdLu);
@@ -2399,7 +2404,7 @@ modifyDiskLu(diskResource *disk, stmfGuid *luGuid, const char *fname)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_MODIFY_LU, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -2704,7 +2709,7 @@ getDiskAllProps(stmfGuid *luGuid, luResource *hdl)
 	sbdIoctl.stmf_obuf = (uint64_t)(unsigned long)sbdProps;
 	ioctlRet = ioctl(fd, SBD_IOCTL_GET_LU_PROPS, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -2909,7 +2914,7 @@ getDiskGlobalProp(uint32_t prop, char *propVal, size_t *propLen)
 		sbdIoctl.stmf_obuf = (uint64_t)(unsigned long)sbdProps;
 		ioctlRet = ioctl(fd, SBD_IOCTL_GET_GLOBAL_LU, &sbdIoctl);
 		if (ioctlRet != 0) {
-			savedErrno = errno;
+			savedErrno = ioctlRet;
 			switch (savedErrno) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
@@ -3065,7 +3070,7 @@ setDiskGlobalProp(uint32_t resourceProp, const char *propVal)
 
 	ioctlRet = ioctl(fd, SBD_IOCTL_SET_GLOBAL_LU, &sbdIoctl);
 	if (ioctlRet != 0) {
-		savedErrno = errno;
+		savedErrno = ioctlRet;
 		switch (savedErrno) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
@@ -3664,7 +3669,7 @@ stmfCreateTargetGroup(stmfGroupName *targetGroupName)
 	}
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -3698,7 +3703,7 @@ stmfCreateTargetGroup(stmfGroupName *targetGroupName)
 	 * If the add to the driver was successful, add it to the persistent
 	 * store.
 	 */
-	ret = psCreateTargetGroup((char *)targetGroupName);
+	ret = stmfCommCreateTargetGroup((char *)targetGroupName);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -3717,7 +3722,7 @@ stmfCreateTargetGroup(stmfGroupName *targetGroupName)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfCreateTargetGroup:psCreateTargetGroup"
+			    "stmfCreateTargetGroup:stmfCommCreateTargetGroup"
 			    ":error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -3746,7 +3751,7 @@ stmfDeleteHostGroup(stmfGroupName *hostGroupName)
 	}
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -3780,7 +3785,7 @@ stmfDeleteHostGroup(stmfGroupName *hostGroupName)
 	 * If the remove from the driver was successful, remove it from the
 	 * persistent store.
 	 */
-	ret = psDeleteHostGroup((char *)hostGroupName);
+	ret = stmfCommDeleteHostGroup((char *)hostGroupName);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -3799,7 +3804,7 @@ stmfDeleteHostGroup(stmfGroupName *hostGroupName)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfDeleteHostGroup:psDeleteHostGroup:error(%d)",
+			    "stmfDeleteHostGroup:stmfCommDeleteHostGroup:error(%d)",
 			    ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -3828,7 +3833,7 @@ stmfDeleteTargetGroup(stmfGroupName *targetGroupName)
 	}
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -3862,7 +3867,7 @@ stmfDeleteTargetGroup(stmfGroupName *targetGroupName)
 	 * If the remove from the driver was successful, remove it from the
 	 * persistent store.
 	 */
-	ret = psDeleteTargetGroup((char *)targetGroupName);
+	ret = stmfCommDeleteTargetGroup((char *)targetGroupName);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -3881,7 +3886,7 @@ stmfDeleteTargetGroup(stmfGroupName *targetGroupName)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfDeleteTargetGroup:psDeleteTargetGroup"
+			    "stmfDeleteTargetGroup:stmfCommDeleteTargetGroup"
 			    ":error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -4032,7 +4037,7 @@ groupListIoctl(stmfGroupList **groupList, int groupType)
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)iGroupList;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -4043,7 +4048,7 @@ groupListIoctl(stmfGroupList **groupList, int groupType)
 			default:
 				syslog(LOG_DEBUG,
 				    "groupListIoctl:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -4064,7 +4069,7 @@ groupListIoctl(stmfGroupList **groupList, int groupType)
 		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)iGroupList;
 		ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -4075,7 +4080,7 @@ groupListIoctl(stmfGroupList **groupList, int groupType)
 				default:
 					syslog(LOG_DEBUG,
 					    "groupListIoctl:ioctl errno(%d)",
-					    errno);
+					    ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -4178,7 +4183,7 @@ groupMemberListIoctl(stmfGroupName *groupName, stmfGroupProperties **groupProps,
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)iGroupMembers;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -4189,7 +4194,7 @@ groupMemberListIoctl(stmfGroupName *groupName, stmfGroupProperties **groupProps,
 			default:
 				syslog(LOG_DEBUG,
 				    "groupListIoctl:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -4212,7 +4217,7 @@ groupMemberListIoctl(stmfGroupName *groupName, stmfGroupProperties **groupProps,
 		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)iGroupMembers;
 		ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -4223,7 +4228,7 @@ groupMemberListIoctl(stmfGroupName *groupName, stmfGroupProperties **groupProps,
 				default:
 					syslog(LOG_DEBUG,
 					    "groupListIoctl:ioctl errno(%d)",
-					    errno);
+					    ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -4266,9 +4271,9 @@ iLoadGroupFromPs(stmfGroupList **groupList, int type)
 	}
 
 	if (type == HOST_GROUP) {
-		ret = psGetHostGroupList(groupList);
+		ret = stmfCommGetHostGroupList(groupList);
 	} else if (type == TARGET_GROUP) {
-		ret = psGetTargetGroupList(groupList);
+		ret = stmfCommGetTargetGroupList(groupList);
 	} else {
 		return (STMF_ERROR_INVALID_ARG);
 	}
@@ -4290,7 +4295,7 @@ iLoadGroupFromPs(stmfGroupList **groupList, int type)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfGetHostGroupList:psGetHostGroupList:error(%d)",
+			    "stmfGetHostGroupList:stmfCommGetHostGroupList:error(%d)",
 			    ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -4335,9 +4340,9 @@ iLoadGroupMembersFromPs(stmfGroupName *groupName,
 	}
 
 	if (type == HOST_GROUP) {
-		ret = psGetHostGroupMemberList((char *)groupName, groupProp);
+		ret = stmfCommGetHostGroupMemberList((char *)groupName, groupProp);
 	} else if (type == TARGET_GROUP) {
-		ret = psGetTargetGroupMemberList((char *)groupName, groupProp);
+		ret = stmfCommGetTargetGroupMemberList((char *)groupName, groupProp);
 	} else {
 		return (STMF_ERROR_INVALID_ARG);
 	}
@@ -4359,7 +4364,7 @@ iLoadGroupMembersFromPs(stmfGroupName *groupName,
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "iLoadGroupMembersFromPs:psGetHostGroupList:"
+			    "iLoadGroupMembersFromPs:stmfCommGetHostGroupList:"
 			    "error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -4459,7 +4464,7 @@ stmfGetProviderDataList(stmfProviderList **providerList)
 {
 	int ret;
 
-	ret = psGetProviderDataList(providerList);
+	ret = stmfCommGetProviderDataList(providerList);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -4475,7 +4480,7 @@ stmfGetProviderDataList(stmfProviderList **providerList)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfGetProviderDataList:psGetProviderDataList"
+			    "stmfGetProviderDataList:stmfCommGetProviderDataList"
 			    ":error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -4552,7 +4557,7 @@ stmfGetSessionList(stmfDevid *devid, stmfSessionList **sessionList)
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fSessionList;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -4563,7 +4568,7 @@ stmfGetSessionList(stmfDevid *devid, stmfSessionList **sessionList)
 			default:
 				syslog(LOG_DEBUG,
 				    "stmfGetSessionList:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -4585,7 +4590,7 @@ stmfGetSessionList(stmfDevid *devid, stmfSessionList **sessionList)
 		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fSessionList;
 		ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -4596,7 +4601,7 @@ stmfGetSessionList(stmfDevid *devid, stmfSessionList **sessionList)
 				default:
 					syslog(LOG_DEBUG,
 					    "stmfGetSessionList:ioctl "
-					    "errno(%d)", errno);
+					    "errno(%d)", ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -4742,7 +4747,7 @@ stmfGetTargetList(stmfDevidList **targetList)
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fTargetList;
 	ioctlRet = ioctl(fd, STMF_IOCTL_TARGET_PORT_LIST, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -4752,7 +4757,7 @@ stmfGetTargetList(stmfDevidList **targetList)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "stmfGetTargetList:ioctl errno(%d)", errno);
+				    "stmfGetTargetList:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -4775,7 +4780,7 @@ stmfGetTargetList(stmfDevidList **targetList)
 		ioctlRet = ioctl(fd, STMF_IOCTL_TARGET_PORT_LIST,
 		    &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -4786,7 +4791,7 @@ stmfGetTargetList(stmfDevidList **targetList)
 				default:
 					syslog(LOG_DEBUG,
 					    "stmfGetTargetList:ioctl errno(%d)",
-					    errno);
+					    ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -4871,7 +4876,7 @@ stmfGetTargetProperties(stmfDevid *devid, stmfTargetProperties *targetProps)
 	ioctlRet = ioctl(fd, STMF_IOCTL_GET_TARGET_PORT_PROPERTIES,
 	    &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -4885,7 +4890,7 @@ stmfGetTargetProperties(stmfDevid *devid, stmfTargetProperties *targetProps)
 			default:
 				syslog(LOG_DEBUG,
 				    "stmfGetTargetProperties:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -4974,7 +4979,7 @@ stmfGetLogicalUnitList(stmfGuidList **luList)
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fLuList;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -4985,7 +4990,7 @@ stmfGetLogicalUnitList(stmfGuidList **luList)
 			default:
 				syslog(LOG_DEBUG,
 				    "stmfGetLogicalUnitList:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -5007,7 +5012,7 @@ stmfGetLogicalUnitList(stmfGuidList **luList)
 		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fLuList;
 		ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -5018,7 +5023,7 @@ stmfGetLogicalUnitList(stmfGuidList **luList)
 				default:
 					syslog(LOG_DEBUG,
 					    "stmfGetLogicalUnitList:"
-					    "ioctl errno(%d)", errno);
+					    "ioctl errno(%d)", ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -5117,7 +5122,7 @@ stmfGetLogicalUnitProperties(stmfGuid *lu, stmfLogicalUnitProperties *luProps)
 	stmfIoctl.stmf_obuf_size = sizeof (fLuProps);
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -5144,7 +5149,7 @@ stmfGetLogicalUnitProperties(stmfGuid *lu, stmfLogicalUnitProperties *luProps)
 			default:
 				syslog(LOG_DEBUG,
 				    "stmfGetLogicalUnit:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -5294,7 +5299,7 @@ stmfGetViewEntryList(stmfGuid *lu, stmfViewEntryList **viewEntryList)
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fVeList;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -5305,7 +5310,7 @@ stmfGetViewEntryList(stmfGuid *lu, stmfViewEntryList **viewEntryList)
 			default:
 				syslog(LOG_DEBUG,
 				    "stmfGetViewEntryList:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -5327,7 +5332,7 @@ stmfGetViewEntryList(stmfGuid *lu, stmfViewEntryList **viewEntryList)
 		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fVeList;
 		ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -5338,7 +5343,7 @@ stmfGetViewEntryList(stmfGuid *lu, stmfViewEntryList **viewEntryList)
 				default:
 					syslog(LOG_DEBUG,
 					    "stmfGetLogicalUnitList:"
-					    "ioctl errno(%d)", errno);
+					    "ioctl errno(%d)", ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -5534,7 +5539,7 @@ loadStore(int fd)
 	groupList = NULL;
 
 	/* Get the guid list */
-	ret = psGetLogicalUnitList(&guidList);
+	ret = stmfCommGetLogicalUnitList(&guidList);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -5565,7 +5570,7 @@ loadStore(int fd)
 	 * view entries for each guid
 	 */
 	for (i = 0; i < guidList->cnt; i++) {
-		ret = psGetViewEntryList(&guidList->guid[i], &viewEntryList);
+		ret = stmfCommGetViewEntryList(&guidList->guid[i], &viewEntryList);
 		switch (ret) {
 			case STMF_PS_SUCCESS:
 				ret = STMF_STATUS_SUCCESS;
@@ -5599,7 +5604,7 @@ loadStore(int fd)
 	}
 
 	/* get the list of providers that have data */
-	ret = psGetProviderDataList(&providerList);
+	ret = stmfCommGetProviderDataList(&providerList);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -5626,7 +5631,7 @@ loadStore(int fd)
 
 	for (i = 0; i < providerList->cnt; i++) {
 		providerType = providerList->provider[i].providerType;
-		ret = psGetProviderData(providerList->provider[i].name,
+		ret = stmfCommGetProviderData(providerList->provider[i].name,
 		    &nvl, providerType, NULL);
 		switch (ret) {
 			case STMF_PS_SUCCESS:
@@ -5736,7 +5741,7 @@ stmfGetAluaState(boolean_t *enabled, uint32_t *node)
 	closeStmf(fd);
 
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -5746,7 +5751,7 @@ stmfGetAluaState(boolean_t *enabled, uint32_t *node)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "getStmfState:ioctl errno(%d)", errno);
+				    "getStmfState:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -5806,7 +5811,7 @@ stmfSetAluaState(boolean_t enabled, uint32_t node)
 	closeStmf(fd);
 
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -5816,7 +5821,7 @@ stmfSetAluaState(boolean_t enabled, uint32_t node)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "getStmfState:ioctl errno(%d)", errno);
+				    "getStmfState:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -5899,7 +5904,7 @@ stmfLoadConfig(void)
 	}
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -5983,7 +5988,7 @@ getStmfState(stmf_state_desc_t *stmfState)
 	closeStmf(fd);
 
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -5993,7 +5998,7 @@ getStmfState(stmf_state_desc_t *stmfState)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "getStmfState:ioctl errno(%d)", errno);
+				    "getStmfState:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -6043,7 +6048,7 @@ setStmfState(int fd, stmf_state_desc_t *stmfState, int objectType)
 	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)stmfState;
 	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -6056,7 +6061,7 @@ setStmfState(int fd, stmf_state_desc_t *stmfState, int objectType)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "setStmfState:ioctl errno(%d)", errno);
+				    "setStmfState:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -6326,7 +6331,7 @@ stmfRemoveFromHostGroup(stmfGroupName *hostGroupName, stmfDevid *hostName)
 		goto done;
 	}
 
-	ret = psRemoveHostGroupMember((char *)hostGroupName,
+	ret = stmfCommRemoveHostGroupMember((char *)hostGroupName,
 	    (char *)hostName->ident);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
@@ -6350,7 +6355,7 @@ stmfRemoveFromHostGroup(stmfGroupName *hostGroupName, stmfDevid *hostName)
 		default:
 			syslog(LOG_DEBUG,
 			    "stmfRemoveFromHostGroup"
-			    "psRemoveHostGroupMember:error(%d)", ret);
+			    "stmfCommRemoveHostGroupMember:error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
 	}
@@ -6403,7 +6408,7 @@ stmfRemoveFromTargetGroup(stmfGroupName *targetGroupName, stmfDevid *targetName)
 		goto done;
 	}
 
-	ret = psRemoveTargetGroupMember((char *)targetGroupName,
+	ret = stmfCommRemoveTargetGroupMember((char *)targetGroupName,
 	    (char *)targetName->ident);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
@@ -6427,7 +6432,7 @@ stmfRemoveFromTargetGroup(stmfGroupName *targetGroupName, stmfDevid *targetName)
 		default:
 			syslog(LOG_DEBUG,
 			    "stmfRemoveFromTargetGroup"
-			    "psRemoveTargetGroupMember:error(%d)", ret);
+			    "stmfCommRemoveTargetGroupMember:error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
 	}
@@ -6487,7 +6492,7 @@ stmfRemoveViewEntry(stmfGuid *lu, uint32_t viewEntryIndex)
 	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&ioctlViewEntry;
 	ioctlRet = ioctl(fd, STMF_IOCTL_REMOVE_VIEW_ENTRY, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -6511,7 +6516,7 @@ stmfRemoveViewEntry(stmfGuid *lu, uint32_t viewEntryIndex)
 			default:
 				syslog(LOG_DEBUG,
 				    "stmfRemoveViewEntry:ioctl errno(%d)",
-				    errno);
+				    ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -6522,7 +6527,7 @@ stmfRemoveViewEntry(stmfGuid *lu, uint32_t viewEntryIndex)
 		goto done;
 	}
 
-	ret = psRemoveViewEntry(lu, viewEntryIndex);
+	ret = stmfCommRemoveViewEntry(lu, viewEntryIndex);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -6541,7 +6546,7 @@ stmfRemoveViewEntry(stmfGuid *lu, uint32_t viewEntryIndex)
 			break;
 		default:
 			syslog(LOG_DEBUG,
-			    "stmfRemoveViewEntry" "psRemoveViewEntry:error(%d)",
+			    "stmfRemoveViewEntry" "stmfCommRemoveViewEntry:error(%d)",
 			    ret);
 			ret = STMF_STATUS_ERROR;
 			break;
@@ -6626,7 +6631,7 @@ stmfSetProviderDataProt(char *providerName, nvlist_t *nvl, int providerType,
 	}
 
 	/* setting driver provider data successful. Now persist it */
-	ret = psSetProviderData(providerName, nvl, providerType, NULL);
+	ret = stmfCommSetProviderData(providerName, nvl, providerType, NULL);
 	switch (ret) {
 		case STMF_PS_SUCCESS:
 			ret = STMF_STATUS_SUCCESS;
@@ -6649,7 +6654,7 @@ stmfSetProviderDataProt(char *providerName, nvlist_t *nvl, int providerType,
 		default:
 			syslog(LOG_DEBUG,
 			    "stmfSetProviderData"
-			    "psSetProviderData:error(%d)", ret);
+			    "stmfCommSetProviderData:error(%d)", ret);
 			ret = STMF_STATUS_ERROR;
 			break;
 	}
@@ -6736,7 +6741,7 @@ getProviderData(char *providerName, nvlist_t **nvl, int providerType,
 		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)ppi_out;
 		ioctlRet = ioctl(fd, STMF_IOCTL_GET_PP_DATA, &stmfIoctl);
 		if (ioctlRet != 0) {
-			switch (errno) {
+			switch (ioctlRet) {
 				case EBUSY:
 					ret = STMF_ERROR_BUSY;
 					break;
@@ -6772,7 +6777,7 @@ getProviderData(char *providerName, nvlist_t **nvl, int providerType,
 				default:
 					syslog(LOG_DEBUG,
 					    "getProviderData:ioctl errno(%d)",
-					    errno);
+					    ioctlRet);
 					ret = STMF_STATUS_ERROR;
 					break;
 			}
@@ -6876,7 +6881,7 @@ setProviderData(int fd, char *providerName, nvlist_t *nvl, int providerType,
 	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&outToken;
 	ioctlRet = ioctl(fd, STMF_IOCTL_LOAD_PP_DATA, &stmfIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -6894,7 +6899,7 @@ setProviderData(int fd, char *providerName, nvlist_t *nvl, int providerType,
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "setProviderData:ioctl errno(%d)", errno);
+				    "setProviderData:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -6932,7 +6937,7 @@ stmfSetPersistMethod(uint8_t persistType, boolean_t serviceSet)
 	}
 	/* Is this for this library open or in SMF */
 	if (serviceSet == B_TRUE) {
-		ret = psSetServicePersist(persistType);
+		ret = stmfCommSetServicePersist(persistType);
 		if (ret != STMF_PS_SUCCESS) {
 			ret = STMF_ERROR_PERSIST_TYPE;
 			/* Set to old value */
@@ -6959,7 +6964,15 @@ iGetPersistMethod()
 		persistType = iPersistType;
 	} else {
 		int ret;
-		ret = psGetServicePersist(&persistType);
+		if (stmfCommState() != COMM_STATE_RUNNING) {
+			if (stmfCommInit() != 0) {
+				syslog(LOG_ERR, "%s comm init failed", __func__);
+				printf("%s comm init failed\n", __func__);
+				return (STMF_DEFAULT_PERSIST);
+			}
+		}
+
+		ret = stmfCommGetServicePersist(&persistType);
 		if (ret != STMF_PS_SUCCESS) {
 			/* set to default */
 			persistType = STMF_DEFAULT_PERSIST;
@@ -6982,7 +6995,7 @@ stmfGetPersistMethod(uint8_t *persistType, boolean_t serviceState)
 		return (STMF_ERROR_INVALID_ARG);
 	}
 	if (serviceState) {
-		ret = psGetServicePersist(persistType);
+		ret = stmfCommGetServicePersist(persistType);
 		if (ret != STMF_PS_SUCCESS) {
 			ret = STMF_ERROR_PERSIST_TYPE;
 		}
@@ -7026,7 +7039,7 @@ stmfPostProxyMsg(int hdl, void *buf, uint32_t buflen)
 	ppptIoctl.pppt_buf = (uint64_t)(unsigned long)buf;
 	ioctlRet = ioctl(hdl, PPPT_MESSAGE, &ppptIoctl);
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EPERM:
 			case EACCES:
 				ret = STMF_ERROR_PERM;
@@ -7142,7 +7155,7 @@ validateLunNumIoctl(int fd, stmfViewEntry *viewEntry)
 		    sizeof (ioctlViewEntry.ve_lu_nbr));
 	}
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -7238,7 +7251,7 @@ stmfValidateView(stmfViewEntry *viewEntry)
 	viewEntry->veIndexValid = B_FALSE;
 
 	/* Check to ensure service exists */
-	if (psCheckService() != STMF_STATUS_SUCCESS) {
+	if (stmfCommCheckService() != STMF_STATUS_SUCCESS) {
 		return (STMF_ERROR_SERVICE_NOT_FOUND);
 	}
 
@@ -7301,7 +7314,7 @@ stmfClearTrace(void)
 	closeStmf(fd);
 
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -7311,7 +7324,7 @@ stmfClearTrace(void)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "clearTraceFunc:ioctl errno(%d)", errno);
+				    "clearTraceFunc:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -7350,7 +7363,7 @@ getTraceLen(int *len)
 	closeStmf(fd);
 
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -7360,7 +7373,7 @@ getTraceLen(int *len)
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "getTraceLen:ioctl errno(%d)", errno);
+				    "getTraceLen:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}
@@ -7407,7 +7420,7 @@ stmfGetTrace()
 	closeStmf(fd);
 
 	if (ioctlRet != 0) {
-		switch (errno) {
+		switch (ioctlRet) {
 			case EBUSY:
 				ret = STMF_ERROR_BUSY;
 				break;
@@ -7417,7 +7430,7 @@ stmfGetTrace()
 				break;
 			default:
 				syslog(LOG_DEBUG,
-				    "getTrace:ioctl errno(%d)", errno);
+				    "getTrace:ioctl errno(%d)", ioctlRet);
 				ret = STMF_STATUS_ERROR;
 				break;
 		}

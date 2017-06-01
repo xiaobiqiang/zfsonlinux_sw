@@ -32,33 +32,12 @@ extern "C" {
 #include <libnvpair.h>
 #include <sys/list.h>
 
-/*
- * Error defines
- */
-#define	STMF_PS_SUCCESS			0
-#define	STMF_PS_ERROR			1
-#define	STMF_PS_ERROR_MEMBER_NOT_FOUND	2
-#define	STMF_PS_ERROR_GROUP_NOT_FOUND	3
-#define	STMF_PS_ERROR_NOT_FOUND		4
-#define	STMF_PS_ERROR_EXISTS		5
-#define	STMF_PS_ERROR_NOMEM		6
-#define	STMF_PS_ERROR_RETRY		7
-#define	STMF_PS_ERROR_BUSY		8
-#define	STMF_PS_ERROR_SERVICE_NOT_FOUND 9
-#define	STMF_PS_ERROR_INVALID_ARG	10
-#define	STMF_PS_ERROR_VERSION_MISMATCH	11
-#define	STMF_PS_ERROR_PROV_DATA_STALE	12
-#define	STMF_PS_ERROR_CFG_OPERATION		13
-
 #define	STMF_PS_PERSIST_NONE			"none"
 #define	STMF_PS_PERSIST_SMF				"smf"
 #define	STMF_PROVIDER_DATA_PROP_SIZE	4000
 
 #define	STMF_PS_DEFAULT_HG				"all"
 #define	STMF_PS_DEFAULT_TG				"all"
-
-#define	DB_HOST_GROUP					0
-#define	DB_TARGET_GROUP					1
 
 typedef struct stmf_global_cfg {
 	char	persist_type[32];
@@ -144,7 +123,7 @@ typedef struct cfg_store {
 	cfgRemoveViewEntry		removeViewEntry;
 } cfg_store_t;
 
-void psInit(cfg_store_t *ops);
+int psInit(cfg_store_t *ops);
 int psAddHostGroupMember(char *groupName, char *memberName);
 int psAddTargetGroupMember(char *groupName, char *memberName);
 int psAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry);
@@ -159,19 +138,20 @@ int psRemoveTargetGroupMember(char *groupName, char *memberName);
 int psRemoveViewEntry(stmfGuid *lu, uint32_t viewEntryIndex);
 int psGetHostGroupList(stmfGroupList **groupList);
 int psGetTargetGroupList(stmfGroupList **groupList);
-int psGetHostGroupMemberList(char *groupName, stmfGroupProperties **groupList);
+int psGetHostGroupMemberList(char *groupName, 
+	stmfGroupProperties **groupMemberList);
 int psGetTargetGroupMemberList(char *groupName,
-    stmfGroupProperties **groupList);
+    stmfGroupProperties **groupMemberList);
 int psGetViewEntryList(stmfGuid *lu, stmfViewEntryList **viewEntryList);
 int psCheckService(void);
 int psSetProviderData(char *providerName, nvlist_t *nvl, int providerType,
-    uint64_t *setHandle);
+    int *setHandle);
 int psGetProviderData(char *providerName, nvlist_t **nvl, int providerType,
-    uint64_t *setHandle);
+    int *setHandle);
 int psGetProviderDataList(stmfProviderList **providerList);
 int psClearProviderData(char *providerName, int providerType);
-int psSetServicePersist(uint8_t persistType);
-int psGetServicePersist(uint8_t *persistType);
+int psSetServicePersist(int persistType);
+int psGetServicePersist(int *persistType);
 
 
 #ifdef	__cplusplus

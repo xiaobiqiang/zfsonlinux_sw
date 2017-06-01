@@ -9304,6 +9304,7 @@ stmf_dlun_init()
 
 	ilu = (stmf_i_lu_t *)dlun0->lu_stmf_private;
 	ilu->ilu_cur_task_cntr = &ilu->ilu_task_cntr1;
+	mutex_init(&ilu->ilu_task_lock, NULL, MUTEX_DRIVER, 0);
 }
 
 stmf_status_t

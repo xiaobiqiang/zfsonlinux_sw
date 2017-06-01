@@ -132,6 +132,9 @@ extern "C" {
 #define	STMF_ACCESS_STANDBY		"2"
 #define	STMF_ACCESS_STANDBY_TO_ACTIVE	"3"
 
+#define	HOST_GROUP   1
+#define	TARGET_GROUP 2
+
 /*
  * LU Disk Properties
  */
@@ -345,6 +348,10 @@ typedef struct _stmf_proxy_device {
 	stmfGroupName name;
 	stmfDevid device;
 }stmf_proxy_device_t;
+
+int stmfCommInit(void);
+void stmfCommFini(void);
+int stmfCommState(void);
 
 
 /* API prototypes */

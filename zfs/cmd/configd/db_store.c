@@ -31,9 +31,11 @@
 #include <stddef.h>
 #include <strings.h>
 #include <sqlite3.h>
+#include <sys/stat.h>
 #include <libstmf.h>
 #include <syslog.h>
 #include <libnvpair.h>
+#include <stmf_msg.h>
 #include "store.h"
 
 int dbInit(stmf_store_info_t *storeInfo);
@@ -65,6 +67,7 @@ cfg_store_t db_store = {
 };
 
 static sqlite3 *db = NULL;
+
 #define	DB_DIR			"/etc/svc/"
 #define	DB_NAME			"repository.db"
 
@@ -292,7 +295,7 @@ dbCreateGroupTable(void)
 		GROUP_NAME_COL_NAME,
 		GROUP_TYPE_COL_NAME,
 		STMF_PS_DEFAULT_HG,
-		DB_HOST_GROUP);
+		HOST_GROUP);
 
 	ret = dbExecuteSql(db, sql);
 	if (ret != STMF_PS_SUCCESS)
@@ -304,7 +307,7 @@ dbCreateGroupTable(void)
 		GROUP_NAME_COL_NAME,
 		GROUP_TYPE_COL_NAME,
 		STMF_PS_DEFAULT_TG,
-		DB_TARGET_GROUP);
+		TARGET_GROUP);
 
 	return dbExecuteSql(db, sql);
 }
@@ -342,7 +345,7 @@ dbCreateViewTable(void)
 		"%s INTEGER, "
 		"%s CHAR(33), "
 		"%s CHAR(8), "
-		"PRIMARY KEY(%s, %s), "
+		"PRIMARY KEY(%s, %s, %s, %s), "
 		"FOREIGN KEY(%s) REFERENCES %s(%s), "
 		"FOREIGN KEY(%s) REFERENCES %s(%s)"
 		");", 
@@ -352,8 +355,12 @@ dbCreateViewTable(void)
 		VIEW_INDEX_COL_NAME,
 		VIEW_LU_GUID_COL_NAME,
 		VIEW_LU_NBR_COL_NAME,
+
 		VIEW_HG_ID_COL_NAME,
 		VIEW_TG_ID_COL_NAME,
+		VIEW_INDEX_COL_NAME,
+		VIEW_LU_GUID_COL_NAME,
+	
 		VIEW_HG_ID_COL_NAME,
 		GROUP_TABLE,
 		GROUP_ID_COL_NAME,
@@ -488,7 +495,7 @@ dbLoadProviderList(list_t *providers)
 		offsetof(stmf_provider_t, node));
 
 	snprintf(sql, sizeof(sql), "SELECT * FROM %s;",
-		PROVIDER_ELEM_TABLE);
+		PROVIDER_TABLE);
 
 	ret = sqlite3_prepare(db, sql, -1, &stmt, 0);
 	if (ret != SQLITE_OK) {
@@ -736,12 +743,11 @@ int
 dbInit(stmf_store_info_t *storeInfo)
 {
 	char *errMsg = NULL;
-	char cmd[256] = {0};
 	char dbPath[256] = {0};
 
 	if (access(DB_DIR, R_OK | W_OK)) {
 		if (mkdir(DB_DIR, 0644))
-			syslog(LOG_ERR, "%s mkdir %s failed", __func__);
+			syslog(LOG_ERR, "%s mkdir %s failed", __func__, DB_DIR);
 	}
 	
 	snprintf(dbPath, sizeof(dbPath), "%s%s", DB_DIR, DB_NAME);
@@ -828,7 +834,7 @@ dbFini(void)
 int
 dbCheckService()
 {
-	return (db ?  STMF_PS_SUCCESS : STMF_PS_ERROR);
+	return (STMF_PS_SUCCESS);
 }
 
 int 

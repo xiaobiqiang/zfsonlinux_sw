@@ -32,6 +32,7 @@
 #include <syslog.h>
 #include <libstmf.h>
 #include <libnvpair.h>
+#include <stmf_msg.h>
 #include "store.h"
 
 stmf_global_cfg_t s_config = { STMF_PS_PERSIST_SMF };
@@ -41,12 +42,13 @@ list_t s_luns_list;
 pthread_rwlock_t s_rwlock;
 cfg_store_t *s_ops = NULL;
 
-int	s_store_init = B_FALSE;
+boolean_t s_store_init = B_FALSE;
 
-void
+int
 psInit(cfg_store_t *ops)
 {
 	stmf_store_info_t storeInfo;
+	int ret;
 
 	pthread_rwlock_init(&s_rwlock, NULL);
 	storeInfo.cfg = &s_config;
@@ -54,13 +56,15 @@ psInit(cfg_store_t *ops)
 	storeInfo.groups = &s_group_list;
 	storeInfo.luns= &s_luns_list;
 	s_ops = ops;
+	ret = s_ops->init(&storeInfo);
 	
-	if (STMF_PS_SUCCESS != s_ops->init(&storeInfo)) {
+	if (ret != STMF_PS_SUCCESS) {
 		syslog(LOG_ERR, "%s failed", __func__);
-		return;
+		return (ret);
 	}
 	
 	s_store_init = B_TRUE;
+	return (ret);
 }
 
 int 
@@ -119,13 +123,13 @@ done:
 int 
 psAddHostGroupMember(char *groupName, char *memberName)
 {
-	return ipsAddGroupMember(groupName, memberName, DB_HOST_GROUP);
+	return ipsAddGroupMember(groupName, memberName, HOST_GROUP);
 }
 
 int 
 psAddTargetGroupMember(char *groupName, char *memberName)
 {
-	return ipsAddGroupMember(groupName, memberName, DB_TARGET_GROUP);
+	return ipsAddGroupMember(groupName, memberName, TARGET_GROUP);
 }
 
 int 
@@ -140,17 +144,25 @@ psAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 	int ret = STMF_PS_SUCCESS;
 	pthread_rwlock_wrlock(&s_rwlock);
 
+	if (viewEntry->allHosts)
+		strncpy(viewEntry->hostGroup, STMF_PS_DEFAULT_HG, 
+			strlen(STMF_PS_DEFAULT_HG));
+
+	if (viewEntry->allTargets)
+		strncpy(viewEntry->targetGroup, STMF_PS_DEFAULT_TG,
+			strlen(STMF_PS_DEFAULT_TG));
+
 	tmp = list_head(&s_group_list);
 	while (tmp) {
 		if (!hg &&
-			(tmp->type == DB_HOST_GROUP) &&
+			(tmp->type == HOST_GROUP) &&
 			(strncmp(tmp->name, viewEntry->hostGroup, sizeof(tmp->name)) == 0)) {
 			hg = tmp;
 		}
 
 		if (!tg &&
-			(tmp->type == DB_TARGET_GROUP) &&
-			(strncmp(tmp->name, viewEntry->hostGroup, sizeof(tmp->name)) == 0)) {
+			(tmp->type == TARGET_GROUP) &&
+			(strncmp(tmp->name, viewEntry->targetGroup, sizeof(tmp->name)) == 0)) {
 			tg = tmp;
 		}
 
@@ -272,7 +284,7 @@ done:
 int 
 psCreateHostGroup(char *groupName)
 {
-	return ipsCreateGroup(groupName, DB_HOST_GROUP);
+	return ipsCreateGroup(groupName, HOST_GROUP);
 }
 
 int 
@@ -317,19 +329,19 @@ done:
 int 
 psDeleteHostGroup(char *groupName)
 {
-	return ipsDeleteGroup(groupName, DB_HOST_GROUP);
+	return ipsDeleteGroup(groupName, HOST_GROUP);
 }
 
 int 
 psCreateTargetGroup(char *groupName)
 {
-	return ipsCreateGroup(groupName, DB_TARGET_GROUP);
+	return ipsCreateGroup(groupName, TARGET_GROUP);
 }
 
 int 
 psDeleteTargetGroup(char *groupName)
 {
-	return ipsDeleteGroup(groupName, DB_TARGET_GROUP);
+	return ipsDeleteGroup(groupName, TARGET_GROUP);
 }
 
 int
@@ -359,11 +371,11 @@ ipsGetViewEntry(int hostGroupID, int targetGroupID, int viewEntryIndex,
 	int ret = STMF_PS_SUCCESS;
 	memset(ve, 0, sizeof(stmfViewEntry));
 
-	ret = ipsGetGroupName(hostGroupID, DB_HOST_GROUP, ve->hostGroup);
+	ret = ipsGetGroupName(hostGroupID, HOST_GROUP, ve->hostGroup);
 	if (ret != STMF_PS_SUCCESS)
 		goto done;
 
-	ret = ipsGetGroupName(targetGroupID, DB_TARGET_GROUP, ve->targetGroup);
+	ret = ipsGetGroupName(targetGroupID, TARGET_GROUP, ve->targetGroup);
 	if (ret != STMF_PS_SUCCESS)
 		goto done;
 
@@ -523,13 +535,13 @@ done:
 int 
 psRemoveHostGroupMember(char *groupName, char *memberName)
 {
-	return ipsRemoveGroupMember(groupName, memberName, DB_HOST_GROUP);
+	return ipsRemoveGroupMember(groupName, memberName, HOST_GROUP);
 }
 
 int 
 psRemoveTargetGroupMember(char *groupName, char *memberName)
 {
-	return ipsRemoveGroupMember(groupName, memberName, DB_TARGET_GROUP);
+	return ipsRemoveGroupMember(groupName, memberName, TARGET_GROUP);
 }
 
 int 
@@ -631,13 +643,13 @@ done:
 int 
 psGetHostGroupList(stmfGroupList **groupList)
 {
-	return ipsGetGroupList(DB_HOST_GROUP, groupList);
+	return ipsGetGroupList(HOST_GROUP, groupList);
 }
 
 int 
 psGetTargetGroupList(stmfGroupList **groupList)
 {
-	return ipsGetGroupList(DB_TARGET_GROUP, groupList);
+	return ipsGetGroupList(TARGET_GROUP, groupList);
 }
 
 int
@@ -691,16 +703,17 @@ done:
 }
 
 int 
-psGetHostGroupMemberList(char *groupName, stmfGroupProperties **groupList)
+psGetHostGroupMemberList(char *groupName, 
+	stmfGroupProperties **groupMemberList)
 {
-	return ipsGetMemberList(groupName, DB_HOST_GROUP, groupList);
+	return ipsGetMemberList(groupName, HOST_GROUP, groupMemberList);
 }
 
 int 
 psGetTargetGroupMemberList(char *groupName,
-    stmfGroupProperties **groupList)
+    stmfGroupProperties **groupMemberList)
 {
-	return ipsGetMemberList(groupName, DB_TARGET_GROUP, groupList);
+	return ipsGetMemberList(groupName, TARGET_GROUP, groupMemberList);
 }
 
 int
@@ -786,7 +799,7 @@ psCheckService()
 
 int 
 psSetProviderData(char *providerName, nvlist_t *nvl, int providerType,
-    uint64_t *setToken)
+    int *setToken)
 {
 	stmf_provider_t *provider = NULL;
 	int providerID = -1;
@@ -804,7 +817,8 @@ psSetProviderData(char *providerName, nvlist_t *nvl, int providerType,
 	}
 
 	if (provider) {
-		if (*setToken != provider->setcnt) {
+		if ((*setToken != 0) && 
+			(*setToken != provider->setcnt)) {
 			ret = STMF_PS_ERROR_PROV_DATA_STALE;
 			goto done;
 		}
@@ -834,6 +848,7 @@ psSetProviderData(char *providerName, nvlist_t *nvl, int providerType,
 	} else {
 		provider->setcnt = setCnt;
 		nvlist_free(provider->nvl);
+		nvlist_dup(nvl, &provider->nvl, 0);
 	}
 
 	*setToken = setCnt;
@@ -844,7 +859,7 @@ done:
 
 int 
 psGetProviderData(char *providerName, nvlist_t **nvl, int providerType,
-    uint64_t *setToken)
+    int *setToken)
 {
 	stmf_provider_t *provider = NULL;
 	int ret = STMF_PS_SUCCESS;
@@ -942,7 +957,7 @@ done:
 }
 
 int 
-psSetServicePersist(uint8_t persistType)
+psSetServicePersist(int persistType)
 {
 	char *iPersistType;
 	int ret = STMF_PS_SUCCESS;
@@ -969,7 +984,7 @@ done:
 }
 
 int 
-psGetServicePersist(uint8_t *persistType)
+psGetServicePersist(int *persistType)
 {
 	int ret = STMF_PS_SUCCESS;
 	
@@ -984,7 +999,6 @@ psGetServicePersist(uint8_t *persistType)
 		*persistType = STMF_PERSIST_SMF;
 	}
 
-done:
 	pthread_rwlock_unlock(&s_rwlock);
 	return (ret);
 }
