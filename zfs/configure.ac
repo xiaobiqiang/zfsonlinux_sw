@@ -117,7 +117,6 @@ AC_CONFIG_FILES([
 	cmd/clusterd/Makefile
 	cmd/clumgt/Makefile
 	cmd/disk/Makefile
-	cmd/fm/fmd/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
