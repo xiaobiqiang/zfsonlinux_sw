@@ -45,6 +45,7 @@
 #include <sys/types.h>
 #include <wait.h>
 #include <syslog.h>
+#include <sys/vdev_impl.h>
 
 #include <libzfs.h>
 #include <libzfs_core.h>
@@ -2111,6 +2112,249 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 
 	zcmd_free_nvlists(&zc);
 	return (nvl);
+}
+
+int
+get_clusnodename(char *buf, int len)
+{
+#define HOSTNAMELEN 64
+    int i=0;
+    FILE *fp;
+	len = len < HOSTNAMELEN ? len : HOSTNAMELEN;
+    fp = fopen("/etc/cluster_hostname", "r");
+    if (fp == NULL) {
+            return (-1);
+    }
+    fgets(buf, len, fp);
+    fclose(fp);
+    for (i=0; i<len; i++) {
+            if (*(buf+i) == ' ' || *(buf+i) == '\n') {
+                    break;
+            }
+    }
+    if (i == len)
+            i = len -1;
+    *(buf+i) = 0;
+    return 0;
+}
+
+/* needby disk.c */
+
+/*
+ * Function	: disk_check_partition
+ *		  get the pool name
+ * dev	: disk path
+ * pool_name: get the pool name
+ * return	: 0 no partition;	1 hot spare; 2 disk inuse;
+ *
+ */
+int
+disk_get_poolname(const char *dev,char *pool_name)
+{
+	int fd;
+	vdev_label_t label;
+	char *path = NULL, *buf = label.vl_vdev_phys.vp_nvlist;
+	size_t buflen = sizeof (label.vl_vdev_phys.vp_nvlist);
+	struct stat64 statbuf;
+	uint64_t psize, ashift;
+	int tmp_len = strlen(dev) + 1;
+	int len;
+	char *tmp_path = NULL;
+	int l;
+	int ret = 0;
+
+	if (strncmp(dev, "/dev/dsk/", 9) == 0) {
+		tmp_len++;
+		if((tmp_path = malloc(tmp_len)) == NULL) {
+			return -1;
+		}
+		(void) snprintf(tmp_path, tmp_len, "%s%s", "/dev/rdsk/", dev + 9);
+	} else {
+		tmp_path = strdup(dev);
+	}
+
+	len = strlen(tmp_path) +3;
+	if ((path = malloc(len + 3)) == NULL) {	
+		return -1;
+
+	}
+
+
+	if (*(tmp_path + len - 2) != 's'){
+		(void) snprintf(path, len, "%ss0", tmp_path);
+	}else
+		(void) snprintf(path, len, "%s", tmp_path);
+	free(tmp_path);
+	tmp_path = NULL;
+
+
+	if ((fd = open64(path, O_RDONLY)) < 0) {
+		free(path);
+		return ret;
+	}
+
+	if (fstat64(fd, &statbuf) != 0) {
+		(void) printf("failed to stat '%s': %s\n", path,
+		    strerror(errno));
+		free(path);
+		(void) close(fd);
+		return ret;
+
+	}
+
+	if (S_ISBLK(statbuf.st_mode)) {
+		(void) printf("cannot use '%s': character device required\n",
+		    path);
+		free(path);
+		(void) close(fd);
+		return ret;
+	}
+
+	psize = statbuf.st_size;
+	psize = P2ALIGN(psize, (uint64_t)sizeof (vdev_label_t));
+
+	for (l = 0; l < VDEV_LABELS; l++) {
+		nvlist_t *config = NULL;
+		char *tmp_pool_name;
+
+		if (pread64(fd, &label, sizeof (label),
+		    label_offset(psize, l)) != sizeof (label)) {
+			(void) printf("failed to read label %d\n", l);
+			continue;
+		}
+
+		if (nvlist_unpack(buf, buflen, &config, 0) != 0) {
+			/* do not have inuse */
+			ret = 0;
+			continue;
+		} else {
+			free(path);
+			(void) close(fd);
+			if (nvlist_lookup_string(config,
+					ZPOOL_CONFIG_POOL_NAME, &tmp_pool_name) == 0) {
+						ret = 1;
+				strcpy(pool_name,tmp_pool_name);
+			} else {
+				ret = 2;
+			}
+			nvlist_free(config);
+			return ret;
+		}
+	}
+	
+	free(path);
+	(void) close(fd);
+	return ret;
+}
+
+/*
+ * Function	: zpool_restore_dev_labels
+ *	restore or save disk label
+ *
+ * Parameters:
+ *	save_rescover: when save_rescover==1,save labels
+ *			save_rescover==0, restore labels
+ * Return: Return	: 0==>success; -1==>fail
+ */
+int
+zpool_restore_dev_labels(char *path, int save_rescover)
+{
+	int fd, ret = 0, len = 0;
+	char dev_path[1024] = {"\0"};
+
+	len = strlen(path);
+
+	fd = open64(path, O_RDWR|O_SYNC);
+	if (fd > 0) {
+		/* first we must save label.then we can restore it */
+		if (save_rescover == 1) {
+			ret = zpool_save_label(fd);
+		/* if save_rescover == 0 restore disk label */
+		} else {
+			ret = zpool_restore_label(fd);
+		}
+		close(fd);
+	}
+
+#if 0
+	if (*(path + len -1) == '0' && *(path + len -2) == 'd') {
+		strncpy(dev_path, path, strlen(path));
+		strncat(dev_path, "s0", 2);
+		fd = open64(dev_path, O_RDWR|O_SYNC);
+		if (fd > 0) {
+			/* first we must save label.then we can restore it */
+			if (save_rescover == 1) {
+				ret = zpool_save_label(fd);
+			/* if save_rescover == 0 restore disk label */
+			} else {
+				ret = zpool_restore_label(fd);
+			}
+			close(fd);
+		}
+	} else {
+		syslog(LOG_ERR, "init dev labev, path invalid:%s", path);
+		return (-1);
+	}
+#endif
+	return (ret);
+}
+
+
+int zpool_init_dev_labels(char *path)
+{
+	int fd, i, l, ret = 0, len = 0;
+	uint64_t size;
+	struct stat64 statbuf;
+	vdev_label_t *label;
+	char dev_path[1024] = {"\0"} ;
+
+	fd = open64(path, O_RDWR|O_SYNC);
+	if (fd > 0) {
+		ret = zpool_clear_label(fd);
+        close(fd);
+	}
+#if 0
+	len = strlen(path);
+	/* modify by jbzhao 20151202 begin
+	 * for create pool on slices		
+	 */
+	if ( *(path + len - 2) == 's') {
+		switch (*(path + len -1)){
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			{
+				strncpy(dev_path, path, strlen(path));
+				break;
+			}
+			default:
+				break;
+		}
+        	fd = open64(dev_path, O_RDWR|O_SYNC);
+        	if (fd > 0) {
+                	ret = zpool_clear_label(fd);
+                	close(fd);
+        	}		
+	} else if (*(path + len -1) == '0' && *(path + len -2) == 'd' ) {
+			strncpy(dev_path, path, strlen(path));
+			strncat(dev_path, "s0", 2);
+        	fd = open64(dev_path, O_RDWR|O_SYNC);
+        	if (fd > 0) {
+                	ret = zpool_clear_label(fd);
+                	close(fd);
+        	}
+	} else {
+		syslog(LOG_ERR, "init dev labev, path invalid:%s", path);
+		return (-1);
+	}
+	/* modify by jbzhao 20151202 end*/
+#endif
+	
+	return (ret);
 }
 
 int zfs_create_lu(char *lu_name)

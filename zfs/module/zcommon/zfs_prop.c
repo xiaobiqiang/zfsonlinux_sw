@@ -360,6 +360,10 @@ zfs_prop_init(void)
 	zprop_register_string(ZFS_PROP_SELINUX_ROOTCONTEXT, "rootcontext",
 	    "none", PROP_DEFAULT, ZFS_TYPE_DATASET, "<selinux rootcontext>",
 	    "ROOTCONTEXT");
+	zprop_register_string(ZFS_PROP_CLUSTER_NODE_NAME, "clusnodename", "none",
+	    PROP_READONLY, ZFS_TYPE_FILESYSTEM| ZFS_TYPE_VOLUME, 
+	    "cluster node name", "CLUSNODENAME");
+	
 
 	/* readonly number properties */
 	zprop_register_number(ZFS_PROP_USED, "used", 0, PROP_READONLY,

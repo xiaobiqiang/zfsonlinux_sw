@@ -103,7 +103,7 @@ EXPORT_SYMBOL(id_space_extend);
 id_t
 id_alloc(id_space_t *isp)
 {
-	return (id_t)(uintptr_t)vmem_alloc(1, KM_SLEEP);
+	return ((id_t)(uintptr_t)vmem_alloc(1, KM_SLEEP) -1);
 }
 EXPORT_SYMBOL(id_alloc);
 
@@ -115,7 +115,7 @@ EXPORT_SYMBOL(id_alloc);
 id_t
 id_alloc_nosleep(id_space_t *isp)
 {
-	return (id_t)(uintptr_t)vmem_alloc(1, KM_NOSLEEP);
+	return ((id_t)(uintptr_t)vmem_alloc(1, KM_NOSLEEP)-1);
 }
 EXPORT_SYMBOL(id_alloc_nosleep);
 
@@ -126,7 +126,7 @@ EXPORT_SYMBOL(id_alloc_nosleep);
 id_t
 id_allocff(id_space_t *isp)
 {
-	return (id_t)(uintptr_t)vmem_alloc(1, KM_SLEEP);
+	return ((id_t)(uintptr_t)vmem_alloc(1, KM_SLEEP)-1);
 }
 EXPORT_SYMBOL(id_allocff);
 
@@ -138,7 +138,7 @@ EXPORT_SYMBOL(id_allocff);
 id_t
 id_allocff_nosleep(id_space_t *isp)
 {
-	return (id_t)(uintptr_t)vmem_alloc(1, KM_NOSLEEP);
+	return ((id_t)(uintptr_t)vmem_alloc(1, KM_NOSLEEP)-1);
 }
 EXPORT_SYMBOL(id_allocff_nosleep);
 
@@ -149,7 +149,7 @@ EXPORT_SYMBOL(id_allocff_nosleep);
 void
 id_free(id_space_t *isp, id_t id)
 {
-	vmem_free((void *)(uintptr_t)id, 1);
+	vmem_free((void *)(uintptr_t)(id+1), 1);
 }
 EXPORT_SYMBOL(id_free);
 

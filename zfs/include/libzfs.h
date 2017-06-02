@@ -40,6 +40,7 @@
 #include <sys/avl.h>
 #include <ucred.h>
 #include <libzfs_core.h>
+#include <sys/vtoc.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -66,6 +67,36 @@ extern "C" {
 
 #define	DEFAULT_IMPORT_PATH_SIZE	7
 extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
+
+
+/* solaris stamp write */
+#define STAMP_OFFSET		2
+#define ZPOOL_INIT_PROGRESS	0x0
+#define ZPOOL_ON_PROGRESS	0x1
+#define ZPOOL_NO_PROGRESS	0x2
+#define ZPOOL_MAGIC			0xbabecafe
+#define COMPANY_NAME		0x12345678
+#define	VDEV_PAD_SIZE		(8 << 10)
+#define	ZPOOL_STAMP_SIZE	(VDEV_PAD_SIZE / 2)
+
+typedef struct zpool_stamp_para {
+	uint32_t pool_magic;
+	uint32_t pool_real_owener;
+	uint32_t pool_current_owener;
+	uint32_t pool_progress[2];
+	uint32_t pool_checksum;
+	uint32_t company_name;
+}zpool_stamp_para_t;
+typedef struct zpool_stamp {
+	zpool_stamp_para_t 	para;
+	uint8_t	reserved[ZPOOL_STAMP_SIZE - sizeof (zpool_stamp_para_t)];
+} zpool_stamp_t;
+
+typedef struct spa_quantum_index {
+	uint64_t index;
+	char *dev_name;
+}spa_quantum_index_t;
+/* solaris stamp write end */
 
 /*
  * libzfs errors
@@ -770,6 +801,16 @@ extern int zpool_in_use(libzfs_handle_t *, int, pool_state_t *, char **,
  */
 extern int zpool_read_label(int, nvlist_t **, int *);
 extern int zpool_clear_label(int);
+
+/* needby disk.c */
+extern int zpool_restore_label(int fd);
+extern int zpool_save_label(int fd);
+extern int zpool_read_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp);
+extern int zpool_write_dev_stamp(char *path, zpool_stamp_t *stamp);
+extern int zpool_write_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp,
+		int nquantum);
+extern int zpool_read_stmp_by_path(char *path, zpool_stamp_t *stamp);
+extern int zpool_write_dev_stamp_mark(char *path, zpool_stamp_t *stamp);
 
 /*
  * Management interfaces for SMB ACL files

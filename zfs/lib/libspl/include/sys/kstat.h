@@ -126,6 +126,16 @@ typedef struct kstat32 {
 #endif	/* _SYSCALL32 */
 
 /*
+ * kstat_open() returns a pointer to a kstat_ctl_t.
+ * This is used for subsequent libkstat operations.
+ */
+typedef struct kstat_ctl {
+	kid_t	kc_chain_id;	/* current kstat chain ID	*/
+	kstat_t	*kc_chain;	/* pointer to kstat chain	*/
+	int	kc_kd;		/* /dev/kstat descriptor	*/
+} kstat_ctl_t;
+
+/*
  * kstat structure and locking strategy
  *
  * Each kstat consists of a header section (a kstat_t) and a data section.

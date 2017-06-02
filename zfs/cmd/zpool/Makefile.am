@@ -2,7 +2,8 @@ include $(top_srcdir)/config/Rules.am
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include \
+	-I/usr/include/libxml2
 
 sbin_PROGRAMS = zpool
 
@@ -21,3 +22,5 @@ zpool_LDADD = \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
 	$(top_builddir)/lib/libstmf/libstmf.la \
 	$(LIBBLKID)
+
+zpool_LDADD += -lxml2

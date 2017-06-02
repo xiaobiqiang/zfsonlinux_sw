@@ -1,0 +1,121 @@
+<?xml version="1.0"?>
+<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">
+
+<service_bundle type='manifest' name='clusmgtd'>
+
+<service
+	name='system/clumgtd'
+	type='service'
+	version='1'>
+
+	<create_default_instance enabled='true' />
+
+	<single_instance />
+
+	<dependency name='filesystem_local'
+                    grouping='require_all'
+                    restart_on='none'
+                    type='service'>
+          <service_fmri
+             value='svc:/system/filesystem/local:default'/>
+        </dependency>
+
+	<dependency name='hostid'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/system/hostid' />
+	</dependency>
+
+	<dependency name='network-initial'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/network/initial' />
+	</dependency>
+
+	<dependency name='network'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/milestone/network' />
+	</dependency>
+
+	<dependency name='inetd'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/network/inetd' />
+	</dependency>
+
+	<dependency name='devices'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/milestone/devices' />
+	</dependency>
+
+	<dependency name='network-service'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/network/service:default' />
+	</dependency>
+
+	<dependency name='multi-user'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/milestone/multi-user:default' />
+	</dependency>
+
+	<dependency name='multi-user-server'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/milestone/multi-user-server:default' />
+	</dependency>
+
+
+	<dependency name='sysevent'
+	    grouping='require_all'
+	    restart_on='error'
+	    type='service'>
+		<service_fmri value='svc:/system/sysevent:default' />
+	</dependency>
+
+	<exec_method
+		type='method'
+		name='refresh'
+		exec=':kill -1'
+		timeout_seconds='60' />
+
+	<exec_method
+		type='method'
+		name='start'
+		exec='/usr/lib/clumgt/clumgtd'
+		timeout_seconds='60' />
+
+	<exec_method
+		type='method'
+		name='stop'
+		exec=':kill'
+		timeout_seconds='60' />
+
+	<stability value='Unstable' />
+
+	<template>
+		<common_name>
+			<loctext xml:lang='C'>
+				clumgt daemon
+			</loctext>
+		</common_name>
+		<documentation>
+			<manpage title='clumgtd' section='1M'
+				manpath='/usr/share/man' />
+		</documentation>
+	</template>
+
+</service>
+
+</service_bundle>

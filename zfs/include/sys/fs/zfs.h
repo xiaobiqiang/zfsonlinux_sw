@@ -156,6 +156,7 @@ typedef enum {
 	ZFS_PROP_RELATIME,
 	ZFS_PROP_REDUNDANT_METADATA,
 	ZFS_PROP_OVERLAY,
+	ZFS_PROP_CLUSTER_NODE_NAME,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -203,6 +204,7 @@ typedef enum {
 	ZPOOL_PROP_LEAKED,
 	ZPOOL_PROP_MAXBLOCKSIZE,
 	ZPOOL_PROP_TNAME,
+	ZPOOL_PROP_CLUSTER_NODE_NAME,
 	ZPOOL_NUM_PROPS
 } zpool_prop_t;
 
@@ -559,6 +561,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_BOOTFS		"bootfs"	/* not stored on disk */
 #define	ZPOOL_CONFIG_MISSING_DEVICES	"missing_vdevs"	/* not stored on disk */
 #define	ZPOOL_CONFIG_LOAD_INFO		"load_info"	/* not stored on disk */
+#define ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
 #define	ZPOOL_CONFIG_REWIND_INFO	"rewind_info"	/* not stored on disk */
 #define	ZPOOL_CONFIG_UNSUP_FEAT		"unsup_feat"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ENABLED_FEAT	"enabled_feat"	/* not stored on disk */
@@ -684,6 +687,7 @@ typedef enum pool_scan_func {
 	POOL_SCAN_NONE,
 	POOL_SCAN_SCRUB,
 	POOL_SCAN_RESILVER,
+	POOL_SCAN_LOW,
 	POOL_SCAN_FUNCS
 } pool_scan_func_t;
 
@@ -715,6 +719,8 @@ typedef struct pool_scan_stat {
 	uint64_t	pss_to_process; /* total bytes to process */
 	uint64_t	pss_processed;	/* total processed bytes */
 	uint64_t	pss_errors;	/* scan errors	*/
+	uint64_t	pss_wrc_total_to_migrate; /* bytes */
+	uint64_t	pss_wrc_total_migrated; /* bytes */
 
 	/* values not stored on disk */
 	uint64_t	pss_pass_exam;	/* examined bytes per scan pass */
@@ -888,6 +894,7 @@ typedef enum zfs_ioc {
 	ZFS_IOC_DESTROY_BOOKMARKS,
 	ZFS_IOC_CLUSTERSAN,
 
+	ZFS_IOC_HBX,
 	/*
 	 * Linux - 3/64 numbers reserved.
 	 */
@@ -967,6 +974,7 @@ typedef enum {
 #define	ZFS_IMPORT_ANY_HOST	0x2
 #define	ZFS_IMPORT_MISSING_LOG	0x4
 #define	ZFS_IMPORT_ONLY		0x8
+#define ZFS_IMPORT_IGNORE_CLUSTER	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x10
 
 #define	ZFS_SINGLE_DATA		"zfs:single_data"
@@ -1077,6 +1085,37 @@ typedef  enum {
 	ZFS_CLUSTERSAN_SET_HOSTID			= 0x13,
 	ZFS_CLUSTERSAN_COMM_TEST			= 0x14
 }zfs_clustersan_ioc_t;
+
+typedef  enum {
+	ZFS_HBX_LIST,
+	ZFS_HBX_SET,
+	ZFS_HBX_SYNC_POOL,
+	ZFS_HBX_GET_PARTNER_POOL,
+	ZFS_HBX_REMOVE_PARTNER_POOL,
+	ZFS_HBX_CHANGE_POOL,
+	ZFS_HBX_REQ_RELEASE_POOL,
+	ZFS_HBX_RELEASE_POOL_END,
+	ZFS_HBX_KEYFILE_UPDATE,
+	ZFS_HBX_KEYPATH_UPDATE,
+	ZFS_HBX_RCMD_UPDATE,
+	ZFS_HBX_NIC_UPDATE,
+	ZFS_HBX_MPTSAS_DOWN,
+	ZFS_HBX_FC_DOWN,
+	ZFS_HBX_SYNCKEY_RESULT,
+	ZFS_HBX_MAC_STAT,
+	ZFS_HBX_SEND_IPMI_IP,
+	ZFS_HBX_REMOTE_IPMI_IP,
+	ZFS_HBX_GET_IMPI_IP,
+	ZFS_HBX_MIRROR_TIMEOUT_SWITCH,
+	ZFS_HBX_GET_PARTNER_UPDATED_POOL,
+	ZFS_HBX_RELEASE_POOLS,
+	ZFS_HBX_CLUSTERSAN_SYNC_CMD,
+	ZFS_HBX_IS_NEED_FAILOVER,
+	ZFS_HBX_CLR_NEED_FAILOVER,
+	ZFS_HBX_GET_FAILOVER_HOST,
+	ZFS_HBX_CLUSTER_IMPORT,
+	ZFS_HBX_POOL_EXPORT
+} zfs_hbx_ioc_t;
 
 #define	ZFS_CLUSTER_SESSION_LIST_FLAG		0x01
 #define	ZFS_CLUSTER_POOL_LIST_FLAG			0x02

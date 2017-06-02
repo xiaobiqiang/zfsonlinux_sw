@@ -77,6 +77,8 @@ static FILE *mnttab_file;
 static char history_str[HIS_MAX_RECORD_LEN];
 static boolean_t log_history = B_TRUE;
 
+static uint_t clumgt_flag = B_FALSE;
+
 static int zfs_do_clone(int argc, char **argv);
 static int zfs_do_create(int argc, char **argv);
 static int zfs_do_destroy(int argc, char **argv);
@@ -3061,6 +3063,8 @@ zfs_do_list(int argc, char **argv)
 	int c;
 	static char default_fields[] =
 	    "name,used,available,referenced,mountpoint";
+	static char clus_fields[] = 
+	    "name,used,available,referenced,mountpoint,clusnodename";
 	int types = ZFS_TYPE_DATASET;
 	boolean_t types_specified = B_FALSE;
 	char *fields = NULL;
@@ -3158,7 +3162,7 @@ zfs_do_list(int argc, char **argv)
 	argv += optind;
 
 	if (fields == NULL)
-		fields = default_fields;
+		fields = clumgt_flag ? clus_fields : default_fields;
 
 	/*
 	 * If we are only going to list snapshot names and sort by name,
@@ -7483,6 +7487,10 @@ main(int argc, char **argv)
 
 	libzfs_print_on_error(g_zfs, B_TRUE);
 
+	if (NULL != getenv("CLUMGT")) {
+		clumgt_flag = B_TRUE;
+	}
+	
 	/*
 	 * Run the appropriate command.
 	 */

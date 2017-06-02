@@ -33,7 +33,7 @@
 #ifdef	_KERNEL
 
 #include <sys/kmem.h>
-#include <sys/map.h>
+//#include <sys/map.h>
 #include <sys/open.h>
 #include <sys/uio.h>
 #include <sys/sysmacros.h>

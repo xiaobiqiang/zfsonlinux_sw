@@ -83,6 +83,7 @@ AC_CONFIG_FILES([
 	lib/libspl/include/sys/sysevent/Makefile
 	lib/libspl/include/sys/dktp/Makefile
 	lib/libspl/include/util/Makefile
+	lib/libdiskmgt/Makefile
 	lib/libavl/Makefile
 	lib/libefi/Makefile
 	lib/libnvpair/Makefile
@@ -96,6 +97,7 @@ AC_CONFIG_FILES([
 	lib/libzfs_core/Makefile
 	lib/libstmf/Makefile
 	lib/libshare/Makefile
+	lib/libclumgt/Makefile
 	cmd/Makefile
 	cmd/zdb/Makefile
 	cmd/zhack/Makefile
@@ -113,6 +115,8 @@ AC_CONFIG_FILES([
 	cmd/dbufstat/Makefile
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
+	cmd/clumgt/Makefile
+	cmd/disk/Makefile
 	cmd/stmfadm/Makefile
 	cmd/configd/Makefile
 	cmd/stmfsvc/Makefile
@@ -128,6 +132,8 @@ AC_CONFIG_FILES([
 	module/zcommon/Makefile
 	module/zfs/Makefile
 	module/zpios/Makefile
+	module/fct/Makefile
+	module/qlt/Makefile
 	module/stmf/Makefile
 	module/stmf_sbd/Makefile
 	module/pppt/Makefile

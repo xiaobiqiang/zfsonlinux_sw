@@ -1,0 +1,11 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libclumgt
+Description: LibZFS library
+Version: 0.6.5.9
+URL: http://zfsonlinux.org
+Cflags: -I${includedir}/libclumgt -I${includedir}/libspl
+Libs: -L${libdir} -lzfs

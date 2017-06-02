@@ -164,6 +164,7 @@ void stmf_trace_clear(void);
 void stmf_worker_init(void);
 stmf_status_t stmf_worker_fini(void);
 void stmf_init_task_checker(void);
+void stmf_fini_task_checker();
 void stmf_worker_mgmt(void);
 void stmf_worker_task(void *arg);
 static void stmf_task_lu_free(scsi_task_t *task, stmf_i_scsi_session_t *iss);
@@ -430,6 +431,7 @@ stmf_fini(void)
 	if (stmf_state.stmf_nlps || stmf_state.stmf_npps) {
 		return;
 	}
+	stmf_fini_task_checker();
 	if (stmf_dlun_fini() != STMF_SUCCESS)
 		return;
 	if (stmf_worker_fini() != STMF_SUCCESS) {
@@ -441,7 +443,6 @@ stmf_fini(void)
 		stmf_worker_init();
 		return;
 	}
-	
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,
@@ -1787,7 +1788,7 @@ void stmf_check_fc_offline(char *fc_iport_wwn)
 		fc_iport_wwn, ret);
 	kmem_free(lport_wwn, wwn_len);
 }
-
+EXPORT_SYMBOL(stmf_check_fc_offline);
 void stmf_check_reboot()
 {
 /*
@@ -1821,7 +1822,7 @@ void stmf_check_reboot()
 	}
 */
 }
-
+EXPORT_SYMBOL(stmf_check_reboot);
 static int
 stmf_get_stmf_state(stmf_state_desc_t *std)
 {
@@ -4424,7 +4425,7 @@ stmf_set_port_alua(stmf_local_port_t *lport)
 	    (stmf_i_local_port_t *)lport->lport_stmf_private;
 	ilport->ilport_alua = 1;
 }
-
+EXPORT_SYMBOL(stmf_set_port_alua);
 stmf_status_t
 stmf_register_local_port(stmf_local_port_t *lport)
 {
@@ -5701,7 +5702,7 @@ stmf_handle_to_buf(scsi_task_t *task, uint8_t h)
 		return (NULL);
 	return (itask->itask_dbufs[h]);
 }
-
+EXPORT_SYMBOL(stmf_handle_to_buf);
 int stmf_get_lun_id(stmf_scsi_session_t *ss,  uint8_t *ident, int *entry)
 {
 	int err;
@@ -7212,7 +7213,7 @@ stmf_task_lport_aborted(scsi_task_t *task, stmf_status_t s, uint32_t iof)
 
 	stmf_abort_task_offline(task, 0, info);
 }
-
+EXPORT_SYMBOL(stmf_task_lport_aborted);
 stmf_status_t
 stmf_task_poll_lu(scsi_task_t *task, uint32_t timeout)
 {
@@ -7714,7 +7715,7 @@ stmf_wwn_to_devid_desc(scsi_devid_desc_t *sdid, uint8_t *wwn,
 	    wwn[0], wwn[1], wwn[2], wwn[3], wwn[4], wwn[5], wwn[6], wwn[7]);
 	bcopy(wwn_str, (char *)sdid->ident, 20);
 }
-
+EXPORT_SYMBOL(stmf_wwn_to_devid_desc);
 stmf_xfer_data_t *
 stmf_prepare_tpgs_data(uint8_t ilu_alua)
 {
@@ -9438,13 +9439,20 @@ stmf_worker_remove_task(stmf_worker_t *w)
 		kmem_free(task_node, sizeof(stmf_task_node_t));
 	}
 }
-
+atomic_t stc_flag = ATOMIC_INIT(0);
+typedef enum stmf_task_checker_f {
+	STC_RUNNING = 0,
+	STC_STOP = 1,
+	STC_EXIT = 2,
+}stc_f;
 void
 stmf_task_checker_thread(void *arg)
 {
 	int i = 0;
-	
-	while (1) {
+	atomic_t *stc_flagp = (atomic_t*)arg;
+
+	atomic_set(stc_flagp, STC_RUNNING);
+	while (atomic_read(stc_flagp) == STC_RUNNING) {
 		mutex_enter(&stmf_state.stmf_task_checker_mtx);
 		cv_timedwait(&stmf_state.stmf_task_checker_cv, &stmf_state.stmf_task_checker_mtx,
 			ddi_get_lbolt() + drv_usectohz(stmf_checker_time * 1000));
@@ -9453,19 +9461,33 @@ stmf_task_checker_thread(void *arg)
 		for (i = 0; i < stmf_i_max_nworkers; i++)
 			stmf_worker_remove_task(&stmf_workers[i]);
 	}
+	atomic_set(stc_flagp, STC_EXIT);
 }
 
 void
 stmf_init_task_checker()
 {
+	atomic_set(&stc_flag, STC_RUNNING);
 	mutex_init(&stmf_state.stmf_task_checker_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&stmf_state.stmf_task_checker_cv, NULL, CV_DRIVER, NULL);
 	stmf_state.stmf_task_checker_tq = taskq_create("stmf_task_checker",
 		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
 	taskq_dispatch(stmf_state.stmf_task_checker_tq, stmf_task_checker_thread,
-		NULL, TQ_SLEEP);
+		&stc_flag, TQ_SLEEP);
 }
-
+void 
+stmf_fini_task_checker()
+{
+	int i=0;
+	for(i=0; i<5; i++) {
+		atomic_set(&stc_flag, STC_STOP);
+		cv_broadcast(&stmf_state.stmf_task_checker_cv);
+		msleep(100);
+		if (atomic_read(&stc_flag) == STC_EXIT)
+			return;
+	}
+	printk("%s line(%d) thread(stmf_task_checker) over failed\n", __func__, __LINE__);
+}
 void
 stmf_abort_target_reset(scsi_task_t *task)
 {
@@ -9652,7 +9674,7 @@ stmf_lport_add_event(stmf_local_port_t *lport, int eventid)
 	STMF_EVENT_ADD(ilport->ilport_event_hdl, eventid);
 	return (STMF_SUCCESS);
 }
-
+EXPORT_SYMBOL(stmf_lport_add_event);
 stmf_status_t
 stmf_lport_remove_event(stmf_local_port_t *lport, int eventid)
 {
