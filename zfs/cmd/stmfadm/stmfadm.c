@@ -316,7 +316,7 @@ addHostGroupMemberFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				ret++;
 				break;
 			case STMF_ERROR_GROUP_NOT_FOUND:
-				(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+				(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 				    groupNamePrint, gettext("not found"));
 				ret++;
 				break;
@@ -418,7 +418,7 @@ addTargetGroupMemberFunc(int operandLen, char *operands[],
 				ret++;
 				break;
 			case STMF_ERROR_GROUP_NOT_FOUND:
-				(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+				(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 				    groupNamePrint, gettext("not found"));				
 				ret++;
 				break;
@@ -837,7 +837,7 @@ createHostGroupFunc(int operandLen, char *operands[],
 			ret++;
 			break;
 		case STMF_ERROR_BUSY:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
 			    operands[0], gettext("resource busy"));
 			ret++;
 			break;
@@ -1705,12 +1705,12 @@ createTargetGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				stmfadm_send_cmd(cmdfullName);
 			break;
 		case STMF_ERROR_EXISTS:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("already exists"));
 			ret++;
 			break;
 		case STMF_ERROR_BUSY:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("resource busy"));
 			ret++;
 			break;
@@ -1730,7 +1730,7 @@ createTargetGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 			ret++;
 			break;
 		default:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("unknown error"));
 			ret++;
 			break;
@@ -1790,12 +1790,12 @@ deleteHostGroupFunc(int operandLen, char *operands[],
 				stmfadm_send_cmd(cmdfullName);
 			break;
 		case STMF_ERROR_NOT_FOUND:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("not found"));
 			ret++;
 			break;
 		case STMF_ERROR_BUSY:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("resource busy"));
 			ret++;
 			break;
@@ -1810,7 +1810,7 @@ deleteHostGroupFunc(int operandLen, char *operands[],
 			ret++;
 			break;
 		case STMF_ERROR_GROUP_IN_USE:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint,
 			    gettext("group is in use by existing view entry"));
 			ret++;
@@ -1821,7 +1821,7 @@ deleteHostGroupFunc(int operandLen, char *operands[],
 			ret++;
 			break;
 		default:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("unknown error"));
 			ret++;
 			break;
@@ -1881,12 +1881,12 @@ deleteTargetGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				stmfadm_send_cmd(cmdfullName);
 			break;
 		case STMF_ERROR_NOT_FOUND:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("not found"));
 			ret++;
 			break;
 		case STMF_ERROR_BUSY:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("resource busy"));
 			ret++;
 			break;
@@ -1901,7 +1901,7 @@ deleteTargetGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 			ret++;
 			break;
 		case STMF_ERROR_GROUP_IN_USE:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint,
 			    gettext("group is in use by existing view entry"));
 			ret++;
@@ -1912,7 +1912,7 @@ deleteTargetGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 			ret++;
 			break;
 		default:
-			(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+			(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 			    groupNamePrint, gettext("unknown error"));
 			ret++;
 			break;
@@ -2007,7 +2007,7 @@ listHostGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				}
 			}
 			if ((found && operandEntered) || !operandEntered) {
-				(void) wprintf("Host Group: "L"%ls\n",
+				(void) printf("Host Group: %ls\n",
 				    groupNamePrint);
 				if (verbose) {
 					stmfRet = stmfGetHostGroupMembers(
@@ -2048,7 +2048,7 @@ printGroupProps(stmfGroupProperties *groupProps)
 	for (i = 0; i < groupProps->cnt; i++) {
 		(void) mbstowcs(memberIdent, (char *)groupProps->name[i].ident,
 		    sizeof (groupProps->name[0].ident));
-		(void) wprintf("\tMember: "L"%ls\n", memberIdent);
+		(void) printf("\tMember: %ls\n", memberIdent);
 	}
 }
 
@@ -2138,7 +2138,7 @@ listTargetGroupFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				}
 			}
 			if ((found && operandEntered) || !operandEntered) {
-				(void) wprintf("Target Group: "L"%ls\n",
+				(void) printf("Target Group: %ls\n",
 				    groupNamePrint);
 				if (verbose) {
 					stmfRet = stmfGetTargetGroupMembers(
@@ -2683,7 +2683,7 @@ printSessionProps(stmfSessionList *sessionList)
 		    STMF_IDENT_LENGTH);
 		initiator[STMF_IDENT_LENGTH] = 0;
 		(void) printf(LVL3_FORMAT, "Initiator: ");
-		(void) wprintf(L"%s\n", initiator);
+		(void) printf("%ls\n", initiator);
 		(void) printf(LVL4_FORMAT, "Alias: ");
 		if (sessionList->session[i].alias[0] != 0) {
 			(void) printf("%s", sessionList->session[i].alias);
@@ -2912,7 +2912,7 @@ listTargetFunc(int operandLen, char *operands[], cmdOptions_t *options,
 				    (char *)targetList->devid[j].ident,
 				    STMF_IDENT_LENGTH);
 				targetIdent[STMF_IDENT_LENGTH] = 0;
-				(void) wprintf("Target: "L"%ls\n", targetIdent);
+				(void) printf("Target: %ls\n", targetIdent);
 				if (verbose) {
 					stmfRet = stmfGetTargetProperties(
 					    &(targetList->devid[j]),
@@ -3073,7 +3073,7 @@ listViewFunc(int operandLen, char *operands[], cmdOptions_t *options,
 					    sizeof (stmfGroupName) - 1);
 					groupName[sizeof (stmfGroupName) - 1]
 					    = 0;
-					(void) wprintf(L"%s\n", groupName);
+					(void) printf("%ls\n", groupName);
 				}
 				(void) printf(VIEW_FORMAT, "Target group");
 				if (viewEntryList->ve[j].allTargets) {
@@ -3084,7 +3084,7 @@ listViewFunc(int operandLen, char *operands[], cmdOptions_t *options,
 					    sizeof (stmfGroupName) - 1);
 					groupName[sizeof (stmfGroupName) - 1]
 					    = 0;
-					(void) wprintf(L"%s\n", groupName);
+					(void) printf("%ls\n", groupName);
 				}
 				outputLuNbr = ((viewEntryList->ve[j].luNbr[0] &
 				    0x3F) << 8) | viewEntryList->ve[j].luNbr[1];
@@ -3307,7 +3307,7 @@ onlineOfflinePpptTarget(int state)
 						free(target);
 						err = 1;
 					} else {
-						wprintf("target:"L"%ls, provider:%s\n",
+						printf("target:%ls, provider:%s\n",
 							targetIdent, targetProps.providerName);
 					}
 				}
@@ -3530,7 +3530,7 @@ removeHostGroupMemberFunc(int operandLen, char *operands[],
 				ret++;
 				break;
 			case STMF_ERROR_GROUP_NOT_FOUND:
-				(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+				(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 				    groupNamePrint, gettext("not found"));
 				ret++;
 				break;
@@ -3632,7 +3632,7 @@ removeTargetGroupMemberFunc(int operandLen, char *operands[],
 				ret++;
 				break;
 			case STMF_ERROR_GROUP_NOT_FOUND:
-				(void) fwprintf(stderr, "%s: "L"%ls: %s\n", cmdName,
+				(void) fprintf(stderr, "%s: %ls: %s\n", cmdName,
 				    groupNamePrint, gettext("not found"));
 				ret++;
 				break;
