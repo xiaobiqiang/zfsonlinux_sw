@@ -839,18 +839,6 @@ stmfAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 		goto done;
 	}
 
-	printf("addViewEntryIoctl %d\n", iViewEntry.luNbrValid);
-	printf("addViewEntryIoctl 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n", 
-		iViewEntry.luNbr[0],
-		iViewEntry.luNbr[1],
-		iViewEntry.luNbr[2],
-		iViewEntry.luNbr[3],
-		iViewEntry.luNbr[4],
-		iViewEntry.luNbr[5],
-		iViewEntry.luNbr[6],
-		iViewEntry.luNbr[7]
-		);
-
 	if (iGetPersistMethod() == STMF_PERSIST_NONE) {
 		goto done;
 	}
