@@ -437,6 +437,7 @@ int stmfSetProviderDataProt(char *providerName, nvlist_t *nvl,
 int stmfValidateView(stmfViewEntry *viewEntry);
 int stmfClearTrace(void);
 int stmfGetTrace(void);
+int stmfCheckService(void);
 
 #ifdef	__cplusplus
 }

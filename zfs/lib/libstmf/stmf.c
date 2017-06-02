@@ -7445,3 +7445,10 @@ stmfGetTrace()
 	return (ret);
 }
 
+int 
+stmfCheckService(void)
+{
+	int ret = stmfCommCheckService();
+	return ((ret == STMF_PS_SUCCESS) ? 1 : 0);
+}
+

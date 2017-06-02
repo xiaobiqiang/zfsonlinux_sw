@@ -115,6 +115,7 @@ AC_CONFIG_FILES([
 	cmd/zed/Makefile
 	cmd/stmfadm/Makefile
 	cmd/configd/Makefile
+	cmd/stmfsvc/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
