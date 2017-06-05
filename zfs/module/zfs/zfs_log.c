@@ -47,6 +47,7 @@
 #include <sys/ddi.h>
 #include <sys/dsl_dataset.h>
 #include <sys/fmd_transport.h>
+#include <sys/zfs_mirror.h>
 
 /*
  * These zfs_log_* functions must be called within a dmu tx, in one
@@ -231,7 +232,7 @@ zfs_log_fuid_domains(zfs_fuid_info_t *fuidp, void *start)
  *
  * Also, after the file name "domain" strings may be appended.
  */
-void
+int
 zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name, vsecattr_t *vsecp,
     zfs_fuid_info_t *fuidp, vattr_t *vap)
@@ -247,9 +248,10 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	size_t lrsize;
 	size_t namesize = strlen(name) + 1;
 	size_t fuidsz = 0;
+    int	err = 0;
 
 	if (zil_replaying(zilog, tx))
-		return;
+        return err;
 
 	/*
 	 * If we have FUIDs present then add in space for
@@ -336,48 +338,61 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	 * Now place file name in log record
 	 */
 	bcopy(name, end, namesize);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err = zfs_mirror_meta(zp, itx, tx);
+        zil_itx_destroy(itx);
+    }
 
-	zil_itx_assign(zilog, itx, tx);
+    return err;
 }
 
 /*
  * Handles both TX_REMOVE and TX_RMDIR transactions.
  */
-void
+int
 zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	znode_t *dzp, char *name, uint64_t foid)
 {
 	itx_t *itx;
 	lr_remove_t *lr;
 	size_t namesize = strlen(name) + 1;
+    int err = 0;
 
 	if (zil_replaying(zilog, tx))
-		return;
+        return err;
 
 	itx = zil_itx_create(txtype, sizeof (*lr) + namesize);
 	lr = (lr_remove_t *)&itx->itx_lr;
 	lr->lr_doid = dzp->z_id;
+	itx->itx_oid = foid;
 	bcopy(name, (char *)(lr + 1), namesize);
 
-	itx->itx_oid = foid;
-
-	zil_itx_assign(zilog, itx, tx);
+	if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+		zil_itx_assign(zilog, itx, tx);
+	} else {
+		err = zfs_mirror_meta(dzp, itx, tx);
+		zil_itx_destroy(itx);
+	}
 	fmd_module_is_exit();
+	return err;
 }
 
 /*
  * Handles TX_LINK transactions.
  */
-void
+int
 zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	znode_t *dzp, znode_t *zp, char *name)
 {
 	itx_t *itx;
 	lr_link_t *lr;
 	size_t namesize = strlen(name) + 1;
+    int err = 0;
 
 	if (zil_replaying(zilog, tx))
-		return;
+        return err;
 
 	itx = zil_itx_create(txtype, sizeof (*lr) + namesize);
 	lr = (lr_link_t *)&itx->itx_lr;
@@ -385,13 +400,19 @@ zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	lr->lr_link_obj = zp->z_id;
 	bcopy(name, (char *)(lr + 1), namesize);
 
-	zil_itx_assign(zilog, itx, tx);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err = zfs_mirror_meta(zp, itx, tx);
+        zil_itx_destroy(itx);
+    }
+    return err;
 }
 
 /*
  * Handles TX_SYMLINK transactions.
  */
-void
+int
 zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name, char *link)
 {
@@ -399,9 +420,10 @@ zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	lr_create_t *lr;
 	size_t namesize = strlen(name) + 1;
 	size_t linksize = strlen(link) + 1;
+    int err = 0;
 
 	if (zil_replaying(zilog, tx))
-		return;
+        return err;
 
 	itx = zil_itx_create(txtype, sizeof (*lr) + namesize + linksize);
 	lr = (lr_create_t *)&itx->itx_lr;
@@ -417,13 +439,19 @@ zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	bcopy(name, (char *)(lr + 1), namesize);
 	bcopy(link, (char *)(lr + 1) + namesize, linksize);
 
-	zil_itx_assign(zilog, itx, tx);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err = zfs_mirror_meta(zp, itx, tx);
+        zil_itx_destroy(itx);
+    }
+    return err;
 }
 
 /*
  * Handles TX_RENAME transactions.
  */
-void
+int
 zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	znode_t *sdzp, char *sname, znode_t *tdzp, char *dname, znode_t *szp)
 {
@@ -431,9 +459,10 @@ zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	lr_rename_t *lr;
 	size_t snamesize = strlen(sname) + 1;
 	size_t dnamesize = strlen(dname) + 1;
+    int err = 0;
 
 	if (zil_replaying(zilog, tx))
-		return;
+        return err;
 
 	itx = zil_itx_create(txtype, sizeof (*lr) + snamesize + dnamesize);
 	lr = (lr_rename_t *)&itx->itx_lr;
@@ -443,7 +472,13 @@ zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	bcopy(dname, (char *)(lr + 1) + snamesize, dnamesize);
 	itx->itx_oid = szp->z_id;
 
-	zil_itx_assign(zilog, itx, tx);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err = zfs_mirror_meta(tdzp, itx, tx);
+        zil_itx_destroy(itx);
+    }
+    return err;
 }
 
 /*
@@ -463,10 +498,11 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	uintptr_t fsync_cnt;
 	ssize_t immediate_write_sz;
 
-	if (zil_replaying(zilog, tx) || zp->z_unlinked) {
+    if (zil_replaying(zilog, tx) || zp->z_unlinked ||
+            (zilog->zl_sync == ZFS_SYNC_MIRROR)) {
 		if (callback != NULL)
 			callback(callback_data);
-		return;
+        return;
 	}
 
 	immediate_write_sz = (zilog->zl_logbias == ZFS_LOGBIAS_THROUGHPUT)
@@ -526,7 +562,12 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 
 		itx->itx_callback = callback;
 		itx->itx_callback_data = callback_data;
-		zil_itx_assign(zilog, itx, tx);
+        /*zfs_mirror_meta(zp,itx,tx);*/
+        if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+            zil_itx_assign(zilog, itx, tx);
+        }else{
+            zil_itx_destroy(itx);
+        }
 
 		off += len;
 		resid -= len;
@@ -536,15 +577,16 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 /*
  * Handles TX_TRUNCATE transactions.
  */
-void
+int
 zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	znode_t *zp, uint64_t off, uint64_t len)
 {
 	itx_t *itx;
 	lr_truncate_t *lr;
+    int err = 0;
 
 	if (zil_replaying(zilog, tx) || zp->z_unlinked)
-		return;
+        return err;
 
 	itx = zil_itx_create(txtype, sizeof (*lr));
 	lr = (lr_truncate_t *)&itx->itx_lr;
@@ -553,13 +595,19 @@ zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	lr->lr_length = len;
 
 	itx->itx_sync = (zp->z_sync_cnt != 0);
-	zil_itx_assign(zilog, itx, tx);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err = zfs_mirror_meta(zp,itx,tx);
+        zil_itx_destroy(itx);
+    }
+    return err;
 }
 
 /*
  * Handles TX_SETATTR transactions.
  */
-void
+int
 zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, vattr_t *vap, uint_t mask_applied, zfs_fuid_info_t *fuidp)
 {
@@ -568,9 +616,10 @@ zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	xvattr_t	*xvap = (xvattr_t *)vap;
 	size_t		recsize = sizeof (lr_setattr_t);
 	void		*start;
+    int err = 0;
 
 	if (zil_replaying(zilog, tx) || zp->z_unlinked)
-		return;
+        return err;
 
 	/*
 	 * If XVATTR set, then log record size needs to allow
@@ -615,13 +664,19 @@ zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 		(void) zfs_log_fuid_domains(fuidp, start);
 
 	itx->itx_sync = (zp->z_sync_cnt != 0);
-	zil_itx_assign(zilog, itx, tx);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err = zfs_mirror_meta(zp,itx,tx);
+        zil_itx_destroy(itx);
+    }
+    return err;
 }
 
 /*
  * Handles TX_ACL transactions.
  */
-void
+int
 zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
     vsecattr_t *vsecp, zfs_fuid_info_t *fuidp)
 {
@@ -632,9 +687,10 @@ zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
 	int lrsize;
 	size_t txsize;
 	size_t aclbytes = vsecp->vsa_aclentsz;
+    int err_meta_tx = 0;
 
 	if (zil_replaying(zilog, tx) || zp->z_unlinked)
-		return;
+        return err_meta_tx;
 
 	txtype = (ZTOZSB(zp)->z_version < ZPL_VERSION_FUID) ?
 	    TX_ACL_V0 : TX_ACL;
@@ -681,7 +737,13 @@ zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
 	}
 
 	itx->itx_sync = (zp->z_sync_cnt != 0);
-	zil_itx_assign(zilog, itx, tx);
+    if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+        zil_itx_assign(zilog, itx, tx);
+    } else {
+        err_meta_tx = zfs_mirror_meta(zp,itx,tx);
+        zil_itx_destroy(itx);
+    }
+    return err_meta_tx;
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)

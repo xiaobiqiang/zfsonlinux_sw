@@ -5,11 +5,10 @@
 
 #ifndef	_SYS_ZFS_MIRROR_H
 #define	_SYS_ZFS_MIRROR_H
-#if	0
-#include <sys/ethernet.h>
-#include <sys/mac_client.h>
-#endif
+//#include <sys/ethernet.h>
+//#include <sys/mac_client.h>
 #include <sys/arc.h>
+#include <sys/zfs_znode.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -25,8 +24,7 @@ typedef enum zfs_mirror_data_type {
 #include <sys/cluster_san.h>
 
 struct dmu_buf_impl;
-struct dbuf_mirror_io
-{};
+struct dbuf_mirror_io;
 
 #define	ZFS_MIRROR_DATA							0x01
 #define	ZFS_MIRROR_DATA_UNALIGNED				0x02
@@ -41,6 +39,7 @@ struct dbuf_mirror_io
 #define ZFS_MIRROR_REPLY_NONALIGNED_ACTIVE		0x0a
 
 #define	ZFS_MIRROR_SPA_TXG						0x0b
+#define	ZFS_MIRROR_SPEED_TEST				0x0c
 
 #define	ZFS_MIRROR_NONALI_DATA_HASH_SIZE	16*1024
 
@@ -329,15 +328,14 @@ typedef enum zfs_mirror_thread_state {
 	ZFS_MIRROR_TH_DEACTIVATE
 }zfs_mirror_thread_state_t;
 
-#if	0
 int zfs_mirror_write_data_msg(uint64_t spa_id, uint64_t os_id, uint64_t object_id, 
     uint64_t blk_id, char *data,  uint64_t offset, uint64_t len, uint64_t txg,
     zfs_mirror_data_type_t data_type, struct dbuf_mirror_io *mirror_io);
-int	zfs_mirror_meta(znode_t *zp, itx_t *itx, dmu_tx_t *tx);
+int zfs_mirror_meta(znode_t *zp, itx_t *itx, dmu_tx_t *tx);
 int zfs_mirror_init(uint32_t mirror_hostid);
-int zfs_mirror_fini();
-boolean_t zfs_mirror_enable();
-boolean_t zfs_mirror_get_state();
+int zfs_mirror_fini(void);
+boolean_t zfs_mirror_enable(void);
+boolean_t zfs_mirror_get_state(void);
 int zfs_mirror_hold(void);
 void zfs_mirror_rele(void);
 int zfs_mirror_hold_to_tx(void);
@@ -345,7 +343,7 @@ void zfs_mirror_log_clean(objset_t *os,
     uint64_t spa_id, uint64_t os_id, uint64_t txg,
     uint64_t blk_id, zfs_mirror_data_type_t data_type);
 void zfs_mirror_get_all_buf(objset_t *os) ;
-struct dbuf_mirror_io  *zfs_mirror_create();
+struct dbuf_mirror_io  *zfs_mirror_create(void);
 void zfs_replay_cache_data(objset_t *os, zfs_mirror_cache_data_t *cache_data);
 void zfs_mirror_destroy(struct dbuf_mirror_io  *mirror_io);
 uint64_t zfs_mirror_located_keygen(
@@ -354,7 +352,6 @@ uint64_t zfs_mirror_located_keygen(
 void zfs_mirror_data_expired_switch(boolean_t on_off);
 
 int zfs_mirror_get_updated_spa(uint32_t hostid, nvlist_t **nv_ptr);
-#endif
 
 #endif
 #ifdef	__cplusplus

@@ -515,6 +515,7 @@ mod_hash_create_extended(
 	if ((mod_hash = kmem_zalloc(MH_SIZE(nchains), sleep)) == NULL)
 		return (NULL);
 
+	rw_init(&mod_hash->mh_contents, NULL, RW_DEFAULT, NULL);
 	mod_hash->mh_name = kmem_alloc(strlen(hname) + 1, sleep);
 	if (mod_hash->mh_name == NULL) {
 		kmem_free(mod_hash, MH_SIZE(nchains));
@@ -579,7 +580,8 @@ mod_hash_destroy_hash(mod_hash_t *hash)
 	 * Clean out keys and values.
 	 */
 	mod_hash_clear(hash);
-
+	rw_destroy(&hash->mh_contents);
+	
 	kmem_free(hash->mh_name, strlen(hash->mh_name) + 1);
 	kmem_free(hash, MH_SIZE(hash->mh_nchains));
 }

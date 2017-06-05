@@ -44,6 +44,10 @@
 #define FALSE				0
 #define TRUE				1
 
+#define PRIx64  "llx"
+#define PRIu64	"llu"
+#define	PRId64	"lld"
+
 #define INT8_MAX			(127)
 #define INT8_MIN			(-128)
 #define UINT8_MAX			(255)

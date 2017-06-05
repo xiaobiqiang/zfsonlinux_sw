@@ -76,6 +76,8 @@ struct dmu_tx {
 	/* need to wait for sufficient dirty space */
 	boolean_t tx_wait_dirty;
 
+    boolean_t tx_bdirect;
+
 	int tx_err;
 #ifdef DEBUG_DMU_TX
 	uint64_t tx_space_towrite;
@@ -176,6 +178,8 @@ void dmu_tx_willuse_space(dmu_tx_t *tx, int64_t delta);
 void dmu_tx_dirty_buf(dmu_tx_t *tx, struct dmu_buf_impl *db);
 int dmu_tx_holds(dmu_tx_t *tx, uint64_t object);
 void dmu_tx_hold_space(dmu_tx_t *tx, uint64_t space);
+boolean_t dmu_tx_sync_log(dmu_tx_t *tx);
+
 
 #ifdef DEBUG_DMU_TX
 #define	DMU_TX_DIRTY_BUF(tx, db)	dmu_tx_dirty_buf(tx, db)

@@ -464,6 +464,7 @@ static void
 dnode_undirty_dbufs(list_t *list)
 {
 	dbuf_dirty_record_t *dr;
+    dbuf_mirror_io_t *mirror_io = NULL;
 
 	while ((dr = list_head(list))) {
 		dmu_buf_impl_t *db = dr->dr_dbuf;
@@ -486,6 +487,11 @@ dnode_undirty_dbufs(list_t *list)
 			mutex_destroy(&dr->dt.di.dr_mtx);
 			list_destroy(&dr->dt.di.dr_children);
 		}
+
+        if ((mirror_io = list_head(&dr->dr_mirror_io_list)) != NULL) {
+            cmn_err(CE_WARN, "dnode_undirty_dbufs, dr mirror io list isn't null");
+        }
+        list_destroy(&dr->dr_mirror_io_list);
 		kmem_free(dr, sizeof (dbuf_dirty_record_t));
 		dbuf_rele_and_unlock(db, (void *)(uintptr_t)txg);
 	}

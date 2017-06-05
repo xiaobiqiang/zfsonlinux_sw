@@ -1405,7 +1405,7 @@ zfs_aclset_common(znode_t *zp, zfs_acl_t *aclp, cred_t *cr, dmu_tx_t *tx)
 				if (aclnode->z_ace_count == 0)
 					continue;
 				dmu_write(zsb->z_os, aoid, off,
-				    aclnode->z_size, aclnode->z_acldata, tx);
+                    aclnode->z_size, aclnode->z_acldata, tx, B_FALSE);
 				off += aclnode->z_size;
 			}
 		} else {

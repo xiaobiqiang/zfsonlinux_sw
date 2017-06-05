@@ -107,7 +107,10 @@ static int zfs_do_holds(int argc, char **argv);
 static int zfs_do_release(int argc, char **argv);
 static int zfs_do_diff(int argc, char **argv);
 static int zfs_do_bookmark(int argc, char **argv);
+static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
+static int zfs_do_speed_test(int arc, char **argv);
+
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -155,7 +158,9 @@ typedef enum {
 	HELP_RELEASE,
 	HELP_DIFF,
 	HELP_BOOKMARK,
-	HELP_CLUSTERSAN
+    HELP_MIRROR,
+	HELP_CLUSTERSAN,
+	HELP_SPEEDTEST
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -209,7 +214,9 @@ static zfs_command_t command_table[] = {
 	{ "holds",	zfs_do_holds,		HELP_HOLDS		},
 	{ "release",	zfs_do_release,		HELP_RELEASE		},
 	{ "diff",	zfs_do_diff,		HELP_DIFF		},
+    { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
+	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -325,6 +332,8 @@ get_usage(zfs_help_t idx)
 		    "[snapshot|filesystem]\n"));
 	case HELP_BOOKMARK:
 		return (gettext("\tbookmark <snapshot> <bookmark>\n"));
+    case HELP_MIRROR:
+        return (gettext("\tmirror [-ved] <port-name> [-m] <mac-addr>\n"));
 	case HELP_CLUSTERSAN:
 		return (gettext(
 			"\tclustersan enable [-n clustername] [-l linkname] [-p]\n"
@@ -345,7 +354,9 @@ get_usage(zfs_help_t idx)
 			"\tclustersan list-target [-v]\n"
 			"\tclustersan hostname <hostname>\n"
 			"\tclustersan hostid <hostid>\n"));
-				
+	case HELP_SPEEDTEST:
+		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
+			
 	}
 
 	abort();
@@ -6831,6 +6842,89 @@ zfs_do_bookmark(int argc, char **argv)
 usage:
 	usage(B_FALSE);
 	return (-1);
+}
+
+static int
+zfs_do_mirror(int argc, char **argv)
+{
+    int flags = 0;
+    char *mirror_to = NULL;
+    int c;
+
+    while ((c = getopt(argc, argv, "ve:d")) != -1) {
+        switch (c) {
+        case 'v':
+            flags  = SHOW_MIRROR;
+            break;
+        case 'e':
+            flags = ENABLE_MIRROR;
+            mirror_to = optarg;
+            break;
+        case 'd':
+            flags = DISABLE_MIRROR;
+            break;
+        default:
+            (void) fprintf(stderr,
+                gettext("invalid option '%c'\n"), optopt);
+            usage(B_FALSE);
+        }
+    }
+
+    argc -= optind;
+    argv += optind;
+
+    zfs_start_mirror(g_zfs, mirror_to, flags);
+
+    return (0);
+}
+
+static int
+zfs_do_speed_test(int argc, char **argv)
+{
+	char *end;
+	long int bs = 0, cnt = 0;
+	uint8_t need_reply = 0;
+	int c;
+	int ret;
+
+	while ((c = getopt(argc, argv, "s:n:r")) != -1) {
+		switch (c) {
+		case 's':
+			end = NULL;
+			bs = strtol(optarg, &end, 10);
+			if ((bs == LONG_MAX) || (bs == LONG_MIN)) {
+				fprintf(stderr, "invalid option %s\n", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 'n':
+			end = NULL;
+			cnt = strtol(optarg, &end, 10);
+			if ((cnt == LONG_MAX) || (cnt == LONG_MIN)) {
+				fprintf(stderr, "invalid option %s\n", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 'r':
+			need_reply = 1;
+			break;
+		default:
+			fprintf(stderr, "invalid option\n");
+			usage(B_FALSE);
+			return -EINVAL;
+		}
+	}
+
+	if ((bs == 0) || (cnt == 0)) {
+		usage(B_FALSE);
+		return -EINVAL;
+	}
+
+	ret = zfs_test_mirror(g_zfs, bs, cnt, need_reply);
+	if (ret) {
+		fprintf(stderr, "mirro test failed: %d\n", ret);
+	}
+	return ret;
 }
 
 #define	LVL1_FORMAT					"    %s"

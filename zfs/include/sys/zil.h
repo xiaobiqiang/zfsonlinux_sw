@@ -39,7 +39,7 @@ extern "C" {
 
 struct dsl_pool;
 struct dsl_dataset;
-
+struct dmu_ctrl_data;
 /*
  * Intent log format:
  *
@@ -150,7 +150,8 @@ typedef enum zil_create {
 #define	TX_MKDIR_ATTR		18	/* mkdir with attr */
 #define	TX_MKDIR_ACL_ATTR	19	/* mkdir with ACL + attrs */
 #define	TX_WRITE2		20	/* dmu_sync EALREADY write */
-#define	TX_MAX_TYPE		21	/* Max transaction type */
+#define	TX_WRITE_CTRL	21
+#define	TX_MAX_TYPE		22	/* Max transaction type */
 
 /*
  * The transactions for mkdir, symlink, remove, rmdir, link, and rename
@@ -195,6 +196,12 @@ typedef struct {
 	lr_t		lr_common;	/* common portion of log record */
 	uint64_t	lr_foid;	/* object id */
 } lr_ooo_t;
+
+typedef struct lr_write_ctrl{
+    lr_t		lr_common;
+    uint64_t	lr_foid;
+    uint64_t  addr_num;
+}lr_write_ctrl_t;
 
 /*
  * Handle option extended vattr attributes.
@@ -378,6 +385,30 @@ typedef struct itx {
 	/* followed by type-specific part of lr_xx_t and its immediate data */
 } itx_t;
 
+typedef enum DATA_RECORD_TYPE {
+    R_DISK_DATA = 1,
+    R_CACHE_DATA = 2
+}DATA_RECORD_TYPE_T;
+
+typedef struct zil_log_record {
+    list_node_t log_node;
+    uint64_t object_id;
+    uint64_t blk_id;
+    uint64_t offset;
+    uint64_t len;
+
+    uint64_t txg;
+    blkptr_t data_addr;
+}zil_log_record_t;
+
+typedef struct zil_data_record {
+    list_node_t	data_node;
+    uint64_t	data_type;
+    uint64_t	txg;
+    uint64_t	gentime;
+    void	*data;
+}zil_data_record_t;
+
 /*
  * Used for zil kstat.
  */
@@ -486,6 +517,12 @@ extern void	zil_set_sync(zilog_t *zilog, uint64_t syncval);
 
 extern void	zil_set_logbias(zilog_t *zilog, uint64_t slogval);
 
+extern void zil_write_ctrl_data(objset_t *os, uint64_t dn_object,
+    dmu_tx_t *tx, uint64_t txtype, struct dmu_ctrl_data *ctrl_datap);
+void zil_replay_all_data(objset_t *os);
+int zil_replay_write_ctrl(objset_t *os, lr_write_ctrl_t *lr, boolean_t byteswap);
+void zil_insert_data_record_list_by_sort(
+    objset_t *os, zil_data_record_t *data_record);
 extern int zil_replay_disable;
 
 #ifdef	__cplusplus

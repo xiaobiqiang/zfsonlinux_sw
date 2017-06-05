@@ -351,10 +351,25 @@ typedef enum zfs_cache_type {
 } zfs_cache_type_t;
 
 typedef enum {
+	ZFS_SYNC_MIRROR = 0,
+	ZFS_SYNC_DISK = 1,
+	ZFS_SYNC_STANDARD = 2
+	/*
 	ZFS_SYNC_STANDARD = 0,
 	ZFS_SYNC_ALWAYS = 1,
-	ZFS_SYNC_DISABLED = 2
+    ZFS_SYNC_DISABLED = 2,
+    */
 } zfs_sync_type_t;
+
+typedef enum {
+    ZFS_WOPTIMIZE = 0,
+    ZFS_WOPTIMIZE_DISABLE = 1
+} zfs_woptimze_type_t;
+
+typedef enum {
+    ZFS_APPMETA_OFF = 0,
+    ZFS_APPMETA_ON = 1
+} zfs_appmeta_type_t;
 
 typedef enum {
 	ZFS_XATTR_OFF = 0,
@@ -702,6 +717,7 @@ typedef enum zio_type {
 	ZIO_TYPE_FREE,
 	ZIO_TYPE_CLAIM,
 	ZIO_TYPE_IOCTL,
+    ZIO_TYPE_CTRL,
 	ZIO_TYPES
 } zio_type_t;
 
@@ -892,9 +908,11 @@ typedef enum zfs_ioc {
 	ZFS_IOC_BOOKMARK,
 	ZFS_IOC_GET_BOOKMARKS,
 	ZFS_IOC_DESTROY_BOOKMARKS,
+    ZFS_IOC_START_MIRROR,
+    ZFS_IOC_GET_MIRROR_STATE,
 	ZFS_IOC_CLUSTERSAN,
 	ZFS_IOC_HBX,
-
+	ZFS_IOC_MIRROR_SPEED_TEST,
 	/*
 	 * Linux - 3/64 numbers reserved.
 	 */
@@ -927,6 +945,12 @@ typedef enum {
 	SPA_LOAD_RECOVER,	/* recovery requested	*/
 	SPA_LOAD_ERROR		/* load failed		*/
 } spa_load_state_t;
+
+typedef  enum {
+    ENABLE_MIRROR = 1,
+    DISABLE_MIRROR,
+    SHOW_MIRROR
+}MIRROR_OP;
 
 /*
  * Bookmark name values.

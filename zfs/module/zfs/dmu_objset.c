@@ -52,6 +52,7 @@
 #include <sys/zfs_onexit.h>
 #include <sys/dsl_destroy.h>
 #include <sys/vdev.h>
+#include <sys/zfs_mirror.h>
 
 /*
  * Needed to close a window in dnode_move() that allows the objset to be freed
@@ -229,6 +230,8 @@ secondary_cache_changed_cb(void *arg, uint64_t newval)
 	os->os_secondary_cache = newval;
 }
 
+volatile int sync_mirror_en = 1;
+
 static void
 sync_changed_cb(void *arg, uint64_t newval)
 {
@@ -237,8 +240,14 @@ sync_changed_cb(void *arg, uint64_t newval)
 	/*
 	 * Inheritance and range checking should have been done by now.
 	 */
-	ASSERT(newval == ZFS_SYNC_STANDARD || newval == ZFS_SYNC_ALWAYS ||
-	    newval == ZFS_SYNC_DISABLED);
+	ASSERT(newval == ZFS_SYNC_STANDARD || newval == ZFS_SYNC_DISK ||
+        newval == ZFS_SYNC_MIRROR);
+
+    if (dmu_objset_type(os) != DMU_OST_ZVOL){
+        if ( sync_mirror_en == 0 || newval != ZFS_SYNC_MIRROR){
+            newval = ZFS_SYNC_STANDARD;
+        }
+    }
 
 	os->os_sync = newval;
 	if (os->os_zil)
@@ -294,6 +303,414 @@ dmu_objset_byteswap(void *buf, size_t size)
 		dnode_byteswap(&osp->os_groupused_dnode);
 	}
 }
+
+#ifdef _KERNEL
+
+uint64_t
+dmu_objset_woptimizeprop(objset_t *os)
+{
+    return (os->os_woptimize);
+}
+
+uint64_t
+dmu_objset_appmetaprop(objset_t *os)
+{
+    return (os->os_appmeta);
+}
+
+boolean_t
+dmu_objset_sync_check(objset_t *os) {
+    if (os->os_sync == ZFS_SYNC_STANDARD || os->os_breplaying)
+        return (B_FALSE);
+    else
+        return (B_TRUE);
+}
+
+static void
+dmu_objset_worker_start(os_seg_worker_t *worker)
+{
+    taskq_dispatch(worker->worker_taskq,
+        (task_func_t *)worker->worker_clean, (worker), TQ_NOSLEEP);
+    taskq_wait(worker->worker_taskq);
+}
+
+rl_t *
+dmu_objset_lock_seg_data(objset_t *os, uint64_t object,
+ uint64_t offset, uint64_t len, rl_type_t type)
+{
+    rl_t *rl;
+
+    rl = os->os_seg_data_lock(os, object, offset, len, type);
+    return (rl);
+}
+
+void
+dmu_objset_unlock_seg_data(objset_t *os, rl_t *rl)
+{
+    os->os_seg_data_unlock(rl);
+}
+
+boolean_t
+dmu_objset_check_clean_all_cache(objset_t *os)
+{
+    uint8_t sync = dmu_objset_syncprop(os);
+    if (sync == ZFS_SYNC_DISK)
+        return (B_TRUE);
+    else
+        return (B_FALSE);
+}
+
+void
+dmu_objset_set_cache_size(objset_t *os, uint64_t size, boolean_t b_add)
+{
+}
+
+uint64_t
+dmu_objset_get_worker_size(os_seg_worker_t *worker)
+{
+    uint64_t size;
+    mutex_enter(&worker->worker_mtx);
+    size = worker->worker_data;
+    mutex_exit(&worker->worker_mtx);
+    return (size);
+}
+
+uint64_t
+dmu_objset_get_cache_size(objset_t *os)
+{
+    os->os_cache_all->os_cache_size = dmu_objset_get_worker_size(os->os_seg_data_worker) +
+        dmu_objset_get_worker_size(os->os_seg_record_worker);
+    return (os->os_cache_all->os_cache_size);
+}
+
+void
+dmu_objset_insert_record(objset_t *os, dmu_buf_impl_t *db)
+{
+    os_seg_worker_t *worker = os->os_seg_record_worker;
+
+    mutex_enter(&worker->worker_mtx);
+    if (!list_link_active(&db->db_segs_link))
+        list_insert_tail(&worker->worker_list, db);
+    atomic_add_64(&worker->worker_data, db->db.db_size);
+    gcache_size_add((int64_t)db->db.db_size);
+    mutex_exit(&worker->worker_mtx);
+}
+
+int
+dmu_objset_remove_record(objset_t *os, dmu_buf_impl_t *db)
+{
+    int ret = 0;
+    os_seg_worker_t *worker = os->os_seg_record_worker;
+
+    if (mutex_owner(&worker->worker_mtx) != curthread) {
+        mutex_enter(&worker->worker_mtx);
+    }
+    if (list_link_active(&db->db_segs_link)) {
+        atomic_add_64(&worker->worker_data, -db->db.db_size);
+        gcache_size_add(0 - db->db.db_size);
+        list_remove(&worker->worker_list, db);
+        ret = 1;
+    }
+    mutex_exit(&worker->worker_mtx);
+
+    return (ret);
+}
+
+void
+dmu_objset_clean_record(void  *arg)
+{
+    int ret = 0;
+    uint64_t cleaned_size;
+    uint64_t clean_size;
+    uint64_t syncing_txg;
+    uint64_t clear_txg;
+    objset_t *os;
+    dmu_buf_impl_t *db;
+    os_seg_worker_t *worker;
+
+    cleaned_size = 0;
+    worker = (os_seg_worker_t *)arg;
+    os = worker->worker_os;
+    mutex_enter(&worker->worker_mtx);
+    worker->worker_executor = curthread;
+    clean_size = worker->clean_size;
+    syncing_txg = spa_syncing_txg(dmu_objset_spa(os));
+    if (!worker->clean_all && !worker->seg_clean_all) {
+        if (syncing_txg > OS_CLEAR_SEGMENTS_GAP)
+            clear_txg = syncing_txg - OS_CLEAR_SEGMENTS_GAP;
+        else
+            clear_txg = 0;
+    } else {
+        clear_txg = syncing_txg;
+    }
+
+CLEAN_AGAIN:
+    while ((db = list_head(&worker->worker_list)) && clear_txg > 0) {
+        cleaned_size += db->db.db_size;
+        if (!worker->clean_all && !worker->seg_clean_all) {
+            if (db->db_first_segment_txg > clear_txg) {
+                if (cleaned_size > clean_size) {
+                    break;
+                }
+            }
+        }
+        ret = dmu_objset_remove_record(os, db);
+        if (ret) {
+            dmu_buf_reread((dmu_buf_t *)db);
+        }
+        mutex_enter(&worker->worker_mtx);
+    }
+
+    if (worker->seg_clean_all && worker->worker_data != 0) {
+        cmn_err(CE_WARN, "dmu_objset_clean_record, > size=0x%llx",
+            (longlong_t)worker->worker_data);
+        delay(1);
+        goto CLEAN_AGAIN;
+    }
+
+    worker->worker_executor = NULL;
+    cv_broadcast(&worker->worker_cv);
+    worker->clean_size = 0;
+    mutex_exit(&worker->worker_mtx);
+}
+
+void
+dmu_objset_insert_data(objset_t *os, dmu_buf_impl_t *db,
+    dbuf_segs_data_t *seg_data)
+{
+    os_seg_worker_t *worker = os->os_seg_data_worker;
+    dbuf_add_ref(seg_data->db, (void *)dbuf_rewrite_tag);
+    mutex_enter(&worker->worker_mtx);
+    list_insert_tail(&worker->worker_list, seg_data);
+    atomic_add_64(&worker->worker_data, seg_data->data_len);
+    gcache_size_add(seg_data->data_len);
+    mutex_exit(&worker->worker_mtx);
+    mutex_enter(&db->db_seg_list_mtx);
+    list_insert_tail(&db->db_seg_list, seg_data);
+    mutex_exit(&db->db_seg_list_mtx);
+}
+
+void
+dmu_objset_remove_seg_cache(objset_t *os, dmu_buf_impl_t *db)
+{
+    dbuf_segs_data_t *seg;
+    os_seg_worker_t *worker = os->os_seg_data_worker;
+
+    mutex_enter(&db->db_seg_list_mtx);
+    seg = list_head(&db->db_seg_list);
+    while (seg != NULL) {
+        /* remove from db seg list */
+        list_remove(&db->db_seg_list, seg);
+        mutex_exit(&db->db_seg_list_mtx);
+        /* remove from objset seg list */
+        mutex_enter(&worker->worker_mtx);
+        if (list_link_active(&seg->segs_data_os_node)) {
+            list_remove(&worker->worker_list, seg);
+            atomic_add_64(&worker->worker_data, -seg->data_len);
+            gcache_size_add(0 - seg->data_len);
+            mutex_exit(&worker->worker_mtx);
+
+            dmu_return_arcbuf(seg->data_data);
+            dbuf_rele(db, (void *)dbuf_rewrite_tag);
+            kmem_free(seg, sizeof(dbuf_segs_data_t));
+        } else {
+            mutex_exit(&worker->worker_mtx);
+        }
+        mutex_enter(&db->db_seg_list_mtx);
+        seg = list_head(&db->db_seg_list);
+    }
+
+    mutex_exit(&db->db_seg_list_mtx);
+}
+
+void
+dmu_objset_clean_seg_data(void  *arg)
+{
+    os_seg_worker_t *worker;
+    dbuf_segs_data_t *head_data;
+    objset_t *os;
+    worker = (os_seg_worker_t *)arg;
+    os = worker->worker_os;
+       mutex_enter(&worker->worker_mtx);
+    worker->worker_executor = curthread;
+    while (head_data = list_head(&worker->worker_list)) {
+        list_remove(&worker->worker_list, head_data);
+        atomic_add_64(&worker->worker_data, -head_data->data_len);
+        gcache_size_add(0 - head_data->data_len);
+        mutex_exit(&worker->worker_mtx);
+        if (dbuf_rewrite(head_data)) {
+            mutex_enter(&head_data->db->db_seg_list_mtx);
+            list_insert_tail(&head_data->db->db_seg_list, head_data);
+            mutex_exit(&head_data->db->db_seg_list_mtx);
+            mutex_enter(&worker->worker_mtx);
+            list_insert_head(&worker->worker_list, head_data);
+            atomic_add_64(&worker->worker_data, head_data->data_len);
+            gcache_size_add(head_data->data_len);
+            dmu_objset_set_cache_size(worker->worker_os,
+                head_data->data_len, B_TRUE);
+            continue;
+        }
+        mutex_enter(&worker->worker_mtx);
+    }
+
+    worker->worker_executor = NULL;
+    cv_broadcast(&worker->worker_cv);
+    mutex_exit(&worker->worker_mtx);
+}
+
+void
+dmu_objset_wait_clean_all_cache(objset_t *os)
+{
+    int old_wop = os->os_woptimize;
+    uint64_t size = 0;
+
+    /* if woptimize is on, temporarily close woptimize */
+    if (os->os_woptimize == ZFS_WOPTIMIZE) {
+        os->os_woptimize = ZFS_WOPTIMIZE_DISABLE;
+    }
+
+    /* set clean all record and data */
+    mutex_enter(&os->os_seg_record_worker->worker_mtx);
+    os->os_seg_record_worker->seg_clean_all = B_TRUE;
+    os->os_seg_data_worker->seg_clean_all = B_TRUE;
+    mutex_exit(&os->os_seg_record_worker->worker_mtx);
+
+    /* signal gcache thread to clean all cache */
+    gcache_thread_wake_up();
+
+    /* wait all cache is cleaned */
+    for (;;) {
+        delay(10);
+
+        size = dmu_objset_get_cache_size(os);
+        if (size == 0)
+            break;
+    }
+
+    os->os_woptimize = old_wop;
+}
+
+uint64_t
+dmu_objset_cache_clean_size(objset_t *os,
+    longlong_t size, boolean_t clean_all)
+{
+    uint64_t prev_size, total_size;
+    uint64_t clean_size;
+
+    if (dmu_objset_get_cache_size(os) == 0) {
+        return (0);
+    }
+
+    dmu_objset_worker_start(os->os_seg_data_worker);
+
+    clean_size = dmu_objset_get_cache_size(os);
+    if (clean_size > GCACHE_MAX_SIZE) {
+        os->os_seg_record_worker->clean_size = clean_size >> 1;
+    } else {
+        os->os_seg_record_worker->clean_size = 0;
+    }
+
+    os->os_seg_record_worker->clean_all = clean_all;
+    os->os_seg_data_worker->clean_all = clean_all;
+
+    dmu_objset_worker_start(os->os_seg_record_worker);
+    dmu_objset_worker_start(os->os_seg_data_worker);
+
+    total_size = dmu_objset_get_cache_size(os);
+    if (os->os_seg_record_worker->seg_clean_all && total_size != 0) {
+        cmn_err(CE_WARN, "dmu objset cache clean size:0x%llx",
+            (longlong_t)total_size);
+    }
+    clean_size = total_size - prev_size;
+    return (total_size);
+}
+
+boolean_t
+dmu_objset_disable_woptimize(objset_t *os)
+{
+    uint64_t cache_size;
+
+    cache_size = dmu_objset_get_cache_size(os);
+    if (cache_size > GCACHE_MAX_SIZE)
+        return (B_TRUE);
+    else
+        return (B_FALSE);
+}
+
+static void
+dmu_objset_rewrite_worker_init(objset_t *os)
+{
+
+    os->os_seg_record_worker =
+        kmem_zalloc(sizeof(os_seg_worker_t), KM_SLEEP);
+    mutex_init(&os->os_seg_record_worker->worker_mtx,
+        NULL, MUTEX_DEFAULT, NULL);
+    cv_init(&os->os_seg_record_worker->worker_cv,
+        NULL, CV_DEFAULT, NULL);
+    os->os_seg_record_worker->worker_taskq
+        = taskq_create("seg_record_write_worker", 1, minclsyspri,
+            2, 2, TASKQ_PREPOPULATE);
+    list_create(&os->os_seg_record_worker->worker_list,
+        sizeof(dmu_buf_impl_t),
+        offsetof(dmu_buf_impl_t, db_segs_link));
+    os->os_seg_record_worker->worker_data = 0;
+    os->os_seg_record_worker->worker_clean =
+        dmu_objset_clean_record;
+    os->os_seg_record_worker->worker_os = os;
+    os->os_seg_record_worker->clean_all = B_FALSE;
+    os->os_seg_record_worker->seg_clean_all = B_FALSE;
+    os->os_seg_data_worker =
+        kmem_zalloc(sizeof(os_seg_worker_t), KM_SLEEP);
+    cv_init(&os->os_seg_data_worker->worker_cv, NULL,
+        CV_DEFAULT, NULL);
+    mutex_init(&os->os_seg_data_worker->worker_mtx,
+        NULL, MUTEX_DEFAULT, NULL);
+    os->os_seg_data_worker->worker_taskq
+        = taskq_create("seg_data_write_worker", 1, minclsyspri,
+            2, 2, TASKQ_PREPOPULATE);
+    list_create(&os->os_seg_data_worker->worker_list,
+        sizeof(dbuf_segs_data_t),
+        offsetof(dbuf_segs_data_t, segs_data_os_node));
+    os->os_seg_data_worker->worker_data = 0;
+    os->os_seg_data_worker->worker_clean =
+        dmu_objset_clean_seg_data;
+    os->os_seg_data_worker->worker_os = os;
+    os->os_seg_data_worker->clean_all = B_FALSE;
+    os->os_seg_data_worker->seg_clean_all = B_FALSE;
+
+    os->os_cache_all = kmem_zalloc(sizeof(os_cache_t), KM_SLEEP);
+    mutex_init(&os->os_cache_all->os_cache_mtx,
+        NULL, MUTEX_DEFAULT, NULL);
+    os->os_cache_all->os_cache_size = 0;
+    os->os_cache_all->clean = dmu_objset_cache_clean_size;
+    os->os_cache_all->os = os;
+    os->os_cache_all->os_rbytes = 0;
+    os->os_cache_all->check =
+        dmu_objset_check_clean_all_cache;
+    refcount_create(&os->os_cache_all->os_cache_refcnt);
+    gcache_insert(os->os_cache_all);
+
+}
+
+static void
+dmu_objset_rewrite_worker_fini(objset_t *os)
+{
+    gcache_remove(os->os_cache_all);
+    refcount_destroy(&os->os_cache_all->os_cache_refcnt);
+    taskq_destroy(os->os_seg_record_worker->worker_taskq);
+    list_destroy(&os->os_seg_record_worker->worker_list);
+    mutex_destroy(&os->os_seg_record_worker->worker_mtx);
+    kmem_free(os->os_seg_record_worker, sizeof(os_seg_worker_t));
+
+    taskq_destroy(os->os_seg_data_worker->worker_taskq);
+    list_destroy(&os->os_seg_data_worker->worker_list);
+    mutex_destroy(&os->os_seg_data_worker->worker_mtx);
+    kmem_free(os->os_seg_data_worker, sizeof(os_seg_worker_t));
+
+    mutex_destroy(&os->os_cache_all->os_cache_mtx);
+    kmem_free(os->os_cache_all, sizeof(os_cache_t));
+}
+#endif
 
 int
 dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
@@ -436,12 +853,21 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	if (ds == NULL || !ds->ds_is_snapshot)
 		os->os_zil_header = os->os_phys->os_zil_header;
 	os->os_zil = zil_alloc(os, &os->os_zil_header);
-
+#ifdef _KERNEL
+    list_create(&os->os_zil_list, sizeof(zil_data_record_t),
+        offsetof(zil_data_record_t, data_node));
+#endif
 	for (i = 0; i < TXG_SIZE; i++) {
 		list_create(&os->os_dirty_dnodes[i], sizeof (dnode_t),
 		    offsetof(dnode_t, dn_dirty_link[i]));
 		list_create(&os->os_free_dnodes[i], sizeof (dnode_t),
 		    offsetof(dnode_t, dn_dirty_link[i]));
+#ifdef _KERNEL
+        mutex_init(&os->os_mirror_io_mutex[i],  NULL, MUTEX_DEFAULT, NULL);
+        list_create(&os->os_mirror_io_list[i], sizeof(dbuf_mirror_io_t),
+            offsetof(dbuf_mirror_io_t, mirror_io_node));
+        os->os_mirror_io_num[i] = 0;
+#endif
 	}
 	list_create(&os->os_dnodes, sizeof (dnode_t),
 	    offsetof(dnode_t, dn_link));
@@ -464,6 +890,9 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	}
 
 	*osp = os;
+#ifdef _KERNEL
+    dmu_objset_rewrite_worker_init(os);
+#endif
 	return (0);
 }
 
@@ -685,7 +1114,9 @@ dmu_objset_evict(objset_t *os)
 	int t;
 
 	dsl_dataset_t *ds = os->os_dsl_dataset;
-
+#ifdef _KERNEL
+    dmu_objset_rewrite_worker_fini(os);
+#endif
 	for (t = 0; t < TXG_SIZE; t++)
 		ASSERT(!dmu_objset_is_dirty(os, t));
 
@@ -737,6 +1168,10 @@ dmu_objset_evict(objset_t *os)
 	} else {
 		mutex_exit(&os->os_lock);
 	}
+
+#ifdef _KERNEL
+    list_destroy(&os->os_zil_list);
+#endif
 }
 
 void
@@ -2014,6 +2449,103 @@ dmu_fsname(const char *snapname, char *buf)
 	(void) strlcpy(buf, snapname, atp - snapname + 1);
 	return (0);
 }
+
+void
+dmu_objset_replay_all_cache(objset_t *os)
+{
+    void *user_data;
+
+    mutex_enter(&os->os_user_ptr_lock);
+    user_data = dmu_objset_get_user(os);
+    mutex_exit(&os->os_user_ptr_lock);
+
+#ifdef _KERNEL
+    if (spa_writeable(dmu_objset_spa(os))) {
+        os->os_breplaying = B_TRUE;
+        zil_replay(os, user_data, os->os_replay);
+        if (zfs_mirror_hold() == 0) {
+            zfs_mirror_get_all_buf(os);
+            zil_replay_all_data(os);
+            zfs_mirror_rele();
+        }
+        os->os_breplaying = B_FALSE;
+    }
+#endif
+}
+
+#ifdef _KERNEL
+
+void
+dmu_objset_insert_mirror_io(objset_t *os,
+    dbuf_mirror_io_t *mirror_io, uint64_t txg)
+{
+    uint64_t txg_id = txg & TXG_MASK;
+    mutex_enter(&os->os_mirror_io_mutex[txg_id]);
+    list_insert_tail(&os->os_mirror_io_list[txg_id], mirror_io);
+    os->os_mirror_io_num[txg_id] += 1;
+    mutex_exit(&os->os_mirror_io_mutex[txg_id]);
+}
+
+static void
+debug_mirror_io_addr(uint64_t hash_key)
+{
+}
+
+os_mirror_blkptr_list_t *
+dmu_objset_clear_mirror_io(objset_t *os, uint64_t txg)
+{
+    uint64_t index;
+    uint64_t txg_id;
+    dbuf_mirror_io_t *mirror_io;
+    os_mirror_blkptr_list_t *blkptr_array = NULL;
+
+
+    index = 0;
+    txg_id = txg & TXG_MASK;
+
+
+    mutex_enter(&os->os_mirror_io_mutex[txg_id]);
+    if (os->os_mirror_io_num[txg_id] == 0) {
+        goto FINISH;
+    }
+
+    blkptr_array = kmem_zalloc(sizeof(os_mirror_blkptr_list_t), KM_SLEEP);
+    if (blkptr_array == NULL) {
+        cmn_err(CE_WARN, "mem alloc mirror blkptr failed");
+        goto FINISH;
+    }
+
+    blkptr_array->blkptr_array  = kmem_zalloc(
+        sizeof(os_mirror_blkptr_node_t) * os->os_mirror_io_num[txg_id], KM_SLEEP);
+    if (blkptr_array->blkptr_array == NULL) {
+        cmn_err(CE_WARN, "mem alloc mirror blkptr array failed");
+        kmem_free(blkptr_array, sizeof(os_mirror_blkptr_list_t));
+        goto FINISH;
+    }
+
+    blkptr_array->blkptr_num  = os->os_mirror_io_num[txg_id];
+    while (mirror_io = list_head(&os->os_mirror_io_list[txg_id])) {
+        list_remove(&os->os_mirror_io_list[txg_id], mirror_io);
+        debug_mirror_io_addr(mirror_io->hash_key);
+        blkptr_array->blkptr_array[index].spa_id = mirror_io->spa_id;
+        blkptr_array->blkptr_array[index].os_id = mirror_io->os_id;
+        blkptr_array->blkptr_array[index].object_id = mirror_io->object_id;
+        blkptr_array->blkptr_array[index].blk_id = mirror_io->blk_id;
+        blkptr_array->blkptr_array[index].offset = mirror_io->offset;
+        blkptr_array->blkptr_array[index].mirror_io_index =
+            mirror_io->mirror_io_index;
+        zfs_mirror_destroy(mirror_io);
+        index ++;
+    }
+
+    os->os_mirror_io_num[txg_id] =  0;
+
+FINISH:
+    mutex_exit(&os->os_mirror_io_mutex[txg_id]);
+    return (blkptr_array);
+}
+
+#endif
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(dmu_objset_zil);

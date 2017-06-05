@@ -1834,6 +1834,72 @@ zprop_iter(zprop_func func, void *cb, boolean_t show_all, boolean_t ordered,
 {
 	return (zprop_iter_common(func, cb, show_all, ordered, type));
 }
+
+void
+zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
+    uint64_t flags)
+{
+    int err;
+    zfs_cmd_t zc = { 0 };
+
+
+    if (flags == ENABLE_MIRROR) {
+        if (mirror_to != NULL) {
+            zc.zc_perm_action = (uint64_t)strtol(mirror_to, NULL, 10);
+        } else {
+            zc.zc_perm_action = 0;
+        }
+    }
+
+    zc.zc_cookie = flags;
+
+    err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MIRROR, &zc);
+    if (flags == SHOW_MIRROR) {
+        printf("Mirror state:%s\r\n", zc.zc_string);
+    } else if (flags == DISABLE_MIRROR) {
+        if (err != 0) {
+            switch ((int)zc.zc_guid) {
+            case -1:
+                printf("zfs mirror wasn't initialized!\r\n");
+                break;
+            case -2:
+                printf("zfs mirror is busy now, close failed!\r\n");
+                break;
+            default:
+                break;
+            }
+        }
+    } else if (flags == ENABLE_MIRROR) {
+        if (err != 0) {
+            switch ((int)zc.zc_guid) {
+            case -1:
+                printf("zfs mirror alread opened!\r\n");
+                break;
+            case -2:
+                printf("zfs mirror initialize failed!\r\n");
+                break;
+            default:
+                break;
+            }
+        }
+    }
+}
+
+int
+zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt, uint8_t need_reply)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+
+	zc.zc_guid = bs;
+	zc.zc_cookie = cnt;
+	zc.zc_simple = need_reply;
+
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_MIRROR_SPEED_TEST, &zc);
+
+	return err;
+}
+
 int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen)
 {
 	int err;

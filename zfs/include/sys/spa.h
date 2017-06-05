@@ -489,6 +489,11 @@ _NOTE(CONSTCOND) } while (0)
 	ZIO_SET_CHECKSUM(&(bp)->blk_cksum, 0, 0, 0, 0);	\
 }
 
+#define	BP_GET_APPMETA(bp)		BF64_GET((bp)->blk_pad[0], 0, 1)
+/*#define	BP_SET_APPMETA(bp, appmeta)		BF64_SET((bp)->blk_pad[0], 0, 1, appmeta)*/
+#define BP_IS_APPMETA(bp)               (!!BP_GET_APPMETA(bp))
+
+
 #ifdef _BIG_ENDIAN
 #define	ZFS_HOST_BYTEORDER	(0ULL)
 #else

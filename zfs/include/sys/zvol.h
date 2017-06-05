@@ -29,6 +29,8 @@
 
 #include <sys/zfs_context.h>
 
+struct dbuf_segs_data;
+
 #define	ZVOL_OBJ		1ULL
 #define	ZVOL_ZAP_OBJ		2ULL
 
@@ -46,6 +48,11 @@ extern void zvol_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx);
 extern int zvol_set_volsize(const char *, uint64_t);
 extern int zvol_set_volblocksize(const char *, uint64_t);
 extern int zvol_set_snapdev(const char *, zprop_source_t, uint64_t);
+
+//extern void zvol_mirror_replay_wait(void *minor_hdl);
+
+int zvol_obj_rewrite(objset_t *os, uint64_t object, uint64_t offset,
+    uint64_t len, struct dbuf_segs_data *seg_node);
 
 extern int zvol_init(void);
 extern void zvol_fini(void);

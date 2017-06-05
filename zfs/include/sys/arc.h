@@ -163,6 +163,28 @@ typedef struct arc_buf_info {
 	enum zio_compress	abi_l2arc_compress;
 } arc_buf_info_t;
 
+#define	GCACHE_MAX_SIZE	((longlong_t)1<<29)
+
+#define	WORKER_PER_OS	2
+
+#define	WORKER_WRITING 0x1
+#define	WORKER_INSERTING 0x2
+
+typedef uint64_t os_clean_cache_func_t(struct objset *os,
+    longlong_t size, boolean_t clean_all);
+typedef boolean_t os_check_cache_func_t(struct objset *os);
+
+typedef struct os_cache{
+    list_node_t os_cache_node;
+    uint64_t os_cache_size;
+    uint64_t os_rbytes;
+    kmutex_t os_cache_mtx;
+    struct objset *os;
+    refcount_t	os_cache_refcnt;
+    os_check_cache_func_t *check;
+    os_clean_cache_func_t *clean;
+}os_cache_t;
+
 void arc_space_consume(uint64_t space, arc_space_type_t type);
 void arc_space_return(uint64_t space, arc_space_type_t type);
 arc_buf_t *arc_buf_alloc(spa_t *spa, uint64_t size, void *tag,
@@ -197,6 +219,12 @@ arc_prune_t *arc_add_prune_callback(arc_prune_func_t *func, void *private);
 void arc_remove_prune_callback(arc_prune_t *p);
 void arc_freed(spa_t *spa, const blkptr_t *bp);
 
+zio_t *
+arc_ctrl(zio_t *pio, spa_t *spa, uint64_t txg,
+    blkptr_t *bp, arc_buf_t *buf, boolean_t l2arc, const zio_prop_t *zp,
+    arc_done_func_t *ready, arc_done_func_t *done, void *private,
+    zio_priority_t priority, int zio_flags, const zbookmark_phys_t *zb);
+
 void arc_set_callback(arc_buf_t *buf, arc_evict_func_t *func, void *private);
 boolean_t arc_clear_callback(arc_buf_t *buf);
 
@@ -218,6 +246,12 @@ void l2arc_init(void);
 void l2arc_fini(void);
 void l2arc_start(void);
 void l2arc_stop(void);
+
+void gcache_insert(os_cache_t *os_cache);
+void gcache_remove(os_cache_t *os_cache);
+void gcache_thread_wake_up(void);
+boolean_t gcache_disable_woptimize(void);
+void gcache_size_add(int64_t size);
 
 #ifndef _KERNEL
 extern boolean_t arc_watch;
