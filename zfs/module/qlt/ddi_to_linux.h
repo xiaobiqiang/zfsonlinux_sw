@@ -20,6 +20,8 @@
 #include <linux/aer.h>
 #include <linux/mutex.h>
 #include <linux/device.h>
+
+#define ZTQ_FIRST_ENABLE_FULL_FUNC 0
 typedef struct __ddi_dma_handle {
 	struct pci_dev *dev;
 	void * ptr;

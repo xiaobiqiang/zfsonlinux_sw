@@ -470,6 +470,7 @@ typedef struct qlt_state {
 	uint32_t	qlt_27xx_speed;
 	uint32_t	qlt_atio_reproc_cnt;
 	uint32_t	qlt_resp_reproc_cnt;
+	uint32_t	qlt_preserve_fw_mem;
 } qlt_state_t;
 
 /*

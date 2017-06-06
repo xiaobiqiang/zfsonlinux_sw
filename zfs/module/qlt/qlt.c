@@ -47,6 +47,7 @@
 #include <sys/pci_ids.h>
 #include <sys/scsi/generic/status.h>
 #include "qlt.h"
+#include "qlt_regs.h"
 #include "qlt_dma.h"
 #include "qlt_ioctl.h"
 #include "qlt_open.h"
@@ -273,6 +274,8 @@ static struct pci_device_id qlt_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2261) },
 	{ 0 },
 };
+MODULE_DEVICE_TABLE(pci, qlt_pci_tbl);
+
 /*
 static const struct pci_error_handlers qlt_err_handler = {
 	.error_detected = qla2xxx_pci_error_detected,
@@ -380,6 +383,8 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	int		max_read_size;
 	int		max_payload_size;
 	fct_status_t	ret;
+	int bars, mem_only = 0;
+	uint32_t dump_size;
 
 	/* No support for suspend resume yet */
 	//if (cmd != DDI_ATTACH)
@@ -387,7 +392,6 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	ddi_add_dev(dip);
 	instance = ddi_get_instance(dip);
 
-	pci_enable_device(dip);
 	cmn_err(CE_CONT, "!Qlogic %s(%d) FCA Driver v%s\n",
 	    QLT_NAME, instance, QLT_VERSION);
 
@@ -414,13 +418,45 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	}
 
 	EL(qlt, "instance=%d, ptr=%p\n", instance, (void *)qlt);
-	EL(qlt, "IO/MEM bar=0x%x\n", pci_select_bars(dip, IORESOURCE_MEM | IORESOURCE_IO));
+	EL(qlt, "IO/MEM bar=0x%x\n", pci_select_bars(dip, IORESOURCE_MEM));
+	did = PCICFG_RD16(qlt, PCI_CONF_DEVID);
+	bars = pci_select_bars(dip, IORESOURCE_MEM | IORESOURCE_IO);
+	if (did == 0x2422 ||
+	    did == 0x2432 ||
+	    did == 0x8432 ||
+	    did == 0x5422 ||
+	    did == 0x5432 ||
+	    did == 0x2532 ||
+	    did == 0x8001 ||
+	    did == 0x8021 ||
+	    did == 0x2031 ||
+	    did == 0x8031 ||
+	    did == 0xF001 ||
+	    did == 0x8044 ||
+	    did == 0x2071 ||
+	    did == 0x2271 ||
+	    did == 0x2261) {
+		bars = pci_select_bars(dip, IORESOURCE_MEM);
+		mem_only = 1;
+	}
+
+	if (mem_only) {
+		if (pci_enable_device_mem(dip)){
+			cmn_err(CE_WARN,"pci_enable_device_mem FAIL\n");
+			goto attach_fail_3;
+		}
+	} else {
+		if (pci_enable_device(dip)){
+			cmn_err(CE_WARN,"pci_enable_device FAIL\n");
+			goto attach_fail_3;
+		}
+	}
+	
 	if (pci_config_setup(dip, &qlt->pcicfg_acc_handle) != DDI_SUCCESS) {
 		cmn_err(CE_WARN, "qlt(%d): pci_config_setup failed", instance);
 		goto attach_fail_3;
 	}
 
-	did = PCICFG_RD16(qlt, PCI_CONF_DEVID);
 	if ((did != 0x2422) && (did != 0x2432) &&
 	    (did != 0x8432) && (did != 0x2532) &&
 	    (did != 0x8001) && (did != 0x2031) &&
@@ -672,7 +708,6 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	/* This may fail but that's ok */
 	pci_enable_pcie_error_reporting(dip);
 
-	qla24xx_pci_config(dip);
 	if (qlt->qlt_mq_enabled) {
 		qlt->mq_req = kmem_zalloc(
 		    ((sizeof (qlt_mq_req_ptr_blk_t)) * MQ_MAX_QUEUES),
@@ -685,6 +720,11 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 		    (sizeof (qlt_mq_req_ptr_blk_t)), KM_SLEEP);
 		qlt->mq_resp = kmem_zalloc(
 		    (sizeof (qlt_mq_rsp_ptr_blk_t)), KM_SLEEP);
+	}
+
+	if(qlt->mq_req == NULL || qlt->mq_resp == NULL){
+		cmn_err(CE_WARN,"MQ alloc mem fail:%llx,%llx\n",qlt->mq_req,qlt->mq_resp);
+		goto attach_fail_5;
 	}
 
 	if (did == 0x2422) {
@@ -744,6 +784,19 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 	if (ncookies != 1)
 		goto attach_fail_8;
 
+	if(did == 0x2432 || did == 0x2532){
+		dump_size = QLT_FWDUMP_BUFSIZE + 512*1024;
+		qlt->qlt_fwdump_buf = kzalloc(dump_size, GFP_KERNEL);
+		if(!qlt->qlt_fwdump_buf) {
+			cmn_err(CE_WARN, "qlt->fw_dump_size:%llx", dump_size);
+			qlt->qlt_preserve_fw_mem = 0;
+			goto attach_fail_8;
+		}else{
+			qlt->fw_dump_size = dump_size;
+			qlt->qlt_preserve_fw_mem = 1;
+		}
+	}
+
 	/*
 	 * Base queue (0), alwasy available
 	 */
@@ -759,7 +812,9 @@ qlt_attach(dev_info_t *dip, const struct pci_device_id *id)
 
 	/* mutex are inited in this function */
 	if (qlt_setup_interrupts(qlt) != DDI_SUCCESS)
-		goto attach_fail_8;
+		goto attach_fail_9;
+
+	qla24xx_pci_config(dip);
 
 	qlt->qlt_queue_cnt = 1;
 	if ((qlt->qlt_mq_enabled) && (qlt->intr_cnt > 1)) {
@@ -882,7 +937,6 @@ over_max_payload_setting:;
 		qlt_disable_intr(qlt);
 		goto attach_fail_10;
 	}
-	pci_set_master(dip);
 	//ddi_report_dev(dip);
 	return (DDI_SUCCESS);
 
@@ -895,7 +949,14 @@ attach_fail_10:;
 	qlt_destroy_mutex(qlt);
 	qlt_release_intr(qlt);
 	(void) qlt_mq_destroy(qlt);
-
+attach_fail_9:;
+	if(qlt->qlt_preserve_fw_mem){
+		if(qlt->dip->device == 0x2432 ||  qlt->dip->device == 0x2532){
+			qlt->fw_dump_size = QLT_FWDUMP_BUFSIZE + 512*1024;
+		}
+		kmem_free(qlt->qlt_fwdump_buf, qlt->fw_dump_size);
+		qlt->qlt_fwdump_buf = NULL;
+	}
 attach_fail_8:;
 	(void) ddi_dma_unbind_handle(qlt->queue_mem_dma_handle);
 attach_fail_7:;
@@ -922,6 +983,7 @@ attach_fail_5:;
 attach_fail_4:;
 	pci_config_teardown(&qlt->pcicfg_acc_handle);
 attach_fail_3:;
+	pci_disable_device(dip);
 	(void) qlt_el_trace_desc_dtor(qlt);
 attach_fail_2:;
 	kmem_free(qlt->vpd, QL_24XX_VPD_SIZE);
@@ -975,6 +1037,11 @@ qlt_detach(dev_info_t *dip)
 	}
 
 	if (qlt->qlt_fwdump_buf) {
+		if(qlt->qlt_preserve_fw_mem){
+			if(qlt->dip->device == 0x2432 ||  qlt->dip->device == 0x2532){
+				qlt->fw_dump_size = QLT_FWDUMP_BUFSIZE + 512*1024;
+			}
+		}
 		kmem_free(qlt->qlt_fwdump_buf, qlt->fw_dump_size);
 		qlt->qlt_fwdump_buf = NULL;
 	}
@@ -1180,6 +1247,7 @@ qlt_enable_intr(qlt_state_t *qlt)
 	}*/
 	REG_WR32(qlt, REG_INTR_CTRL, ENABLE_RISC_INTR);
 	REG_RD32(qlt, REG_INTR_CTRL);
+	qlt->qlt_intr_enabled = 1;
 }
 
 static void
@@ -1192,6 +1260,8 @@ qlt_disable_intr(qlt_state_t *qlt)
 		for (i = 0; i < qlt->intr_cnt; i++)
 			(void) ddi_intr_disable(qlt->htable[i]);
 	}*/
+	REG_WR32(qlt, REG_INTR_CTRL, 0);
+	REG_RD32(qlt, REG_INTR_CTRL);
 	qlt->qlt_intr_enabled = 0;
 }
 
@@ -1443,13 +1513,14 @@ qlt_setup_msi(qlt_state_t *qlt)
 	qlt_init_mutex(qlt);
 	
 	ret = pci_enable_msi(qlt->dip);
-	if (!ret) {
-		printk("%s %d error\n", __func__, __LINE__);
+	if (ret) {
+		printk("%s %d error:%x\n", __func__, __LINE__,ret);
 		goto release_mutex;
 	}
 	ret = request_irq(qlt->dip->irq, qlt_isr,
 	    0, QLA2XXX_DRIVER_NAME, qlt);
 	if (ret) {
+		goto release_mutex;
 	}
 
 	/* add handler */
@@ -1538,14 +1609,15 @@ qlt_setup_fixed(qlt_state_t *qlt)
 static int
 qlt_setup_interrupts(qlt_state_t *qlt)
 {
-	//int itypes = 0;
+	int itypes = 0x0;
 
 /*
  * x86 has a bug in the ddi_intr_block_enable/disable area (6562198).
- *//*
+ */
 #ifndef __sparc
 	if ((qlt_enable_msi != 0) || (qlt_enable_msix != 0)) {
 #endif
+#if ZTQ_FIRST_ENABLE_FULL_FUNC
 	if (ddi_intr_get_supported_types(qlt->dip, &itypes) != DDI_SUCCESS) {
 		itypes = DDI_INTR_TYPE_FIXED;
 	}
@@ -1553,13 +1625,15 @@ qlt_setup_interrupts(qlt_state_t *qlt)
 		if (qlt_setup_msix(qlt) == DDI_SUCCESS)
 			return (DDI_SUCCESS);
 	}
+#endif
 	if (qlt_enable_msi && (itypes & DDI_INTR_TYPE_MSI)) {
 		if (qlt_setup_msi(qlt) == DDI_SUCCESS)
 			return (DDI_SUCCESS);
 	}
+
 #ifndef __sparc
 	}
-#endif*/
+#endif
 	return (qlt_setup_fixed(qlt));
 }
 

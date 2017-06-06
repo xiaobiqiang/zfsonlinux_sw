@@ -72,7 +72,16 @@ uint32_t pci_config_get32(struct pci_dev *dev, off_t offset)
 void ddi_rep_put32(ddi_acc_handle_t handle, uint32_t *host_addr, uint32_t *dev_addr,
 	size_t repcount, uint_t flags)
 {
+	int i=0;
+	#if 0
 	iowrite32_rep(dev_addr, host_addr, repcount);
+	#else
+	for(i=0;i<repcount;i++){
+		iowrite32(*host_addr, dev_addr);
+		dev_addr++;
+		host_addr++;
+	}
+	#endif
 }
 uint8_t ddi_get8(ddi_acc_handle_t handle, uint8_t *addr)
 {
@@ -97,23 +106,25 @@ void ddi_put32(ddi_acc_handle_t handle, uint32_t *addr, uint32_t value)
 
 void qla2x00_config_dma_addressing(struct pci_dev *pdev)
 {
+#if ZTQ_FIRST_ENABLE_FULL_FUNC
 	/* Assume a 32bit DMA mask. */
-	//ha->flags.enable_64bit_addressing = 0;
+	ha->flags.enable_64bit_addressing = 0;
 
-//	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
+	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
 		/* Any upper-dword bits set? */
-//		if (MSD(dma_get_required_mask(&pdev->dev)) &&
-//		    !pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
+		if (MSD(dma_get_required_mask(&pdev->dev)) &&
+		    !pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
 			/* Ok, a 64bit DMA mask is applicable. */
-/*			//ha->flags.enable_64bit_addressing = 1;
-			//ha->isp_ops->calc_req_entries = qla2x00_calc_iocbs_64;
-			//ha->isp_ops->build_iocbs = qla2x00_build_scsi_iocbs_64;
+			ha->flags.enable_64bit_addressing = 1;
+			ha->isp_ops->calc_req_entries = qla2x00_calc_iocbs_64;
+			ha->isp_ops->build_iocbs = qla2x00_build_scsi_iocbs_64;
 			return;
 		}
 	}
 
 	dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
-	pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));*/
+	pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
+#endif
 }
 
 
