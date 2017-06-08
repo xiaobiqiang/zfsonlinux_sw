@@ -2215,6 +2215,7 @@ EXPORT_SYMBOL(dmu_return_arcbuf);
 EXPORT_SYMBOL(dmu_assign_arcbuf);
 EXPORT_SYMBOL(dmu_buf_hold);
 EXPORT_SYMBOL(dmu_get_lock_para);
+EXPORT_SYMBOL(dmu_get_crypt_data);
 
 EXPORT_SYMBOL(dmu_ot);
 
