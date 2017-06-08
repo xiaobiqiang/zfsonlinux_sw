@@ -1,5 +1,4 @@
 #include <stdio.h>
-/*#include <stdio_ext.h>*/
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -10,60 +9,31 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#if	0
-#include <memory.h>
-#include <alloca.h>
-#include <ucontext.h>
-#endif
 #include <errno.h>
 #include <syslog.h>
 #include <string.h>
 #include <strings.h>
-/*#include <door.h>*/
 #include <wait.h>
 #include <mqueue.h>
-/*#include <libintl.h>*/
 #include <locale.h>
 #include <libzfs.h>
 #include <sys/types.h>
 #include <sys/int_types.h>
-/*#include <thread_pool.h>*/
 #include <sys/param.h>
 #include <sys/systeminfo.h>
-/*#include <sys/thread.h>*/
-/*#include <rpc/xdr.h>*/
-#if	0
-#include <priv.h>
-#include <libenv.h>
-#endif
 #include <libcluster.h>
-/*#include <priv_utils.h>*/
 #include <sys/fs/zfs.h>
 #include <sys/fs/zfs_hbx.h>
 #include <sys/zfs_ioctl.h>
-/*#include <rpcsvc/daemon_utils.h>*/
-/*#include <inet/ip.h>*/
-/*#include <net/if.h>*/
-/*#include <sys/sockio.h>*/
 #include <time.h>
 #include <stropts.h>
 #include <libnvpair.h>
-#if	0
-#include <kstat.h>
-#include <libdlpi.h>
-#include <libdllink.h>
-#include <libdlstat.h>
-#include <libinetutil.h>
-#include <hbaapi.h>
-#include <hbaapi-sun.h>
-#endif
 #include <sys/list.h>
 #include <sys/spa_impl.h>
 #include "deflt.h"
 #include "cn_cluster.h"
 #include "if_util/if_util.h"
 #include "clusterd.h"
-/*#include <libzfs_sm.h>*/
 
 #define	CLUSTERD_CONF	"/etc/default/clusterd"
 int clusterd_log_lvl = 0;
@@ -94,6 +64,15 @@ char	sync_keyfile_path[512] = {"\0"};
 char ipmi_local_ip[16] = "255.255.255.255";
 char igb0_local_ip[16] = "255.255.255.255";
 
+char sbindir[MAXPATHLEN] = "/usr/local/sbin";
+char zpool_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool";
+char zpool_import_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool import -bfi";
+char zpool_export_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool export -f";
+char clusterd_cmd[MAXPATHLEN] = "/usr/local/sbin/clusterd";
+
+#define	FIFONAME	"/tmp/.fifo_clusterd"
+#define	FIFO_STYPE	"imported"
+
 #define	FAILOVER_TIME_TAG "clusterd failover time:"
 
 typedef enum{
@@ -118,9 +97,9 @@ char ipmi_passwd[16];
 #if	0
 #define	ZPOOL_CMD		"/sbin/zpool"
 #else
-#define	ZPOOL_CMD		"/usr/local/sbin/zpool"
-#define	ZPOOL_IMPORT	"/usr/local/sbin/zpool import -bfi"
-#define	ZPOOL_EXPORT	"/usr/local/sbin/zpool export -f"
+#define	ZPOOL_CMD		zpool_cmd
+#define	ZPOOL_IMPORT	zpool_import_cmd
+#define	ZPOOL_EXPORT	zpool_export_cmd
 #endif
 
 typedef struct cluster_event_s {
@@ -4339,6 +4318,8 @@ cluster_task_setup(void *arg)
 {
 	int failover_remote;
 	int ret;
+	int fd;
+	ssize_t n;
 
 	pthread_detach(pthread_self());
 
@@ -4348,19 +4329,21 @@ cluster_task_setup(void *arg)
 	ret = cluster_import_pools(1, &failover_remote);
 	if (ret != 0 && ret != -2) {
 		syslog(LOG_ERR, "cluster_import_pools error: %d", ret);
-		return (NULL);
- 	}
-#if	0
-	ret = excute_cmd("hanet -t");
-	if (ret == 1) {
-		clusterd_old_ip_failover_enable = 1;
-		syslog(LOG_WARNING, "old ip failover enable.");
+ 	} else
+		init_zpool_failover_conf();
+
+	fd = open(FIFONAME, O_WRONLY);
+	if (fd > 0) {
+		/* use systemd */
+		syslog(LOG_WARNING, "open %s success", FIFONAME);
+		n = write(fd, FIFO_STYPE, strlen(FIFO_STYPE));
+		if (n < 0) {
+			syslog(LOG_ERR, "write %s error(%d): %s",
+				FIFONAME, errno, strerror(errno));
+		}
+
+		close(fd);
 	}
-	cluster_task_app_first_enable();
-	if (failover_remote)
-		cluster_task_app_failover();
-#endif
-	init_zpool_failover_conf();
 	return (NULL);
 }
 
@@ -6157,6 +6140,7 @@ usage(void)
 	syslog(LOG_ERR, "Usage: %s", MyName);
 	syslog(LOG_ERR, "\t[-v]\t\tverbose error messages");
 	syslog(LOG_ERR, "\t[-d]\t\tdisable daemonize");
+	syslog(LOG_ERR, "\t[-S]\t\tStart clusterd daemon in systemd");
 	exit(1);
 }
 
@@ -6201,14 +6185,61 @@ daemonize(void)
 	(void) setsid();
 }
 
+static int use_systemd = 0;
+
+static void
+start_clusterd(void)
+{
+	int fd;
+	pid_t pid;
+	ssize_t n;
+	char buf[128];
+
+	if (mkfifo(FIFONAME, 0600) == -1) {
+		perror("mkfifo()");
+		exit(1);
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		perror("fork()");
+		unlink(FIFONAME);
+		exit(1);
+	}
+	if (pid == 0) {
+		excute_cmd(clusterd_cmd);
+		exit(0);
+	}
+
+	/* block until a writer open the fifo */
+	fd = open(FIFONAME, O_RDONLY);
+	if (fd < 0) {
+		perror("open()");
+		unlink(FIFONAME);
+		exit(1);
+	}
+
+	while (1) {
+		n = read(fd, buf, 128);
+		if (n > 0) {
+			if (strncmp(buf, FIFO_STYPE, strlen(FIFO_STYPE)) == 0)
+				break;
+		} else if (n < 0)
+			perror("read()");
+	};
+
+	waitpid(pid, NULL, 0);
+
+	close(fd);
+	unlink(FIFONAME);
+	exit(0);
+}
+
 int
 main(int argc, char *argv[])
 {
-	/*pid_t pid;*/
 	int c, error;
-	/*struct rlimit rlset;*/
 	char *defval;
-	/*char buf[256] = {"\0"};*/
 	pthread_t tid;
 
 	/*
@@ -6263,6 +6294,13 @@ main(int argc, char *argv[])
 			if (errno != 0)
 				syslog(LOG_ERR, "Invalid LINK_DOWN_TIMEOUT=");
 		}
+		if ((defval = defread("SBINDIR=")) != NULL) {
+			strlcpy(sbindir, defval, MAXPATHLEN);
+			sprintf(zpool_cmd, "%s/zpool", sbindir);
+			sprintf(zpool_import_cmd, "%s/zpool import -bfi", sbindir);
+			sprintf(zpool_export_cmd, "%s/zpool export -f", sbindir);
+			sprintf(clusterd_cmd, "%s/clusterd", sbindir);
+		}
 
 		defopen(NULL);
 	}
@@ -6274,8 +6312,11 @@ main(int argc, char *argv[])
 	c_log(LOG_ERR, "ipmi_use_lanplus=%d, ipmi_user=%s, ipmi_passwd=%s",
 		ipmi_use_lanplus, ipmi_user, ipmi_passwd);
 
-	while ((c = getopt(argc, argv, CLUSTERD_CMD_OPTS)) != EOF) {
+	while ((c = getopt(argc, argv, "dSv")) != EOF) {
 		switch (c) {
+		case 'S':
+			use_systemd = 1;
+			break;
 		case 'd':
 			daemon_disable = 1;
 			break;
@@ -6287,21 +6328,14 @@ main(int argc, char *argv[])
 		}
 	}
 
+	if (use_systemd) {
+		start_clusterd();
+		/* Not reached */
+	}
 
 	if (!daemon_disable)
 		daemonize();
 
-	/* Initialize */
-#if	0
-	memset(buf, 0, sizeof(buf));
-	error = sysinfo(SI_HW_SERIAL, buf, sizeof(buf));
-	if (error <= 0) {
-		syslog(LOG_ERR, "get hostid failed");
-		exit(1);
-	} else {
-		host_id = strtoul(buf, NULL, 10);
-	}
-#endif
 	host_id = gethostid();
 
 	openlog(MyName, LOG_PID | LOG_NDELAY, LOG_DAEMON);
@@ -6350,18 +6384,6 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-#if	0
-	/* start cluster door service for hbx */
-	error = start_clusterd_svcs();
-	if (error != 0) {
-		syslog(LOG_ERR, "cluster door failed");
-		exit(1);
-	}
-
-	/* initialize link state */
-	strcpy(buf, "link_state=down");
-	hbx_do_cluster_cmd(buf, 0, ZFS_HBX_SET);
-#endif
 	if ((error = cn_cluster_init(clusterd_cn_rcv)) != 0) {
 		syslog(LOG_ERR, "cn_cluster_init() failed: error=%d", error);
 		exit(1);
