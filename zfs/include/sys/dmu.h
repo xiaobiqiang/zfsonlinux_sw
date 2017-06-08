@@ -871,6 +871,8 @@ extern void dmu_objset_set_user(objset_t *os, void *user_ptr);
 extern void *dmu_objset_get_user(objset_t *os);
 extern void dmu_get_lock_para(dmu_buf_t *handle, uint64_t offset,
 	uint64_t len, uint64_t *lock_offset, uint64_t *lock_len);
+extern void *dmu_get_crypt_data(dmu_buf_t *db, char *key, 
+	boolean_t *free_data);
 
 
 /*

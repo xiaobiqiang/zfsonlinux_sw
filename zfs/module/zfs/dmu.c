@@ -2137,6 +2137,29 @@ byteswap_uint8_array(void *vbuf, size_t size)
 {
 }
 
+void *
+dmu_get_crypt_data(dmu_buf_t *db, char *key, boolean_t *free_data)
+{
+	void *data;
+	dnode_t *dn;
+	objset_t *os;
+	dmu_buf_impl_t *db_impl;
+	
+	db_impl = (dmu_buf_impl_t *)db;
+	
+	DB_DNODE_ENTER(db_impl);
+	dn = DB_DNODE(db_impl);
+	os = dn->dn_objset;
+
+	/* not crypt */
+	data = db->db_data;
+	*free_data = B_FALSE;
+	
+	DB_DNODE_EXIT(db_impl);
+
+	return (data);
+}
+
 void
 dmu_init(void)
 {

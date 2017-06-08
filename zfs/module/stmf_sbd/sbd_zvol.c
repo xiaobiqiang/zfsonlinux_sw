@@ -131,7 +131,6 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 			dbuf->db_sglist_length, numbufs);
 	}
 	
-	/*
 	if (error == 0) {
 		int		i;
 		stmf_sglist_ent_t *sgl;
@@ -153,7 +152,7 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 			odiff =  offset - dbp->db_offset;
 			ASSERT(odiff == 0 || i == 0);
 			
-			data = dmu_get_crypt_data(dbp, initiator_wwn, ZFS_PROP_ACL_WWN, &free_data);
+			data = dmu_get_crypt_data(dbp, initiator_wwn, &free_data);
 			if (free_data) {
 				zvio->zvio_crypt_data[i] = data;
 			}
@@ -168,7 +167,7 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 		ASSERT(len == 0);
 
 	}
-	*/
+	
 	return (error);
 }
 
