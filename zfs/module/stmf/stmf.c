@@ -107,11 +107,11 @@ typedef struct stmf_task_kstat
 #define STMF_TASK_KSTAT_UPDATE_ABORT(stmf_state, abort_type)	\
 	if (abort_type >= MAX_TASK_ABORT_TYPE)	\
 		return;	\
-	atomic_inc_64(((stmf_state_t *)stmf_state)->stmf_task_abort_total_count);	\
-	atomic_inc_64(((stmf_state_t *)stmf_state)->stmf_task_abort_stats[abort_type]);
+	atomic_inc_64(&((stmf_state_t *)stmf_state)->stmf_task_abort_total_count);	\
+	atomic_inc_64(&((stmf_state_t *)stmf_state)->stmf_task_abort_stats[abort_type]);
 
 #define STMF_TASK_KSTAT_UPDATE_DONE_OVER_THRES(stmf_state) \
-	atomic_inc_64(((stmf_state_t *)stmf_state)->stmf_task_done_over_thres);
+	atomic_inc_64(&((stmf_state_t *)stmf_state)->stmf_task_done_over_thres);
 	
 static int get_target_id(scsi_task_t *task,uint8_t *buf,uint8_t buf_len);
 static int get_initiator_id(scsi_task_t *task,uint8_t *buf,uint8_t buf_len);
@@ -164,7 +164,7 @@ void stmf_trace_clear(void);
 void stmf_worker_init(void);
 stmf_status_t stmf_worker_fini(void);
 void stmf_init_task_checker(void);
-void stmf_fini_task_checker();
+int stmf_fini_task_checker();
 void stmf_worker_mgmt(void);
 void stmf_worker_task(void *arg);
 static void stmf_task_lu_free(scsi_task_t *task, stmf_i_scsi_session_t *iss);
@@ -260,7 +260,7 @@ volatile int	stmf_default_task_timeout = 75;
  * Setting this to one means, you are responsible for config load and keeping
  * things in sync with persistent database.
  */
-volatile int	stmf_allow_modunload = 0;
+volatile int	stmf_allow_modunload = 1;
 
 volatile int stmf_max_nworkers = 128;
 volatile int stmf_min_nworkers = 128;
@@ -422,27 +422,10 @@ stmf_fini(void)
 	stmf_i_itl_kstat_t	*ks_itl;
 	void			*avl_dest_cookie = NULL;
 
-	if (stmf_state.stmf_service_running)
-		return;
-	if ((!stmf_allow_modunload) &&
-	    (stmf_state.stmf_config_state != STMF_CONFIG_NONE)) {
-		return;
-	}
-	if (stmf_state.stmf_nlps || stmf_state.stmf_npps) {
-		return;
-	}
+	stmf_dlun_fini();
+	stmf_worker_fini();
+	stmf_svc_fini();
 	stmf_fini_task_checker();
-	if (stmf_dlun_fini() != STMF_SUCCESS)
-		return;
-	if (stmf_worker_fini() != STMF_SUCCESS) {
-		stmf_dlun_init();
-		return;
-	}
-	if (stmf_svc_fini() != STMF_SUCCESS) {
-		stmf_dlun_init();
-		stmf_worker_init();
-		return;
-	}
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,
@@ -9439,55 +9422,76 @@ stmf_worker_remove_task(stmf_worker_t *w)
 		kmem_free(task_node, sizeof(stmf_task_node_t));
 	}
 }
-atomic_t stc_flag = ATOMIC_INIT(0);
-typedef enum stmf_task_checker_f {
-	STC_RUNNING = 0,
-	STC_STOP = 1,
-	STC_EXIT = 2,
-}stc_f;
+
 void
 stmf_task_checker_thread(void *arg)
 {
 	int i = 0;
-	atomic_t *stc_flagp = (atomic_t*)arg;
-
-	atomic_set(stc_flagp, STC_RUNNING);
-	while (atomic_read(stc_flagp) == STC_RUNNING) {
-		mutex_enter(&stmf_state.stmf_task_checker_mtx);
-		cv_timedwait(&stmf_state.stmf_task_checker_cv, &stmf_state.stmf_task_checker_mtx,
+	mutex_enter(&stmf_state.stmf_task_checker_mtx);
+	stmf_state.stmf_task_checker_flag |=
+		(STMF_CHECKER_STARTED | STMF_CHECKER_ACTIVE);
+	
+	while (1) {
+		if (stmf_state.stmf_task_checker_flag & STMF_CHECKER_TERMINATE)
+			break;
+		
+		cv_timedwait(&stmf_state.stmf_task_checker_cv, 
+			&stmf_state.stmf_task_checker_mtx,
 			ddi_get_lbolt() + drv_usectohz(stmf_checker_time * 1000));
-		mutex_exit(&stmf_state.stmf_task_checker_mtx);
 
+		if (stmf_state.stmf_task_checker_flag & STMF_CHECKER_TERMINATE)
+			break;
+		
 		for (i = 0; i < stmf_i_max_nworkers; i++)
 			stmf_worker_remove_task(&stmf_workers[i]);
 	}
-	atomic_set(stc_flagp, STC_EXIT);
+
+	stmf_state.stmf_task_checker_flag &=
+		~(STMF_CHECKER_STARTED | STMF_CHECKER_ACTIVE);
+	mutex_exit(&stmf_state.stmf_task_checker_mtx);
 }
 
 void
 stmf_init_task_checker()
 {
-	atomic_set(&stc_flag, STC_RUNNING);
 	mutex_init(&stmf_state.stmf_task_checker_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&stmf_state.stmf_task_checker_cv, NULL, CV_DRIVER, NULL);
-	stmf_state.stmf_task_checker_tq = taskq_create("stmf_task_checker",
+	stmf_state.stmf_task_checker_flag = 0;
+	stmf_state.stmf_task_checker_tq = taskq_create("STMF_TASK_CHECKER",
 		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
 	taskq_dispatch(stmf_state.stmf_task_checker_tq, stmf_task_checker_thread,
-		&stc_flag, TQ_SLEEP);
+		NULL, TQ_SLEEP);
 }
-void 
+
+int 
 stmf_fini_task_checker()
 {
-	int i=0;
-	for(i=0; i<5; i++) {
-		atomic_set(&stc_flag, STC_STOP);
-		cv_broadcast(&stmf_state.stmf_task_checker_cv);
-		msleep(100);
-		if (atomic_read(&stc_flag) == STC_EXIT)
-			return;
+	int i;
+
+	mutex_enter(&stmf_state.stmf_task_checker_mtx);
+	if (stmf_state.stmf_task_checker_flag & STMF_CHECKER_STARTED) {
+		stmf_state.stmf_task_checker_flag |= STMF_CHECKER_TERMINATE;
+		cv_signal(&stmf_state.stmf_task_checker_cv);
 	}
-	printk("%s line(%d) thread(stmf_task_checker) over failed\n", __func__, __LINE__);
+	mutex_exit(&stmf_state.stmf_task_checker_mtx);
+
+	/* Wait for 5 seconds */
+	for (i = 0; i < 500; i++) {
+		if (stmf_state.stmf_task_checker_flag & STMF_CHECKER_STARTED)
+			delay(drv_usectohz(10000));
+		else
+			break;
+	}
+	if (i == 500)
+		return (STMF_BUSY);
+
+	taskq_destroy(stmf_state.stmf_task_checker_tq);
+	cv_destroy(&stmf_state.stmf_task_checker_cv);
+	mutex_destroy(&stmf_state.stmf_task_checker_mtx);
+
+	return (STMF_SUCCESS);	
 }
+
 void
 stmf_abort_target_reset(scsi_task_t *task)
 {
