@@ -405,7 +405,7 @@ static inline uint8_t atomic_cas_8(uint8_t *v, uint8_t old, uint8_t new)
 	return cmpxchg(v, old, new);
 }
 
-static inline uint16_t atomic_add_16_nv(uint16_t i, uint16_t *v)
+static inline uint16_t atomic_add_16_nv(uint16_t *v, uint16_t i)
 {
 	return i + xadd(v, i);
 }
