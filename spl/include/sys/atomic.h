@@ -28,6 +28,8 @@
 #include <linux/module.h>
 #include <linux/spinlock.h>
 #include <sys/types.h>
+#include <asm/cmpxchg.h>
+
 
 /*
  * Two approaches to atomic operations are implemented each with its
@@ -397,8 +399,17 @@ atomic_and_64(volatile uint64_t *target,  uint64_t mask)
 
 #define	atomic_or_8(v, i)	atomic_or_long((unsigned long *)(v), (i))
 #define	atomic_and_8(v, i)	atomic_clear_mask((~(i)), (atomic_t *)(v))
-#define	atomic_cas_8(v, x, y)	atomic_cmpxchg((atomic_t *)(v), x, y)
-#define	atomic_add_16_nv(v, i)	atomic_add_return((i), (atomic_t *)(v))
+
+static inline uint8_t atomic_cas_8(uint8_t *v, uint8_t old, uint8_t new)
+{
+	return cmpxchg(v, old, new);
+}
+
+static inline uint16_t atomic_add_16_nv(uint16_t i, uint16_t *v)
+{
+	return i + xadd(v, i);
+}
+
 #define atomic_inc_16(v)	atomic_inc((atomic_t *)(v))
 #define atomic_inc_32(v)	atomic_inc((atomic_t *)(v))
 #define atomic_dec_16(v)	atomic_dec((atomic_t *)(v))

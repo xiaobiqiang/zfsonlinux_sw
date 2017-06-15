@@ -819,6 +819,7 @@ sbd_copy_rdwr(scsi_task_t *task, uint64_t laddr, stmf_data_buf_t *dbuf,
 		return (SBD_FAILURE);
 	}
 
+	memset(&uio, 0, sizeof(struct uio));
 	wwwn_len = task->task_session->ss_rport_id->ident_length;
 	inititator_wwn = kmem_zalloc(wwwn_len + 1, KM_SLEEP);
 	bcopy(task->task_session->ss_rport_id->ident, inititator_wwn, 
@@ -832,7 +833,7 @@ sbd_copy_rdwr(scsi_task_t *task, uint64_t laddr, stmf_data_buf_t *dbuf,
 	write_meta = (dbuf->db_flags & DB_WRITE_META_DATA) ? B_TRUE : B_FALSE;
 	/* use the stack for small iovecs */
 	if (iovcnt > 8) {
-		iov = kmem_alloc(iovcnt * sizeof (*iov), KM_SLEEP);
+		iov = kmem_zalloc(iovcnt * sizeof (*iov), KM_SLEEP);
 	} else {
 		iov = &iov1[0];
 	}

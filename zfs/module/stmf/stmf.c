@@ -316,7 +316,6 @@ static clock_t stmf_worker_scale_down_timer = 0;
 static int stmf_worker_scale_down_qd = 0;
 
 stmf_transition_worker_t stmf_transtion_worker;
-int stmf_notonline_port_initiation=1;
 
 /*
  *	for avs mode
@@ -1550,18 +1549,9 @@ stmf_set_stmf_state(stmf_state_desc_t *std)
 			if (stmf_state.stmf_default_lport_state !=
 			    STMF_STATE_ONLINE)
 				continue;
-			
-			if(!stmf_notonline_port_initiation)
-			{
-				cmn_err(CE_WARN, " %s lport online is enabled here ilport=%p name=%s", __func__,ilport,ilport->ilport_kstat_tgt_name);
-				(void) stmf_ctl(STMF_CMD_LPORT_ONLINE,
-			    	ilport->ilport_lport, &ssi);
-			}
-			else
-			{
-				
-				cmn_err(CE_WARN, " %s lport online is disabled here ilport=%p name=%s", __func__,ilport,ilport->ilport_kstat_tgt_name);
-			}
+
+			(void) stmf_ctl(STMF_CMD_LPORT_ONLINE,
+			    ilport->ilport_lport, &ssi);
 		}
 
 		for (ilu = stmf_state.stmf_ilulist; ilu != NULL;
