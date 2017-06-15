@@ -4317,7 +4317,6 @@ sbd_status_t
 sbd_flush_data_cache(sbd_lu_t *sl, int fsync_done)
 {
 	char *name = NULL;
-	int r = 0;
 	int ret;
 
 	if (fsync_done)
@@ -4330,7 +4329,7 @@ over_fsync:
 	if (((sl->sl_data_vtype == VCHR) || (sl->sl_data_vtype == VBLK)) &&
 	    ((sl->sl_flags & SL_NO_DATA_DKIOFLUSH) == 0)) {
 		name = sbd_get_zvol_name(sl);
-	    ret = zvol_flush_write_cache(name, &r);
+	    ret = zvol_flush_write_cache(name, NULL);
 		if (name)
 			kmem_free(name, strlen(name) + 1);
 		if ((ret == ENOTTY) || (ret == ENOTSUP)) {
