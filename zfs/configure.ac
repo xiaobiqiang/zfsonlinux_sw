@@ -97,6 +97,13 @@ AC_CONFIG_FILES([
 	lib/libzfs_core/Makefile
 	lib/libshare/Makefile
 	lib/libclumgt/Makefile
+	lib/fm/Makefile
+	lib/fm/libdiagcode/Makefile
+	lib/fm/libdiagcode/common/Makefile
+	lib/fm/libfmd_msg/Makefile
+	lib/fm/libfmd_msg/common/Makefile
+	lib/fm/libexacct/Makefile
+	lib/fm/libexacct/common/Makefile
 	cmd/Makefile
 	cmd/zdb/Makefile
 	cmd/zhack/Makefile
@@ -117,6 +124,15 @@ AC_CONFIG_FILES([
 	cmd/clusterd/Makefile
 	cmd/clumgt/Makefile
 	cmd/disk/Makefile
+	cmd/fm/Makefile
+	cmd/fm/fmd/Makefile
+	cmd/fm/fmd/common/Makefile
+	cmd/fm/modules/Makefile
+	cmd/fm/modules/common/Makefile
+	cmd/fm/modules/common/zfs-retire/Makefile
+	cmd/fm/modules/common/zfs-diagnosis/Makefile
+	cmd/fm/fmd/schemes/Makefile
+	cmd/fm/fmd/schemes/zfs/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
