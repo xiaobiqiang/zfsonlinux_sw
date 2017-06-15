@@ -152,7 +152,7 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 			odiff =  offset - dbp->db_offset;
 			ASSERT(odiff == 0 || i == 0);
 			
-			data = dmu_get_crypt_data(dbp, initiator_wwn, &free_data);
+			data = dmu_get_crypt_data(dbp, &free_data);
 			if (free_data) {
 				zvio->zvio_crypt_data[i] = data;
 			}
@@ -185,7 +185,6 @@ sbd_zvol_rele_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	ASSERT(zvio->zvio_dbp);
 	ASSERT(dbuf->db_sglist_length);
 
-	/*
 	dbpp = (dmu_buf_t **) zvio->zvio_dbp;
 	for (i = 0; i < dbuf->db_sglist_length; i ++) {
 		dbp = dbpp[i];
@@ -194,7 +193,6 @@ sbd_zvol_rele_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	}
 
 	kmem_free(zvio->zvio_crypt_data, sizeof(void *)*dbuf->db_sglist_length);
-	*/
 	dmu_buf_rele_array(zvio->zvio_dbp, (int)dbuf->db_sglist_length, RDTAG);
 	
 }

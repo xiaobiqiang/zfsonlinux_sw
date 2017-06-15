@@ -1224,6 +1224,8 @@ dmu_read_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size)
 	for (i = 0; i < numbufs; i++) {
 		uint64_t tocpy;
 		int64_t bufoff;
+		void *data;
+		boolean_t free_data = B_FALSE;
 		dmu_buf_t *db = dbp[i];
 
 		ASSERT(size > 0);
@@ -1246,8 +1248,12 @@ dmu_read_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size)
 			else
 				XUIOSTAT_BUMP(xuiostat_rbuf_copied);
 		} else {
-			err = uiomove((char *)db->db_data + bufoff, tocpy,
+			data = dmu_get_crypt_data(db, &free_data);
+			err = uiomove((char *)data + bufoff, tocpy,
 			    UIO_READ, uio);
+			if (free_data) {
+				dmu_free_crypt_data(data, db->db_size);
+			}
 		}
 		if (err)
 			break;
@@ -2138,7 +2144,7 @@ byteswap_uint8_array(void *vbuf, size_t size)
 }
 
 void *
-dmu_get_crypt_data(dmu_buf_t *db, char *key, boolean_t *free_data)
+dmu_get_crypt_data(dmu_buf_t *db, boolean_t *free_data)
 {
 	void *data;
 	dnode_t *dn;
@@ -2158,6 +2164,12 @@ dmu_get_crypt_data(dmu_buf_t *db, char *key, boolean_t *free_data)
 	DB_DNODE_EXIT(db_impl);
 
 	return (data);
+}
+
+void 
+dmu_free_crypt_data(void *data, uint64_t size)
+{
+	zio_data_buf_free(data, size);
 }
 
 void
