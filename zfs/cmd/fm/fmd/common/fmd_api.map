@@ -1,0 +1,132 @@
+#
+# CDDL HEADER START
+#
+# The contents of this file are subject to the terms of the
+# Common Development and Distribution License (the "License").
+# You may not use this file except in compliance with the License.
+#
+# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+# or http://www.opensolaris.org/os/licensing.
+# See the License for the specific language governing permissions
+# and limitations under the License.
+#
+# When distributing Covered Code, include this CDDL HEADER in each
+# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+# If applicable, add the following below this CDDL HEADER, with the
+# fields enclosed by brackets "[]" replaced with your own identifying
+# information: Portions Copyright [yyyy] [name of copyright owner]
+#
+# CDDL HEADER END
+#
+# Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+# Use is subject to license terms.
+#
+
+{
+	fmd_buf_create;
+	fmd_buf_create   ;
+	fmd_buf_destroy   ;
+	fmd_buf_read   ;
+	fmd_buf_size   ;
+	fmd_buf_write   ;
+
+	fmd_case_add_ereport   ;
+	fmd_case_add_serd   ;
+	fmd_case_add_suspect   ;
+	fmd_case_close   ;
+	fmd_case_closed   ;
+	fmd_case_getprincipal   ;
+	fmd_case_getspecific   ;
+	fmd_case_next   ;
+	fmd_case_open   ;
+	fmd_case_prev   ;
+	fmd_case_reset   ;
+	fmd_case_setprincipal   ;
+	fmd_case_setspecific   ;
+	fmd_case_solve   ;
+	fmd_case_solved   ;
+	fmd_case_uuclose   ;
+	fmd_case_uuclosed   ;
+	fmd_case_uuid   ;
+	fmd_case_uulookup   ;
+	fmd_case_uuresolved   ;
+
+	fmd_event_local   ;
+	fmd_event_ena_create   ;
+
+	fmd_hdl_abort   ;
+	fmd_hdl_alloc   ;
+	fmd_hdl_debug   ;
+	fmd_hdl_error   ;
+	fmd_hdl_free   ;
+	fmd_hdl_getspecific   ;
+	fmd_hdl_opendict   ;
+	fmd_hdl_register   ;
+	fmd_hdl_setspecific   ;
+	fmd_hdl_strdup   ;
+	fmd_hdl_strfree   ;
+	fmd_hdl_subscribe   ;
+	fmd_hdl_topo_hold   ;
+	fmd_hdl_topo_rele   ;
+	fmd_hdl_unregister   ;
+	fmd_hdl_unsubscribe   ;
+	fmd_hdl_vabort   ;
+	fmd_hdl_vdebug   ;
+	fmd_hdl_verror   ;
+	fmd_hdl_zalloc   ;
+
+	fmd_nvl_alloc   ;
+	fmd_nvl_class_match   ;
+	fmd_nvl_create_fault   ;
+	fmd_nvl_dup   ;
+	fmd_nvl_fmri_expand   ;
+	fmd_nvl_fmri_present   ;
+	fmd_nvl_fmri_replaced   ;
+	fmd_nvl_fmri_unusable   ;
+	fmd_nvl_fmri_retire   ;
+	fmd_nvl_fmri_unretire   ;
+	fmd_nvl_fmri_service_state   ;
+	fmd_nvl_fmri_has_fault   ;
+	fmd_nvl_fmri_contains   ;
+	fmd_nvl_fmri_translate   ;
+
+	fmd_prop_free_string   ;
+	fmd_prop_get_int32   ;
+	fmd_prop_get_int64   ;
+	fmd_prop_get_string   ;
+
+	fmd_repair_fru   ;
+	fmd_repair_asru   ;
+
+	fmd_serd_create   ;
+	fmd_serd_destroy   ;
+	fmd_serd_exists   ;
+	fmd_serd_fired   ;
+	fmd_serd_reset   ;
+	fmd_serd_record   ;
+	fmd_serd_empty   ;
+
+	fmd_stat_create   ;
+	fmd_stat_destroy   ;
+	fmd_stat_setstr   ;
+
+	fmd_thr_create   ;
+	fmd_thr_destroy   ;
+	fmd_thr_signal   ;
+	fmd_thr_checkpoint   ;
+
+	fmd_timer_install   ;
+	fmd_timer_remove   ;
+
+	fmd_xprt_close   ;
+	fmd_xprt_error   ;
+	fmd_xprt_getspecific   ;
+	fmd_xprt_log   ;
+	fmd_xprt_open   ;
+	fmd_xprt_post   ;
+	fmd_xprt_resume   ;
+	fmd_xprt_setspecific   ;
+	fmd_xprt_suspend   ;
+	fmd_xprt_translate   ;
+	fmd_xprt_add_domain   ;
+};
