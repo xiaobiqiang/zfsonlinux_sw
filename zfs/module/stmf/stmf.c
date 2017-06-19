@@ -1031,6 +1031,13 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			ret = EINVAL;
 			break; /* not allowed */
 		}
+
+		if (strncmp(grpname->name, "all", sizeof(grpname->name)) == 0) {
+			cmn_err(CE_WARN, "%s create group not allowed all", __func__);
+			ret = EINVAL;
+			break; /* not allowed */
+		}
+		
 		mutex_enter(&stmf_state.stmf_lock);
 		ret = stmf_add_group(grpname->name,
 		    grpname->name_size, idtype, &iocd->stmf_error);

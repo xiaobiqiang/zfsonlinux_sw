@@ -8,17 +8,17 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/lib/libspl/include \
 	-I$(top_srcdir)/cmd/common
 
-sbin_PROGRAMS = stmfadm
+sbin_PROGRAMS = lunadm
 
-stmfadm_SOURCES = \
-	stmfadm.c \
+lunadm_SOURCES = \
+	lunadm.c \
 	cmdparse.c 
 
-stmfadm_LDADD = \
+lunadm_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la \
 	$(top_builddir)/lib/libuutil/libuutil.la \
 	$(top_builddir)/lib/libzpool/libzpool.la \
 	$(top_builddir)/lib/libzfs/libzfs.la \
 	$(top_builddir)/lib/libstmf/libstmf.la
 
-stmfadm_LDADD += $(ZLIB)
+lunadm_LDADD += $(ZLIB)

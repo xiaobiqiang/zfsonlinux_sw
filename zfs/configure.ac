@@ -120,6 +120,7 @@ AC_CONFIG_FILES([
 	cmd/stmfadm/Makefile
 	cmd/configd/Makefile
 	cmd/stmfsvc/Makefile
+	cmd/lunadm/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile

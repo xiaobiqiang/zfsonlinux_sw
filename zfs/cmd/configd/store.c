@@ -613,7 +613,10 @@ ipsGetGroupList(int type, stmfGroupList **groupList)
 	pthread_rwlock_rdlock(&s_rwlock);
 	group = list_head(&s_group_list);
 	while (group) {
-		if (group->type == type)
+		/* skip default hg/tg group */
+		if (group->type == type &&
+			strncmp(group->name, STMF_PS_DEFAULT_HG, sizeof(group->name)) != 0 &&
+			strncmp(group->name, STMF_PS_DEFAULT_TG, sizeof(group->name)) != 0)
 			memberCnt++;
 		group = list_next(&s_group_list, group);
 	}

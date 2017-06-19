@@ -283,7 +283,7 @@ dbCreateGroupTable(void)
 		GROUP_ID_COL_NAME,
 		GROUP_NAME_COL_NAME,
 		GROUP_TYPE_COL_NAME);
-
+	
 	ret = dbExecuteSql(db, sql);
 	if (ret != STMF_PS_SUCCESS)
 		return (ret);
