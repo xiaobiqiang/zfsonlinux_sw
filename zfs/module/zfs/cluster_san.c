@@ -1352,7 +1352,6 @@ int cluster_remote_import_pool(uint32_t remote_hostid, char *spa_name)
 
 void cluster_change_pool_owner_handle(cs_rx_data_t *cs_data)
 {
-	/* cluster_san_hostinfo_t *cshi = cs_data->cs_private; */
 	char *buf;
 
 	buf = kmem_zalloc(cs_data->data_len, KM_SLEEP);
@@ -1446,7 +1445,7 @@ void cluster_label_failover_host(cs_rx_data_t *cs_data, uint32_t need_failover)
 	cluster_san_host_sync_msg_ret(cshi, evt_header->msg_id,
 		CLUSTER_SAN_MSGTYPE_CLUSTER, 0);
 	if (need_failover == 0) {
-		/* zfs_mirror_cancel_check_spa_txg(cshi->hostid); */
+		zfs_mirror_cancel_check_spa_txg(cshi->hostid);
 	}
 	csh_rx_data_free(cs_data, B_TRUE);
 }

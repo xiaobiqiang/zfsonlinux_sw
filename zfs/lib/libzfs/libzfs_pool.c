@@ -4311,7 +4311,7 @@ void
 zpool_release_pool(zpool_handle_t *hdl, char *name,
 	zfs_hbx_ioc_t command, uint32_t rid)
 {
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	libzfs_handle_t *libzfs_handle;
 	
 	strcpy(zc.zc_name, name);

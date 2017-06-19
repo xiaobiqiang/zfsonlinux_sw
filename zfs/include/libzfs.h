@@ -415,11 +415,14 @@ typedef struct importargs {
 	int paths;		/* number of paths to search		*/
 	char *poolname;		/* name of a pool to find		*/
 	uint64_t guid;		/* guid of a pool to find		*/
+	uint32_t remote_hostid;	/* remote hostid to search */
 	char *cachefile;	/* cachefile to use for import		*/
 	int can_be_active : 1;	/* can the pool be active?		*/
 	int unique : 1;		/* does 'poolname' already exist?	*/
 	int exists : 1;		/* set on return if pool already exists	*/
 	int no_blkid : 1;	/* don't use libblkid */
+	int cluster_switch : 1;	/* search remote's pools */
+	int cluster_ignore : 1;	/* don't filter remote's pools */
 } importargs_t;
 
 extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
@@ -883,6 +886,8 @@ extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
 	uint32_t hostid, nvlist_t **nv_ptr);
 
 extern int zfs_is_failover_prop(const char * prop);
+
+extern uint64_t get_partner_id(libzfs_handle_t *hdl, uint64_t rid);
 
 #ifdef	__cplusplus
 }
