@@ -43,7 +43,8 @@ clusterd_LDADD = \
 	$(top_builddir)/lib/libuutil/libuutil.la \
 	$(top_builddir)/lib/libzpool/libzpool.la \
 	$(top_builddir)/lib/libzfs/libzfs.la \
-	$(top_builddir)/lib/libzfs_core/libzfs_core.la
+	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
+	$(top_builddir)/lib/libstmf/libstmf.la
 
 clusterd_LDADD += $(ZLIB)
 clusterd_LDFLAGS = -pthread
