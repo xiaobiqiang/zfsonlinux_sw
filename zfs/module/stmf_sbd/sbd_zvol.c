@@ -422,15 +422,13 @@ sbd_zvol_rele_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 		size = arc_buf_size(abuf);
 		/* TODO: */
 		/* dmu_assign_arcbuf(sl->sl_zvol_bonus_hdl, toffset, abuf, tx, sync, write_meta); */
-		dmu_assign_arcbuf(sl->sl_zvol_bonus_hdl, toffset, abuf, tx);
+		dmu_assign_arcbuf(sl->sl_zvol_bonus_hdl, toffset, abuf, tx, sync);
 		toffset += size;
 		resid -= size;
 	}
 	ASSERT(resid == 0);
 	txg = tx->tx_txg;
-	/* TODO: */
-	write_direct = B_TRUE;
-	/* write_direct = dmu_tx_sync_log(tx); */
+	write_direct = dmu_tx_sync_log(tx);
 	dmu_tx_commit(tx);
 	zfs_range_unlock(rl);
 	kmem_free(zvio->zvio_abp,
@@ -518,11 +516,9 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
     boolean_t write_meta;
 
     write_flag = 0;
-	/*
     if (flags & DB_WRITE_META_DATA) {
         write_flag |= WRITE_FLAG_APP_META;
     }
-    */
 
 	if(sl->sl_access_state!=SBD_LU_ACTIVE){
 		cmn_err(CE_WARN,   "%s sl_access_state=%x is not allowed",__func__, sl->sl_access_state);
@@ -557,11 +553,9 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 	dmu_get_lock_para(sl->sl_zvol_bonus_hdl, offset, len, &lock_off, &lock_len);
 	rl = zfs_range_lock(sl->sl_zvol_rl_hdl, lock_off, lock_len, RL_WRITER);
 	sync = !zvol_get_volume_wce(sl->sl_zvol_minor_hdl);
-	/*
     if (sync) {
 		write_flag |= WRITE_FLAG_APP_SYNC;
     }
-    */
 
 	tx = dmu_tx_create(sl->sl_zvol_objset_hdl);
 	dmu_tx_hold_write(tx, ZVOL_OBJ, offset, (int)uio->uio_resid);
@@ -570,13 +564,12 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 		dmu_tx_abort(tx);
 	} else {
 		error = dmu_write_uio(sl->sl_zvol_objset_hdl, ZVOL_OBJ,
-		    uio, len, tx);
-		write_direct = B_TRUE;
+		    uio, len, tx, write_flag);
 		/*
 		error = dmu_write_uio(sl->sl_zvol_objset_hdl, ZVOL_OBJ,
 		    uio, len, tx, write_flag, initiator_wwn);
-		write_direct = dmu_tx_sync_log(tx);
 		*/
+		write_direct = dmu_tx_sync_log(tx);
 		dmu_tx_commit(tx);
 	}
 	zfs_range_unlock(rl);
