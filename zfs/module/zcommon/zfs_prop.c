@@ -196,9 +196,14 @@ zfs_prop_init(void)
 	};
 
 	static zprop_index_t sync_table[] = {
+		{ "mirror",	ZFS_SYNC_MIRROR },
+		{ "disk",	ZFS_SYNC_DISK},
+		{ "standard",	ZFS_SYNC_STANDARD },		
+		/*
 		{ "standard",	ZFS_SYNC_STANDARD },
 		{ "always",	ZFS_SYNC_ALWAYS },
 		{ "disabled",	ZFS_SYNC_DISABLED },
+		*/
 		{ NULL }
 	};
 
@@ -224,7 +229,7 @@ zfs_prop_init(void)
 	    redundant_metadata_table);
 	zprop_register_index(ZFS_PROP_SYNC, "sync", ZFS_SYNC_STANDARD,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
-	    "standard | always | disabled", "SYNC",
+        "standard | mirror | disk", "SYNC",
 	    sync_table);
 	zprop_register_index(ZFS_PROP_CHECKSUM, "checksum",
 	    ZIO_CHECKSUM_DEFAULT, PROP_INHERIT, ZFS_TYPE_FILESYSTEM |

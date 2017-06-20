@@ -30,6 +30,8 @@
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 
+struct dbuf_segs_data;
+
 #define	ZVOL_OBJ		1ULL
 #define	ZVOL_ZAP_OBJ		2ULL
 
@@ -63,6 +65,9 @@ extern int zvol_flush_write_cache(const char *name, void *arg);
 extern int zvol_get_wce(const char *name, int *wce);
 extern int zvol_set_wce(const char *name, int wce);
 extern int zvol_dkio_free(const char *name, void *arg);
+
+extern int zvol_obj_rewrite(objset_t *os, uint64_t object, uint64_t offset,
+    uint64_t len, struct dbuf_segs_data *seg_node);
 
 extern int zvol_init(void);
 extern void zvol_fini(void);

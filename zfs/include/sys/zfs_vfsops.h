@@ -214,6 +214,9 @@ extern int zfs_remount(struct super_block *sb, int *flags, zfs_mntopts_t *zmo);
 extern int zfs_root(zfs_sb_t *zsb, struct inode **ipp);
 extern int zfs_statvfs(struct dentry *dentry, struct kstatfs *statp);
 extern int zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp);
+extern int zfs_replay_rawdata(objset_t *os, char *data, uint64_t object,
+    uint64_t offset, uint64_t length);
+
 
 #ifdef	__cplusplus
 }

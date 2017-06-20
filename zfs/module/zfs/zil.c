@@ -37,9 +37,11 @@
 #include <sys/dsl_dataset.h>
 #include <sys/vdev_impl.h>
 #include <sys/dmu_tx.h>
+#include <sys/dmu_impl.h>
 #include <sys/dsl_pool.h>
 #include <sys/metaslab.h>
 #include <sys/trace_zil.h>
+#include <sys/zfs_mirror.h>
 
 /*
  * The zfs intent log (ZIL) saves transaction records of system calls
@@ -1630,7 +1632,7 @@ zil_commit(zilog_t *zilog, uint64_t foid)
 {
 	uint64_t mybatch;
 
-	if (zilog->zl_sync == ZFS_SYNC_DISABLED)
+	if (zilog->zl_sync == ZFS_SYNC_STANDARD)
 		return;
 
 	ZIL_STAT_BUMP(zil_commit_count);
@@ -2158,6 +2160,12 @@ zil_replay_log_record(zilog_t *zilog, lr_t *lr, void *zra, uint64_t claim_txg)
 	 * we did so. At the end of each replay function the sequence number
 	 * is updated if we are in replay mode.
 	 */
+#ifdef _KERNEL
+    if (txtype == TX_WRITE_CTRL) {
+        error = zil_replay_write_ctrl(zilog->zl_os, (lr_write_ctrl_t *)zr->zr_lr, zr->zr_byteswap);
+    }
+    else
+#endif
 	error = zr->zr_replay[txtype](zr->zr_arg, zr->zr_lr, zr->zr_byteswap);
 	if (error != 0) {
 		/*
@@ -2168,6 +2176,12 @@ zil_replay_log_record(zilog_t *zilog, lr_t *lr, void *zra, uint64_t claim_txg)
 		 * specify B_FALSE for byteswap now, so we don't do it twice.
 		 */
 		txg_wait_synced(spa_get_dsl(zilog->zl_spa), 0);
+#ifdef _KERNEL
+    if (txtype == TX_WRITE_CTRL) {
+        error = zil_replay_write_ctrl(zilog->zl_os, (lr_write_ctrl_t *)zr->zr_lr, zr->zr_byteswap);
+    }
+    else
+#endif
 		error = zr->zr_replay[txtype](zr->zr_arg, zr->zr_lr, B_FALSE);
 		if (error != 0)
 			return (zil_replay_error(zilog, lr, error));
@@ -2221,10 +2235,40 @@ zil_replay(objset_t *os, void *arg, zil_replay_func_t replay_func[TX_MAX_TYPE])
 	zilog->zl_replay = B_FALSE;
 }
 
+void
+zil_write_ctrl_data(objset_t *os, uint64_t dn_object, dmu_tx_t *tx, uint64_t txtype,
+    dmu_ctrl_data_t *ctrl_datap )
+{
+    void *os_private;
+    itx_t *itx;
+    zilog_t *zilog;
+    lr_write_ctrl_t *lr;
+
+    mutex_enter(&os->os_user_ptr_lock);
+    os_private = dmu_objset_get_user(os);
+    mutex_exit(&os->os_user_ptr_lock);
+
+    zilog = dmu_objset_zil(os);
+    if (zil_replaying(zilog, tx))
+        return;
+
+    if (dmu_tx_get_txg(tx) == 0) {
+        zfs_panic_recover("error txg in zil");
+    }
+
+    itx = zil_itx_create(txtype, sizeof (*lr) + sizeof(dmu_ctrl_data_t));
+    lr = (lr_write_ctrl_t *)&itx->itx_lr;
+    lr ->lr_foid = dn_object;
+    lr->addr_num = 1;
+    bcopy(ctrl_datap, (char *)(lr + 1), sizeof(dmu_ctrl_data_t));
+    itx->itx_private = os_private;
+    zil_itx_assign(zilog, itx, tx);
+}
+
 boolean_t
 zil_replaying(zilog_t *zilog, dmu_tx_t *tx)
 {
-	if (zilog->zl_sync == ZFS_SYNC_DISABLED)
+	if (zilog->zl_sync == ZFS_SYNC_STANDARD)
 		return (B_TRUE);
 
 	if (zilog->zl_replay) {
@@ -2248,6 +2292,145 @@ zil_vdev_offline(const char *osname, void *arg)
 		return (SET_ERROR(EEXIST));
 	return (0);
 }
+
+#ifdef _KERNEL
+
+void
+zil_insert_data_record_list_by_sort(objset_t *os, zil_data_record_t *data_record)
+{
+    list_t *data_list;
+    zil_data_record_t *cur;
+
+    data_list = &os->os_zil_list;
+
+    cur = list_tail(data_list);
+    while (cur != NULL) {
+        if (data_record->txg > cur->txg) {
+            list_insert_after(data_list, cur, data_record);
+            return;
+        }
+        if (data_record->txg == cur->txg) {
+            if (data_record->gentime >= cur->gentime) {
+                list_insert_after(data_list, cur, data_record);
+                return;
+            }
+        }
+        cur = list_prev(data_list, cur);
+    }
+    if (cur == NULL) {
+        list_insert_head(data_list, data_record);
+    }
+}
+
+int
+zil_replay_write_ctrl(objset_t *os, lr_write_ctrl_t *lr, boolean_t byteswap)
+{
+   int i;
+   blkptr_t *bp;
+   uint64_t data_num = 0;
+   char *ctrl_data = (char *)(lr + 1);
+   dmu_ctrl_data_t *addr_data;
+
+   if (byteswap)
+       byteswap_uint64_array(lr, sizeof (*lr));
+
+   data_num = lr ->addr_num;
+   addr_data = (dmu_ctrl_data_t *)ctrl_data;
+
+   if (BP_IS_HOLE(& (addr_data->new_blk_addr)))
+       return (0);
+   for (i = 0; i < data_num; i ++) {
+       uint64_t data_offset;
+       zil_data_record_t *data_record;
+       zil_log_record_t *log_data;
+       data_record = kmem_zalloc(sizeof(zil_data_record_t), KM_SLEEP);
+       log_data = kmem_zalloc(sizeof(zil_log_record_t), KM_SLEEP);
+       data_record->data = log_data;
+       data_record->data_type = R_DISK_DATA;
+       data_record->txg = lr->lr_common.lrc_txg;
+       data_record->gentime = 0;
+       bp = &addr_data->new_blk_addr;
+       bcopy((char *)bp, (char *) (&log_data->data_addr), sizeof(blkptr_t));
+       data_offset = addr_data->offset;
+       log_data->offset = data_offset;
+       log_data->len = addr_data->len;
+       log_data->blk_id = addr_data->blk_id;
+       log_data->object_id = lr->lr_foid;
+       zil_insert_data_record_list_by_sort(os, data_record);
+       addr_data += 1;
+   }
+
+   return (0);
+}
+
+static void
+zil_replay_disk_data(objset_t *os,
+    zil_log_record_t *log_record) {
+    int error;
+    uint64_t offset;
+    uint64_t len;
+    uint64_t blk_id;
+    uint64_t object_id;
+    boolean_t sync_now;
+    void *data;
+    dmu_tx_t *tx;
+    uint64_t txg;
+    blkptr_t *bp;
+    arc_buf_t *abuf = NULL;
+    zbookmark_phys_t zb;
+
+    uint32_t aflags = ARC_FLAG_WAIT;
+    enum zio_flag zio_flags = ZIO_FLAG_CANFAIL;
+
+    sync_now = B_FALSE;
+    data = NULL;
+
+    offset = log_record->offset;
+    len = log_record->len;
+    bp = &log_record->data_addr;
+    blk_id = log_record->blk_id;
+    object_id = log_record->object_id;
+
+    SET_BOOKMARK(&zb, os->os_dsl_dataset->ds_object, object_id, 0, blk_id);
+    error = arc_read(NULL, os->os_spa, bp, arc_getbuf_func, &abuf,
+       ZIO_PRIORITY_SYNC_READ, zio_flags, &aflags, &zb);
+
+    tx = dmu_tx_create(os);
+    VERIFY(dmu_tx_assign(tx, TXG_WAIT) == 0);
+    dsl_dataset_dirty(dmu_objset_ds(os), tx);
+    txg = dmu_tx_get_txg(tx);
+    zio_free(os->os_spa, txg, bp);
+    dmu_tx_commit(tx);
+
+    if (error != 0) {
+        char *buf = kmem_zalloc(1024, KM_SLEEP);
+        snprintf_blkptr(buf, 1024, bp);
+        kmem_free(buf, 1024);
+    } else {
+        os->os_replay_data(os, abuf->b_data, object_id, offset, len);
+        VERIFY(arc_buf_remove_ref(abuf, &abuf) == 1);
+    }
+
+    kmem_free(log_record, sizeof(zil_log_record_t));
+}
+
+void
+zil_replay_all_data(objset_t *os)
+{
+    zil_data_record_t *data_record;
+    while (data_record = list_head(&os->os_zil_list)) {
+        list_remove(&os->os_zil_list, data_record);
+        if (data_record->data_type == R_DISK_DATA) {
+            zil_replay_disk_data(os, data_record->data);
+        } else if (data_record->data_type == R_CACHE_DATA) {
+            zfs_replay_cache_data(os, (zfs_mirror_cache_data_t *)data_record->data);
+        }
+
+        kmem_free(data_record, sizeof(zil_data_record_t));
+    }
+}
+
+#endif
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(zil_alloc);

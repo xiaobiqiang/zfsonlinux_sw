@@ -30,7 +30,7 @@
 
 #define	CLUSTER_RPC_RDMA_FRAGMENT_LEN			(1000 * 1024)
 
-#define	CTS_REPLY_HASH_SIZE						(64 * 1024)
+#define	CTS_REPLY_HASH_SIZE				(1024)
 
 #define	CLUSTER_TARGET_SESS_FLAG_MIRROR			0x01
 #define	CLUSTER_TARGET_SESS_FLAG_SAN			0x02
@@ -38,6 +38,7 @@
 
 #define	CLUSTER_TARGET_TH_STATE_ACTIVE			0x01
 #define	CLUSTER_TARGET_TH_STATE_STOP			0x02
+#define	CLUSTER_TARGET_TH_STATE_SUSPEND			0x04
 
 /* msg_type */
 #define	CLUSTER_SAN_MSGTYPE_IMPTSAS				0x01
@@ -109,6 +110,7 @@ typedef struct cluster_target_tran_data {
 } cluster_target_tran_data_t;
 
 typedef struct cs_rx_data {
+	list_node_t		node;
 	uint64_t		data_index;
 	uint64_t		data_len;
 	uint8_t			msg_type;
@@ -196,6 +198,11 @@ typedef struct cluster_san_hostinfo {
 	uint32_t host_rx_worker_n;
 	taskq_t *host_rx_worker_tq;
 	cts_rx_worker_t *host_rx_worker;
+
+	/* FIXME: add by wml, to replace them in workers */
+	kmutex_t 	host_fragment_lock;
+	avl_tree_t	host_fragment_avl;
+	list_t		host_fragment_list; /* time sort */
 
 	/* async send */
 	kmutex_t host_asyn_tx_mtx;
@@ -472,7 +479,7 @@ nvlist_t *cluster_san_get_targetinfo(char *name, uint32_t flags);
 nvlist_t *cluster_san_get_state(void);
 int cluster_san_set_prop(const char *prop, const char *value);
 nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str, int timeout, int remote_hostid);
-uint64_t cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
+void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
 uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid);
 int cluster_target_session_hold(cluster_target_session_t *cts, void *tag);
@@ -489,8 +496,6 @@ int cts_rx_hook_remove(uint32_t msg_type);
 int csh_rx_hook_add(uint32_t msg_type, cs_rx_cb_t rx_cb, void *arg);
 int csh_rx_hook_remove(uint32_t msg_type);
 void csh_rx_data_free(cs_rx_data_t *cs_data, boolean_t csh_hold);
-void csh_rx_data_free_ext(cs_rx_data_t *cs_data);
-
 int cluster_san_host_send(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, int pri, boolean_t need_reply, int retry_times);
@@ -517,8 +522,7 @@ void cts_reply_notify(cluster_san_hostinfo_t *cshi, uint64_t index);
 void cts_link_down_to_up_handle(void *arg);
 void cts_link_up_to_down_handle(void *arg);
 
-void
-cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para);
+void cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para);
 void cs_join_msg_handle(void *arg);
 
 int cluster_change_failover_host(cluster_san_hostinfo_t *cshi);
@@ -534,6 +538,7 @@ void cluster_send_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 int cluster_get_host_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 
 void zfs_mirror_cancel_check_spa_txg(uint32_t hostid);
+void csh_rx_data_free_ext(cs_rx_data_t *cs_data);
 
 #endif/* #ifndef	_SYS_CLUSTER_SAN_H */
 

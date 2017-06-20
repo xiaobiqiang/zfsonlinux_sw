@@ -1,4 +1,5 @@
 subdir-m += avl
+subdir-m += cn_hbx
 subdir-m += nvpair
 subdir-m += unicode
 subdir-m += zcommon
@@ -9,6 +10,7 @@ subdir-m += stmf
 subdir-m += qlt
 subdir-m += stmf_sbd
 subdir-m += pppt
+subdir-m += fmd_transport
 
 INSTALL_MOD_DIR ?= extra
 

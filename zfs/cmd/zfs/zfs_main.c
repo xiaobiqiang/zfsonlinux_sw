@@ -54,6 +54,8 @@
 #include <sys/fs/zfs.h>
 #include <sys/types.h>
 #include <time.h>
+#include <mqueue.h>
+#include <arpa/inet.h>
 
 #include <libstmf.h>
 #include <libzfs.h>
@@ -61,6 +63,7 @@
 #include <zfs_prop.h>
 #include <zfs_deleg.h>
 #include <libuutil.h>
+#include <libcluster.h>
 #ifdef HAVE_IDMAP
 #include <aclutils.h>
 #include <directory.h>
@@ -105,7 +108,10 @@ static int zfs_do_holds(int argc, char **argv);
 static int zfs_do_release(int argc, char **argv);
 static int zfs_do_diff(int argc, char **argv);
 static int zfs_do_bookmark(int argc, char **argv);
+static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
+static int zfs_do_speed_test(int arc, char **argv);
+
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -153,7 +159,9 @@ typedef enum {
 	HELP_RELEASE,
 	HELP_DIFF,
 	HELP_BOOKMARK,
-	HELP_CLUSTERSAN
+    HELP_MIRROR,
+	HELP_CLUSTERSAN,
+	HELP_SPEEDTEST
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -207,7 +215,9 @@ static zfs_command_t command_table[] = {
 	{ "holds",	zfs_do_holds,		HELP_HOLDS		},
 	{ "release",	zfs_do_release,		HELP_RELEASE		},
 	{ "diff",	zfs_do_diff,		HELP_DIFF		},
+    { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
+	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -269,7 +279,7 @@ get_usage(zfs_help_t idx)
 		    "\tsend [-Le] [-i snapshot|bookmark] "
 		    "<filesystem|volume|snapshot>\n"));
 	case HELP_SET:
-		return (gettext("\tset <property=value> "
+		return (gettext("\tset <property=value | failover:eth<:id>=value> "
 		    "<filesystem|volume|snapshot> ...\n"));
 	case HELP_SHARE:
 		return (gettext("\tshare <-a | filesystem>\n"));
@@ -323,6 +333,8 @@ get_usage(zfs_help_t idx)
 		    "[snapshot|filesystem]\n"));
 	case HELP_BOOKMARK:
 		return (gettext("\tbookmark <snapshot> <bookmark>\n"));
+    case HELP_MIRROR:
+        return (gettext("\tmirror [-ved] <port-name> [-m] <mac-addr>\n"));
 	case HELP_CLUSTERSAN:
 		return (gettext(
 			"\tclustersan enable [-n clustername] [-l linkname] [-p]\n"
@@ -343,7 +355,9 @@ get_usage(zfs_help_t idx)
 			"\tclustersan list-target [-v]\n"
 			"\tclustersan hostname <hostname>\n"
 			"\tclustersan hostid <hostid>\n"));
-				
+	case HELP_SPEEDTEST:
+		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
+			
 	}
 
 	abort();
@@ -1828,6 +1842,31 @@ zfs_do_get(int argc, char **argv)
 	return (ret);
 }
 
+static int 
+send_cluster_message(const char *buf, int buflen, int type)
+{
+	mqd_t mqd;
+	cluster_mq_message_t msg;
+
+	mqd = mq_open(CLUSTER_MQ_NAME, O_WRONLY);
+	if (mqd == (mqd_t) -1) {
+		fprintf(stderr, "mq_open error: %d\n", errno);
+		return (-1);
+	}
+
+	msg.msgtype= type;
+	msg.msglen = buflen;
+	memcpy(msg.msg, buf, buflen);
+	if (mq_send(mqd, (const char *)&msg, 
+			sizeof(int)*2 + buflen, 0) == -1) {
+		fprintf(stderr, "mq_send error: %d\n", errno);
+		mq_close(mqd);
+		return (-1);
+	}
+	mq_close(mqd);
+	return (0);
+}
+
 /*
  * inherit [-rS] <property> <fs|vol> ...
  *
@@ -1863,12 +1902,52 @@ inherit_recurse_cb(zfs_handle_t *zhp, void *data)
 	return (zfs_prop_inherit(zhp, cb->cb_propname, cb->cb_received) != 0);
 }
 
+static nvlist_t *
+zfs_get_usrpropval(zfs_handle_t *zhp, const char *usrprop)
+{
+	nvlist_t *user_props = zfs_get_user_props(zhp);
+	nvpair_t *elem = NULL;
+	nvlist_t *propval;
+
+	while ((elem = nvlist_next_nvpair(user_props, elem)) != NULL) {
+		if (strncmp(nvpair_name(elem), usrprop, ZFS_MAXNAMELEN) != 0)
+			continue;
+		if (nvlist_lookup_nvlist(user_props, nvpair_name(elem), &propval) != 0)
+			return (NULL);
+		return propval;
+	}	
+	return (NULL);
+}
+
 static int
 inherit_cb(zfs_handle_t *zhp, void *data)
 {
 	inherit_cbdata_t *cb = data;
+	int remove_flag = 0;
+	nvlist_t *propval = NULL;
+	char *strval, *sourceval;
+	char buf[ZFS_MAXNAMELEN+ZFS_MAXPROPLEN];
+	int err = 0;
 
-	return (zfs_prop_inherit(zhp, cb->cb_propname, cb->cb_received) != 0);
+	if (zfs_is_failover_prop(cb->cb_propname)) {
+		if ((propval = zfs_get_usrpropval(zhp, cb->cb_propname)) != NULL) {
+			verify(nvlist_lookup_string(propval, ZPROP_VALUE, &strval) == 0);
+			verify(nvlist_lookup_string(propval, ZPROP_SOURCE, &sourceval) == 0);
+			if (strcmp(sourceval, zfs_get_name(zhp)) == 0) {
+				snprintf(buf, sizeof(buf), "%s,%s,%s", zfs_get_name(zhp),
+					cb->cb_propname, strval);
+				remove_flag = 1;
+			}
+		}
+	}
+
+	if ((err = zfs_prop_inherit(zhp, cb->cb_propname, cb->cb_received)) != 0)
+		return (err);
+
+	if (remove_flag)
+		send_cluster_message(buf, strlen(buf), cluster_msgtype_remove_failover);
+
+	return (0);
 }
 
 static int
@@ -3528,6 +3607,23 @@ static int
 set_callback(zfs_handle_t *zhp, void *data)
 {
 	set_cbdata_t *cbp = data;
+	int set_failover_flag = 0;
+	nvlist_t *propval = NULL;
+	char *strval, *sourceval; 
+	char buf[ZFS_MAXNAMELEN+ZFS_MAXPROPLEN];
+
+	if (zfs_is_failover_prop(cbp->cb_propname)) {
+		set_failover_flag = 1;	// this is failover prop
+		if ((propval = zfs_get_usrpropval(zhp, cbp->cb_propname)) != NULL) {
+			verify(nvlist_lookup_string(propval, ZPROP_VALUE, &strval) == 0);
+			verify(nvlist_lookup_string(propval, ZPROP_SOURCE, &sourceval) == 0);
+			if (strcmp(sourceval, zfs_get_name(zhp)) == 0) {
+				snprintf(buf, sizeof(buf), "%s,%s,%s", zfs_get_name(zhp),
+					cbp->cb_propname, strval);
+				set_failover_flag = 2;	// the prop exist and source is local
+			}
+		}
+	}
 
 	if (zfs_prop_set(zhp, cbp->cb_propname, cbp->cb_value) != 0) {
 		switch (libzfs_errno(g_zfs)) {
@@ -3550,6 +3646,66 @@ set_callback(zfs_handle_t *zhp, void *data)
 		}
 	}
 	
+	if (set_failover_flag) {
+		if (set_failover_flag == 2) {			
+			send_cluster_message(buf, strlen(buf), cluster_msgtype_remove_failover);
+		}
+		if ((propval = zfs_get_usrpropval(zhp, cbp->cb_propname)) != NULL) {
+			verify(nvlist_lookup_string(propval, ZPROP_SOURCE, &sourceval) == 0);
+			if (strcmp(sourceval, zfs_get_name(zhp)) == 0) {
+				snprintf(buf, sizeof(buf), "%s,%s,%s", zfs_get_name(zhp),
+					cbp->cb_propname, cbp->cb_value);
+				send_cluster_message(buf, strlen(buf), cluster_msgtype_set_failover);
+			}
+		}
+	}
+
+	return (0);
+}
+
+static int
+check_ip_addr(const char *addrstr)
+{
+	struct in_addr addr;
+	struct in6_addr addr6;
+	
+	if (inet_aton(addrstr, &addr)) {
+		return (AF_INET);
+	}
+	if (inet_pton(AF_INET6, addrstr, (void *)&addr6) == 1) {
+		return (AF_INET6);
+	}
+	return (-1);
+}
+
+/*
+ * When @prop is failover property, check @value validity
+ * return -1 if @value is invalid, otherwise return 0
+ */
+static int
+check_failover_set(const char *prop, const char *value)
+{
+	char buf[ZFS_MAXPROPLEN], *token, *propval;
+	long val;
+
+	/* failover prop format: ipaddr[/prefixlen]*/
+	if (zfs_is_failover_prop(prop)) {
+		strlcpy(buf, value, ZFS_MAXPROPLEN);
+		token = strtok(buf, ",");
+		if (!token)
+			return (-1);
+		propval = token;
+		token = strchr(propval, '/');
+		if (token) {
+			*token++ = '\0';
+			val = strtol(token, NULL, 10);
+			if (val < 0 && val > 32)
+				return (-1);
+		}
+		if (check_ip_addr(propval) == -1)
+			return (-1);
+	}
+
 	return (0);
 }
 
@@ -3592,6 +3748,12 @@ zfs_do_set(int argc, char **argv)
 	if (*cb.cb_propname == '\0') {
 		(void) fprintf(stderr,
 		    gettext("missing property in property=value argument\n"));
+		usage(B_FALSE);
+	}
+
+	if (zfs_is_failover_prop(cb.cb_propname) &&
+		(check_failover_set(cb.cb_propname, cb.cb_value) == -1)) {
+		(void) fprintf(stderr, gettext("invalid failover property\n"));
 		usage(B_FALSE);
 	}
 
@@ -6703,6 +6865,89 @@ zfs_do_bookmark(int argc, char **argv)
 usage:
 	usage(B_FALSE);
 	return (-1);
+}
+
+static int
+zfs_do_mirror(int argc, char **argv)
+{
+    int flags = 0;
+    char *mirror_to = NULL;
+    int c;
+
+    while ((c = getopt(argc, argv, "ve:d")) != -1) {
+        switch (c) {
+        case 'v':
+            flags  = SHOW_MIRROR;
+            break;
+        case 'e':
+            flags = ENABLE_MIRROR;
+            mirror_to = optarg;
+            break;
+        case 'd':
+            flags = DISABLE_MIRROR;
+            break;
+        default:
+            (void) fprintf(stderr,
+                gettext("invalid option '%c'\n"), optopt);
+            usage(B_FALSE);
+        }
+    }
+
+    argc -= optind;
+    argv += optind;
+
+    zfs_start_mirror(g_zfs, mirror_to, flags);
+
+    return (0);
+}
+
+static int
+zfs_do_speed_test(int argc, char **argv)
+{
+	char *end;
+	long int bs = 0, cnt = 0;
+	uint8_t need_reply = 0;
+	int c;
+	int ret;
+
+	while ((c = getopt(argc, argv, "s:n:r")) != -1) {
+		switch (c) {
+		case 's':
+			end = NULL;
+			bs = strtol(optarg, &end, 10);
+			if ((bs == LONG_MAX) || (bs == LONG_MIN)) {
+				fprintf(stderr, "invalid option %s\n", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 'n':
+			end = NULL;
+			cnt = strtol(optarg, &end, 10);
+			if ((cnt == LONG_MAX) || (cnt == LONG_MIN)) {
+				fprintf(stderr, "invalid option %s\n", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 'r':
+			need_reply = 1;
+			break;
+		default:
+			fprintf(stderr, "invalid option\n");
+			usage(B_FALSE);
+			return -EINVAL;
+		}
+	}
+
+	if ((bs == 0) || (cnt == 0)) {
+		usage(B_FALSE);
+		return -EINVAL;
+	}
+
+	ret = zfs_test_mirror(g_zfs, bs, cnt, need_reply);
+	if (ret) {
+		fprintf(stderr, "mirro test failed: %d\n", ret);
+	}
+	return ret;
 }
 
 #define	LVL1_FORMAT					"    %s"

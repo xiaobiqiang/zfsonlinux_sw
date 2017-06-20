@@ -38,6 +38,8 @@
 #include <sys/zio.h>
 #include <sys/zil.h>
 #include <sys/sa.h>
+#include <sys/zfs_rlock.h>
+#include <sys/dbuf.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -48,6 +50,8 @@ extern krwlock_t os_lock;
 struct dsl_pool;
 struct dsl_dataset;
 struct dmu_tx;
+struct dbuf_mirror_io;
+struct dmu_buf_impl;
 
 #define	OBJSET_PHYS_SIZE 2048
 #define	OBJSET_OLD_PHYS_SIZE 1024
@@ -56,6 +60,15 @@ struct dmu_tx;
 	(arc_buf_size(buf) > OBJSET_OLD_PHYS_SIZE)
 
 #define	OBJSET_FLAG_USERACCOUNTING_COMPLETE	(1ULL<<0)
+
+#define	OS_WORKER_RUNNING	0x1
+#define	OS_WORKER_TERMINATE	0x2
+
+#define	OS_CLEAR_SEGMENTS_GAP	4
+#define	OS_WORKER_CACHE_LIST_MAX_LEN	((longlong_t)1 << 30)
+#define	OS_WORKER_CACHE_MAX_LEN	((longlong_t)1 << 32)
+#define	OS_WORKER_CACHE_LIST_INSERT 0x1
+#define	OS_WORKER_CACHE_LIST_NOINSERT 0x1
 
 typedef struct objset_phys {
 	dnode_phys_t os_meta_dnode;
@@ -67,6 +80,44 @@ typedef struct objset_phys {
 	dnode_phys_t os_userused_dnode;
 	dnode_phys_t os_groupused_dnode;
 } objset_phys_t;
+
+typedef struct os_mirror_blkptr_node {
+    uint64_t spa_id;
+    uint64_t os_id;
+    uint64_t object_id;
+    uint64_t blk_id;
+    uint64_t offset;
+    uint64_t mirror_io_index;
+}os_mirror_blkptr_node_t;
+
+typedef struct os_mirror_blkptr_list {
+    uint64_t blkptr_num;
+    os_mirror_blkptr_node_t *blkptr_array;
+}os_mirror_blkptr_list_t;
+
+typedef struct os_seg_worker {
+    list_t  worker_list;
+    kmutex_t worker_mtx;
+    kcondvar_t worker_cv;
+    uint64_t worker_data;
+    boolean_t clean_all;
+    boolean_t seg_clean_all;
+    uint64_t clean_size;
+    objset_t *worker_os;
+    taskq_t *worker_taskq;
+    task_func_t *worker_clean;
+    void *worker_executor;
+}os_seg_worker_t;
+
+#ifdef _KERNEL
+typedef int os_replay_data_func(struct objset  *os, char *data,
+    uint64_t object, uint64_t offset, uint64_t len);
+
+typedef rl_t *os_seg_data_lock_func(struct objset *os,
+    uint64_t object_id, uint64_t offset, uint64_t len, uint8_t type);
+
+typedef void os_seg_data_unlock_func(rl_t *rl);
+#endif
 
 struct objset {
 	/* Immutable: */
@@ -99,6 +150,8 @@ struct objset {
 	zfs_sync_type_t os_sync;
 	zfs_redundant_metadata_type_t os_redundant_metadata;
 	int os_recordsize;
+    uint8_t os_woptimize;
+    uint8_t os_appmeta;
 
 	/* no lock needed: */
 	struct dmu_tx *os_synctx; /* XXX sketchy */
@@ -122,6 +175,22 @@ struct objset {
 	kmutex_t os_user_ptr_lock;
 	void *os_user_ptr;
 	sa_os_t *os_sa;
+
+#ifdef _KERNEL
+    zil_replay_func_t *os_replay;
+    os_replay_data_func *os_replay_data;
+    list_t os_zil_list;
+    boolean_t os_breplaying;
+    os_cache_t *os_cache_all;
+    os_seg_worker_t *os_seg_record_worker;
+    os_seg_worker_t *os_seg_data_worker;
+    os_seg_data_lock_func *os_seg_data_lock;
+    os_seg_data_unlock_func *os_seg_data_unlock;
+
+    kmutex_t os_mirror_io_mutex[TXG_SIZE];
+    uint64_t os_mirror_io_num[TXG_SIZE];
+    list_t os_mirror_io_list[TXG_SIZE];
+#endif
 };
 
 #define	DMU_META_OBJSET		0
@@ -175,6 +244,29 @@ boolean_t dmu_objset_userspace_present(objset_t *os);
 int dmu_fsname(const char *snapname, char *buf);
 
 void dmu_objset_evict_done(objset_t *os);
+
+#ifdef _KERNEL
+void dmu_objset_replay_all_cache(objset_t *os);
+void dmu_objset_insert_data(objset_t *os, dmu_buf_impl_t *db,
+    struct dbuf_segs_data *seg_data);
+void dmu_objset_insert_record(objset_t *os, dmu_buf_impl_t *db);
+int dmu_objset_remove_record(objset_t *os, dmu_buf_impl_t *db);
+void dmu_objset_wait_clean_all_cache(objset_t *os);
+uint64_t dmu_objset_cache_clean_size(objset_t *os, longlong_t size,
+    boolean_t clean_all);
+uint64_t dmu_objset_get_cache_size(objset_t *os);
+uint64_t dmu_objset_woptimizeprop(objset_t *os);
+uint64_t dmu_objset_appmetaprop(objset_t *os);
+rl_t *dmu_objset_lock_seg_data(objset_t *os, uint64_t object,
+    uint64_t offset, uint64_t len, rl_type_t type);
+void dmu_objset_unlock_seg_data(objset_t *os, rl_t *rl);
+#endif
+
+boolean_t dmu_objset_sync_check(objset_t *os);
+void dmu_objset_insert_mirror_io(objset_t *os,
+    struct dbuf_mirror_io *mirror_io, uint64_t txg);
+os_mirror_blkptr_list_t *dmu_objset_clear_mirror_io(objset_t *os, uint64_t txg);
+void dmu_objset_remove_seg_cache(objset_t *os, dmu_buf_impl_t *db);
 
 void dmu_objset_init(void);
 void dmu_objset_fini(void);

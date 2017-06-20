@@ -470,6 +470,12 @@ extern zio_t *zio_read(zio_t *pio, spa_t *spa, const blkptr_t *bp, void *data,
     uint64_t size, zio_done_func_t *done, void *private,
     zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb);
 
+extern zio_t *
+zio_raw_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
+    void *data, uint64_t size, const zio_prop_t *zp,
+    zio_done_func_t *ready, zio_done_func_t *done, zio_done_func_t *reload,  void *private,
+    zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb);
+
 extern zio_t *zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
     void *data, uint64_t size, const zio_prop_t *zp,
     zio_done_func_t *ready, zio_done_func_t *physdone, zio_done_func_t *done,
@@ -504,6 +510,12 @@ extern zio_t *zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset,
 
 extern zio_t *zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg,
     const blkptr_t *bp, enum zio_flag flags);
+
+zio_t *
+zio_ctrl(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
+ 	void *data, uint64_t size, const zio_prop_t *zp,
+    zio_done_func_t *ready, zio_done_func_t *done, void *private,
+    zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb);
 
 extern int zio_alloc_zil(spa_t *spa, uint64_t txg, blkptr_t *new_bp,
     uint64_t size, boolean_t use_slog);

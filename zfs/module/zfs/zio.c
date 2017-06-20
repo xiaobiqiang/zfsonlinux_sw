@@ -620,6 +620,23 @@ zio_null(zio_t *pio, spa_t *spa, vdev_t *vd, zio_done_func_t *done,
 }
 
 zio_t *
+zio_ctrl(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
+	void *data, uint64_t size, const zio_prop_t *zp,
+    zio_done_func_t *ready, zio_done_func_t *done, void *private,
+    zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb)
+{
+	zio_t *zio;
+
+	zio = zio_create(pio, spa, txg, bp, data, size, done, private,
+	    ZIO_TYPE_CTRL, priority, flags, NULL, 0, zb,
+	    ZIO_STAGE_OPEN, ZIO_CTRL_PIPELINE);
+	zio->io_ready = ready;
+	zio->io_prop = *zp;
+
+	return (zio);
+}
+
+zio_t *
 zio_root(spa_t *spa, zio_done_func_t *done, void *private, enum zio_flag flags)
 {
 	return (zio_null(NULL, spa, NULL, done, private, flags));
@@ -765,6 +782,40 @@ zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	}
 
 	return (zio);
+}
+
+zio_t *
+zio_raw_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
+    void *data, uint64_t size, const zio_prop_t *zp,
+    zio_done_func_t *ready, zio_done_func_t *done, zio_done_func_t *reload,  void *private,
+    zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb)
+{
+    zio_t *zio;
+    enum zio_stage pipeline;
+
+    ASSERT(zp->zp_checksum >= ZIO_CHECKSUM_OFF &&
+        zp->zp_checksum < ZIO_CHECKSUM_FUNCTIONS &&
+        zp->zp_compress >= ZIO_COMPRESS_OFF &&
+        zp->zp_compress < ZIO_COMPRESS_FUNCTIONS &&
+        zp->zp_type < DMU_OT_NUMTYPES &&
+        zp->zp_level < 32 &&
+        zp->zp_copies > 0 &&
+        zp->zp_copies <= spa_max_replication(spa) &&
+        zp->zp_dedup <= 1 &&
+        zp->zp_dedup_verify <= 1);
+
+    if (bp->blk_birth == 0)
+        pipeline = ZIO_WRITE_PIPELINE;
+    else
+        pipeline = ZIO_RAW_WRITE_PIPELINE;
+    zio = zio_create(pio, spa, txg, bp, data, size, done, private,
+        ZIO_TYPE_WRITE, priority, flags, NULL, 0, zb,
+        ZIO_STAGE_OPEN,  pipeline);
+
+    zio->io_ready = ready;
+    zio->io_prop = *zp;
+
+    return (zio);
 }
 
 zio_t *

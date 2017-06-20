@@ -196,6 +196,7 @@ extern void kstat_waitq_enter(kstat_io_t *);
 extern void kstat_waitq_exit(kstat_io_t *);
 extern void kstat_runq_enter(kstat_io_t *);
 extern void kstat_runq_exit(kstat_io_t *);
+
 extern void kstat_waitq_to_runq(kstat_io_t *kiop);
 extern void kstat_runq_back_to_waitq(kstat_io_t *kiop);
 
@@ -203,7 +204,6 @@ extern void kstat_named_setstr(kstat_named_t *knp, const char *src);
 extern void kstat_set_string(char *dst, const char *src);
 extern void kstat_named_init(kstat_named_t *knp, const char *name,
 	uchar_t data_type);
-
 
 #define kstat_set_raw_ops(k,h,d,a)	__kstat_set_raw_ops(k,h,d,a)
 #define kstat_create(m,i,n,c,t,s,f)	__kstat_create(m,i,n,c,t,s,f)

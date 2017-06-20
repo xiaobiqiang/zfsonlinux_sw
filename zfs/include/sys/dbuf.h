@@ -93,11 +93,28 @@ struct dmu_tx;
 
 struct dmu_buf_impl;
 
+typedef struct dbuf_segs_record {
+    list_node_t seg_record_node;
+    list_node_t seg_record_node_order;
+    list_node_t seg_record_os_node;
+    uint64_t seg_dn_object;
+    uint64_t seg_record_offset;
+    uint64_t seg_record_roffset;
+    uint64_t seg_record_len;
+    arc_buf_t *seg_record_data;
+}dbuf_segs_record_t;
+
 typedef enum override_states {
 	DR_NOT_OVERRIDDEN,
 	DR_IN_DMU_SYNC,
 	DR_OVERRIDDEN
 } override_states_t;
+
+typedef struct dbuf_blkptr_record {
+    list_node_t db_blkptr_node;
+    blkptr_t addr;
+    uint32_t seq;
+}dbuf_blkptr_record_t;
 
 typedef struct dbuf_dirty_record {
 	/* link on our parents dirty list */
@@ -120,6 +137,9 @@ typedef struct dbuf_dirty_record {
 
 	/* How much space was changed to dsl_pool_dirty_space() for this? */
 	unsigned int dr_accounted;
+
+    /* mirror io list */
+    list_t dr_mirror_io_list;
 
 	union dirty_types {
 		struct dirty_indirect {
@@ -187,6 +207,9 @@ typedef struct dmu_buf_impl {
 	 */
 	blkptr_t *db_blkptr;
 
+    uint32_t db_blkptr_seq[TXG_SIZE];
+    list_t db_blkptr_list[TXG_SIZE];
+
 	/*
 	 * Our indirection level.  Data buffers have db_level==0.
 	 * Indirect buffers which point to data buffers have
@@ -224,6 +247,7 @@ typedef struct dmu_buf_impl {
 	 * Protected by its dn_dbufs_mtx.
 	 */
 	avl_node_t db_link;
+    list_node_t db_segs_link;
 
 	/* Data which is unique to data (leaf) blocks: */
 
@@ -250,7 +274,49 @@ typedef struct dmu_buf_impl {
 	uint8_t db_pending_evict;
 
 	uint8_t db_dirtycnt;
+
+    boolean_t db_ctrl_data[TXG_SIZE];
+
+    kmutex_t db_seg_mtx;
+    boolean_t db_has_segments;
+    uint64_t  db_first_segment_txg;
+    list_t db_segments_list;
+    list_t db_segments_list_order;
+    uint64_t db_segs_len;
+
+    kmutex_t db_mirror_io_list_mtx;
+    list_t db_mirror_io_list;
+
+    list_t db_seg_list;
+    kmutex_t db_seg_list_mtx;
+    void *db_seg_data;
 } dmu_buf_impl_t;
+
+typedef struct dbuf_mirror_io {
+    list_node_t	mirror_io_node;
+    list_node_t	mirror_io_cache;
+    uint64_t 	spa_id;
+    uint64_t 	os_id;
+    uint64_t 	object_id;
+    uint64_t 	blk_id;
+    uint64_t	offset;
+    uint64_t  	hash_key;
+    uint64_t  	mirror_io_index;
+    kmutex_t 	reply_hash_mtx;
+    uint64_t  	txg;
+    uint64_t	create_time;
+    uint32_t 	mirror_segments;
+    uint32_t	data_type;
+} dbuf_mirror_io_t;
+
+typedef struct dbuf_segs_data {
+    list_node_t segs_data_os_node;
+    list_node_t segs_data_dbuf_node;
+    uint64_t data_offset;
+    uint64_t data_len;
+    arc_buf_t *data_data;
+    dmu_buf_impl_t *db;
+}dbuf_segs_data_t;
 
 /* Note: the dbuf hash table is exposed only for the mdb module */
 #define	DBUF_MUTEXES 8192
@@ -261,6 +327,9 @@ typedef struct dbuf_hash_table {
 	kmutex_t hash_mutexes[DBUF_MUTEXES];
 } dbuf_hash_table_t;
 
+extern char *dbuf_rewrite_tag;
+extern char *dbuf_segs_tag;
+extern char *dbuf_cache_tag;
 
 uint64_t dbuf_whichblock(struct dnode *di, uint64_t offset);
 
@@ -314,11 +383,36 @@ void dbuf_new_size(dmu_buf_impl_t *db, int size, dmu_tx_t *tx);
 void dbuf_stats_init(dbuf_hash_table_t *hash);
 void dbuf_stats_destroy(void);
 
+void dbuf_data_reload(dmu_buf_impl_t *db);
+void dbuf_direct_write(dmu_buf_impl_t *db,  dmu_tx_t *tx);
+boolean_t dbuf_handle_seg(dmu_buf_impl_t *db,
+    dbuf_segs_record_t *db_seg, uint64_t txg);
+boolean_t dbuf_handle_segs(dmu_buf_impl_t *db, boolean_t b_write, uint64_t txg);
+int dbuf_rewrite(dbuf_segs_data_t *node);
+void dbuf_insert_mirror_io(dmu_buf_impl_t *db,
+    struct dbuf_mirror_io *mirror_io, uint64_t txg);
+
 #define	DB_DNODE(_db)		((_db)->db_dnode_handle->dnh_dnode)
 #define	DB_DNODE_LOCK(_db)	((_db)->db_dnode_handle->dnh_zrlock)
 #define	DB_DNODE_ENTER(_db)	(zrl_add(&DB_DNODE_LOCK(_db)))
 #define	DB_DNODE_EXIT(_db)	(zrl_remove(&DB_DNODE_LOCK(_db)))
 #define	DB_DNODE_HELD(_db)	(!zrl_is_zero(&DB_DNODE_LOCK(_db)))
+
+#define	DB_GET_SPA(_spa_p, _db) {		\
+    dnode_t *__dn;				\
+    DB_DNODE_ENTER(_db);			\
+    __dn = DB_DNODE(_db);			\
+    *(_spa_p) = __dn->dn_objset->os_spa;	\
+    DB_DNODE_EXIT(_db);			\
+}
+
+#define	DB_GET_OBJSET(_os_p, _db) {		\
+    dnode_t *__dn;				\
+    DB_DNODE_ENTER(_db);			\
+    __dn = DB_DNODE(_db);			\
+    *(_os_p) = __dn->dn_objset;		\
+    DB_DNODE_EXIT(_db);			\
+}
 
 void dbuf_init(void);
 void dbuf_fini(void);

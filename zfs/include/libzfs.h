@@ -92,10 +92,6 @@ typedef struct zpool_stamp {
 	uint8_t	reserved[ZPOOL_STAMP_SIZE - sizeof (zpool_stamp_para_t)];
 } zpool_stamp_t;
 
-typedef struct spa_quantum_index {
-	uint64_t index;
-	char *dev_name;
-}spa_quantum_index_t;
 /* solaris stamp write end */
 
 /*
@@ -304,6 +300,7 @@ extern int zpool_vdev_fault(zpool_handle_t *, uint64_t, vdev_aux_t);
 extern int zpool_vdev_degrade(zpool_handle_t *, uint64_t, vdev_aux_t);
 extern int zpool_vdev_clear(zpool_handle_t *, uint64_t);
 
+extern nvlist_t *zpool_get_nvroot(zpool_handle_t *zhp);
 extern nvlist_t *zpool_find_vdev(zpool_handle_t *, const char *, boolean_t *,
     boolean_t *, boolean_t *);
 extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
@@ -422,6 +419,7 @@ typedef struct importargs {
 	int can_be_active : 1;	/* can the pool be active?		*/
 	int unique : 1;		/* does 'poolname' already exist?	*/
 	int exists : 1;		/* set on return if pool already exists	*/
+	int no_blkid : 1;	/* don't use libblkid */
 } importargs_t;
 
 extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
@@ -811,6 +809,9 @@ extern int zpool_write_stamp(nvlist_t *pool_root, zpool_stamp_t *stamp,
 		int nquantum);
 extern int zpool_read_stmp_by_path(char *path, zpool_stamp_t *stamp);
 extern int zpool_write_dev_stamp_mark(char *path, zpool_stamp_t *stamp);
+extern int zpool_cluster_set_disks(libzfs_handle_t * hdl,
+	char * pool_name, uint64_t cid, uint64_t rid, uint64_t progress,
+	boolean_t cluster_switch, uint32_t remote_hostid);
 
 /*
  * Management interfaces for SMB ACL files
@@ -838,6 +839,9 @@ extern boolean_t libzfs_fru_compare(libzfs_handle_t *, const char *,
     const char *);
 extern boolean_t libzfs_fru_notself(libzfs_handle_t *, const char *);
 extern int zpool_fru_set(zpool_handle_t *, uint64_t, const char *);
+extern void zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
+    uint64_t flags);
+extern int zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt, uint8_t need_reply);
 extern int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen);
 extern int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid);
 extern int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname);
@@ -856,8 +860,32 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid);
 int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
 
-int zfs_create_lu(char *lu_name);
 
+typedef struct spa_quantum_index {
+	uint64_t index;
+	char *dev_name;
+}spa_quantum_index_t;
+
+extern uint64_t zpool_read_used(nvlist_t *pool_root, spa_quantum_index_t *index,
+	uint64_t nquantum);
+extern boolean_t zpool_used_index_changed(spa_quantum_index_t *last_index,
+	uint64_t nquantum, spa_quantum_index_t *current_index, uint64_t *read_nquantum);
+
+extern int zpool_remove_partner(libzfs_handle_t *hdl, char *name,
+	uint32_t remote_hostid);
+extern void zpool_release_pool(zpool_handle_t *hdl, char *name,
+	zfs_hbx_ioc_t command, uint32_t rid);
+
+extern void zfs_do_hbx_process(libzfs_handle_t *hdl, char *buffer, int size,
+	uint64_t flags);
+extern void zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
+	uint64_t flags, int remote_id);
+extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
+	uint32_t hostid, nvlist_t **nv_ptr);
+
+extern int zfs_is_failover_prop(const char * prop);
+
+int zfs_create_lu(char *lu_name);
 
 #ifdef	__cplusplus
 }

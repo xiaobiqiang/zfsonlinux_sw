@@ -48,6 +48,7 @@ extern "C" {
 #endif
 
 #define SPA_NUM_OF_QUANTUM  2
+#define	ETC_VAR_SYS_POOL_NAME	"syspool"
 
 typedef struct spa_error_entry {
 	zbookmark_phys_t	se_bookmark;
@@ -117,6 +118,23 @@ typedef struct spa_taskqs {
 	uint_t stqs_count;
 	taskq_t **stqs_taskq;
 } spa_taskqs_t;
+
+#define	SPA_NUM_OF_QUANTUM	2
+
+typedef enum quantum_proc_state {
+	QUANTUM_PROC_NONE,
+	QUANTUM_PROC_ACTIVE,
+	QUANTUM_PROC_DEACTIVATE,
+} quantum_proc_state_t;
+
+typedef struct spa_quantum {
+	kthread_t *spa_quantum_pthread;
+	kcondvar_t	spa_quantum_exit_cv;
+	kmutex_t	 spa_quantum_lock;
+	vdev_t *spa_quantum_dev;
+	uint64_t spa_quantum_index;
+	quantum_proc_state_t spa_quantum_state;
+} spa_quantum_t;
 
 struct spa {
 	/*
@@ -257,6 +275,10 @@ struct spa {
 	spa_stats_t	spa_stats;		/* assorted spa statistics */
 	taskq_t		*spa_zvol_taskq;	/* Taskq for minor managment */
 
+	/* spa quantum */
+	spa_quantum_t spa_quantums[SPA_NUM_OF_QUANTUM];
+	uint32_t spa_num_of_quantums;
+
 	/*
 	 * spa_refcount & spa_config_lock must be the last elements
 	 * because refcount_t changes size based on compilation options.
@@ -265,6 +287,10 @@ struct spa {
 	 */
 	spa_config_lock_t spa_config_lock[SCL_LOCKS]; /* config changes */
 	refcount_t	spa_refcount;		/* number of opens */
+
+    kmutex_t	spa_do_zvol_lock;
+    kcondvar_t	spa_do_zvol_cv;
+    uint32_t	spa_zvol_minor_creating_cnt;
 };
 
 extern char *spa_config_path;
@@ -273,7 +299,12 @@ extern void spa_taskq_dispatch_ent(spa_t *spa, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent);
 extern void spa_taskq_dispatch_sync(spa_t *, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags);
-
+extern void spa_quantum_init(spa_t *spa);
+extern void spa_quantum_fini(spa_t *spa);
+extern void spa_quantum_stop(spa_quantum_t *quantum);
+extern void spa_quantum_stop_all(spa_t *spa);
+extern void spa_choose_quantum_dev(spa_t *spa);
+extern void spa_quantum_start(spa_quantum_t *quantum);
 
 #ifdef	__cplusplus
 }

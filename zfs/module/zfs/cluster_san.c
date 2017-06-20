@@ -9,7 +9,7 @@
 /* #include <sys/strsubr.h> */
 #include <sys/atomic.h>
 #include <sys/zfs_ioctl.h>
-/* #include <sys/fs/zfs_hbx.h> */
+#include <sys/fs/zfs_hbx.h>
 #include <sys/fs/zfs.h>
 #include <sys/cluster_san.h>
 #include <sys/cluster_target_mac.h>
@@ -51,7 +51,7 @@ kmutex_t clustersan_lock;
 krwlock_t clustersan_rwlock;
 cluster_san_t *clustersan = NULL;
 
-uint32_t cluster_target_tran_work_ndefault = 1;
+uint32_t cluster_target_tran_work_ndefault = 0;
 uint64_t cluster_target_broadcast_index = 0;
 
 uint32_t cluster_target_session_ntranwork = 1;
@@ -690,6 +690,7 @@ int cts_rx_hook_remove(uint32_t msg_type)
 	return (ret);
 }
 
+#if 0
 static void
 cts_rx_handle_ext(cs_rx_data_t *cs_data)
 {
@@ -706,6 +707,7 @@ cts_rx_handle_ext(cs_rx_data_t *cs_data)
 		rx_cb_node->rx_cb(cs_data, rx_cb_node->arg);
 	}
 }
+#endif
 
 static void cts_link_evt_hook_init(void)
 {
@@ -916,14 +918,14 @@ csh_link_evt_handle_ext(cluster_san_hostinfo_t *cshi, cts_link_evt_t link_evt)
 			/* spa failover */
 			hostid = kmem_zalloc(sizeof(uint32_t), KM_SLEEP);
 			*hostid = cshi->hostid;
-			/* zfs_notify_clusterd(EVT_REMOTE_HOST_DOWN,
-				(char *)hostid, (uint64_t)sizeof(uint32_t)); */
+			zfs_notify_clusterd(EVT_REMOTE_HOST_DOWN,
+				(char *)hostid, (uint64_t)sizeof(uint32_t));
 			break;
 		case LINK_EVT_DOWN_TO_UP:
 			hostid = kmem_zalloc(sizeof(uint32_t), KM_SLEEP);
 			*hostid = cshi->hostid;
-			/* zfs_notify_clusterd(EVT_REMOTE_HOST_UP,
-				(char *)hostid, (uint64_t)sizeof(uint32_t)); */
+			zfs_notify_clusterd(EVT_REMOTE_HOST_UP,
+				(char *)hostid, (uint64_t)sizeof(uint32_t));
 			break;
 		default:
 			break;
@@ -1061,7 +1063,7 @@ int cluster_san_init()
 	clustersan->cs_async_taskq = taskq_create("clustersan_async_tq",
 		1, minclsyspri, 1, CLUSTER_SAN_ASYNC_THREAD_MAX, TASKQ_PREPOPULATE);
 
-	/* zfs_hbx_init(); */
+	zfs_hbx_init();
 	/* cluster_target_rpc_rdma_svc_init(); */
 	/* cluster_target_rpc_rdma_clnt_init(); */
 
@@ -1074,7 +1076,7 @@ int cluster_san_init()
 
 void cluster_san_fini()
 {
-	/* zfs_hbx_fini(); */
+	zfs_hbx_fini();
 	mutex_destroy(&clustersan_lock);
 	rw_destroy(&clustersan_rwlock);
 	list_destroy(&clustersan->cs_target_list);
@@ -1356,8 +1358,8 @@ void cluster_change_pool_owner_handle(cs_rx_data_t *cs_data)
 	buf = kmem_zalloc(cs_data->data_len, KM_SLEEP);
 	bcopy(cs_data->data, buf, cs_data->data_len);
 
-	/* zfs_notify_clusterd(EVT_CHANGE_POOL_OWNER,
-		buf, cs_data->data_len); */
+	zfs_notify_clusterd(EVT_CHANGE_POOL_OWNER,
+		buf, cs_data->data_len);
 	csh_rx_data_free(cs_data, B_TRUE);
 }
 
@@ -1571,7 +1573,7 @@ void cluster_rx_ipmi_ip(cs_rx_data_t *cs_data)
 	cluster_san_host_sync_msg_ret(cshi, evt_header->msg_id,
 		CLUSTER_SAN_MSGTYPE_CLUSTER, 0);
 	/* notify clusterd to add route */
-	/* zfs_notify_clusterd(EVT_IPMI_ADD_ROUTE, ipmi_ipaddr, 16); */
+	zfs_notify_clusterd(EVT_IPMI_ADD_ROUTE, ipmi_ipaddr, 16);
 	csh_rx_data_free(cs_data, B_TRUE);
 }
 
@@ -1709,13 +1711,12 @@ int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf)
 	return (0);
 }
 
-uint64_t cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi)
+void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi)
 {
 	if (cshi == NULL || (cshi == CLUSTER_SAN_BROADCAST_SESS)) {
-		return (0);
+		return;
 	}
 	atomic_inc_64(&cshi->ref_count);
-	return (cshi->ref_count);
 }
 
 uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
@@ -2417,10 +2418,12 @@ static void cts_rx_data_check_link(cluster_target_session_t *cts)
 	}
 }
 
+#if 0
 static void cts_rx_hb_handle(cs_rx_data_t *cs_data)
 {
 	cts_rx_data_free(cs_data, B_TRUE);
 }
+#endif
 
 void
 cts_rx_worker_wakeup(cts_rx_worker_t *w, cts_worker_para_t *para)
@@ -2482,6 +2485,37 @@ cluster_target_session_worker_handle(void *arg)
 
 	w->worker_flags = 0;
 	atomic_dec_32(&cts->sess_rx_worker_n);
+}
+
+static void cluster_san_host_rx_handle(cs_rx_data_t *cs_data);
+static cs_rx_data_t *cluster_san_host_fragment_handle(cluster_san_hostinfo_t *cshi, cts_fragment_data_t *fragment);
+
+void
+cts_rx_msg(cluster_target_session_t *cts, cts_fragment_data_t *fragment)
+{
+	cluster_san_hostinfo_t *cshi;
+	uint8_t msg_type;
+	cs_rx_data_t *cs_data;
+
+	BUG_ON(cts == NULL);
+	BUG_ON(fragment == NULL);
+
+	cshi = cts->sess_host_private;
+	msg_type = fragment->ct_head->msg_type;
+	cts_rx_data_check_link(cts);
+
+	/* FIXME: release hold on cts/cshi ? */
+	if (msg_type == CLUSTER_SAN_MSGTYPE_HB) {
+		cts_fragment_free(fragment);
+		return;
+	}
+
+	cs_data = cluster_san_host_fragment_handle(cshi, fragment);
+	if (cs_data != NULL) {
+		cluster_san_host_rx_handle(cs_data);
+	}
+
+	return;
 }
 
 static int
@@ -2713,6 +2747,77 @@ static cs_rx_data_t *cluster_san_host_rxfragment_handle(
 	return (NULL);
 }
 
+static cs_rx_data_t *cluster_san_host_fragment_handle(cluster_san_hostinfo_t *cshi, cts_fragment_data_t *fragment)
+{
+	uint64_t data_index = fragment->ct_head->index;
+	uint64_t total_len = fragment->ct_head->total_len;
+	uint8_t msg_type = fragment->ct_head->msg_type;
+	uint8_t need_reply = fragment->ct_head->need_reply;
+
+	cs_rx_data_t ctsrd_compare;
+	cts_fragments_t ctsfs_compare;
+	cs_rx_data_t *cs_data;
+	cts_fragments_t *ctsfs = NULL;
+	avl_index_t where;
+	boolean_t is_entired;
+	boolean_t is_newdata = B_FALSE;
+	boolean_t is_corrupt = B_FALSE;
+
+	ctsrd_compare.data_index = data_index;
+	ctsfs_compare.cs_data = &ctsrd_compare;
+	mutex_enter(&cshi->host_fragment_lock);
+	ctsfs = avl_find(&cshi->host_fragment_avl, &ctsfs_compare, &where);
+	if (ctsfs == NULL) {
+		ctsfs = kmem_zalloc(sizeof(cts_fragments_t), KM_SLEEP);
+		ctsfs->cs_data = cts_rx_data_alloc(total_len);
+		ctsfs->cs_data->data_index = data_index;
+		ctsfs->cs_data->msg_type = msg_type;
+		ctsfs->cs_data->cs_private = cshi;
+		ctsfs->cs_data->need_reply = need_reply;
+		ctsfs->rx_len = 0;
+		list_create(&ctsfs->data_list, sizeof(cts_fragment_data_t),
+			offsetof(cts_fragment_data_t, node));
+		is_newdata = B_TRUE;
+	}
+	if (fragment->ex_len != 0) {
+		if (ctsfs->cs_data->ex_head == NULL) {
+			ctsfs->cs_data->ex_head = kmem_zalloc(fragment->ex_len, KM_SLEEP);
+			bcopy(fragment->ex_head, ctsfs->cs_data->ex_head, fragment->ex_len);
+			ctsfs->cs_data->ex_len = fragment->ex_len;
+		}
+	}
+	is_entired = cts_fragments_entired(ctsfs, fragment, &is_corrupt);
+	if (is_entired) {
+		if (!is_newdata) {
+			list_remove(&cshi->host_fragment_list, ctsfs);
+			avl_remove(&cshi->host_fragment_avl, ctsfs);
+		}
+		mutex_exit(&cshi->host_fragment_lock);
+		if (is_corrupt) {
+			csh_rx_data_free(ctsfs->cs_data, B_FALSE);
+			cs_data = NULL;
+		} else {
+			cs_data = ctsfs->cs_data;
+		}
+		cts_fragments_free(ctsfs);
+		cluster_san_hostinfo_hold(cs_data->cs_private);
+		return (cs_data);
+	}
+	
+	if (is_newdata) {
+		avl_add(&cshi->host_fragment_avl, ctsfs);
+		ctsfs->active_time = ddi_get_lbolt64();
+		list_insert_tail(&cshi->host_fragment_list, ctsfs);
+	} else {
+		list_remove(&cshi->host_fragment_list, ctsfs);
+		ctsfs->active_time = ddi_get_lbolt64();
+		list_insert_tail(&cshi->host_fragment_list, ctsfs);
+	}
+	mutex_exit(&cshi->host_fragment_lock);
+
+	return (NULL);
+}
+
 cluster_target_session_t *cts_select_from_host(cluster_san_hostinfo_t *cshi)
 {
 	cluster_target_session_t *cur_cts;
@@ -2866,6 +2971,44 @@ static void csh_send_reply(cs_rx_data_t *cs_data)
 	cluster_target_session_rele(cts, "sel_cts");
 }
 
+void cts_send_reply(cluster_target_session_t *cts, cts_fragment_data_t *fragment)
+{
+	cluster_target_port_t *ctp;
+	cluster_target_tran_data_t *data_array = NULL;
+	int fragment_cnt = 0;
+	cluster_tran_data_origin_t origin_data;
+	int ret;
+
+	ctp = cts->sess_port_private;
+
+	origin_data.msg_type = CLUSTER_SAN_MSGTYPE_REPLY;
+	origin_data.need_reply = B_FALSE;
+	origin_data.retry_times = 0;
+	origin_data.index = fragment->ct_head->index;
+	origin_data.data = 0;
+	origin_data.data_len = 0;
+	origin_data.header = 0;
+	origin_data.header_len = 0;
+
+	if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
+		ret = ctp->f_session_tran_start(cts, &origin_data);
+		ctp_tx_rele(ctp);
+		cluster_target_session_rele(cts, "sel_cts");
+		return;
+	}
+
+	ret = ctp->f_tran_fragment(ctp->target_private, cts->sess_target_private,
+		&origin_data, &data_array, &fragment_cnt);
+
+	if (ret == 0) {
+		ASSERT(fragment_cnt == 1);
+		ret = ctp->f_send_msg(ctp, data_array[0].fragmentation);
+		kmem_free(data_array, sizeof(cluster_target_tran_data_t) * fragment_cnt);
+	}
+
+	return;
+}
+
 static void cluster_san_rx_clusterevt_handle(cs_rx_data_t *cs_data)
 {
 	cluster_evt_header_t *evt_header = cs_data->ex_head;
@@ -2916,6 +3059,7 @@ static void cluster_san_host_rx_handle(
 	if (cs_data->need_reply != 0) {
 		csh_send_reply(cs_data);
 	}
+
 	switch (msg_type) {
 	case CLUSTER_SAN_MSGTYPE_CLUSTER:
 		cluster_san_rx_clusterevt_handle(cs_data);
@@ -2929,7 +3073,6 @@ static void cluster_san_host_rx_handle(
 		csh_rx_handle_ext(cs_data);
 		break;
 	}
-
 }
 
 static void
@@ -3003,6 +3146,13 @@ static void cluster_san_host_rxworker_init(cluster_san_hostinfo_t *cshi)
 	cshi->host_rx_worker = (cts_rx_worker_t *)kmem_zalloc(
 		sizeof (cts_rx_worker_t) * cluster_san_host_nrxworker,
 		KM_SLEEP);
+
+	mutex_init(&cshi->host_fragment_lock, NULL, MUTEX_DRIVER, NULL);
+	avl_create(&cshi->host_fragment_avl, cts_rxworker_avl_compare,
+			sizeof(cts_fragments_t), offsetof(cts_fragments_t, avl_node));
+	list_create(&cshi->host_fragment_list,
+			sizeof(cts_fragments_t), offsetof(cts_fragments_t, list_node));
+
 	for (i = 0; i < cluster_san_host_nrxworker; i++) {
 		cts_rx_worker_t *w = &cshi->host_rx_worker[i];
 		mutex_init(&w->fragment_lock, NULL, MUTEX_DRIVER, NULL);
@@ -3299,6 +3449,10 @@ static void cts_hb_init(cluster_target_session_t *cts)
 static void cts_hb_fini(cluster_target_session_t *cts)
 {
 	mutex_enter(&cts->sess_lock);
+	if ((cts->sess_hb_state & CLUSTER_TARGET_TH_STATE_STOP) != 0) {
+		mutex_exit(&cts->sess_lock);
+		return;
+	}
 	cts->sess_hb_state |= CLUSTER_TARGET_TH_STATE_STOP;
 	cv_signal(&cts->sess_cv);
 	mutex_exit(&cts->sess_lock);
@@ -3907,6 +4061,18 @@ void cs_join_msg_handle(void *arg)
 	ctp->f_fragment_free(fragment);
 }
 
+void cts_suspend_bcst_thread(cluster_target_session_t *cts)
+{
+	cluster_target_port_t *ctp = cts->sess_port_private;
+
+	if (!ctp) {
+		return;
+	}
+	ctp->brosan_state |= CLUSTER_TARGET_TH_STATE_SUSPEND;
+
+	return;
+}
+
 static void cluster_target_port_broadcase_thread(void *arg)
 {
 	cluster_target_port_t *ctp = (cluster_target_port_t *)arg;
@@ -3914,6 +4080,8 @@ static void cluster_target_port_broadcase_thread(void *arg)
 	mutex_enter(&ctp->brosan_mtx);
 	ctp->brosan_state |= CLUSTER_TARGET_TH_STATE_ACTIVE;
 	while ((ctp->brosan_state & CLUSTER_TARGET_TH_STATE_STOP) == 0) {
+		if (ctp->brosan_state & CLUSTER_TARGET_TH_STATE_SUSPEND)
+			break;
 		mutex_exit(&ctp->brosan_mtx);
 		ctp_send_join_in_msg(ctp, CLUSTER_SAN_BROADCAST_SESS);
 		mutex_enter(&ctp->brosan_mtx);
@@ -4292,7 +4460,7 @@ static int cluster_target_tran_worker_entry(
 	int i;
 	int ret = 0;
 	cluster_target_tran_node_t *tran_node;
-	cluster_target_tran_node_t *tran_wait_node;
+	cluster_target_tran_node_t *tran_wait_node = NULL;
 	list_t tran_list;
 
 	list_create(&tran_list, sizeof(cluster_target_tran_node_t),
@@ -4515,6 +4683,26 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 	return (ret);
 }
 
+void cluster_san_hb_stop(void)
+{	
+	cluster_san_hostinfo_t *cshi;
+	cluster_target_session_t *cts;
+
+	rw_enter(&clustersan_rwlock, RW_READER);
+	cshi = list_head(&clustersan->cs_hostlist);
+	while (cshi != NULL) {
+		cts = cts_select_from_host(cshi);
+		if (cts != NULL) {
+			cts_hb_fini(cts);
+			cts_suspend_bcst_thread(cts);
+		}
+		cshi = list_next(&clustersan->cs_hostlist, cshi);
+	}
+	rw_exit(&clustersan_rwlock);
+
+	return;
+}
+
 void cluster_san_broadcast_send(
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, int pri)
@@ -4593,6 +4781,7 @@ SEND_RETRY:
 		if (ret == 0) {
 			is_replyed = cts_reply_wait(reply_val);
 			if (!is_replyed) {
+				printk("%s: %u wait reply timed out\n", __func__, msg_type);
 				if (retry_cnt < retry_times) {
 					retry_cnt++;
 					goto SEND_RETRY;
@@ -5250,7 +5439,7 @@ static void cluster_san_rx_sync_cmd_handle(cs_rx_data_t *cs_data)
 	    KM_SLEEP) == 0);
 	nvlist_free(nvl_cmd);
 
-	/* zfs_notify_clusterd(EVT_CLUSTERSAN_SYNC_CMD, buf, buflen); */
+	zfs_notify_clusterd(EVT_CLUSTERSAN_SYNC_CMD, buf, buflen);
 
 out:
 	csh_rx_data_free(cs_data, B_TRUE);

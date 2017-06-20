@@ -268,6 +268,9 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 	if (vd->vdev_isspare)
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_IS_SPARE, 1);
 
+	if (vd->vdev_isquantum)
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, 1);
+
 	if (!(flags & (VDEV_CONFIG_SPARE | VDEV_CONFIG_L2CACHE)) &&
 	    vd == vd->vdev_top) {
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_METASLAB_ARRAY,
@@ -1049,6 +1052,50 @@ vdev_uberblock_sync_list(vdev_t **svd, int svdcount, uberblock_t *ub, int flags)
 	(void) zio_wait(zio);
 
 	return (good_writes >= 1 ? 0 : EIO);
+}
+
+static void
+vdev_usedblock_sync_index(zio_t *zio, uint64_t index, vdev_t *vd, int flags)
+{
+	vdev_use_index_t *used_buf;
+
+	if (!vd->vdev_ops->vdev_op_leaf)
+		return;
+
+	if (!vdev_writeable(vd))
+		return;
+
+	used_buf = zio_buf_alloc(sizeof(vdev_use_index_t));
+	bzero(used_buf, sizeof(vdev_use_index_t));
+	used_buf->index = index;
+
+	vdev_label_write(zio, vd, VDEV_STAMP_LABEL_NO, used_buf,
+	    VDEV_USED_OFFSET, sizeof(vdev_use_index_t),
+	    NULL, NULL,
+	    flags | ZIO_FLAG_DONT_PROPAGATE);
+
+	zio_buf_free(used_buf, sizeof(vdev_use_index_t));
+}
+
+int
+vdev_usedblock_sync(vdev_t *vdev, uint64_t index)
+{
+	uint64_t flags;
+	spa_t *spa = vdev->vdev_spa;
+	zio_t *zio;
+
+	flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL;
+	zio = zio_root(spa, NULL, NULL, flags);
+
+	vdev_usedblock_sync_index(zio, index, vdev, flags);
+	(void) zio_wait(zio);
+
+	zio = zio_root(spa, NULL, NULL, flags);
+	zio_flush(zio, vdev);
+
+	(void) zio_wait(zio);
+
+	return (0);
 }
 
 /*

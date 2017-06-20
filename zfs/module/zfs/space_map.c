@@ -301,7 +301,7 @@ space_map_write(space_map_t *sm, range_tree_t *rt, maptype_t maptype,
 				mutex_exit(rt->rt_lock);
 				dmu_write(os, space_map_object(sm),
 				    sm->sm_phys->smp_objsize, sm->sm_blksz,
-				    entry_map, tx);
+                    entry_map, tx, B_FALSE);
 				mutex_enter(rt->rt_lock);
 				sm->sm_phys->smp_objsize += sm->sm_blksz;
 				entry = entry_map;
@@ -321,7 +321,7 @@ space_map_write(space_map_t *sm, range_tree_t *rt, maptype_t maptype,
 		size = (entry - entry_map) * sizeof (uint64_t);
 		mutex_exit(rt->rt_lock);
 		dmu_write(os, space_map_object(sm), sm->sm_phys->smp_objsize,
-		    size, entry_map, tx);
+            size, entry_map, tx, B_FALSE);
 		mutex_enter(rt->rt_lock);
 		sm->sm_phys->smp_objsize += size;
 	}

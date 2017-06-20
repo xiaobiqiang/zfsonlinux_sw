@@ -2099,6 +2099,89 @@ zfs_obj_to_stats(objset_t *osp, uint64_t obj, zfs_stat_t *sb,
 	return (error);
 }
 
+#ifdef _KERNEL
+
+int
+zfs_obj_rewrite(objset_t *os, uint64_t object, uint64_t offset, uint64_t len,
+    dbuf_segs_data_t *seg_node)
+{
+    int error;
+    void *data;
+    dmu_buf_impl_t *db;
+    dmu_tx_t	*tx;
+    zfs_sb_t *zfsvfs;
+    znode_t *znode;
+    rl_t *rl;
+
+    db = seg_node->db;
+    mutex_enter(&os->os_user_ptr_lock);
+    zfsvfs = dmu_objset_get_user(os);
+    mutex_exit(&os->os_user_ptr_lock);
+
+    zfs_zget(zfsvfs, object, &znode);
+    rl = zfs_range_lock(&znode->z_range_lock, offset, len, RL_WRITER);
+
+    mutex_enter(&db->db_seg_list_mtx);
+    if (!list_link_active(&seg_node->segs_data_dbuf_node)) {
+        mutex_exit(&db->db_seg_list_mtx);
+        dmu_return_arcbuf(seg_node->data_data);
+        dbuf_rele(db, (void *)dbuf_rewrite_tag);
+        kmem_free(seg_node, sizeof(dbuf_segs_data_t));
+        zfs_range_unlock(rl);
+        return (0);
+    } else {
+        list_remove(&db->db_seg_list, seg_node);
+        mutex_exit(&db->db_seg_list_mtx);
+    }
+
+    data = seg_node->data_data->b_data;
+    tx = dmu_tx_create(os);
+    dmu_tx_hold_write(tx, object,  offset, len);
+    error = dmu_tx_assign(tx, TXG_WAIT);
+    if (error) {
+        zfs_range_unlock(rl);
+        iput(ZTOI(znode));
+        dmu_tx_abort(tx);
+        return 1;
+    }
+
+    dmu_write(os, object, offset, len, data , tx, B_FALSE);
+    dmu_tx_commit(tx);
+    zfs_range_unlock(rl);
+    dmu_return_arcbuf(seg_node->data_data);
+    dbuf_rele(db, (void *)dbuf_rewrite_tag);
+    kmem_free(seg_node, sizeof(dbuf_segs_data_t));
+    iput(ZTOI(znode));
+    return (0);
+}
+
+rl_t *
+zfs_seg_data_lock(objset_t *os, uint64_t object,
+    uint64_t offset, uint64_t len, uint8_t type)
+{
+    int error;
+    rl_t *rl;
+    znode_t	*zp;
+    zfs_sb_t *zfsvfs;
+
+    mutex_enter(&os->os_user_ptr_lock);
+    zfsvfs = (zfs_sb_t *)dmu_objset_get_user(os);
+    mutex_exit(&os->os_user_ptr_lock);
+    if ((error = zfs_zget(zfsvfs, object, &zp)) != 0){
+        return (NULL);
+    }
+    rl = zfs_range_lock(&zp->z_range_lock, offset, len, type);
+    return (rl);
+}
+
+void
+zfs_seg_data_unlock(rl_t *rl)
+{
+    zfs_range_unlock(rl);
+}
+
+#endif
+
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(zfs_create_fs);
 EXPORT_SYMBOL(zfs_obj_to_path);

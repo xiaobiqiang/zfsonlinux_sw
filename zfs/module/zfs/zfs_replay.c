@@ -49,6 +49,7 @@
 #include <sys/atomic.h>
 #include <sys/cred.h>
 #include <sys/zpl.h>
+#include <sys/dmu_objset.h>
 
 /*
  * Functions to replay ZFS intent log (ZIL) records
@@ -908,6 +909,51 @@ zfs_replay_acl(zfs_sb_t *zsb, lr_acl_t *lr, boolean_t byteswap)
 	return (error);
 }
 
+int
+zfs_replay_rawdata(objset_t *os, char *data,
+    uint64_t object, uint64_t offset, uint64_t length)
+{
+    int error, written;
+    uint64_t eod;
+    znode_t	*zp;
+    zfs_sb_t *zfsvfs;
+
+    mutex_enter(&os->os_user_ptr_lock);
+    zfsvfs = (zfs_sb_t *)dmu_objset_get_user(os);
+    mutex_exit(&os->os_user_ptr_lock);
+    if ((error = zfs_zget(zfsvfs, object, &zp)) != 0) {
+        /*
+         * As we can log writes out of order, it's possible the
+         * file has been removed. In this case just drop the write
+         * and return success.
+         */
+        if (error == ENOENT) {
+            cmn_err(CE_WARN, "can not find the objec=%lld", (longlong_t)object);
+            error = 0;
+        }
+        return (error);
+    }
+
+    eod = offset + length;
+    written = zpl_write_common(ZTOI(zp), data, length, &offset,
+        UIO_SYSSPACE, 0, kcred);
+    if (written < 0)
+        error = -written;
+    else if (written < length)
+        error = SET_ERROR(EIO); /* short write */
+
+    iput(ZTOI(zp));
+    zfsvfs->z_replay_eof = 0;	/* safety */
+    /*
+    error = vn_rdwr(UIO_WRITE, ZTOV(zp), data, length, offset,
+        UIO_SYSSPACE, FCLUSTER, RLIM64_INFINITY, kcred, &resid);
+
+    VN_RELE(ZTOV(zp));
+    zfsvfs->z_replay_eof = 0;
+    */
+    return (error);
+}
+
 /*
  * Callback vectors for replaying records
  */
@@ -933,4 +979,5 @@ zil_replay_func_t zfs_replay_vector[TX_MAX_TYPE] = {
 	(zil_replay_func_t)zfs_replay_create,		/* TX_MKDIR_ATTR */
 	(zil_replay_func_t)zfs_replay_create_acl,	/* TX_MKDIR_ACL_ATTR */
 	(zil_replay_func_t)zfs_replay_write2,		/* TX_WRITE2 */
+    (zil_replay_func_t)zil_replay_write_ctrl,
 };

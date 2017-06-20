@@ -1,0 +1,17 @@
+[Unit]
+Description=Start clusterd service
+DefaultDependencies=no
+Requires=systemd-udev-settle.service
+After=systemd-udev-settle.service
+After=cryptsetup.target
+After=systemd-remount-fs.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/sbin/modprobe zfs
+ExecStart=@sbindir@/clusterd -S
+
+[Install]
+WantedBy=zfs-mount.service
+WantedBy=zfs.target

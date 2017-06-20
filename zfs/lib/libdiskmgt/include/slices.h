@@ -11,6 +11,7 @@ extern "C" {
 
 #define	SUBC_CREATE		"Create"
 #define	SUBC_LIST		"List"
+#define SUBC_LIST_ALL	"List-all"
 #define	SUBC_LIST_OLD		"List-old"
 #define	SUBC_LIST_DISKS		"List-disks"
 #define	SUBC_LIST_SLICES	"List-slices"

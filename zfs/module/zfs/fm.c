@@ -76,6 +76,8 @@
 #include <sys/time.h>
 #include <sys/zfs_ioctl.h>
 
+#include <sys/fmd_transport.h>
+
 int zfs_zevent_len_max = 0;
 int zfs_zevent_cols = 80;
 int zfs_zevent_console = 0;
@@ -548,6 +550,14 @@ zfs_zevent_post(nvlist_t *nvl, nvlist_t *detector, zevent_cb_t *cb)
 
 	if (zfs_zevent_console)
 		fm_nvprint(nvl);
+
+	/* send I/O event to app (add by jxh) */
+	fmd_msg_t *fmsg = fmd_kernel_msg_new(nvl_size);
+	if (fmsg != NULL && nvlist_pack(nvl, &fmsg->fm_buf, &nvl_size,
+				NV_ENCODE_NATIVE, KM_SLEEP) == 0) {
+		fmd_kernel_send_msg(fmsg);
+		fmd_kernel_msg_free(fmsg);
+	}
 
 	ev = zfs_zevent_alloc();
 	if (ev == NULL) {

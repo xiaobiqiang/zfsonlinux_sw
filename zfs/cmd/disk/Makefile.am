@@ -6,7 +6,7 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/lib/libdiskmgt/include \
 	-I/usr/include/libxml2
 
-sbin_PROGRAMS = disk
+sbin_PROGRAMS = disk 
 
 disk_SOURCES = 	\
 	disk.c
@@ -22,3 +22,7 @@ disk_LDADD = \
 
 disk_LDADD += $(ZLIB) -lxml2
 disk_LDFLAGS = -pthread
+
+install-exec-hook:
+	cp $(top_srcdir)/cmd/disk/sas2ircu /usr/local/sbin
+	chmod a+x /usr/local/sbin/sas2ircu

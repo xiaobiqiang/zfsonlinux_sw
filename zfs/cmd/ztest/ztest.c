@@ -1719,10 +1719,10 @@ ztest_replay_write(ztest_ds_t *zd, lr_write_t *lr, boolean_t byteswap)
 	}
 
 	if (abuf == NULL) {
-		dmu_write(os, lr->lr_foid, offset, length, data, tx);
+        dmu_write(os, lr->lr_foid, offset, length, data, tx, B_FALSE);
 	} else {
 		bcopy(data, abuf->b_data, length);
-		dmu_assign_arcbuf(db, offset, abuf, tx);
+        dmu_assign_arcbuf(db, offset, abuf, tx, B_FALSE);
 	}
 
 	(void) ztest_log_write(zd, tx, lr);
@@ -3270,7 +3270,7 @@ ztest_dataset_create(char *dsname)
 	if (ztest_opts.zo_verbose >= 5)
 		(void) printf("Setting dataset %s to sync always\n", dsname);
 	return (ztest_dsl_prop_set_uint64(dsname, ZFS_PROP_SYNC,
-	    ZFS_SYNC_ALWAYS, B_FALSE));
+	    ZFS_SYNC_DISK, B_FALSE));
 }
 
 /* ARGSUSED */
@@ -3844,7 +3844,7 @@ ztest_dmu_read_write(ztest_ds_t *zd, uint64_t id)
 	 * We've verified all the old bufwads, and made new ones.
 	 * Now write them out.
 	 */
-	dmu_write(os, packobj, packoff, packsize, packbuf, tx);
+    dmu_write(os, packobj, packoff, packsize, packbuf, tx, B_FALSE);
 
 	if (freeit) {
 		if (ztest_opts.zo_verbose >= 7) {
@@ -3863,7 +3863,7 @@ ztest_dmu_read_write(ztest_ds_t *zd, uint64_t id)
 			    (u_longlong_t)bigsize,
 			    (u_longlong_t)txg);
 		}
-		dmu_write(os, bigobj, bigoff, bigsize, bigbuf, tx);
+        dmu_write(os, bigobj, bigoff, bigsize, bigbuf, tx, B_FALSE);
 	}
 
 	dmu_tx_commit(tx);
@@ -4106,7 +4106,7 @@ ztest_dmu_read_write_zcopy(ztest_ds_t *zd, uint64_t id)
 		 * We've verified all the old bufwads, and made new ones.
 		 * Now write them out.
 		 */
-		dmu_write(os, packobj, packoff, packsize, packbuf, tx);
+        dmu_write(os, packobj, packoff, packsize, packbuf, tx, B_FALSE);
 		if (ztest_opts.zo_verbose >= 7) {
 			(void) printf("writing offset %llx size %llx"
 			    " txg %llx\n",
@@ -4135,13 +4135,13 @@ ztest_dmu_read_write_zcopy(ztest_ds_t *zd, uint64_t id)
 			}
 			if (i != 5 || chunksize < (SPA_MINBLOCKSIZE * 2)) {
 				dmu_assign_arcbuf(bonus_db, off,
-				    bigbuf_arcbufs[j], tx);
+                    bigbuf_arcbufs[j], tx, B_FALSE);
 			} else {
 				dmu_assign_arcbuf(bonus_db, off,
-				    bigbuf_arcbufs[2 * j], tx);
+                    bigbuf_arcbufs[2 * j], tx, B_FALSE);
 				dmu_assign_arcbuf(bonus_db,
 				    off + chunksize / 2,
-				    bigbuf_arcbufs[2 * j + 1], tx);
+                    bigbuf_arcbufs[2 * j + 1], tx, B_FALSE);
 			}
 			if (i == 1) {
 				dmu_buf_rele(dbt, FTAG);
@@ -4710,7 +4710,7 @@ ztest_dmu_commit_callbacks(ztest_ds_t *zd, uint64_t id)
 		fatal(0, "future leak: got %" PRIu64 ", open txg is %" PRIu64,
 		    old_txg, txg);
 
-	dmu_write(os, od->od_object, 0, sizeof (uint64_t), &txg, tx);
+    dmu_write(os, od->od_object, 0, sizeof (uint64_t), &txg, tx, B_FALSE);
 
 	(void) mutex_enter(&zcl.zcl_callbacks_lock);
 

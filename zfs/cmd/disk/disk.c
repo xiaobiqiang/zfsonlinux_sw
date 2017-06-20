@@ -26,40 +26,82 @@
 #include <linux/ioctl.h>
 #include <linux/hdreg.h>
 
-
-
 /*
+ *************************************************************************
  * linux disk info interface
+ *************************************************************************
  */
 #define DEFAULT_DISK_INFO_PATH	"/proc/partitions"
 #define DEFAULT_PATH			"/dev/"
-#define FDISK_CMD				"fdisk -l "
-#define DISK_NAME		100
-#define READ_NAME		50
-#define CAP_LEN			11	
-#define DISK_FORMAT		15
-#define DISK_SERIAL		100
+#define SAS2IRCU		"sas2ircu 0 display"
+#define SLOT			"Slot"
+#define ENCLOSURE		"Enclosure"
+#define SERIALNO		"Serial"
+#define CMD_TMP_LEN		1024
+#define ARGS_LEN		100
+#define DEV_LEN			50
+#define PARAM_LEN		10
 #define	INQ_REPLY_LEN	96
 #define	INQ_CMD_LEN		6
-#define	POPEN_CMD		50
-#define	POPEN_LINE		100
 
 typedef struct disk_info {
-	char	dk_name[DISK_NAME];
-	char	dk_format[DISK_FORMAT];
-	char	dk_serial[DISK_SERIAL];
-	char	dk_vendor[10];
-	char	dk_busy[10];
 	int		dk_major;
 	int		dk_minor;
+	int		dk_enclosure;
+	int		dk_slot;
+	int		dk_is_sys;
 	long	dk_gsize;
 	long	dk_blocks;
+	char	dk_vendor[PARAM_LEN];
+	char	dk_busy[PARAM_LEN];
+	char	dk_name[ARGS_LEN];
+	char	dk_serial[ARGS_LEN];
+	struct disk_info *next;
 } disk_info_t;
+
+typedef struct disk_table {
+	disk_info_t *next;
+	int			total;
+} disk_table_t;
 
 static xmlNodePtr create_xml_file();
 static void close_xml_file();
 static void create_lun_node(disk_info_t *di);
 
+static void
+get_system_disk(char *name)
+{
+	int ret = -1;
+	FILE *fp = -1;
+	char args[ARGS_LEN] = {0};
+	char dev[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	fp = fopen("/etc/mtab", "r");
+	if (fp == NULL) {
+		return; 
+	}
+	
+	while (fgets(tmp, sizeof(tmp), fp)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r') 
+			continue;
+		
+		sscanf(tmp, "%s", dev);
+		if (strncmp(dev, "/dev/sd", 7) == 0) {
+			sscanf(tmp, "%*s %s", args);
+			if (strcasecmp(args, "/") == 0 || strcasecmp(args, "/boot") == 0
+				|| strcasecmp(args, "/home") == 0) {
+				memcpy(name, dev, 8);
+				break;
+			}
+		} else {
+			continue;
+		}
+	}
+
+	(void) fclose(fp);
+	return;
+}
 	
 static void
 get_scsi_gsize(uint64_t blocks)
@@ -69,55 +111,110 @@ get_scsi_gsize(uint64_t blocks)
 		if (bs / 1024 > 1024)
 			printf("%-3.2lf T\n", (bs / 1024) / 1024);
 		else
-			printf("%-3.2lf GB\n",bs / 1024);
+			printf("%-3.2lfGB\n",bs / 1024);
 	} else {
-		printf("%-3.2lf MB\n",bs);
+		printf("%-3.2lfMB\n",bs);
 	}
 
 	return;
 }
 
-static int
-get_scsi_pool(disk_info_t *di)
+void print_info(disk_info_t *di, int count)
 {
-	int fd = 0;
-	int labels = 0;
-	int has_pool = 0;
-	uint64_t pguid = 0;
-	char *pname = NULL;
-	nvlist_t *config = NULL;
-
-	if ((fd = open(di->dk_name, O_RDONLY)) < 0) {
-		printf("canot open <%s>\n",di->dk_name);
-		return (0);
+	if (di->dk_is_sys == 1) {
+		strcat(di->dk_name, " [system]");
 	}
 
-	if ((zpool_read_label(fd, &config, &labels))) {
-		printf("zpool read label fail\n");
-	} else {
-		if (config != NULL
-			&& nvlist_lookup_string(config,ZPOOL_CONFIG_POOL_NAME, &pname) == 0
-			&& nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID, &pguid) == 0
-			&& pname && pguid != 0) {
-			has_pool = 1;
+	(void) printf("%3d. %-20s %-5s %20s %8s %3d %3d ", count,
+			di->dk_name,di->dk_vendor,di->dk_serial,di->dk_busy,
+			di->dk_enclosure, di->dk_slot);
+
+	(void) get_scsi_gsize(di->dk_blocks);
+
+	return;
+}
+
+static int
+get_scsi_slot(disk_info_t *di)
+{
+	FILE *fd = -1;
+	int len = -1;
+	int slot = -1;
+	int enclosure = -1;
+	char value_sn[ARGS_LEN] = {0};
+	char args[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	len = strlen(di->dk_name);
+	if (di->dk_name[len -1] >= '0' &&
+		di->dk_name[len - 1] <= '9')
+		return (0);
+
+	fd = popen(SAS2IRCU, "r");
+	if (fd == NULL)
+		return (0);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
+			continue;
+
+		sscanf(tmp, "%s", args);	
+		if (strcasecmp(args, ENCLOSURE) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &enclosure);
+		} else if (strcasecmp(args, SLOT) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &slot);
+		} else if (strcasecmp(args, SERIALNO) == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_sn);
+			if (di->dk_serial != NULL && slot != -1 && value_sn != -1
+				&& strcasestr(di->dk_serial, value_sn) != NULL) {
+				di->dk_enclosure = enclosure;
+				di->dk_slot = slot;
+			} else {
+				slot = -1;
+				enclosure = -1;
+			}
 		}
 	}
 
-	(void) close(fd);
-	if (has_pool == 1) {
-		memcpy(di->dk_busy, "busy", 4);
-	} else {
-		memcpy(di->dk_busy, "free", 4);
-	}
-
+	pclose(fd);
 	return (1);
 }
 
-void print_info(disk_info_t *di, int count)
+static void
+get_scsi_status(disk_info_t *di)
 {
-	printf("%3d. %-15s %-8s %-20s %8s  ", count, di->dk_name, di->dk_vendor, di->dk_serial,
-			di->dk_busy);
-	get_scsi_gsize(di->dk_blocks);
+	int i = 0;
+	int fd = -1;
+	int err = -1;
+	int count = 0;
+	struct dk_gpt *vtoc = NULL;
+
+	if (di->dk_is_sys == 1) {
+		memcpy(di->dk_busy, "busy", 4);
+		return; 
+	}
+
+	fd = open(di->dk_name, O_RDWR|O_DIRECT);
+	if (fd > 0) {
+		err = efi_alloc_and_read(fd, &vtoc);
+		if (err >= 0) {
+			for (i = 0; i < vtoc->efi_nparts; i++) {
+				if (vtoc->efi_parts[i].p_size != 0) {
+					count = i;
+					break;
+				}
+			}
+		}
+	}
+
+	if (count == 8)
+		memcpy(di->dk_busy, "free", 4);
+	else
+		memcpy(di->dk_busy, "busy", 4);
+
+	efi_free(vtoc);
+	(void) close(fd);
+	return;
 }
 
 static int 
@@ -164,20 +261,23 @@ get_scsi_vendor(disk_info_t *di)
 static int
 get_scsi_serial(disk_info_t *di)
 {
-	int fd, i;
-	int ret = 0;
 	int len = 0;
 	int rsp_len = 0;
 	char *src = NULL;
 	char *dest = NULL;
 	char *rsp_buf = NULL;
-	sg_io_hdr_t io_hdr;
+	char *path = di->dk_name;
 	unsigned char inq_buff[INQ_REPLY_LEN];
 	unsigned char sense_buffer[32];
 	unsigned char inq_cmd_blk[INQ_CMD_LEN] =
 	    {0x12, 1, 0x80, 0, INQ_REPLY_LEN, 0};
+	sg_io_hdr_t io_hdr;
+	int error;
+	int fd;
+	int i;
 
-	memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
+	/* Prepare INQUIRY command */
+	memset(&io_hdr, 0, sizeof (sg_io_hdr_t));
 	io_hdr.interface_id = 'S';
 	io_hdr.cmd_len = sizeof (inq_cmd_blk);
 	io_hdr.mx_sb_len = sizeof (sense_buffer);
@@ -188,15 +288,19 @@ get_scsi_serial(disk_info_t *di)
 	io_hdr.sbp = sense_buffer;
 	io_hdr.timeout = 10;		/* 10 milliseconds is ample time */
 
-	if ((fd = open(di->dk_name, O_RDONLY|O_NONBLOCK) < 0))
-		return (0);
+	if ((fd = open(path, O_RDONLY|O_DIRECT)) < 0)
+		return (B_FALSE);
 
-	ret = ioctl(fd, SG_IO, (unsigned long)&io_hdr);
+	error = ioctl(fd, SG_IO, (unsigned long) &io_hdr);
 
 	(void) close(fd);
 
-	if (ret < 0)
-		return (0);
+	if (error < 0) {
+		return (B_FALSE);
+	}
+
+	if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK)
+		return (B_FALSE);
 
 	rsp_len = inq_buff[3];
 	rsp_buf = (char*)&inq_buff[4];
@@ -223,53 +327,210 @@ get_scsi_serial(disk_info_t *di)
 	return (1);
 }
 
-static int get_hd_info(disk_info_t *di)
+static char *disk_info_find_value(disk_info_t *di, int type)
 {
-	return (1);
+	disk_info_t *cur = di->next;
+
+	if (cur != NULL) {
+		if (strcasecmp(di->dk_name, cur->dk_name) == 0) {
+			if (type == 0 && cur->dk_serial[0] != 0) {
+				return (cur->dk_serial);
+			} else if (type == 1 && cur->dk_vendor[0] != 0) {
+				return (cur->dk_vendor);
+			} else {
+				return (disk_info_find_value(cur, type));
+			}
+		} else {
+			return (NULL);
+		}
+	} else {
+		return (NULL);
+	}
 }
 
-int list_disks()
+static void disk_info_free(disk_table_t *tb)
+{
+	int i = 0;
+	disk_info_t *temp = NULL;
+	disk_info_t *cur = tb->next;
+
+	for (i = 0; i < tb->total; i++) {
+		if (cur == NULL)
+			break;
+
+		temp = cur->next;
+		free(cur);
+		cur = temp;
+	}
+}
+
+static void disk_info_show(disk_table_t *tb, int all)
+{
+	int i = 0;
+	int len = 0;
+	int order = 0;
+	char *pstr = NULL;
+	char *value = NULL;
+	disk_info_t *di_cur = NULL;
+	
+	di_cur = tb->next;
+	for (i = 0; i < tb->total; i++) {
+		if (di_cur == NULL)
+			break;
+
+		if (di_cur->dk_serial[0] == 0 &&
+			(value = disk_info_find_value(di_cur, 0)) != NULL) {
+			memcpy(di_cur->dk_serial, value, strlen(value));
+		}
+
+		if (di_cur->dk_vendor[0] == 0 &&
+			(value = disk_info_find_value(di_cur, 1)) != NULL) {
+			memcpy(di_cur->dk_vendor, value, strlen(value));
+		}
+
+		di_cur = di_cur->next;
+	}
+
+	di_cur = tb->next;
+	for (i = 0; i < tb->total; i++) {
+		if (di_cur == NULL)
+			break;
+
+		pstr = (char*)di_cur->dk_name;
+		len = strlen(di_cur->dk_name);
+
+		if (*(pstr + len - 1) >= '0' && *(pstr + len - 1) <= '9') {
+			if (all == 1) {
+				print_info(di_cur, order);
+				order++;
+			}
+		} else {
+			print_info(di_cur, order);
+			order++;
+		}
+
+		di_cur = di_cur->next;
+	}
+
+	return;
+}
+
+int list_disks(int all)
 {
 	int len = 0;
 	int count = 0;
-	char line[DISK_NAME] = {0};
-	char name[READ_NAME] = {0};
+	char line[ARGS_LEN] = {0};
+	char name[DEV_LEN] = {0};
+	char sysdisk[ARGS_LEN] = {0};
 	disk_info_t di;
 
 	FILE *fd = fopen(DEFAULT_DISK_INFO_PATH, "r");
-	if (fd > 0) {
-		create_xml_file();
-		while (fgets(line, sizeof(line), fd)) {
-			if (line[0] == '\n' || line[0] == '\r')
-				continue;
+	if (fd < 0)
+		return (0);
 
-			memset(&di, 0, sizeof(di));
-			sscanf(line, "%u %u %lu %s %[^\n]", &di.dk_major, &di.dk_minor,
-					&di.dk_blocks, name);
+	int i = 0;
+	int di_total = 0;
+	disk_table_t di_tb = {0};
+	disk_info_t di_head;
+	disk_info_t *di_cur;
+	disk_info_t *di_mark;
 
-			len = strlen(name) + strlen(DEFAULT_PATH);
-			if (strncmp(name, "sd", 2) == 0) {
-				snprintf(di.dk_name, len + 2, "%s%s", DEFAULT_PATH, name);
-				if (get_scsi_vendor(&di) && get_scsi_serial(&di) &&
-						get_scsi_pool(&di)) {
-					print_info(&di, count);
-					create_lun_node(&di);
-					count++;
-				}
-			} else if (strncmp(name, "hd", 2) == 0) {
-			} else {
-			}
+	create_xml_file();
+	di_tb.next = NULL;
+	while (fgets(line, sizeof(line), fd)) {
+		if (line[0] == '\n' || line[0] == '\r')
+			continue;
+
+		di_cur = (disk_info_t*)malloc(sizeof(disk_info_t));
+		bzero(di_cur, sizeof(disk_info_t));
+		sscanf(line, "%u %u %lu %s %[^\n]", &di_cur->dk_major,
+				&di_cur->dk_minor,&di_cur->dk_blocks, name);
+
+		if (strncmp(name, "sd", 2) != 0 &&
+				strncmp(name, "hd", 2) != 0)
+			continue;
+
+		len = strlen(name) + strlen(DEFAULT_PATH);
+		snprintf(di_cur->dk_name, len + 2, "%s%s", DEFAULT_PATH, name);
+
+		if (di_tb.next == NULL) {
+			di_tb.next = di_cur;
+			di_mark = di_cur;
+		} else {
+			di_mark->next = di_cur;
+			di_mark = di_cur;
 		}
-		close_xml_file();
-	} else {
-		printf("open <%s> fail!\n", DEFAULT_DISK_INFO_PATH);
+
+		di_tb.total++;
 	}
 
+	(void) get_system_disk(sysdisk);
+
+	di_cur = di_tb.next;
+	for (i = 0; i < di_tb.total; i++)
+	{
+		if (strncmp(di_cur->dk_name, sysdisk, 8) == 0)
+			di_cur->dk_is_sys = 1;
+
+		get_scsi_vendor(di_cur);
+		get_scsi_serial(di_cur);
+		get_scsi_status(di_cur);
+		get_scsi_slot(di_cur);
+
+		di_cur = di_cur->next;
+	}
+
+	(void) disk_info_show(&di_tb, all);
+	(void) disk_info_free(&di_tb);
+
+	close_xml_file();
 	(void) fclose(fd);
+
 	return (0);
 }
 
-/* end disk info interface */
+static void disk_init_efi(char *path)
+{
+	int fd, ret, i;
+	struct dk_gpt *table;
+
+	fd = open(path, O_RDWR|O_DIRECT);
+	if (fd < 0) {
+		syslog(LOG_ERR, "disk_init: open <%s> fails",path);
+		return;
+	}
+	
+	ret = efi_alloc_and_init(fd, EFI_NUMPAR, &table);
+	if (ret < 0) {
+		syslog(LOG_ERR, "disk_init: get disk table <%s> fails",path);
+		(void) close(fd);
+		return;
+	}
+
+	for (i = 0; i < 8; i++) {
+		table->efi_parts[i].p_start = 0;
+		table->efi_parts[i].p_size = 0;
+		table->efi_parts[i].p_tag = V_UNASSIGNED;
+	}
+
+	table->efi_parts[8].p_start = table->efi_last_u_lba - EFI_MIN_RESV_SIZE;
+	table->efi_parts[8].p_size = EFI_MIN_RESV_SIZE;
+	table->efi_parts[8].p_tag = V_RESERVED;
+
+	ret = efi_write(fd, table);
+	if (ret < 0) {
+		syslog(LOG_ERR, "Destroy devs: write   disk table  (%s) fails", path);
+	}
+	(void) close(fd);
+	efi_free(table);
+
+	return;
+}
+/*
+ ******************************************************************************************
+ * end disk info interface
+ ******************************************************************************************
+ */
 
 #define	OPTION_LETTERS "d:i:s:p:g:o:x"
 #define	DISK_NAME_OPTION    'd'
@@ -339,6 +600,8 @@ void usage(void)
 {
 	printf("Usage:\n"
 	       "disk list\n"
+	       "disk list-all\n"
+	       "disk mark <-d dev path>\n"
 	       "disk list-slices <-d dev path | -i dev index>\n"
 	       "disk create <-d dev path | -i dev index> <-p slices index> <-s size | -g gap index>\n"
 	       "disk delete <-d dev path | -i dev index> <-p slices index> \n"
@@ -788,12 +1051,13 @@ static int disk_analyze_partition(const char *dev)
 	zpool_handle_t	*zhp;
 	libzfs_handle_t *tmp_gzfs;
 	nvlist_t *nvroot;
-
+#if 0
 	bzero(dev_path,256);
 	if (strncmp(dev, "/dev/rdsk/", 10) != 0){
 		printf("can't find the disk please check it\n");
 		return c;
 	}
+#endif
 	
 	/* get en_id & slot_id */
 	ret = disk_get_enid_slotid(dev,&en_id,&slot_id);
@@ -811,12 +1075,15 @@ static int disk_analyze_partition(const char *dev)
 	if (pool_name != NULL) {
 		zhp = zpool_open_canfail(tmp_gzfs, pool_name);
 		if (zhp != NULL) {
-
+#if 0
 			if (strncmp(dev, "/dev/rdsk/", 10) == 0) {
 				(void) snprintf(dev_path, 256, "%s%s", "/dev/dsk/", dev + 10);
 			} else {
 				strcpy(dev_path,dev);
 			}
+#else
+			memcpy(dev_path, dev, strlen(dev));
+#endif
 
 			/* if the disk in the pool;can't initialize */
 			nvroot = zpool_get_nvroot(zhp);
@@ -869,6 +1136,7 @@ main(int argc, char **argv) {
 	char *led_operation = "";
 	dmg_lun_t dmt;
 	int ledxy = 0;
+	int all = 0;
 
 	if (argc > 1) {
 		subcommand = *(++argv);
@@ -920,18 +1188,17 @@ main(int argc, char **argv) {
 	}
 	if (!status) {
 		if ((strcasecmp(subcommand, SUBC_LIST) == 0) || !argc) {
-			status = list_disks();
-			if (disk_check_dothill_enclosure()
-				&& (disk_get_enclosure_amount() != 0)) {
-				system(SET_ENCLOSURE_ID);
-			}
+			status = list_disks(all);
+		} else if (strcasecmp(subcommand, SUBC_LIST_ALL) == 0) {
+			all = 1;
+			status = list_disks(all);
 		} else if (strcasecmp(subcommand, SUBC_LIST_SLICES) == 0) {
 			status = disk_list_slices(&req_parms, 1);
 		} else if (strcasecmp(subcommand, SUBC_CREATE) == 0) {
 			status = create_slice(&req_parms);
 		} else if (strcasecmp(subcommand, SUBC_INIT) == 0) {
-			//if (disk_analyze_partition(req_parms.disk_name) == 'y')
-			status = disk_init(&req_parms);
+			if (disk_analyze_partition(req_parms.disk_name) == 'y')
+				status = disk_init(&req_parms);
 		} else if (strcasecmp(subcommand, SUBC_DELETE) == 0) {
 			status = delete_slice(&req_parms);
 		} else if (strcasecmp(subcommand, SUBC_GAPS) == 0) {
@@ -1438,10 +1705,17 @@ disk_init(slice_req_t *req)
 	int status;
 	zpool_stamp_t *stamp = NULL;
 	zpool_stamp_t *stamp_tmp = NULL;
+	char args[ARGS_LEN] = {0};
 	
 	if (status = get_disk_name(req, SUBC_INIT))
 		return (status);
 	
+	(void) get_system_disk(args);
+	if (strncmp(args, req->disk_name, 8) == 0) {
+		printf("sorry, this is system disk!\n");
+		return (-1); 
+	}
+
 	/*
 	 * Initialize zfs label info
 	 */
@@ -1451,6 +1725,7 @@ disk_init(slice_req_t *req)
 		zpool_read_stmp_by_path(req->disk_name,stamp_tmp);
 	}
 
+#if 0
 	/* save disk label when arg2 save_rescover==1 */
 	if (zpool_restore_dev_labels(req->disk_name, 1) != 0) {
 		printf("save label fail\n");
@@ -1458,7 +1733,6 @@ disk_init(slice_req_t *req)
 	
 	zpool_init_dev_labels(req->disk_name);
 		
-#if 0
 	strcpy(buffer, req->disk_name);
 	len = strlen(req->disk_name);
 	/*
@@ -1478,6 +1752,9 @@ disk_init(slice_req_t *req)
 		}
 	}
 #endif
+	/* add init efi */
+	(void) disk_init_efi(req->disk_name);
+
 	/*
 	 * Initialize zfs stamp info
 	 */
@@ -1491,7 +1768,6 @@ disk_init(slice_req_t *req)
 		free(stamp);
 		
 	}
-	syslog(LOG_ERR,"disk init  %s",req->disk_name);
 	free(stamp_tmp);
 	//system("/usr/sbin/devfsadm");
 	return (0);
@@ -1573,6 +1849,7 @@ static int disk_mark(slice_req_t *req)
 	ret = get_disk_name(req, SUBC_MARK);
 	if (ret)
 		return (ret);
+#if 0
 	strcpy(buffer, req->disk_name);
 	
 	len = strlen(buffer);
@@ -1587,36 +1864,41 @@ static int disk_mark(slice_req_t *req)
 	 *shows this disk is free
 	 */
 		sprintf(drv_opath,"%s%s",buffer,"p0");
-		if ((fd = open(drv_opath, O_RDONLY|O_NDELAY)) >= 0) {
-			if ((err = efi_alloc_and_read(fd, &vtoc)) >= 0) {
-				for(i = 0; i < vtoc->efi_nparts; i++){
-					if(vtoc->efi_parts[i].p_size != 0){
-						slice_count = i;
-						break;
-					}
+#else
+	memcpy(drv_opath, req->disk_name, strlen(req->disk_name));
+#endif
+	if ((fd = open(drv_opath, O_RDONLY|O_NDELAY)) >= 0) {
+		if ((err = efi_alloc_and_read(fd, &vtoc)) >= 0) {
+			for(i = 0; i < vtoc->efi_nparts; i++){
+				if(vtoc->efi_parts[i].p_size != 0){
+					slice_count = i;
+					break;
 				}
-				efi_free(vtoc);
 			}
-			(void) close(fd);
-		}else {
-			syslog(LOG_ERR, "disk mark open path:<%s> failed.", drv_opath);
-			ret = 1;
-			return (ret);
+			efi_free(vtoc);
 		}
+		(void) close(fd);
+	}else {
+		syslog(LOG_ERR, "disk mark open path:<%s> failed.", drv_opath);
+		ret = 1;
+		return (ret);
+	}
 
-		if(slice_count != 8){
-			printf("%s is not free,don't need mark\n",buffer);
-			ret = 1;
-			return (ret);
-		}
+	if(slice_count != 8){
+		printf("%s is not free,don't need mark\n",buffer);
+		ret = 1;
+		return (ret);
+	}
+#if 0
 /*add by jbzhao 20151202 begin*/
 	}
 /*add by jbzhao 20151202 end */
+#endif
 	stamp = malloc(sizeof(zpool_stamp_t));
 	if (stamp != NULL) {
 		bzero(stamp, sizeof(zpool_stamp_t));
 		stamp->para.company_name = COMPANY_NAME;
-		ret=zpool_write_dev_stamp_mark(buffer, stamp);
+		ret=zpool_write_dev_stamp_mark(req->disk_name, stamp);
 		free(stamp);
 	}
 	if(ret)

@@ -2197,6 +2197,17 @@ zpool_vdev_is_interior(const char *name)
 }
 
 nvlist_t *
+zpool_get_nvroot(zpool_handle_t *zhp)
+{
+	nvlist_t *nvroot;
+
+	verify(nvlist_lookup_nvlist(zhp->zpool_config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+	
+	return (nvroot);
+}
+
+nvlist_t *
 zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare,
     boolean_t *l2cache, boolean_t *log)
 {
@@ -4294,4 +4305,25 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, char *name)
 	}
 
 	return (0);
+}
+
+void
+zpool_release_pool(zpool_handle_t *hdl, char *name,
+	zfs_hbx_ioc_t command, uint32_t rid)
+{
+	zfs_cmd_t zc = { 0 };
+	libzfs_handle_t *libzfs_handle;
+	
+	strcpy(zc.zc_name, name);
+	zc.zc_cookie = command;
+	zc.zc_perm_action = rid;
+	if (hdl)
+		zfs_ioctl(hdl->zpool_hdl, ZFS_IOC_HBX, &zc);
+	else {
+		libzfs_handle = libzfs_init();
+		if (libzfs_handle) {
+			zfs_ioctl(libzfs_handle, ZFS_IOC_HBX, &zc);
+			libzfs_fini(libzfs_handle);
+		}
+	}
 }

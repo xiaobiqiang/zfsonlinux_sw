@@ -5,6 +5,9 @@ COMMON_H = \
 	$(top_srcdir)/include/sys/arc_impl.h \
 	$(top_srcdir)/include/sys/avl.h \
 	$(top_srcdir)/include/sys/avl_impl.h \
+	$(top_srcdir)/include/sys/cluster_san.h \
+	$(top_srcdir)/include/sys/cn_hbx.h \
+	$(top_srcdir)/include/sys/fmd_transport.h \
 	$(top_srcdir)/include/sys/blkptr.h \
 	$(top_srcdir)/include/sys/bplist.h \
 	$(top_srcdir)/include/sys/bpobj.h \
@@ -100,6 +103,7 @@ COMMON_H = \
 
 KERNEL_H = \
 	$(top_srcdir)/include/sys/zfs_ioctl.h \
+	$(top_srcdir)/include/sys/zfs_mirror.h \
 	$(top_srcdir)/include/sys/zfs_onexit.h \
 	${top_srcdir}/include/sys/zpl.h \
 	$(top_srcdir)/include/sys/zvol.h

@@ -1151,6 +1151,8 @@ spa_activate(spa_t *spa, int mode)
 	 */
 	spa->spa_zvol_taskq = taskq_create("z_zvol", 1, defclsyspri,
 	    1, INT_MAX, 0);
+
+	spa_quantum_init(spa);
 }
 
 /*
@@ -1301,6 +1303,9 @@ spa_unload(spa_t *spa)
 		txg_sync_stop(spa->spa_dsl_pool);
 		spa->spa_sync_on = B_FALSE;
 	}
+
+	if (spa->spa_num_of_quantums != 0)
+		spa_quantum_stop_all(spa);
 
 	/*
 	 * Wait for any outstanding async I/O to complete.
@@ -5841,7 +5846,7 @@ spa_sync_nvlist(spa_t *spa, uint64_t obj, nvlist_t *nv, dmu_tx_t *tx)
 	    KM_SLEEP) == 0);
 	bzero(packed + nvsize, bufsize - nvsize);
 
-	dmu_write(spa->spa_meta_objset, obj, 0, bufsize, packed, tx);
+    dmu_write(spa->spa_meta_objset, obj, 0, bufsize, packed, tx, B_FALSE);
 
 	vmem_free(packed, bufsize);
 
@@ -5925,6 +5930,34 @@ spa_sync_config_object(spa_t *spa, dmu_tx_t *tx)
 	spa->spa_config_syncing = config;
 
 	spa_sync_nvlist(spa, spa->spa_config_object, config, tx);
+}
+
+static void
+spa_update_config_object(spa_t *spa, dmu_tx_t *tx)
+{
+	nvlist_t *config;
+
+	if (list_is_empty(&spa->spa_config_dirty_list))
+		return;
+
+	spa_config_enter(spa, SCL_STATE, FTAG, RW_READER);
+
+	config = spa_config_generate(spa, spa->spa_root_vdev,
+	    dmu_tx_get_txg(tx), B_FALSE);
+
+	/*
+	 * If we're upgrading the spa version then make sure that
+	 * the config object gets updated with the correct version.
+	 */
+	if (spa->spa_ubsync.ub_version < spa->spa_uberblock.ub_version)
+		fnvlist_add_uint64(config, ZPOOL_CONFIG_VERSION,
+		    spa->spa_uberblock.ub_version);
+
+	spa_config_exit(spa, SCL_STATE, FTAG);
+
+	if (spa->spa_config_syncing)
+		nvlist_free(spa->spa_config_syncing);
+	spa->spa_config_syncing = config;
 }
 
 static void
@@ -6333,6 +6366,10 @@ spa_sync(spa_t *spa, uint64_t txg)
 				error = vdev_config_sync(svd, svdcount, txg,
 				    B_TRUE);
 		} else {
+			spa_choose_quantum_dev(spa);
+			spa_config_exit(spa, SCL_STATE, FTAG);
+			spa_update_config_object(spa, tx);
+			spa_config_enter(spa, SCL_STATE, FTAG, RW_READER);
 			error = vdev_config_sync(rvd->vdev_child,
 			    rvd->vdev_children, txg, B_FALSE);
 			if (error != 0)

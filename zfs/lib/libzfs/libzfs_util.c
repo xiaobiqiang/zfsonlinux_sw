@@ -1835,6 +1835,72 @@ zprop_iter(zprop_func func, void *cb, boolean_t show_all, boolean_t ordered,
 {
 	return (zprop_iter_common(func, cb, show_all, ordered, type));
 }
+
+void
+zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
+    uint64_t flags)
+{
+    int err;
+    zfs_cmd_t zc = { 0 };
+
+
+    if (flags == ENABLE_MIRROR) {
+        if (mirror_to != NULL) {
+            zc.zc_perm_action = (uint64_t)strtol(mirror_to, NULL, 10);
+        } else {
+            zc.zc_perm_action = 0;
+        }
+    }
+
+    zc.zc_cookie = flags;
+
+    err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MIRROR, &zc);
+    if (flags == SHOW_MIRROR) {
+        printf("Mirror state:%s\r\n", zc.zc_string);
+    } else if (flags == DISABLE_MIRROR) {
+        if (err != 0) {
+            switch ((int)zc.zc_guid) {
+            case -1:
+                printf("zfs mirror wasn't initialized!\r\n");
+                break;
+            case -2:
+                printf("zfs mirror is busy now, close failed!\r\n");
+                break;
+            default:
+                break;
+            }
+        }
+    } else if (flags == ENABLE_MIRROR) {
+        if (err != 0) {
+            switch ((int)zc.zc_guid) {
+            case -1:
+                printf("zfs mirror alread opened!\r\n");
+                break;
+            case -2:
+                printf("zfs mirror initialize failed!\r\n");
+                break;
+            default:
+                break;
+            }
+        }
+    }
+}
+
+int
+zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt, uint8_t need_reply)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+
+	zc.zc_guid = bs;
+	zc.zc_cookie = cnt;
+	zc.zc_simple = need_reply;
+
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_MIRROR_SPEED_TEST, &zc);
+
+	return err;
+}
+
 int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen)
 {
 	int err;
@@ -1930,7 +1996,7 @@ int zfs_enable_clustersan(libzfs_handle_t *hdl, char *clustername,
 	char *linkname, nvlist_t *conf, uint64_t flags)
 {
 	int err;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 
 	if ((clustername == NULL) && (linkname == NULL)) {
 		(void) printf("must give the -n or -l option\n");
@@ -1968,7 +2034,7 @@ int zfs_enable_clustersan(libzfs_handle_t *hdl, char *clustername,
 int zfs_disable_clustersan(libzfs_handle_t *hdl, uint64_t flags)
 {
 	int err;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	zc.zc_cookie = ZFS_CLUSTERSAN_DISABLE;
 	zc.zc_guid = flags;
 	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
@@ -1982,7 +2048,7 @@ int zfs_disable_clustersan(libzfs_handle_t *hdl, uint64_t flags)
 int zfs_disable_clustersan_target(libzfs_handle_t *hdl, char *linkname, uint64_t flags)
 {
 	int err;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 
 	if (linkname == NULL) {
 		(void) printf("linkname is NULL\n");
@@ -2007,7 +2073,7 @@ nvlist_t *zfs_clustersan_get_nvlist(libzfs_handle_t *hdl, uint32_t cmd,
 {
 	int err;
 	nvlist_t *nvl;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	zc.zc_cookie = cmd;
 	zc.zc_perm_action = (uintptr_t)arg;
 	zc.zc_guid = flags;
@@ -2051,7 +2117,7 @@ nvlist_t *zfs_clustersan_get_targetlist(libzfs_handle_t *hdl, uint64_t flags)
 int zfs_clustersan_set_prop(libzfs_handle_t *hdl,
 	const char *prop, const char *value)
 {
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	int err;
 	strcpy(zc.zc_name, prop);
 	strcpy(zc.zc_value, value);
@@ -2066,7 +2132,7 @@ int zfs_clustersan_set_prop(libzfs_handle_t *hdl,
 
 int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg)
 {
-	zfs_cmd_t zc = {0};
+	zfs_cmd_t zc = {"\0"};
 	int err;
 	zc.zc_cookie = ZFS_CLUSTERSAN_IOC_RPC_CLNT;
 	zc.zc_guid = cmd;
@@ -2080,7 +2146,7 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid)
 {
 	int err;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	nvlist_t *nvl;
 
 	if (cmd_str == NULL) {
@@ -2112,6 +2178,115 @@ nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 
 	zcmd_free_nvlists(&zc);
 	return (nvl);
+}
+
+int
+zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
+	uint32_t hostid, nvlist_t **nv_ptr)
+{
+	nvlist_t *nvl;
+	zfs_cmd_t zc = {"\0"};
+	int err;
+
+	zc.zc_cookie = cmd;
+	zc.zc_perm_action = hostid;
+	if ((err = zcmd_alloc_dst_nvlist(hdl, &zc, 0)) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (err);
+	}
+
+	while ((err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX,
+	    &zc)) != 0 && errno == ENOMEM) {
+		if ((err = zcmd_expand_dst_nvlist(hdl, &zc)) != 0) {
+			zcmd_free_nvlists(&zc);
+			return (err);
+		}
+	}
+
+	if (err) {
+		zcmd_free_nvlists(&zc);
+		return (err);
+	}
+
+	if ((err = zcmd_read_dst_nvlist(hdl, &zc, &nvl)) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (err);
+	}
+
+	zcmd_free_nvlists(&zc);
+
+	*nv_ptr = nvl;
+	return (0);
+}
+
+void
+zfs_do_hbx_process(libzfs_handle_t *hdl, char *buffer, int size, uint64_t flags)
+{
+	int err, value;
+	char *string;
+	zfs_cmd_t zc = {"\0"};
+
+	if (flags == ZFS_HBX_SET) {
+		if (buffer == NULL)
+			return;
+		
+		string = strchr(buffer, '=');
+		if (string == NULL)
+			return;
+		if (strstr(buffer, "timeout")) {
+			string += 1;
+			value = strtol(string, NULL, 10);
+			zc.zc_perm_action = value;
+		}
+		strcpy(zc.zc_string, buffer);
+	} else if (flags == ZFS_HBX_NIC_UPDATE || 
+	              flags == ZFS_HBX_KEYFILE_UPDATE||
+	              flags == ZFS_HBX_KEYPATH_UPDATE||
+	              flags == ZFS_HBX_RCMD_UPDATE||
+	              flags == ZFS_HBX_SYNCKEY_RESULT||
+	              flags == ZFS_HBX_MPTSAS_DOWN||
+	              flags == ZFS_HBX_FC_DOWN ||
+	              flags == ZFS_HBX_MAC_STAT ||
+	              flags == ZFS_HBX_SEND_IPMI_IP ||
+	              flags == ZFS_HBX_MIRROR_TIMEOUT_SWITCH ||
+	              flags == ZFS_HBX_RELEASE_POOLS ||
+	              flags == ZFS_HBX_CLUSTERSAN_SYNC_CMD ||
+	              flags == ZFS_HBX_SYNC_POOL) {
+		zc.zc_nvlist_conf = (uintptr_t)buffer;
+		zc.zc_nvlist_conf_size = size;
+	}
+
+	zc.zc_cookie = flags;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX, &zc);
+#if	0
+	if (flags == ZFS_HBX_LIST) {
+		printf("PROPERTY\t\tVALUE\n%s", zc.zc_string);
+	}
+#endif
+}
+
+void
+zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
+	uint64_t flags, int remote_id)
+{
+	int err;
+	zfs_cmd_t zc = {"\0"};
+
+	if (flags == ZFS_HBX_RELEASE_POOLS ||
+		flags == ZFS_HBX_CLUSTER_IMPORT) {
+		zc.zc_nvlist_conf = (uintptr_t)buffer;
+		zc.zc_nvlist_conf_size = size;
+		zc.zc_perm_action = remote_id;
+	} else {
+		return;
+	}
+
+	zc.zc_cookie = flags;
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_HBX, &zc);
+	if (err < 0) {
+		syslog(LOG_ERR, "%s: ioctl failed, flags=0x%llx",
+			__func__, (unsigned long long)flags);
+	}
 }
 
 int

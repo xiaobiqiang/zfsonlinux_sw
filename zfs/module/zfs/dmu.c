@@ -46,9 +46,25 @@
 #include <sys/zio_compress.h>
 #include <sys/sa.h>
 #include <sys/zfeature.h>
+#include <sys/spa_impl.h>
 #ifdef _KERNEL
 #include <sys/vmsystm.h>
 #include <sys/zfs_znode.h>
+#include <sys/zfs_mirror.h>
+#include <sys/zvol.h>
+#endif
+
+#ifdef _KERNEL
+static int dmu_mirror_write_data(dmu_buf_t *db,
+    char *data, uint64_t offset, uint64_t size,
+    uint64_t txg,  zfs_mirror_data_type_t type);
+
+static void dmu_write_mirror(objset_t *os, dmu_buf_t *db,
+    uint64_t object, uint64_t offset, uint64_t size,
+    const void *data, dmu_tx_t *tx, boolean_t b_sync);
+
+static int dmu_handle_write_optimize(dmu_buf_impl_t *db,
+    arc_buf_t *data, dmu_tx_t *tx, uint64_t buf_off, uint64_t buf_len);
 #endif
 
 /*
@@ -460,6 +476,15 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 				dmu_buf_rele_array(dbp, nblks, tag);
 				return (err);
 			}
+#ifdef _KERNEL
+            mutex_enter(&db->db_seg_mtx);
+            if (db->db_has_segments) {
+                dbuf_handle_segs(db, B_TRUE, 0);
+                dbuf_data_reload(db);
+            } else {
+                mutex_exit(&db->db_seg_mtx);
+            }
+#endif
 		}
 	}
 
@@ -812,10 +837,14 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 
 void
 dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
-    const void *buf, dmu_tx_t *tx)
+    const void *buf, dmu_tx_t *tx, boolean_t b_mirror)
 {
+    uint64_t txg_id;
 	dmu_buf_t **dbp;
 	int numbufs, i;
+    dmu_buf_impl_t *db_impl;
+
+    txg_id = tx->tx_txg & TXG_MASK;
 
 	if (size == 0)
 		return;
@@ -826,7 +855,8 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	for (i = 0; i < numbufs; i++) {
 		uint64_t tocpy;
 		int64_t bufoff;
-		dmu_buf_t *db = dbp[i];
+        dmu_buf_t *db = dbp[i];
+        db_impl = (dmu_buf_impl_t *)db;
 
 		ASSERT(size > 0);
 
@@ -835,13 +865,47 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 
 		ASSERT(i == 0 || i == numbufs-1 || tocpy == db->db_size);
 
+#ifdef _KERNEL
+        dmu_objset_remove_seg_cache(os, db_impl);
+
+        if (tocpy == db->db_size) {
+            dmu_buf_will_fill(db, tx);
+            mutex_enter(&db_impl->db_seg_mtx);
+            if (db_impl->db_has_segments) {
+                dbuf_handle_segs(db_impl, B_FALSE, tx->tx_txg);
+            } else {
+                mutex_exit(&db_impl->db_seg_mtx);
+            }
+            bcopy(buf, (char *)db->db_data + bufoff, tocpy);
+        } else {
+            arc_buf_t *data;
+            boolean_t b_woptimize;
+            /*b_woptimize = dmu_write_optimize(db);*/
+			b_woptimize = B_FALSE;
+			
+            if (b_mirror && b_woptimize) {
+                data = dmu_request_arcbuf(db, tocpy);
+                bcopy(buf, data->b_data, tocpy);
+                dmu_handle_write_optimize(db_impl, data, tx, bufoff, tocpy);
+            } else {
+                dmu_buf_will_dirty(db, tx);
+                mutex_enter(&db_impl->db_seg_mtx);
+                if (db_impl->db_has_segments) {
+                    dbuf_handle_segs(db_impl, B_TRUE, tx->tx_txg);
+                } else {
+                    mutex_exit(&db_impl->db_seg_mtx);
+                }
+                bcopy(buf, (char *)db->db_data + bufoff, tocpy);
+            }
+        }
+#else
 		if (tocpy == db->db_size)
 			dmu_buf_will_fill(db, tx);
 		else
 			dmu_buf_will_dirty(db, tx);
 
 		(void) memcpy((char *)db->db_data + bufoff, buf, tocpy);
-
+#endif
 		if (tocpy == db->db_size)
 			dmu_buf_fill_done(db, tx);
 
@@ -1041,7 +1105,6 @@ xuio_stat_wbuf_nocopy()
 }
 
 #ifdef _KERNEL
-
 /*
  * Copy up to size bytes between arg_buf and req based on the data direction
  * described by the req.  If an entire req's data cannot be transfered in one
@@ -1146,17 +1209,22 @@ dmu_read_bio(objset_t *os, uint64_t object, struct bio *bio)
 }
 
 int
-dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio, dmu_tx_t *tx)
+dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio, dmu_tx_t *tx,
+    uint64_t write_flag)
 {
 	uint64_t offset = BIO_BI_SECTOR(bio) << 9;
 	uint64_t size = BIO_BI_SIZE(bio);
 	dmu_buf_t **dbp;
 	int numbufs, i, err;
 	size_t bio_offset;
+    boolean_t b_sync;
+    dmu_buf_impl_t *db_implp;
+
+    b_sync = write_flag & WRITE_FLAG_APP_SYNC;
 
 	if (size == 0)
 		return (0);
-
+	
 	err = dmu_buf_hold_array(os, object, offset, size, FALSE, FTAG,
 	    &numbufs, &dbp);
 	if (err)
@@ -1167,7 +1235,12 @@ dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio, dmu_tx_t *tx)
 		uint64_t tocpy;
 		int64_t bufoff;
 		int didcpy;
+        int mirror_success = 1;
 		dmu_buf_t *db = dbp[i];
+
+        db_implp = (dmu_buf_impl_t *)db;
+
+		dmu_objset_remove_seg_cache(os, db_implp);
 
 		bufoff = offset - db->db_offset;
 		ASSERT3S(bufoff, >=, 0);
@@ -1178,13 +1251,60 @@ dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio, dmu_tx_t *tx)
 
 		ASSERT(i == 0 || i == numbufs-1 || tocpy == db->db_size);
 
-		if (tocpy == db->db_size)
-			dmu_buf_will_fill(db, tx);
-		else
-			dmu_buf_will_dirty(db, tx);
+        if (tocpy == db->db_size) {
+            mutex_enter(&db_implp->db_seg_mtx);
+            if (db_implp->db_has_segments) {
+                dbuf_handle_segs(db_implp, B_FALSE, tx->tx_txg);
+            } else {
+                mutex_exit(&db_implp->db_seg_mtx);
+            }
+			
+            dmu_buf_will_fill(db, tx);
+			
+            didcpy = dmu_bio_copy(db->db_data + bufoff, tocpy, bio,
+                bio_offset);
 
-		didcpy = dmu_bio_copy(db->db_data + bufoff, tocpy, bio,
-		    bio_offset);
+            if (b_sync) {
+                mirror_success = dmu_mirror_write_data(db,
+                    (char *) ((char *)db->db_data + bufoff),
+                    db->db_offset, tocpy, tx->tx_txg, MIRROR_DATA_ALIGNED);
+            }
+        } else {
+            boolean_t b_woptimize;
+            arc_buf_t *tmp_data = NULL;
+            zfs_mirror_data_type_t type;
+            /*b_woptimize = dmu_write_optimize(db);*/
+			b_woptimize = B_FALSE;
+
+            if (b_woptimize) {
+                type = MIRROR_DATA_UNALIGNED;
+            } else {
+                type = MIRROR_DATA_ALIGNED;
+            }
+
+            tmp_data = dmu_request_arcbuf(db, tocpy);
+            didcpy = dmu_bio_copy((char *)tmp_data->b_data, tocpy, bio,
+                bio_offset);
+			
+            mirror_success = dmu_mirror_write_data(db, tmp_data->b_data,
+                bufoff + db->db_offset, tocpy, tx->tx_txg, type);
+
+            if (b_woptimize && mirror_success == 0) {
+                dmu_handle_write_optimize(db_implp, tmp_data, tx, bufoff, tocpy);
+            } else {
+                dmu_buf_will_dirty(db, tx);
+
+                mutex_enter(&db_implp->db_seg_mtx);
+                if (db_implp->db_has_segments) {
+                    dbuf_handle_segs(db_implp, B_TRUE, tx->tx_txg);
+                } else {
+                    mutex_exit(&db_implp->db_seg_mtx);
+                }
+
+                bcopy(tmp_data->b_data, (char *)db->db_data + bufoff, tocpy);
+                dmu_return_arcbuf(tmp_data);
+            }
+        }
 
 		if (tocpy == db->db_size)
 			dmu_buf_fill_done(db, tx);
@@ -1193,7 +1313,13 @@ dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio, dmu_tx_t *tx)
 			err = EIO;
 
 		if (err)
-			break;
+            break;
+
+        if (mirror_success > 0  && b_sync) {
+            dmu_direct_write(db, tx);
+            if (!tx->tx_bdirect)
+                tx->tx_bdirect = B_TRUE;
+        }
 
 		size -= tocpy;
 		offset += didcpy;
@@ -1265,6 +1391,39 @@ dmu_read_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size)
 	return (err);
 }
 
+void
+dmu_buf_reread(dmu_buf_t *db) {
+    uint64_t object, offset, len;
+    int numbufs, err;
+    dnode_t *dn;
+    objset_t *os;
+    rl_t *rl;
+    dmu_buf_t **dbp = NULL;
+    dmu_buf_impl_t *db_impl;
+
+    db_impl = (dmu_buf_impl_t *)db;
+    DB_DNODE_ENTER(db_impl);
+    dn = DB_DNODE(db_impl);
+    object = dn->dn_object;
+    os = dn->dn_objset;
+
+
+    offset = db_impl->db.db_offset;
+    len = db_impl->db.db_size;
+
+    rl = dmu_objset_lock_seg_data(os, object, offset,len, RL_READER);
+    err = dmu_buf_hold_array_by_dnode(dn, offset, len, B_TRUE, FTAG,
+        &numbufs, &dbp, DMU_READ_NO_PREFETCH);
+    if (err == 0)
+        dmu_buf_rele_array(dbp, numbufs, FTAG);
+    dmu_objset_unlock_seg_data(os, rl);
+    if (db_impl->db_dnode_handle == NULL) {
+        cmn_err(CE_WARN, "db dnode handle is free");
+    } else {
+        DB_DNODE_EXIT(db_impl);
+    }
+}
+
 /*
  * Read 'size' bytes into the uio buffer.
  * From object zdb->db_object.
@@ -1319,12 +1478,17 @@ dmu_read_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size)
 EXPORT_SYMBOL(dmu_read_uio);
 
 static int
-dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size, dmu_tx_t *tx)
+dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
+    dmu_tx_t *tx, uint64_t write_flag)
 {
 	dmu_buf_t **dbp;
 	int numbufs;
 	int err = 0;
 	int i;
+    boolean_t b_sync;
+    dmu_buf_impl_t *db_implp;
+
+    b_sync = write_flag & WRITE_FLAG_APP_SYNC;
 
 	err = dmu_buf_hold_array_by_dnode(dn, uio->uio_loffset, size,
 	    FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH);
@@ -1334,7 +1498,11 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size, dmu_tx_t *tx)
 	for (i = 0; i < numbufs; i++) {
 		uint64_t tocpy;
 		int64_t bufoff;
+        int mirror_success = 1;
 		dmu_buf_t *db = dbp[i];
+        db_implp = (dmu_buf_impl_t *)db;
+
+        dmu_objset_remove_seg_cache(dn->dn_objset, db_implp);
 
 		ASSERT(size > 0);
 
@@ -1343,27 +1511,70 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size, dmu_tx_t *tx)
 
 		ASSERT(i == 0 || i == numbufs-1 || tocpy == db->db_size);
 
-		if (tocpy == db->db_size)
+        if (tocpy == db->db_size) {
+            mutex_enter(&db_implp->db_seg_mtx);
+            if (db_implp->db_has_segments) {
+                dbuf_handle_segs(db_implp, B_FALSE, tx->tx_txg);
+            } else {
+                mutex_exit(&db_implp->db_seg_mtx);
+            }
+			
 			dmu_buf_will_fill(db, tx);
-		else
-			dmu_buf_will_dirty(db, tx);
+            err = uiomove((char *)db->db_data + bufoff, tocpy,
+                UIO_WRITE, uio);
+			
+            if (b_sync) {
+                mirror_success = dmu_mirror_write_data(db,
+                    (char *)((char *)db->db_data + bufoff),
+                    db->db_offset, tocpy, tx->tx_txg, MIRROR_DATA_ALIGNED);
+            }
+        } else {
+            boolean_t b_woptimize;
+            arc_buf_t *tmp_data = NULL;
+            zfs_mirror_data_type_t type;
+            /*b_woptimize = dmu_write_optimize(db);*/
+			b_woptimize = B_FALSE;
 
-		/*
-		 * XXX uiomove could block forever (eg.nfs-backed
-		 * pages).  There needs to be a uiolockdown() function
-		 * to lock the pages in memory, so that uiomove won't
-		 * block.
-		 */
-		err = uiomove((char *)db->db_data + bufoff, tocpy,
-		    UIO_WRITE, uio);
+            if (b_woptimize) {
+                type = MIRROR_DATA_UNALIGNED;
+            } else {
+                type = MIRROR_DATA_ALIGNED;
+            }
+			
+            tmp_data = dmu_request_arcbuf(db, tocpy);
+            err = uiomove((char *)tmp_data->b_data, tocpy, UIO_WRITE, uio);
+            mirror_success = dmu_mirror_write_data(db, tmp_data->b_data,
+                bufoff + db->db_offset, tocpy, tx->tx_txg, type);
 
-		if (tocpy == db->db_size)
-			dmu_buf_fill_done(db, tx);
+            if (b_woptimize && mirror_success == 0) {
+                dmu_handle_write_optimize(db_implp, tmp_data, tx, bufoff, tocpy);
+            } else {
+                dmu_buf_will_dirty(db, tx);
+                mutex_enter(&db_implp->db_seg_mtx);
+                if (db_implp->db_has_segments) {
+                    dbuf_handle_segs(db_implp, B_TRUE, tx->tx_txg);
+                } else {
+                    mutex_exit(&db_implp->db_seg_mtx);
+                }
+
+                bcopy(tmp_data->b_data, (char *)db->db_data + bufoff, tocpy);
+                dmu_return_arcbuf(tmp_data);
+            }
+        }
+
+        size -= tocpy;
+
+        if (tocpy == db->db_size)
+            dmu_buf_fill_done(db, tx);
 
 		if (err)
 			break;
 
-		size -= tocpy;
+		if (mirror_success > 0  && b_sync) {
+			dmu_direct_write(db, tx);
+			if (!tx->tx_bdirect)
+				tx->tx_bdirect = B_TRUE;
+		}		
 	}
 
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
@@ -1381,18 +1592,22 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size, dmu_tx_t *tx)
  */
 int
 dmu_write_uio_dbuf(dmu_buf_t *zdb, uio_t *uio, uint64_t size,
-    dmu_tx_t *tx)
+    dmu_tx_t *tx, boolean_t b_sync)
 {
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)zdb;
 	dnode_t *dn;
 	int err;
+    uint64_t write_flag = 0;
 
 	if (size == 0)
 		return (0);
 
+    if (b_sync)
+        write_flag |= WRITE_FLAG_APP_SYNC;
+
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
-	err = dmu_write_uio_dnode(dn, uio, size, tx);
+    err = dmu_write_uio_dnode(dn, uio, size, tx, write_flag);
 	DB_DNODE_EXIT(db);
 
 	return (err);
@@ -1405,7 +1620,7 @@ dmu_write_uio_dbuf(dmu_buf_t *zdb, uio_t *uio, uint64_t size,
  */
 int
 dmu_write_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size,
-    dmu_tx_t *tx)
+    dmu_tx_t *tx, uint64_t write_flag)
 {
 	dnode_t *dn;
 	int err;
@@ -1417,7 +1632,7 @@ dmu_write_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size,
 	if (err)
 		return (err);
 
-	err = dmu_write_uio_dnode(dn, uio, size, tx);
+    err = dmu_write_uio_dnode(dn, uio, size, tx, write_flag);
 
 	dnode_rele(dn, FTAG);
 
@@ -1433,8 +1648,11 @@ arc_buf_t *
 dmu_request_arcbuf(dmu_buf_t *handle, int size)
 {
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)handle;
+    spa_t *spa;
 
-	return (arc_loan_buf(db->db_objset->os_spa, size));
+    DB_GET_SPA(&spa, db);
+    /*return (arc_loan_buf(db->db_objset->os_spa, size));*/
+    return (arc_loan_buf(spa, size));
 }
 
 /*
@@ -1454,13 +1672,17 @@ dmu_return_arcbuf(arc_buf_t *buf)
  */
 void
 dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
-    dmu_tx_t *tx)
+    dmu_tx_t *tx, boolean_t b_sync)
 {
+    uint8_t txg_off;
+    int mirror_success = 0;
 	dmu_buf_impl_t *dbuf = (dmu_buf_impl_t *)handle;
 	dnode_t *dn;
 	dmu_buf_impl_t *db;
 	uint32_t blksz = (uint32_t)arc_buf_size(buf);
 	uint64_t blkid;
+
+    txg_off = tx->tx_txg & TXG_MASK;
 
 	DB_DNODE_ENTER(dbuf);
 	dn = DB_DNODE(dbuf);
@@ -1479,6 +1701,15 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 	if (offset == db->db.db_offset && blksz == db->db.db_size &&
 	    DBUF_GET_BUFC_TYPE(db) == ARC_BUFC_DATA) {
 		dbuf_assign_arcbuf(db, buf, tx);
+#ifdef _KERNEL
+        mirror_success = dmu_mirror_write_data(&db->db, (char *)db->db.db_data,
+            db->db.db_offset,  db->db.db_size, tx->tx_txg, MIRROR_DATA_ALIGNED);
+        if (mirror_success > 0 && b_sync) {
+            dmu_direct_write(&db->db, tx);
+            if (!tx->tx_bdirect)
+                tx->tx_bdirect = B_TRUE;
+        }
+#endif
 		dbuf_rele(db, FTAG);
 	} else {
 		objset_t *os;
@@ -1489,9 +1720,13 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 		os = dn->dn_objset;
 		object = dn->dn_object;
 		DB_DNODE_EXIT(dbuf);
-
-		dbuf_rele(db, FTAG);
-		dmu_write(os, object, offset, blksz, buf->b_data, tx);
+#ifdef _KERNEL
+        dmu_write_mirror(os, &db->db, object, offset, blksz,
+            buf->b_data, tx, b_sync);
+#else
+        dmu_write(os, object, offset, blksz, buf->b_data, tx, B_FALSE);
+#endif
+        dbuf_rele(db, FTAG);
 		dmu_return_arcbuf(buf);
 		XUIOSTAT_BUMP(xuiostat_wbuf_copied);
 	}
@@ -1668,6 +1903,7 @@ dmu_sync_late_arrival(zio_t *pio, objset_t *os, dmu_sync_cb_t *done, zgd_t *zgd,
 int
 dmu_sync(zio_t *pio, uint64_t txg, dmu_sync_cb_t *done, zgd_t *zgd)
 {
+    uint8_t txg_off;
 	blkptr_t *bp = zgd->zgd_bp;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)zgd->zgd_db;
 	objset_t *os = db->db_objset;
@@ -1684,6 +1920,7 @@ dmu_sync(zio_t *pio, uint64_t txg, dmu_sync_cb_t *done, zgd_t *zgd)
 	SET_BOOKMARK(&zb, ds->ds_object,
 	    db->db.db_object, db->db_level, db->db_blkid);
 
+    txg_off = txg & TXG_MASK;
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
 	dmu_write_policy(os, dn, db->db_level, WP_DMU_SYNC, &zp);
@@ -2171,6 +2408,273 @@ dmu_free_crypt_data(void *data, uint64_t size)
 {
 	zio_data_buf_free(data, size);
 }
+
+#ifdef _KERNEL
+
+boolean_t
+dmu_write_optimize(dmu_buf_t *db)
+{
+    uint8_t woptimize;
+    boolean_t b_disable_woptimize;
+    dnode_t *dn;
+    objset_t *os;
+    dmu_buf_impl_t *dbp;
+    dmu_object_type_t type;
+
+    dbp = (dmu_buf_impl_t *)db;
+    DB_DNODE_ENTER(dbp);
+    dn = DB_DNODE(dbp);
+    os = dn->dn_objset;
+    type = dn->dn_type ;
+    DB_DNODE_EXIT(dbp);
+
+    b_disable_woptimize = gcache_disable_woptimize();
+    woptimize = dmu_objset_woptimizeprop(os);
+
+#if 1
+    if (b_disable_woptimize ||
+        woptimize == ZFS_WOPTIMIZE_DISABLE ||  dbp->db_level != 0 ||
+#else
+    if (b_disable_woptimize||
+        woptimize == ZFS_WOPTIMIZE_DISABLE || dbp->db_blkptr == NULL ||
+        dbp->db_state != DB_UNCACHED ||  dbp->db_level != 0 ||
+#endif
+    (type != DMU_OT_PLAIN_FILE_CONTENTS && type != DMU_OT_ZVOL) ||
+    (woptimize == ZFS_WOPTIMIZE && (dmu_objset_type(os) == DMU_OST_ZFS))) {
+        return (B_FALSE);
+    }  else {
+        return (B_TRUE);
+    }
+}
+
+static int
+dmu_handle_write_optimize(dmu_buf_impl_t *db,
+    arc_buf_t *data, dmu_tx_t *tx, uint64_t buf_off, uint64_t buf_len)
+{
+    uint64_t object;
+    boolean_t b_full;
+    dnode_t *dn;
+    dbuf_segs_record_t *seg;
+
+
+    DB_DNODE_ENTER(db);
+    dn = DB_DNODE(db);
+    object = dn->dn_object;
+    DB_DNODE_EXIT(db);
+
+    seg = kmem_zalloc(sizeof(dbuf_segs_record_t), KM_SLEEP);
+    seg->seg_record_roffset = buf_off;
+    seg->seg_record_offset = db->db.db_offset + buf_off;
+    seg->seg_record_len = buf_len;
+    seg->seg_dn_object = object;
+    seg->seg_record_data = data;
+    b_full = dbuf_handle_seg(db, seg, tx->tx_txg);
+    if (b_full)  {
+        dmu_buf_will_fill(&db->db, tx);
+        mutex_enter(&db->db_seg_mtx);
+        dbuf_handle_segs(db, B_TRUE, tx->tx_txg);
+        dmu_buf_fill_done(&db->db, tx);
+    }
+
+    return (0);
+}
+
+void
+dmu_direct_write(dmu_buf_t *handle, dmu_tx_t *tx)
+{
+    dbuf_direct_write((dmu_buf_impl_t *)handle, tx);
+}
+
+static int
+dmu_mirror_write_data(dmu_buf_t *db, char *data, uint64_t offset,
+    uint64_t size,  uint64_t txg,  zfs_mirror_data_type_t type)
+{
+    int err;
+    uint64_t spa_id;
+    uint64_t dsl_id;
+    uint64_t dn_object;
+
+    objset_t *os;
+    dnode_t *dn;
+    dmu_buf_impl_t *dbp;
+    dbuf_mirror_io_t *mirror_io = NULL;
+
+    dbp = (dmu_buf_impl_t *)db;
+    DB_GET_OBJSET(&os, dbp);
+    DB_DNODE_ENTER(dbp);
+    dn = DB_DNODE(dbp);
+    DB_DNODE_EXIT(dbp);
+
+    spa_id = spa_guid(dmu_objset_spa(os));
+    dsl_id = os->os_dsl_dataset->ds_object;
+    dn_object = dn->dn_object;
+
+
+    if (os->os_sync == ZFS_SYNC_DISK) {
+        return (1);
+    }
+
+    if (os->os_sync == ZFS_SYNC_STANDARD)
+        return (0);
+
+    if (zfs_mirror_hold_to_tx() != 0) {
+        return (1);
+    }
+
+    if (type == MIRROR_DATA_UNALIGNED) {
+        mirror_io = zfs_mirror_create();
+        if (mirror_io == NULL) {
+            cmn_err(CE_WARN, "zfs mirror create failed");
+            zfs_mirror_rele();
+            return (1);
+        }
+
+        mirror_io->spa_id = spa_id;
+        mirror_io->os_id = dsl_id;
+        mirror_io->object_id = dn_object;
+        mirror_io->blk_id = dbp->db_blkid;
+        mirror_io->offset = offset;
+        mirror_io->hash_key = zfs_mirror_located_keygen(
+            dn_object, dbp->db_blkid, offset);
+        mirror_io->txg = txg;
+        mirror_io->data_type = type;
+        mirror_io->create_time = ddi_get_time();
+
+    }
+
+    err = zfs_mirror_write_data_msg(spa_id, dsl_id, dn_object,
+        dbp->db_blkid, data, offset, size, txg,  type, mirror_io);
+	
+    if (type == MIRROR_DATA_UNALIGNED) {
+        if (err == 0) {
+            dbuf_insert_mirror_io(dbp, mirror_io, txg);
+        } else {
+            zfs_mirror_destroy(mirror_io);
+        }
+    }
+    zfs_mirror_rele();
+    if (dmu_objset_type(os) == DMU_OST_ZFS && err != 0) {
+        err = 0;
+    }
+
+    return (err);
+}
+
+static void
+dmu_write_mirror(objset_t *os, dmu_buf_t *db,
+    uint64_t object, uint64_t offset, uint64_t size,
+    const void *data, dmu_tx_t *tx, boolean_t b_sync)
+{
+        int mirror_success;
+        boolean_t b_woptimize;
+        boolean_t b_mirror;
+        zfs_mirror_data_type_t type;
+
+        b_mirror = B_FALSE;
+        mirror_success = 0;
+
+        /*b_woptimize = dmu_write_optimize(db);*/
+		b_woptimize = B_FALSE;
+        if (b_woptimize) {
+            type = MIRROR_DATA_UNALIGNED;
+        } else {
+            type = MIRROR_DATA_ALIGNED;
+        }
+
+        mirror_success = dmu_mirror_write_data(db, (char *) data,
+            offset,  size, tx->tx_txg, type);
+        if (mirror_success == 0) {
+            b_mirror = B_TRUE;
+        }
+
+        dmu_write(os, object, offset, size, data, tx, b_mirror);
+        if (mirror_success > 0  && b_sync) {
+            dmu_direct_write(db, tx);
+            if (!tx->tx_bdirect)
+                tx->tx_bdirect = B_TRUE;
+        }
+}
+
+int
+dmu_write_mirror_fs(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
+    const void *data, dmu_tx_t *tx, boolean_t b_sync)
+{
+    int error = 0;
+    boolean_t sync;
+    uint64_t bytes;
+    uint64_t write_flag = 0;
+    struct uio uio;
+    struct iovec iov;
+
+    iov.iov_base = (caddr_t)data;
+    iov.iov_len = size;
+    uio.uio_iov = &iov;
+    uio.uio_iovcnt = 1;
+    uio.uio_loffset = offset;
+    uio.uio_segflg = UIO_SYSSPACE;
+    uio.uio_resid = size;
+    uio.uio_limit = RLIM64_INFINITY;
+    /*uio_write*/
+    uio.uio_fmode = FWRITE;
+    uio.uio_extflg = UIO_COPY_DEFAULT;
+
+    sync = dmu_objset_sync_check(os);
+    if (sync) {
+         write_flag |= WRITE_FLAG_APP_SYNC;
+    }
+    bytes = MIN(size, DMU_MAX_ACCESS >> 1);
+
+    error = dmu_write_uio(os, ZVOL_OBJ, &uio, bytes, tx, write_flag);
+
+    return (error);
+}
+
+boolean_t
+dmu_data_newer(objset_t *os, uint64_t data_object,
+    uint64_t data_offset, uint64_t data_txg)
+{
+    int err;
+    uint64_t birth_txg;
+    boolean_t b_newer;
+    dmu_buf_t *db;
+    dmu_buf_impl_t *dbp;
+
+    b_newer = B_FALSE;
+
+    err = dmu_buf_hold(os, data_object, data_offset,
+        FTAG, &db, DMU_NO_READ);
+    if (err ) {
+        b_newer = B_TRUE;
+    } else {
+        dbp = (dmu_buf_impl_t *)db;
+        if (dbp->db_blkptr == NULL) {
+            b_newer = B_TRUE;
+        } else {
+            birth_txg = dbp->db_blkptr->blk_birth;
+            if (data_txg < birth_txg) {
+                if (birth_txg > os->os_spa->spa_first_txg) {
+                    /* birth_txg is updated by mirror cache, all cache is valid */
+                    b_newer = B_TRUE;
+                } else {
+                    b_newer = B_FALSE;
+                }
+            } else {
+                b_newer = B_TRUE;
+            }
+        }
+        dmu_buf_rele(db, FTAG);
+    }
+
+
+    if (!b_newer) {
+        cmn_err(CE_WARN, "birth:0x%llx, data:0x%llx, first:0x%llx, config:0x%llx, syncing:0x%llx",
+            (longlong_t)birth_txg, (longlong_t)data_txg, (longlong_t)os->os_spa->spa_first_txg,
+            (longlong_t)os->os_spa->spa_config_txg, (longlong_t)os->os_spa->spa_syncing_txg);
+    }
+    return (b_newer);
+}
+
+#endif
 
 void
 dmu_init(void)

@@ -611,7 +611,7 @@ zpl_writepages(struct address_space *mapping, struct writeback_control *wbc)
 	int result;
 
 	ZFS_ENTER(zsb);
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		wbc->sync_mode = WB_SYNC_ALL;
 	ZFS_EXIT(zsb);
 	sync_mode = wbc->sync_mode;
@@ -654,7 +654,7 @@ zpl_writepages(struct address_space *mapping, struct writeback_control *wbc)
 static int
 zpl_writepage(struct page *pp, struct writeback_control *wbc)
 {
-	if (ITOZSB(pp->mapping->host)->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (ITOZSB(pp->mapping->host)->z_os->os_sync != ZFS_SYNC_STANDARD)
 		wbc->sync_mode = WB_SYNC_ALL;
 
 	return (zpl_putpage(pp, wbc, pp->mapping));

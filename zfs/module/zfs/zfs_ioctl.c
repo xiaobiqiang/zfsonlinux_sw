@@ -187,6 +187,7 @@
 #include <sys/zfeature.h>
 
 #include <linux/miscdevice.h>
+#include <sys/zfs_mirror.h>
 #include <sys/cluster_san.h>
 
 #include "zfs_namecheck.h"
@@ -4877,6 +4878,86 @@ zfs_ioc_smb_acl(zfs_cmd_t *zc)
 #endif /* HAVE_SMB_SHARE */
 }
 
+static int
+zfs_ioc_start_mirror(zfs_cmd_t *zc)
+{
+    int ret = 0;
+    if (zc->zc_cookie == ENABLE_MIRROR) {
+        ret = zfs_mirror_init(zc->zc_perm_action);
+    }
+    else if (zc->zc_cookie == DISABLE_MIRROR) {
+        ret = zfs_mirror_fini();
+    } else if (zc->zc_cookie == SHOW_MIRROR) {
+        if (zfs_mirror_enable()) {
+            strcpy(zc->zc_string, "up");
+        } else {
+            strcpy(zc->zc_string, "down");
+        }
+    }
+    zc->zc_guid = ret;
+    return (ret);
+}
+
+
+static int
+zfs_ioc_get_mirror(zfs_cmd_t *zc)
+{
+    return (0);
+}
+
+extern void zfs_mirror_stop_watchdog_thread(void);
+extern void cluster_san_hb_stop(void);
+extern int zfs_mirror_tx_speed_data(char *buf, size_t len, boolean_t need_reply);
+
+static int
+zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
+{
+	uint64_t bs, cnt;
+	boolean_t need_reply;
+	void *buf;
+	uint64_t *index;
+	uint64_t i;
+	int ret = 0;
+
+	/* block size */
+	bs = zc->zc_guid;
+	/* block cnt */
+	cnt = zc->zc_cookie;
+	/* need reply */
+	need_reply = zc->zc_simple;
+
+	if (bs > 1048576) {
+		printk("%s: bs too big\n", __func__);
+		return -EINVAL;
+	}
+
+	buf = kmalloc(bs, GFP_KERNEL);
+	if (!buf) {
+		printk("%s: nomem\n", __func__);
+		return -ENOMEM;
+	}
+
+	cluster_san_hb_stop();
+	zfs_mirror_stop_watchdog_thread();
+
+	printk("%s: start to send data\n", __func__);
+	index = (uint64_t *)buf;
+	for (i = 0; i < cnt; i++) {
+		*index = i;
+		/* FIXME: send msg */
+		ret = zfs_mirror_tx_speed_data(buf, bs, need_reply);
+		if (ret) {
+			printk("%s: send data failed: %d\n", __func__, ret);
+			break;
+		}
+	}
+
+	kfree(buf);
+
+	return ret;
+}
+
+
 static int zfs_ioc_do_clustersan_get_hostlist(zfs_cmd_t *zc)
 {
 	int ret = -1;
@@ -5427,6 +5508,22 @@ out:
 	return (error);
 }
 
+extern int zfs_hbx_do_ioc(zfs_cmd_t *zc, nvlist_t **nv_ptr);
+
+static int
+zfs_ioc_do_hbx(zfs_cmd_t *zc)
+{
+	int err = 0;
+	nvlist_t *nv = NULL;
+	
+	err = zfs_hbx_do_ioc(zc, &nv);
+	if (nv != NULL) {
+		err =put_nvlist(zc, nv);
+		nvlist_free(nv);
+	}
+	return (err);
+}
+
 static zfs_ioc_vec_t zfs_ioc_vec[ZFS_IOC_LAST - ZFS_IOC_FIRST];
 
 static void
@@ -5739,6 +5836,17 @@ zfs_ioctl_init(void)
 	zfs_ioctl_register_clustersan(ZFS_IOC_CLUSTERSAN, zfs_ioc_do_clustersan,
 			zfs_secpolicy_none);
 
+    zfs_ioctl_register_legacy(ZFS_IOC_START_MIRROR,
+        zfs_ioc_start_mirror, zfs_secpolicy_none,
+        NO_NAME, B_FALSE, POOL_CHECK_NONE);
+    zfs_ioctl_register_legacy(ZFS_IOC_GET_MIRROR_STATE,
+        zfs_ioc_get_mirror, zfs_secpolicy_none,
+        NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_MIRROR_SPEED_TEST,
+			zfs_ioc_mirror_speed_test, zfs_secpolicy_none, NO_NAME,
+			B_FALSE, POOL_CHECK_NONE);
+
 	/*
 	 * ZoL functions
 	 */
@@ -5748,6 +5856,9 @@ zfs_ioctl_init(void)
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 	zfs_ioctl_register_legacy(ZFS_IOC_EVENTS_SEEK, zfs_ioc_events_seek,
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_HBX, zfs_ioc_do_hbx,
+	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 }
 
 int
