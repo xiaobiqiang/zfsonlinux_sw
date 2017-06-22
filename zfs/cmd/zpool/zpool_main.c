@@ -1411,6 +1411,7 @@ zpool_do_destroy(int argc, char **argv)
 
 	pool = argv[0];
 
+	zfs_destroy_all_lus(g_zfs, pool);
 	if ((zhp = zpool_open_canfail(g_zfs, pool)) == NULL) {
 		/*
 		 * As a special case, check for use of '/' in the name, and
@@ -1457,6 +1458,8 @@ zpool_export_one(zpool_handle_t *zhp, void *data)
 {
 	export_cbdata_t *cb = data;
 
+	zfs_enable_avs(g_zfs, (char *)zpool_get_name(zhp), 0);
+	zfs_standby_all_lus(g_zfs, (char *)zpool_get_name(zhp));
 	if (zpool_disable_datasets(zhp, cb->force) != 0)
 		return (1);
 
@@ -2388,6 +2391,8 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
 	free(stamp);
 #endif
+	zfs_import_all_lus(g_zfs, name);
+	zfs_enable_avs(g_zfs, name, 1);
 	zpool_close(zhp);
 	return (0);
 }
@@ -6688,14 +6693,13 @@ release_callback(zpool_handle_t *zhp, void *data)
 		return (0);
 	}
 
-#if	0
-	zfs_narrow_dirty_mem();
+	/* zfs_narrow_dirty_mem(); */
 	syslog(LOG_NOTICE, "wait 10s to standby all luns");
 	sleep(10);
 	syslog(LOG_NOTICE, "wait 10s end");
 	zfs_enable_avs(g_zfs, (char *)zpool_get_name(zhp), 0);
 	zfs_standby_all_lus(g_zfs, (char *)zpool_get_name(zhp));
-#endif
+
 	if (zpool_disable_datasets(zhp, B_TRUE) != 0) {
 		/*zfs_restore_dirty_mem();*/
 		syslog(LOG_ERR, "zpool disable datasets failed, errno:%d", errno);

@@ -677,6 +677,7 @@ kstat_named_setstr(kstat_named_t *knp, const char *src)
 	else
 		KSTAT_NAMED_STR_BUFLEN(knp) = 0;
 }
+EXPORT_SYMBOL(kstat_named_setstr);
 
 void
 kstat_set_string(char *dst, const char *src)
@@ -684,6 +685,7 @@ kstat_set_string(char *dst, const char *src)
 	bzero(dst, KSTAT_STRLEN);
 	(void) strncpy(dst, src, KSTAT_STRLEN - 1);
 }
+EXPORT_SYMBOL(kstat_set_string);
 
 void
 kstat_named_init(kstat_named_t *knp, const char *name, uchar_t data_type)

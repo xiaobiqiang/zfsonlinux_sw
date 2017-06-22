@@ -4047,7 +4047,7 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 
 	mutex_exit(&spa_namespace_lock);
 	spa_history_log_version(spa, "import");
-	zvol_create_minors(spa, pool, B_TRUE);
+	zvol_create_minors(spa, pool, B_FALSE);
 
 	return (0);
 }

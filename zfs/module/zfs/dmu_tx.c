@@ -1389,7 +1389,6 @@ dmu_tx_sync_log(dmu_tx_t *tx)
 	return (tx->tx_bdirect);
 }
 
-
 void
 dmu_tx_commit(dmu_tx_t *tx)
 {
@@ -1731,4 +1730,5 @@ EXPORT_SYMBOL(dmu_tx_do_callbacks);
 EXPORT_SYMBOL(dmu_tx_hold_spill);
 EXPORT_SYMBOL(dmu_tx_hold_sa_create);
 EXPORT_SYMBOL(dmu_tx_hold_sa);
+EXPORT_SYMBOL(dmu_tx_sync_log);
 #endif

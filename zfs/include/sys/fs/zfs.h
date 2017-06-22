@@ -914,6 +914,8 @@ typedef enum zfs_ioc {
 	ZFS_IOC_CLUSTERSAN,
 	ZFS_IOC_HBX,
 	ZFS_IOC_MIRROR_SPEED_TEST,
+	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
+	
 	/*
 	 * Linux - 3/64 numbers reserved.
 	 */
@@ -1003,6 +1005,8 @@ typedef  enum {
 #define	ZFS_IMPORT_TEMP_NAME	0x10
 
 #define	ZFS_SINGLE_DATA		"zfs:single_data"
+
+#define	ZFS_RDC_IP_OWNER	"rdc:ip_owner"
 
 /*
  * Sysevent payload members.  ZFS will generate the following sysevents with the

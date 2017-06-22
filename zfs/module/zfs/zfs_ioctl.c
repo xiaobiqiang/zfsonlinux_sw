@@ -4957,6 +4957,24 @@ zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
 	return ret;
 }
 
+static int
+zfs_ioc_zvol_create_minor_done_wait(zfs_cmd_t *zc)
+{
+	spa_t *spa = NULL;
+	int err = 0;
+
+	err = spa_open(zc->zc_name, &spa, FTAG);
+	if (err == 0) {
+		mutex_enter(&spa->spa_do_zvol_lock);
+		while (spa->spa_zvol_minor_creating_cnt != 0) {
+			cv_wait(&spa->spa_do_zvol_cv, &spa->spa_do_zvol_lock);
+		}
+		mutex_exit(&spa->spa_do_zvol_lock);
+		spa_close(spa, FTAG);
+	}
+
+	return (err);
+}
 
 static int zfs_ioc_do_clustersan_get_hostlist(zfs_cmd_t *zc)
 {
@@ -5844,8 +5862,12 @@ zfs_ioctl_init(void)
         NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	zfs_ioctl_register_legacy(ZFS_IOC_MIRROR_SPEED_TEST,
-			zfs_ioc_mirror_speed_test, zfs_secpolicy_none, NO_NAME,
-			B_FALSE, POOL_CHECK_NONE);
+		zfs_ioc_mirror_speed_test, zfs_secpolicy_none, NO_NAME,
+		B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
+        zfs_ioc_zvol_create_minor_done_wait, zfs_secpolicy_none,
+        NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	/*
 	 * ZoL functions

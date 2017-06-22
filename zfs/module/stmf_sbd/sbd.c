@@ -2639,7 +2639,6 @@ sbd_open_data_file(sbd_lu_t *sl, uint32_t *err_ret, int lu_size_valid,
 			ret = EINVAL;
 			goto out;
 		}
-		
 	} else {
 		strncpy(disk_name, sl->sl_data_filename, strlen(sl->sl_data_filename));
 	}
@@ -3745,6 +3744,7 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 	int data_opened;
 	uint16_t sli_buf_sz;
 	uint8_t *sli_buf_copy = NULL;
+	char disk_name[256] = {0};
 	enum vtype vt;
 	int standby = 0;
 	struct kstat stat;
@@ -3792,6 +3792,7 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 				kmem_free(sl->sl_serial_no,
 				    sl->sl_serial_no_alloc_size);
 				sl->sl_serial_no = NULL;
+				sl->sl_serial_no_size = 0;
 				sl->sl_serial_no_alloc_size = 0;
 			}
 			if (sl->sl_mgmt_url_alloc_size) {
@@ -3848,27 +3849,32 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 		}
 	}
 	
-	/*
 	if (sbd_is_zvol(sl->sl_meta_filename)) {
 		char *zvol_name = sbd_get_zvol_name(sl);
-		zvol_create_minor(zvol_name);
+		ret = zvol_get_disk_name(zvol_name, disk_name, sizeof(disk_name));
 		kmem_free(zvol_name, strlen(zvol_name) + 1);
+		sl->sl_flags |= SL_ZFS_META;
+		sl->sl_data_filename = sl->sl_meta_filename;
+		
+		if (ret) {
+			cmn_err(CE_WARN, "%s zvol %s get disk name failed", __func__,
+				zvol_name);
+			*err_ret = SBD_RET_META_FILE_LOOKUP_FAILED;
+			goto sim_err_out;
+		}
+		
+	} else {
+		strncpy(disk_name, sl->sl_meta_filename, strlen(sl->sl_meta_filename));
 	}
-	*/
 
-	if ((ret = get_file_attr(sl->sl_meta_filename, &stat)) != 0) {
+	if ((ret = get_file_attr(disk_name, &stat)) != 0) {
 		*err_ret = SBD_RET_META_FILE_LOOKUP_FAILED;
 		goto sim_err_out;
 	}
 
 	vt = vn_mode_to_vtype(stat.mode);
 	sl->sl_meta_vtype = vt;
-	
-	if (sbd_is_zvol(sl->sl_meta_filename)) {
-		sl->sl_flags |= SL_ZFS_META;
-		sl->sl_data_filename = sl->sl_meta_filename;
-	}
-	
+		
 	if ((vt != VREG) && (vt != VCHR) && (vt != VBLK)) {
 		*err_ret = SBD_RET_WRONG_META_FILE_TYPE;
 		ret = EINVAL;
@@ -3884,7 +3890,7 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 	if (!(sl->sl_flags & SL_ZFS_META)) {
 		/* metadata is always writable */
 		flag = FREAD | FWRITE | FOFFMAX | FEXCL;
-		if ((ret = vn_open(sl->sl_meta_filename, UIO_SYSSPACE, flag, 0,
+		if ((ret = vn_open(disk_name, UIO_SYSSPACE, flag, 0,
 		    &sl->sl_meta_vp, 0, 0)) != 0) {
 			*err_ret = SBD_RET_META_FILE_OPEN_FAILED;
 			goto sim_err_out;
@@ -5217,6 +5223,7 @@ again:
 	zc->zc_nvlist_dst = (uint64_t)(intptr_t)kmem_alloc(size,
 	    KM_SLEEP);
 	zc->zc_nvlist_dst_size = size;
+	zc->zc_iflags = FKIOCTL;
 	rc = zfs_objset_stats(zc);
 
 	if (rc == ENOMEM) {

@@ -886,6 +886,10 @@ extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
 extern int zfs_is_failover_prop(const char * prop);
 
 int zfs_create_lu(char *lu_name);
+void zfs_import_all_lus(libzfs_handle_t *hdl, char *data);
+void zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name);
+void zfs_destroy_all_lus(libzfs_handle_t *hdl, char *pool_name);
+void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
 
 #ifdef	__cplusplus
 }
