@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <stddef.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <string.h>
@@ -367,6 +368,7 @@ comm_send_msg(int msg_id, char *msg_buf, int msg_len, char **ret_buf, int *ret_l
 	struct stat file_stat;
 	mq_msg_t mq_msg;
 	pid_t pid = getpid();
+	uint64_t tid = (uint64_t)pthread_self();
 	int ret = COMM_FAILURE;
 
 	if (comm_state() != COMM_STATE_RUNNING) {
@@ -377,19 +379,19 @@ comm_send_msg(int msg_id, char *msg_buf, int msg_len, char **ret_buf, int *ret_l
 	/* prepare msg for mq_send */
 	memset(&mq_msg, 0, sizeof(mq_msg_t));
 	mq_msg.msg_id = msg_id;
-	snprintf(mq_msg.in_sem_file, sizeof(mq_msg.in_sem_file), "%s_%d", 
-		SEND_SHM_SEM_PREFIX, pid);
-	snprintf(mq_msg.out_sem_file, sizeof(mq_msg.out_sem_file), "%s_%d", 
-		RECV_SHM_SEM_PREFIX, pid);
+	snprintf(mq_msg.in_sem_file, sizeof(mq_msg.in_sem_file), "%s_%d_%lu", 
+		SEND_SHM_SEM_PREFIX, pid, tid);
+	snprintf(mq_msg.out_sem_file, sizeof(mq_msg.out_sem_file), "%s_%d_%lu", 
+		RECV_SHM_SEM_PREFIX, pid, tid);
 	if (ret_buf) {
 		*ret_buf = NULL;
-		snprintf(mq_msg.out_file, sizeof(mq_msg.out_file), "%s_%d", 
-			RECV_SHM_PREFIX, pid);
+		snprintf(mq_msg.out_file, sizeof(mq_msg.out_file), "%s_%d_%lu", 
+			RECV_SHM_PREFIX, pid, tid);
 	}
 
 	if (msg_buf) {
-		snprintf(mq_msg.in_file, sizeof(mq_msg.in_file), "%s_%d", 
-			SEND_SHM_PREFIX, pid);
+		snprintf(mq_msg.in_file, sizeof(mq_msg.in_file), "%s_%d_%lu", 
+			SEND_SHM_PREFIX, pid, tid);
 		in_fd = shm_open(mq_msg.in_file, O_RDWR | O_CREAT, 0666);
 		if (in_fd < 0) {
 			syslog(LOG_ERR, "%s open shm %s failed: %s", __func__,
@@ -488,13 +490,13 @@ done:
 
 	if (strlen(mq_msg.out_file) > 0)
 		shm_unlink(mq_msg.out_file);
-
+		
 	if (strlen(mq_msg.in_sem_file) > 0)
 		sem_unlink(mq_msg.in_sem_file);
-
+	
 	if (strlen(mq_msg.out_sem_file) > 0)
 		sem_unlink(mq_msg.out_sem_file);
-
+	
 	return (ret);
 }
 

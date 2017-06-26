@@ -1035,7 +1035,6 @@ zvol_first_open(zvol_state_t *zv)
 	}
 
 	zv->zv_objset = os;
-
 	error = dsl_prop_get_integer(zv->zv_name, "readonly", &ro, NULL);
 	if (error)
 		goto out_owned;
@@ -1052,15 +1051,13 @@ zvol_first_open(zvol_state_t *zv)
 	zv->zv_volsize = volsize;
 	zv->zv_zilog = zil_open(os, zvol_get_data);
 
-	if (zv->zv_state == ZVOL_VALID) {
-		mutex_enter(&os->os_user_ptr_lock);
-		dmu_objset_set_user(os, zv);
-		mutex_exit(&os->os_user_ptr_lock);
-		os->os_replay = zvol_replay_vector;
-		os->os_replay_data = zvol_replay_rawdata;
-		os->os_seg_data_lock = zvol_seg_data_lock;
-		os->os_seg_data_unlock = zvol_seg_data_unlock;
-	}
+	mutex_enter(&os->os_user_ptr_lock);
+	dmu_objset_set_user(os, zv);
+	mutex_exit(&os->os_user_ptr_lock);
+	os->os_replay = zvol_replay_vector;
+	os->os_replay_data = zvol_replay_rawdata;
+	os->os_seg_data_lock = zvol_seg_data_lock;
+	os->os_seg_data_unlock = zvol_seg_data_unlock;
 
 	if (ro || dmu_objset_is_snapshot(os) ||
 	    !spa_writeable(dmu_objset_spa(os))) {
@@ -1076,7 +1073,7 @@ out_owned:
 		dmu_objset_disown(os, zvol_tag);
 		zv->zv_objset = NULL;
 	}
-
+	
 	return (SET_ERROR(-error));
 }
 
@@ -1136,11 +1133,18 @@ zvol_open(struct block_device *bdev, fmode_t flag)
 
     mutex_enter(&zv->zv_state_lock);
 	drop_state_lock = 1;
+	if (drop_mutex) {
+		mutex_exit(&zvol_state_lock);
+		drop_mutex = 0;
+	}
 
 	if (zv->zv_open_count == 0) {
 		error = zvol_first_open(zv);
-		if (error)
+		if (error) {
+			cmn_err(CE_WARN, "%s first open failed error = %d",
+				__func__, error);
 			goto out_mutex;
+		}
 	}
 
 	if ((flag & FMODE_WRITE) && (zv->zv_flags & ZVOL_RDONLY)) {
@@ -1670,20 +1674,20 @@ zvol_create_minor_impl(const char *name)
 
 	error = dmu_object_info(os, ZVOL_OBJ, doi);
 	if (error)
-		goto out_dmu_objset_disown;
+		goto out_doi;
 
 	error = zap_lookup(os, ZVOL_ZAP_OBJ, "size", 8, 1, &volsize);
 	if (error)
-		goto out_dmu_objset_disown;
+		goto out_doi;
 
 	error = zvol_find_minor(&minor);
 	if (error)
-		goto out_dmu_objset_disown;
+		goto out_doi;
 
 	zv = zvol_alloc(MKDEV(zvol_major, minor), name);
 	if (zv == NULL) {
 		error = SET_ERROR(EAGAIN);
-		goto out_dmu_objset_disown;
+		goto out_doi;
 	}
 
 	if (dmu_objset_is_snapshot(os))
@@ -1700,7 +1704,7 @@ zvol_create_minor_impl(const char *name)
     os->os_replay_data = zvol_replay_rawdata;
     os->os_seg_data_lock = zvol_seg_data_lock;
     os->os_seg_data_unlock = zvol_seg_data_unlock;
-    atomic_inc_32(&zv->zv_objset->os_spa->spa_zvol_minor_creating_cnt);
+    atomic_inc_32(&os->os_spa->spa_zvol_minor_creating_cnt);
 
 	set_capacity(zv->zv_disk, zv->zv_volsize >> 9);
 
@@ -1729,9 +1733,15 @@ zvol_create_minor_impl(const char *name)
 	}
 #endif
 
-	zv->zv_objset = NULL;
-out_dmu_objset_disown:
-	dmu_objset_disown(os, zvol_tag);
+	/* replay */
+	mutex_enter(&zv->zv_state_lock);
+	replay_th = thread_create(NULL, 0,
+		zvol_objset_replay_all_cache, (void*)zv,
+		0, &p0, TS_RUN, minclsyspri);
+	
+	if (replay_th == NULL)
+		zvol_objset_replay_all_cache((void*)zv);
+
 out_doi:
 	kmem_free(doi, sizeof (dmu_object_info_t));
 out:
@@ -1746,14 +1756,6 @@ out:
 		 */
 		mutex_exit(&zvol_state_lock);
 		add_disk(zv->zv_disk);
-
-		/* replay */
-		replay_th = thread_create(NULL, 0,
-			zvol_objset_replay_all_cache, (void*)zv,
-			0, &p0, TS_RUN, minclsyspri);
-		
-		if (replay_th == NULL)
-			zvol_objset_replay_all_cache((void*)zv);
 	} else {
 		mutex_exit(&zvol_state_lock);
 	}
@@ -2367,33 +2369,14 @@ zvol_objset_replay_all_cache(void *arg)
 {
 	zvol_state_t *zv;
 	spa_t *spa;
-	objset_t *os;
-	int error;
 	uint64_t len;
 	uint64_t elapsed_time;
 
-	elapsed_time = gethrtime();
 	zv = (zvol_state_t *)arg;
-	error = dmu_objset_own(zv->zv_name, DMU_OST_ZVOL, B_FALSE, FTAG, &os);
-	if (error) {
-		char poolname[64] = {0};
-		char *delim;
-		cmn_err(CE_WARN, "%s own objset %s failed, not to replay",
-			__func__, zv->zv_name);
-		delim = strchr(zv->zv_name, '/');
-		strncpy(poolname, zv->zv_name, delim - zv->zv_name);
-		spa = spa_lookup(poolname);
-		goto out;
-	}
-
-	zv->zv_objset = os;
+	ASSERT(MUTEX_HELD(&zv->zv_state_lock));
+	elapsed_time = gethrtime();
 	spa = dmu_objset_spa(zv->zv_objset);
 	dmu_objset_replay_all_cache(zv->zv_objset);
-
-	mutex_enter(&zv->zv_state_lock);
-	zv->zv_state = ZVOL_VALID;
-	cv_broadcast(&zv->zv_cv);
-	mutex_exit(&zv->zv_state_lock);
 
 	/*
 	 * When udev detects the addition of the device it will immediately
@@ -2403,14 +2386,18 @@ zvol_objset_replay_all_cache(void *arg)
 	 */
 	len = MIN(MAX(zvol_prefetch_bytes, 0), SPA_MAXBLOCKSIZE);
 	if (len > 0) {
-		dmu_prefetch(os, ZVOL_OBJ, 0, len);
-		dmu_prefetch(os, ZVOL_OBJ, zv->zv_volsize - len, len);
+		dmu_prefetch(zv->zv_objset, ZVOL_OBJ, 0, len);
+		dmu_prefetch(zv->zv_objset, ZVOL_OBJ, zv->zv_volsize - len, len);
 	}
 
-	zv->zv_objset = NULL;
-	dmu_objset_disown(os, FTAG);
-	
-out:
+	if (zv->zv_open_count == 0) {
+		dmu_objset_disown(zv->zv_objset, zvol_tag);
+		zv->zv_objset = NULL;
+	}
+
+	zv->zv_state = ZVOL_VALID;
+	cv_broadcast(&zv->zv_cv);
+	mutex_exit(&zv->zv_state_lock);
 	cmn_err(CE_NOTE, "%s: zvol create minor done, elapsed time:%"PRId64"ms",
 		zv->zv_name, (gethrtime() - elapsed_time)/1000000);
 

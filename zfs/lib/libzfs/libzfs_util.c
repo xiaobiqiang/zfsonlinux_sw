@@ -63,6 +63,8 @@ typedef struct zfs_ilu_list{
 	struct zfs_ilu_list *next;
 	struct zfs_ilu_list *prev;
 	char *lu_name;
+	pthread_t tid;
+	boolean_t run_thread;
 } zfs_ilu_list_t;
 
 typedef struct zfs_ilu_ctx {
@@ -2640,11 +2642,12 @@ zfs_import_pool_call_back(zfs_handle_t *zhp, void *data)
 	return (0);
 }
 
-void zfs_import_lu(char *lu_name)
+void* zfs_import_lu(void *arg)
 {
 	int ret;
 	stmfGuid createdGuid;
 	char dev_buf[512];
+	char *lu_name = (char *)arg;
 
 	syslog(LOG_DEBUG, " import lu enter, %s", lu_name);
 
@@ -2659,6 +2662,7 @@ void zfs_import_lu(char *lu_name)
 	syslog(LOG_DEBUG, " import lu exit, %s", lu_name);
 
 	free(lu_name);
+	return (NULL);
 }
 
 void 
@@ -2669,6 +2673,7 @@ zfs_import_all_lus(libzfs_handle_t *hdl, char *data)
 	int ret;
 	int tp_size;
 	zfs_cmd_t *zc;
+	int error;
 
 	zic.pool_name = data;
 	zic.head = NULL;
@@ -2679,32 +2684,51 @@ zfs_import_all_lus(libzfs_handle_t *hdl, char *data)
 	if (zic.lun_cnt == 0) {
 		return;
 	}
+
+	/*
 	tp_size = zic.lun_cnt;
 	if (tp_size > ZFS_ILU_MAX_NTHREAD) {
 		tp_size = ZFS_ILU_MAX_NTHREAD;
 	}
-	/* zic.zic_tp = tpool_create(1, tp_size, 0, NULL); */
+	zic.zic_tp = tpool_create(1, tp_size, 0, NULL);
 	while ((lu_list = zic.head) != NULL) {
 		zic.head = zic.head->next;
 		if (lu_list == zic.tail) {
 			zic.tail = NULL;
 		}
-		/*
+		
 		ret = tpool_dispatch(zic.zic_tp, (void (*)(void *))zfs_import_lu,
 			(void *)lu_list->lu_name);
 		if (ret != 0) {
 			zfs_import_lu(lu_list->lu_name);
 		}
-		*/
-		zfs_import_lu(lu_list->lu_name);
 		free(lu_list);
 	}
-	/*
+
 	if (zic.zic_tp != NULL) {
 		tpool_wait(zic.zic_tp);
 		tpool_destroy(zic.zic_tp);
 	}
 	*/
+	
+	lu_list = zic.head;
+	while (lu_list) {
+		lu_list->run_thread = B_TRUE;
+		error = pthread_create(&lu_list->tid, NULL, zfs_import_lu, lu_list->lu_name);
+		if (error) {
+			lu_list->run_thread = B_FALSE;
+			zfs_import_lu(lu_list->lu_name);
+		}
+		lu_list = lu_list->next;
+	}
+	
+	while ((lu_list = zic.head) != NULL) {
+		zic.head = zic.head->next;
+		if (lu_list->run_thread)
+			pthread_join(lu_list->tid, NULL);
+		free(lu_list);
+	}
+	
 	zc = malloc(sizeof(zfs_cmd_t));
 	if (zc == NULL) {
 		syslog(LOG_NOTICE, "%s: not wait pool(%s)'s zvol create minor done",
