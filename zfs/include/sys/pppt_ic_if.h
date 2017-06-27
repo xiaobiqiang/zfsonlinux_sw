@@ -555,7 +555,7 @@ typedef stmf_ic_msg_status_t (*stmf_ic_asyn_tx_msg_func_t)(stmf_ic_msg_t *msg,
 typedef void (*stmf_ic_asyn_tx_clean_func_t)(uint32_t type, void *private);
 typedef stmf_ic_msg_status_t (*stmf_ic_sync_tx_msg_func_t)(stmf_ic_msg_t *msg);
 typedef void (*stmf_ic_sync_tx_msg_ret_func_t)(void *sess, uint64_t msg_id, uint64_t ret);
-typedef int (*stmf_ic_csh_hold_func_t)(void *csh, void *tag);
+typedef void (*stmf_ic_csh_hold_func_t)(void *csh, void *tag);
 typedef void (*stmf_ic_csh_rele_func_t)(void *csh, void *tag);
 typedef void *(*stmf_ic_kmem_alloc_func_t)(size_t size, int kmflag);
 typedef void *(*stmf_ic_kmem_zalloc_func_t)(size_t size, int kmflag);

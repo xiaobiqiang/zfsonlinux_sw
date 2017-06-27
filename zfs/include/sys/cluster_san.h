@@ -480,7 +480,7 @@ nvlist_t *cluster_san_get_state(void);
 int cluster_san_set_prop(const char *prop, const char *value);
 nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str, int timeout, int remote_hostid);
 void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
-uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
+void cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid);
 int cluster_target_session_hold(cluster_target_session_t *cts, void *tag);
 void cluster_target_session_rele(cluster_target_session_t *cts, void *tag);

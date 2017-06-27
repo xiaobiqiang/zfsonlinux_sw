@@ -120,7 +120,7 @@ extern stmf_ic_msg_status_t stmf_ic_asyn_tx_msg(stmf_ic_msg_t *msg,
 extern void stmf_ic_asyn_tx_clean(uint32_t type, void *private);
 extern stmf_ic_msg_status_t stmf_ic_sync_tx_msg(stmf_ic_msg_t *msg);
 extern void stmf_ic_sync_tx_msg_ret(void *sess, uint64_t msg_id, uint64_t ret);
-extern int stmf_ic_csh_hold(void *csh, void *tag);
+extern void stmf_ic_csh_hold(void *csh, void *tag);
 extern void stmf_ic_csh_rele(void *csh, void *tag);
 extern void *stmf_ic_kmem_alloc(size_t size, int kmflag);
 extern void *stmf_ic_kmem_zalloc(size_t size, int kmflag);
@@ -194,6 +194,9 @@ pppt_init(void)
 static void __exit
 pppt_fini(void)
 {
+	/* disable pppt svc */
+	pppt_ctrl_svc(PPPT_DISABLE_SVC);
+
 	if (pppt_drv_detach())
 		cmn_err(CE_WARN, "pppt detach failed");
 	

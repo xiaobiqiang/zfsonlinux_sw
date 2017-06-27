@@ -147,11 +147,8 @@ pppt_msg_tgt_register(stmf_ic_msg_t *msg)
 	}
 
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
-	if (msg->icm_sess != NULL) {
-		if (stmf_ic_csh_hold(msg->icm_sess, "tgt_reg") != 0) {
-			goto pppt_register_tgt_done;
-		}
-	}
+	if (msg->icm_sess != NULL)
+		stmf_ic_csh_hold(msg->icm_sess, "tgt_reg");
 #endif
 	/*
 	 * For now we assume that the marshall/unmarshall code is responsible

@@ -402,7 +402,7 @@ size_t sizeof_scsi_devid_desc(int ident_length);
 void *stmf_ic_kmem_alloc(size_t size, int kmflag);
 void *stmf_ic_kmem_zalloc(size_t size, int kmflag);
 void stmf_ic_kmem_free(void *ptr, size_t size);
-int stmf_ic_csh_hold(void *csh, void *tag);
+void stmf_ic_csh_hold(void *csh, void *tag);
 void stmf_ic_csh_rele(void *csh, void *tag);
 #endif
 

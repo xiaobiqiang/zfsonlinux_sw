@@ -303,8 +303,8 @@ typedef int (*csh_rx_hook_remove_t)(uint32_t msg_type);
 typedef int (*csh_link_evt_hook_add_t)(cs_link_evt_cb_t link_evt_cb, void *arg);
 typedef int (*csh_link_evt_hook_remove_t)(cs_link_evt_cb_t link_evt_cb);
 typedef void (*csh_rx_data_free_t)(cs_rx_data_t *cs_data);
-typedef uint64_t (*cluster_san_hostinfo_hold_t)(cluster_san_hostinfo_t *cshi);
-typedef uint64_t (*cluster_san_hostinfo_rele_t)(cluster_san_hostinfo_t *cshi);
+typedef void (*cluster_san_hostinfo_hold_t)(cluster_san_hostinfo_t *cshi);
+typedef void (*cluster_san_hostinfo_rele_t)(cluster_san_hostinfo_t *cshi);
 typedef void (*cluster_san_host_asyn_send_t)(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, uint32_t type, void *private,
@@ -882,19 +882,16 @@ void stmf_ic_sync_tx_msg_ret(void *sess, uint64_t msg_id, uint64_t ret)
 	}
 }
 
-int stmf_ic_csh_hold(void *csh, void *tag)
+void stmf_ic_csh_hold(void *csh, void *tag)
 {
-	int ret = 0;
-	if (ic_csh_hold != NULL) {
-		ret = ic_csh_hold(csh);
-	}
-	return (0);
+	if (ic_csh_hold != NULL)
+		ic_csh_hold(csh);
 }
+
 void stmf_ic_csh_rele(void *csh, void *tag)
 {
-	if (ic_csh_rele != NULL) {
+	if (ic_csh_rele != NULL)
 		ic_csh_rele(csh);
-	}
 }
 
 void *stmf_ic_kmem_alloc(size_t size, int kmflag)
@@ -1128,12 +1125,8 @@ stmf_ic_rx_msg(char *buf, size_t len)
 		return;
 	}
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
-	if (sess_private != NULL) {
-		if ((ic_csh_hold(sess_private)) != 0) { /* hold: "ic_rx_msg" */
-			stmf_ic_msg_free(m);
-			return;
-		}
-	}
+	if (sess_private != NULL)
+		ic_csh_hold(sess_private);
 #endif
 	m->icm_sess = sess_private;
 

@@ -1719,12 +1719,12 @@ void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi)
 	atomic_inc_64(&cshi->ref_count);
 }
 
-uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
+void cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
 {
 	uint64_t ref_count;
 
 	if ((cshi == NULL) || (cshi == CLUSTER_SAN_BROADCAST_SESS)) {
-		return (0);
+		return;
 	}
 
 	ref_count = atomic_dec_64_nv(&cshi->ref_count);
@@ -1739,12 +1739,11 @@ uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
 		mutex_destroy(&cshi->lock);
 		kmem_free(cshi, sizeof(cluster_san_hostinfo_t));
 	}
-	return (ref_count);
 }
 
 static void cluster_san_hostinfo_remove(cluster_san_hostinfo_t *cshi)
 {
-	uint64_t ret=0;
+	/* uint64_t ret = 0; */
 	cluster_target_session_t *cts;
 	cts_list_pri_t *cts_list;
 
@@ -1762,9 +1761,12 @@ static void cluster_san_hostinfo_remove(cluster_san_hostinfo_t *cshi)
 		kmem_free(cts_list, sizeof(cts_list_pri_t));
 	}
 	mutex_exit(&cshi->lock);
+	cluster_san_hostinfo_rele(cshi);
+	/*
 	do {
 		ret = cluster_san_hostinfo_rele(cshi);
 	}while(ret != 0);
+	*/
 }
 
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid)
