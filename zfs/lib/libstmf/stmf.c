@@ -2431,9 +2431,11 @@ done:
 static int
 removeGuidFromDiskStore(stmfGuid *guid)
 {
+	int ret;
 	(void) pthread_mutex_lock(&persistDiskGuidLock);
-	return (persistDiskGuid(guid, NULL, B_FALSE));
+	ret = persistDiskGuid(guid, NULL, B_FALSE);
 	(void) pthread_mutex_unlock(&persistDiskGuidLock);
+	return (ret);
 }
 
 
