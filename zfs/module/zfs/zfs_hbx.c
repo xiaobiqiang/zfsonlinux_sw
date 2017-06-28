@@ -5,18 +5,11 @@
 #ifdef _KERNEL
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
-#if	0
-#include <sys/sunndi.h>
-#endif
 #include <sys/byteorder.h>
 #include <sys/atomic.h>
 #include <sys/sysmacros.h>
 #include <sys/cmn_err.h>
 #include <sys/crc32.h>
-#if	0
-#include <sys/strsubr.h>
-#include <sys/mac_client.h>
-#endif
 #include <sys/dmu.h>
 #include <sys/dmu_impl.h>
 #include <sys/dmu_tx.h>
@@ -39,13 +32,8 @@
 #include <sys/callb.h>
 #include <sys/zfs_mirror.h>
 #include <sys/fs/zfs_hbx.h>
-#if	0
-#include <sys/strsun.h>
-#endif
 #include <sys/spa_impl.h>
 #include <sys/cluster_san.h>
-/*#include <sys/cn_hbx.h>*/
-/*#include <sys/timer.h>*/
 
 extern int cn_hbx_msg_send(const char *buf, size_t len);
 
@@ -229,12 +217,9 @@ static void zfs_hbx_do_sync_spa_config(zfs_cmd_t *zc)
 
 static int zfs_hbx_do_get_updated_pools(zfs_cmd_t *zc, nvlist_t **nv_ptr)
 {
-#if	0
 	int ret;
 	ret = zfs_mirror_get_updated_spa(zc->zc_perm_action, nv_ptr);
 	return (ret);
-#endif
-	return (0);
 }
 
 static void zfs_hbx_do_remove_partner_spa_config(zfs_cmd_t *zc)
@@ -324,13 +309,11 @@ static void zfs_hbx_do_mirror_timeout_switch(zfs_cmd_t *zc)
 		} else {
 			cmn_err(CE_NOTE, "hbx ioc: set mirror timeout switch(%s)",
 				buffer);
-#if	0
 			if (strncmp("on", buffer, 2) == 0) {
 				zfs_mirror_data_expired_switch(B_TRUE);
 			} else if(strncmp("off", buffer, 3) == 0) {
 				zfs_mirror_data_expired_switch(B_FALSE);
 			}
-#endif
 			kmem_free(buffer, size);
 		}
 	}
@@ -432,7 +415,7 @@ static void zfs_hbx_do_host_is_need_faillover(zfs_cmd_t *zc)
 static void zfs_hbx_do_host_clr_need_faillover(zfs_cmd_t *zc)
 {
 	cluster_host_cancle_failover(zc->zc_perm_action);
-	/*zfs_mirror_cancel_check_spa_txg(zc->zc_perm_action);*/
+	zfs_mirror_cancel_check_spa_txg(zc->zc_perm_action);
 }
 
 static void zfs_hbx_do_get_failover_host(zfs_cmd_t *zc)
@@ -610,18 +593,10 @@ zfs_hbx_send(int hostid, void *data, uint64_t len, enum hbx_event_type event,
 {
 	cluster_san_hostinfo_t *cshi;
 	zfs_hbx_msg_header_t msg_header;
-	unsigned long myhostid;
 	int ret = 0;
 
-	if (hostid == 0) {
-		/*hostid = cluster_get_failover_hostid();*/
-#ifdef	_KERNEL
-		myhostid = zone_get_hostid(NULL);
-#else	/* _KERNEL */
-		(void) ddi_strtoul(hw_serial, NULL, 10, &myhostid);
-#endif	/* _KERNEL */
-		hostid = (myhostid % 2) + 1;
-	}
+	if (hostid == 0)
+		hostid = cluster_get_failover_hostid();
 	cshi = cluster_remote_hostinfo_hold(hostid);
 	if (cshi == NULL) {
 		cmn_err(CE_WARN, "%s: Can't find host %d in cluster",
@@ -774,95 +749,6 @@ static void zfs_hbx_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	}
 }
 
-#if	0
-static void
-cluster_door_reset_handle()
-{
-	mutex_enter(&zfs_hbx.hb_mutex);
-	zfs_hbx.hb_door_hdl = NULL;
-	mutex_exit(&zfs_hbx.hb_mutex);
-}
-
-static door_handle_t
-cluster_door_get_handle()
-{
-	door_handle_t dh;
-
-	if (zfs_hbx.hb_door_hdl) {
-		return (zfs_hbx.hb_door_hdl);
-	} else {
-		mutex_enter(&zfs_hbx.hb_mutex);
-		if (door_ki_open(CLUSTERD_DOOR, &zfs_hbx.hb_door_hdl) != 0) {
-			zfs_hbx.hb_door_hdl = NULL;
-		}
-		mutex_exit(&zfs_hbx.hb_mutex);
-	}
-	return (zfs_hbx.hb_door_hdl);
-}
-
-int
-zfs_cluster_kderef(char *buf,  size_t bufsize)
-{
-	int err, retries, need_free, retried_doorhd;
-	size_t dlen, res_len;
-	char *darg;
-	door_arg_t door_args;
-	clusterd_door_res_t *resp;
-	door_handle_t rp_door;
-
-	if ((rp_door = cluster_door_get_handle()) == NULL) {
-		cmn_err(CE_WARN,"get cluster door failed");
-		return (EBADF);
-	}
-	
-	/* setup args for door call */
-	door_args.data_ptr = buf;
-	door_args.data_size = bufsize;
-	door_args.desc_ptr = NULL;
-	door_args.desc_num = 0;
-	door_args.rbuf = NULL;
-	door_args.rsize = 0;
-
-	/* do the door_call */
-	retried_doorhd = 0;
-	retries = 0;
-	door_ki_hold(rp_door);
-	while ((err = door_ki_upcall_limited(rp_door, &door_args,
-	    NULL, SIZE_MAX, 0)) != 0) {
-		if (err == EAGAIN || err == EINTR) {
-			if (++retries < CLUSTERD_DOORCALL_MAX_RETRY) {
-				delay(SEC_TO_TICK(1));
-				continue;
-			}
-		} else if (err == EBADF && ++retries < CLUSTERD_DOORCALL_MAX_RETRY) {
-			/* door server goes away... */
-			cmn_err(CE_WARN, "door server goes away");
-			cluster_door_reset_handle();
-
-			if (retried_doorhd == 0) {
-				door_ki_rele(rp_door);
-				retried_doorhd++;
-				rp_door = cluster_door_get_handle();
-				if (rp_door != NULL) {
-					door_ki_hold(rp_door);
-					continue;
-				}
-			}
-		}
-		break;
-	}
-
-	if (rp_door)
-		door_ki_rele(rp_door);
-
-	if (err != 0) {
-		cmn_err(CE_WARN,"return error in cluster_kderef=%x",err);
-	}
-
-	return (err);
-}
-#endif
-
 static void
 zfs_hbx_thr_wait(callb_cpr_t *cpr, kcondvar_t *cv, uint64_t time)
 {
@@ -885,9 +771,7 @@ zfs_hbx_thr_work(void *arg)
 	hbx_event_t *event = NULL;
 	hb_event_list_t *event_list;
 	hbx_door_para_t *door_para, door_pa;
-#if	0
-	door_handle_t door_hdl;
-#endif
+
 	bufsize = 0;
 	event_list = arg;
 	door_para = &door_pa;
@@ -907,9 +791,6 @@ zfs_hbx_thr_work(void *arg)
 		} 
 		
 		mutex_enter(&event_list->event_mutex);
-#if	0
-		door_hdl = cluster_door_get_handle();
-#endif
 		event = list_head(&event_list->event_list);
 		
 		if (event == NULL/* || door_hdl == NULL*/) {
@@ -948,33 +829,15 @@ zfs_hbx_thr_work(void *arg)
 			bcopy(event->data, buf + sizeof(hbx_door_para_t), event->data_len);
 		}
 
-#if	0
-		for (i = 0; i < HBX_DOOR_FAIL_MAX_TIMES; i++) {
-			err = zfs_cluster_kderef(buf, bufsize);
-			if (err==0) {
-				break;
-			} else {
-				cmn_err(CE_WARN, "hbx cluster deref failed, event:%d, "
-					"retry times:%d", door_para->event, i);
-			}
-		}
-#else
 		err = cn_hbx_msg_send(buf, bufsize);
 		if (err < 0) {
 			cmn_err(CE_WARN, "cn_hbx_msg_send() error %d, event %d",
 				err, door_para->event);
 		}
-#endif
 		if (buf) {
 			kmem_free(buf, bufsize);
 		}
 
-#if	0
-		if ((i >= HBX_DOOR_FAIL_MAX_TIMES) &&(err)){
-			/*discard*/			
-			cmn_err(CE_WARN, "discard cluster event, event:%d", door_para->event);
-		}
-#endif
 		zfs_clear_hb_para(event);
 	}
 
@@ -992,15 +855,6 @@ zfs_hbx_thr_stop(void)
 		cv_broadcast(&zfs_hbx.hb_thr_cv);
 		thread_join(zfs_hbx.hb_thread->t_did);
 	}
-
-#if	0
-	mutex_enter(&zfs_hbx.hb_mutex);
-	if (zfs_hbx.hb_door_hdl) {
-		door_ki_rele(zfs_hbx.hb_door_hdl);
-		zfs_hbx.hb_door_hdl = NULL;
-	}
-	mutex_exit(&zfs_hbx.hb_mutex);
-#endif
 }
 
 static int

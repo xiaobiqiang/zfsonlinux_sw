@@ -2041,19 +2041,137 @@ name_or_guid_exists(zpool_handle_t *zhp, void *data)
 	return (found);
 }
 
+static nvlist_t *
+zpool_find_import_switched(
+	libzfs_handle_t *hdl, char *poolname, uint32_t remote_hostid)
+{
+	nvlist_t *raw,*src,*dst;
+	nvlist_t *pools;
+	nvpair_t *elem;
+	char *name;
+	uint64_t this_guid;
+	boolean_t active;
+	uint64_t host_id = 0;
+
+	host_id = get_system_hostid();
+
+	raw = get_switched_config(hdl, poolname, remote_hostid);
+	if (raw == NULL ) {
+		syslog(LOG_WARNING, "get switchd config failed, poolname:%s\n", poolname);
+		return (NULL);
+	}
+
+	/*
+	 * Go through and get the current state of the pools and refresh their
+	 * state.
+	 */
+	if (nvlist_alloc(&pools, NV_UNIQUE_NAME, 0) != 0) {
+		(void) no_memory(hdl);
+		nvlist_free(raw);
+		return (NULL);
+	}
+
+	elem = NULL;
+	while ((elem = nvlist_next_nvpair(raw, elem)) != NULL) {
+		verify(nvpair_value_nvlist(elem, &src) == 0);
+
+		verify(nvlist_lookup_string(src, ZPOOL_CONFIG_POOL_NAME,
+		    &name) == 0);
+		if (poolname != NULL && strcmp(poolname, name) != 0)
+			continue;
+
+		verify(nvlist_lookup_uint64(src, ZPOOL_CONFIG_POOL_GUID,
+		    &this_guid) == 0);
+		if (pool_active(hdl, name, this_guid, &active) != 0) {
+			nvlist_free(raw);
+			nvlist_free(pools);
+			syslog(LOG_ERR, "pool active failed ");
+			return (NULL);
+		}
+		if (active) {
+			continue;
+		}
+
+		if ((dst = refresh_config(hdl, src)) == NULL) {
+			nvlist_free(raw);
+			nvlist_free(pools);
+			syslog(LOG_ERR, "refresh config failed");
+			return (NULL);
+		}
+
+		if (nvlist_add_nvlist(pools, nvpair_name(elem), dst) != 0) {
+			(void) no_memory(hdl);
+			nvlist_free(dst);
+			nvlist_free(raw);
+			nvlist_free(pools);
+			syslog(LOG_ERR, "add pools failed");
+			return (NULL);
+		}
+		nvlist_free(dst);
+	}
+	nvlist_free(raw);
+	return (pools);
+}
+
+static nvlist_t *
+zpool_filter_pools(nvlist_t *pools)
+{
+	uint64_t hostid;
+	nvlist_t *config, *nvroot;
+	nvpair_t *elem;
+	zpool_stamp_t stamp;
+	char *name;
+	nvlist_t *ret = NULL;
+	int no_pool = 1;
+
+	hostid = get_system_hostid();
+
+	verify(nvlist_alloc(&ret, NV_UNIQUE_NAME, 0) == 0);
+	elem = NULL;
+	while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
+		verify(nvpair_value_nvlist(elem, &config) == 0);
+		if (nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE, &nvroot) != 0)
+			continue;
+		if (nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME, &name) != 0)
+			continue;
+		if (zpool_read_stamp(nvroot, &stamp) != 0)
+			continue;
+		if (stamp.para.pool_current_owener == hostid) {
+			verify(nvlist_add_nvlist(ret, name, config) == 0);
+			no_pool = 0;
+		}
+	}
+
+	if (no_pool) {
+		nvlist_free(ret);
+		ret = NULL;
+	}
+	nvlist_free(pools);
+	return (ret);
+}
+
 nvlist_t *
 zpool_search_import(libzfs_handle_t *hdl, importargs_t *import)
 {
+	nvlist_t *pools;
+
 	verify(import->poolname == NULL || import->guid == 0);
 
 	if (import->unique)
 		import->exists = zpool_iter(hdl, name_or_guid_exists, import);
 
 	if (import->cachefile != NULL)
-		return (zpool_find_import_cached(hdl, import->cachefile,
-		    import->poolname, import->guid));
+		pools = zpool_find_import_cached(hdl, import->cachefile,
+		    import->poolname, import->guid);
+	else if (import->cluster_switch)
+		pools = zpool_find_import_switched(hdl, import->poolname,
+			import->remote_hostid);
+	else
+		pools = zpool_find_import_impl(hdl, import);
 
-	return (zpool_find_import_impl(hdl, import));
+	if (import->cluster_ignore)
+		return (pools);
+	return (zpool_filter_pools(pools));
 }
 
 boolean_t
@@ -2549,4 +2667,26 @@ int zpool_cluster_set_disks(libzfs_handle_t *hdl, char *pool_name,
 	free(stamp);
 	
 	return (0);
+}
+
+uint64_t
+get_partner_id(libzfs_handle_t *hdl, uint64_t rid)
+{
+	zfs_cmd_t zc = {"\0"};
+	int ret;
+
+	if (rid != 0) {
+		return (rid);
+	}
+	zc.zc_cookie = ZFS_HBX_GET_FAILOVER_HOST;
+	zc.zc_perm_action = rid;
+	zc.zc_guid = 0;
+	ret = zfs_ioctl(hdl, ZFS_IOC_HBX, &zc);
+	if (ret != 0) {
+		syslog(LOG_WARNING, "%s: get hostid where to release failed",
+			__func__);
+	} else {
+		syslog(LOG_NOTICE, "%s: hostid=%d", __func__, (uint32_t)zc.zc_guid);
+	}
+	return (zc.zc_guid);
 }

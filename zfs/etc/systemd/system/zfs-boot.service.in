@@ -1,0 +1,15 @@
+[Unit]
+Description=Probe zfs module
+DefaultDependencies=no
+Requires=systemd-udev-settle.service
+After=systemd-udev-settle.service
+After=cryptsetup.target
+After=systemd-remount-fs.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe zfs
+
+[Install]
+WantedBy=zfs.target
