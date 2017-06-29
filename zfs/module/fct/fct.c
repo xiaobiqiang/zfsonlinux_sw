@@ -41,11 +41,11 @@
 #include <sys/portif.h>
 #include <sys/fct.h>
 #include <sys/fctio.h>
-
 #include <sys/nvpair.h>
 #include <sys/avl.h>
 #include <sys/modhash.h>
 #include <sys/modhash_impl.h>
+#include <linux/utsname_compat.h>
 #include "fct_impl.h"
 #include "discovery.h"
 //#include <sys/zfs_context.h>
@@ -361,10 +361,8 @@ fct_get_adapter_attr(uint8_t *pwwn, fc_tgt_hba_adapter_attributes_t *hba_attr,
 		    hba_attr->NodeSymbolicName,
 		    strlen(iport->iport_port->port_sym_node_name));
 	else {
-		//bcopy(utsname.nodename, hba_attr->NodeSymbolicName,
-		//	strlen(utsname.nodename));
-		bcopy("tmp nodename", hba_attr->NodeSymbolicName,
-		    strlen("tmp nodename"));
+		bcopy(utsname()->nodename, hba_attr->NodeSymbolicName,
+			strlen(utsname()->nodename));
 	}
 	bcopy(attr->hardware_version, hba_attr->HardwareVersion,
 	    sizeof (hba_attr->HardwareVersion));
@@ -2515,7 +2513,7 @@ fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
 	fct_i_local_port_t	*iport	 = NULL;
 	char			*nname	 = NULL;
 	int			 namelen = 0;
-	static char tmp_name[]="fct temp name";
+	
 	/*
 	 * Allocate space
 	 */
@@ -2664,10 +2662,10 @@ fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
 
 	case NS_RSNN_NN:
 		namelen = port->port_sym_node_name == NULL ?
-		    /*strlen(utsname.nodename) :*/ strlen(tmp_name) :
+		    strlen(utsname()->nodename) :
 		    strlen(port->port_sym_node_name);
 		nname = port->port_sym_node_name == NULL ?
-		    /*utsname.nodename*/tmp_name : port->port_sym_node_name;
+		    utsname()->nodename : port->port_sym_node_name;
 		ct->ct_resp_alloc_size = ct->ct_resp_size = 16;
 		ct->ct_resp_payload = (uint8_t *)kmem_zalloc(ct->ct_resp_size,
 		    KM_SLEEP);

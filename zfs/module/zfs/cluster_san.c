@@ -82,10 +82,6 @@ uint32_t cluster_failover_ipmi_switch = 0;
 
 uint32_t self_hostid = 0;
 
-utsname_t hw_utsname = {
-	"Prodigy", "", "", "", "", ""
-};
-
 static void cts_remove(cluster_target_session_t *cts);
 static void cluster_target_port_destroy(cluster_target_port_t *ctp);
 static void cts_send_direct_impl(cluster_target_session_t *cts,
@@ -1028,8 +1024,8 @@ void ctp_tx_rele(cluster_target_port_t *ctp)
 int cluster_san_init()
 {
 	uint32_t hostid;
-	char *hostname = hw_utsname.nodename;
-
+	char *hostname = utsname()->nodename;
+	
 	cs_cache_buf_init();
 	mutex_init(&clustersan_lock, NULL, MUTEX_DEFAULT, NULL);
 	rw_init(&clustersan_rwlock, NULL, RW_DRIVER, NULL);
@@ -1663,11 +1659,12 @@ int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf)
 	}
 
 	if (clustersan->cs_host.hostid < 1 || clustersan->cs_host.hostid > 255) {
-		printk("please set hostid.\n");
+		cmn_err(CE_WARN, "%s hostid %d is invalid", __func__,
+			clustersan->cs_host.hostid);
 		return (-EPERM);
 	}
 	if (clustersan->cs_host.hostname && strlen(clustersan->cs_host.hostname) == 0) {
-		printk("please set hostname.\n");
+		cmn_err(CE_WARN, "%s hostname is invalid", __func__);
 		return (-EPERM);
 	}
 
@@ -3732,8 +3729,8 @@ static void cluster_target_session_destroy(cluster_target_session_t *cts)
 static void ctp_send_join_in_msg(
 	cluster_target_port_t *ctp, void *dst)
 {
-	uint32_t hostid = clustersan->cs_host.hostid;//zone_get_hostid(NULL);
-	char *hostname = clustersan->cs_host.hostname;//hw_utsname.nodename;
+	uint32_t hostid = zone_get_hostid(NULL);
+	char *hostname = utsname()->nodename;
 	nvlist_t *hostinfo;
 	char *buf;
 	size_t buflen;

@@ -41,6 +41,7 @@
 #include <sys/kstat.h>
 #include <sys/file.h>
 #include <sys/modhash.h>
+#include <linux/utsname.h>
 #include <linux/ctype.h>
 #include <linux/kmod.h>
 #include <linux/math64_compat.h>
@@ -525,9 +526,11 @@ static int __init
 spl_init(void)
 {
 	int rc = 0;
-
+	int hostid = 0;
+	char *hostname;
+	
 	bzero(&p0, sizeof (proc_t));
-
+	
 	if ((rc = spl_kvmem_init()))
 		goto out1;
 
@@ -560,6 +563,12 @@ spl_init(void)
 
 	printk(KERN_NOTICE "SPL: Loaded module v%s-%s%s\n", SPL_META_VERSION,
 	       SPL_META_RELEASE, SPL_DEBUG_STR);
+
+	hostid = zone_get_hostid(NULL);
+	hostname = utsname()->nodename;
+	printk(KERN_NOTICE "SPL: using hostname %s\n",
+			hostname);
+	
 	return (rc);
 out10:
 	spl_modhash_fini();

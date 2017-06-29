@@ -48,8 +48,6 @@ static uint64_t stmf_proxy_msg_id = 0x1;
 #define WAIT_TASK_FREE_TIME			300
 #define	PRIxPTR		"lx"
 #define	PRIx64		"llx"
-/* TODO: */
-static int s_hostid = 0x01;
 
 #define ARRAYSIZE(X)  (sizeof(X) / sizeof(X[0]))
 
@@ -349,15 +347,13 @@ stmf_init(void)
 	int ret;
 	uint32_t hostid;
 
+	hostid = zone_get_hostid(NULL);
+
 	ret = misc_register(&stmf_misc);
 	if (ret != 0) {
 		cmn_err(CE_WARN, "STMF: misc_register() failed %d", ret);
 		return (ret);
 	}
-
-	/* hostid = zone_get_hostid(NULL); */
-	/* TODO: */
-	hostid = s_hostid;
 
 	/* read avs conf */
    	stmf_load_config();
@@ -7882,14 +7878,9 @@ stmf_scsilib_uniq_lu_id2(uint32_t company_id, uint32_t host_id,
 	p[6] = (company_id >> 4) & 0xff;
 	p[7] = (company_id << 4) & 0xf0;
 
-	/*
-	if (hid == 0 && !localetheraddr((struct ether_addr *)NULL, &mac)) {
+	if (hid == 0 /* && !localetheraddr((struct ether_addr *)NULL, &mac) */) {
 		hid = BE_32((int)zone_get_hostid(NULL));
 	}
-	*/
-
-	if (hid == 0)
-		hid = s_hostid;
 	
 	if (hid != 0) {
 		e[0] = (hid >> 24) & 0xff;

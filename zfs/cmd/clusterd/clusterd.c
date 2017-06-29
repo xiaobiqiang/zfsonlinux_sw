@@ -6218,7 +6218,7 @@ main(int argc, char *argv[])
 	else
 		write_pid();
 
-	host_id = gethostid();
+	host_id = get_system_hostid();
 
 	openlog(MyName, LOG_PID | LOG_NDELAY, LOG_DAEMON);
 	(void) signal(SIGHUP, warn_hup);
