@@ -846,8 +846,6 @@ extern void zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
     uint64_t flags);
 extern int zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt, uint8_t need_reply);
 extern int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen);
-extern int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid);
-extern int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname);
 extern int zfs_enable_clustersan(libzfs_handle_t *hd, char *clustername,
 	char *linkname, nvlist_t *conf, uint64_t flags);
 extern int zfs_disable_clustersan(libzfs_handle_t *hdl, uint64_t flags);

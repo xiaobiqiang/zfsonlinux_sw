@@ -1632,24 +1632,7 @@ static void cluster_san_watchdog_fini(void)
 	mutex_destroy(&clustersan->cs_wd_mtx);
 	cv_destroy(&clustersan->cs_wd_cv);
 }
-int cluster_san_set_hostname(char *hostname)
-{
-	if (strlen(hostname) > 64) {
-		printk("hostname(%s) is too large\n", hostname);
-		return (-EINVAL);
-	}
-	memcpy(clustersan->cs_host.hostname, hostname, strlen(hostname));
-	return (0);
-}
-int cluster_san_set_hostid(uint32_t hostid)
-{
-	if (hostid < 1 || hostid > 255) {
-		printk("hostid %d error. ( 1 <= hostid <= 255)\n", hostid);
-		return (-EINVAL);
-	}
-	clustersan->cs_host.hostid = hostid;
-	return (0);
-}
+
 int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf)
 {
 	cluster_target_port_t *ctp;

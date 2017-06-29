@@ -1084,8 +1084,6 @@ typedef  enum {
 	/* rpc rdma ioc */
 	ZFS_CLUSTERSAN_IOC_RPC_SVC			= 0x10,
 	ZFS_CLUSTERSAN_IOC_RPC_CLNT			= 0x11,
-	ZFS_CLUSTERSAN_SET_HOSTNAME			= 0x12,
-	ZFS_CLUSTERSAN_SET_HOSTID			= 0x13,
 	ZFS_CLUSTERSAN_COMM_TEST			= 0x14
 }zfs_clustersan_ioc_t;
 

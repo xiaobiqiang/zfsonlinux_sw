@@ -1985,52 +1985,7 @@ int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen
 	}
 	return (err);
 }
-int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid)
-{
-	int err;
-	uint32_t id;
-	zfs_cmd_t zc = { 0 };
 
-	if (hostid == NULL) {
-		(void) printf("must give the hostid\n");
-		return (-1);
-	}
-	id = atoi(hostid);
-	if (id < 1 || id > 255) {
-		printf("hostid >= 1 and hostid <= 255\n");
-		return (-1);
-	}
-	zc.zc_pad[0] = (char)id;
-	zc.zc_cookie = ZFS_CLUSTERSAN_SET_HOSTID;
-	
-	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
-	if (err != 0) {
-		(void) printf("hostid set failed\n");
-	}
-	return (err);
-}
-int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname)
-{
-	int err;
-	zfs_cmd_t zc = { 0 };
-
-	if (hostname == NULL) {
-		(void) printf("must give the hostname\n");
-		return (-1);
-	}
-	if (strlen(hostname) > 64) {
-		printf("the hostname is too long\n");
-		return (-1);
-	}
-	strcpy(zc.zc_name, hostname);
-	zc.zc_cookie = ZFS_CLUSTERSAN_SET_HOSTNAME;
-
-	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
-	if (err != 0) {
-		(void) printf("hostname set failed\n");
-	}
-	return (err);
-}
 int zfs_enable_clustersan(libzfs_handle_t *hdl, char *clustername,
 	char *linkname, nvlist_t *conf, uint64_t flags)
 {
