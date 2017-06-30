@@ -45,7 +45,7 @@ static int offlinetarget(int, char **, cmdOptions_t *, void *);
 static int onlineOfflineTarget(char *, int);
 /*static int removeview(int, char **, cmdOptions_t *, void *);*/
 static char *getExecBasename(char *);
-void extractlunalias(char *,char *);
+boolean_t extractlunalias(char *,char *);
 static int getgroupmember(stmfGroupName *, stmfGroupProperties **, int, int);
 static int checkScsiNameString(wchar_t *, stmfDevid *);
 static int checkIscsiName(wchar_t *);
@@ -188,12 +188,13 @@ char *cmdName;
  *   return the pointer to the extracted string
  *    
  */
-void extractlunalias(char *stringtoextract, char *stringtostore)
+boolean_t extractlunalias(char *stringtoextract, char *stringtostore)
 {
 	/*提取池名/lun名*/
 	char *fileNamep;
 	int c;
 	int countline;
+	boolean_t ret = B_FALSE;
 	fileNamep = stringtoextract;
 	countline = 0;
 	for(c=0; c < strlen(stringtoextract);c++)   
@@ -206,9 +207,12 @@ void extractlunalias(char *stringtoextract, char *stringtostore)
 		if (countline == 4)
 		{
 			stringtostore = strcpy(stringtostore,fileNamep);
+			ret = B_TRUE;
 			break;
 		}
 	}
+
+	return (ret);
 }
 
 /*   getgroupmember
@@ -3326,42 +3330,40 @@ static int getlu_prop(list_t *lunrelatelistp)
 			free(lunend);
 			goto lu_exit;
 		}
-		if (strcmp(dataFileName, STMF_ACCESS_ACTIVE)  == 0)
-		{
+		if (strcmp(dataFileName, STMF_ACCESS_ACTIVE) == 0) {
 			stmfRet = stmfGetLuProp(hdl, STMF_LU_PROP_FILENAME, dataFileName, &fileNameSize);
-			/*if(stmfRet != STMF_STATUS_SUCCESS)
-			{
-				printf("Get Data File fail.");
-			}*/
-			if (stmfRet == STMF_STATUS_SUCCESS)
-			{
-				extractlunalias(dataFileName, lunend->lundatafield.lunalias);
-			}
-			else 
-			{
+			if (stmfRet != STMF_STATUS_SUCCESS)
+				stmfRet = stmfGetLuProp(hdl, STMF_LU_PROP_META_FILENAME, dataFileName, &fileNameSize);
+			
+			if (stmfRet == STMF_STATUS_SUCCESS) {
+				if (!extractlunalias(dataFileName, lunend->lundatafield.lunalias))
+					strncpy(lunend->lundatafield.lunalias, dataFileName, sizeof(dataFileName));
+			} else {
 				(void) printf("Get LUN property fails.\n");
 				free(lunend);
 				goto lu_exit;
 			}
 		}
 		/*提取在standby状态下的lun别名*/
-		else if (strcmp(dataFileName, STMF_ACCESS_STANDBY)  == 0)
-		{
-			stmfRet = stmfGetLogicalUnitProperties(
-				    &(lulist->guid[i]), &luProps);
-			if (stmfRet == STMF_STATUS_SUCCESS)
-			{
-				extractlunalias(luProps.alias, lunend->lundatafield.lunalias);
+		else if (strcmp(dataFileName, STMF_ACCESS_STANDBY) == 0) {
+			stmfRet = stmfGetLuPropEx(hdl, STMF_LU_PROP_FILENAME, dataFileName, &fileNameSize);
+			if (stmfRet != STMF_STATUS_SUCCESS) {
+				stmfRet = stmfGetLuPropEx(hdl, STMF_LU_PROP_META_FILENAME, dataFileName, &fileNameSize);
+				if (stmfRet != STMF_STATUS_SUCCESS) {
+					stmfRet = stmfGetLogicalUnitProperties(&(lulist->guid[i]), &luProps);
+					strncpy(dataFileName, luProps.alias, sizeof(luProps.alias));
+				}
 			}
-			else
-			{
+			
+			if (stmfRet == STMF_STATUS_SUCCESS) {
+				if (!extractlunalias(dataFileName, lunend->lundatafield.lunalias))
+					strncpy(lunend->lundatafield.lunalias, dataFileName, sizeof(dataFileName));
+			} else {
 				(void) printf("Get standby lun alias faild.\n");
 				free(lunend);
 				goto lu_exit;
 			}
-		}
-		else
-		{
+		} else {
 			(void) strncpy(lunend->lundatafield.lunalias, unavail, 256);
 		}
 		list_insert_tail(lunrelatelistp, lunend);
@@ -3570,19 +3572,16 @@ static int getlunviewprop(list_t *view_list_p)
 					goto lunview_exit;
 				}
 				/*提取active状态下的lun的data file*/
-				if (strcmp(dataFileName, STMF_ACCESS_ACTIVE)  == 0)
-				{
+				if (strcmp(dataFileName, STMF_ACCESS_ACTIVE) == 0) {
 					stmfRet = stmfGetLuProp(hdl, STMF_LU_PROP_FILENAME, dataFileName, &fileNameSize);
-					/*if(stmfRet != STMF_STATUS_SUCCESS)
-					{
-						printf("Get Data File fail.");
-					}*/
-					if (stmfRet == STMF_STATUS_SUCCESS)
-					{
-						extractlunalias(dataFileName, viewp->view_data._LUName);
-					}
-					else 
-					{
+					if (stmfRet != STMF_STATUS_SUCCESS)
+						stmfRet = stmfGetLuProp(hdl, STMF_LU_PROP_META_FILENAME, dataFileName, &fileNameSize);
+					
+					if (stmfRet == STMF_STATUS_SUCCESS)	{
+						if (!extractlunalias(dataFileName, viewp->view_data._LUName)) {
+							strncpy(viewp->view_data._LUName, dataFileName, sizeof(dataFileName));
+						}
+					} else {
 						(void) printf("Get LUN property fails.\n");
 						free(viewp);
 						goto lunview_exit;
@@ -3591,21 +3590,24 @@ static int getlunviewprop(list_t *view_list_p)
 				/*提取在standby状态下的lun别名*/
 				else if (strcmp(dataFileName, STMF_ACCESS_STANDBY)  == 0)
 				{
-					stmfRet = stmfGetLogicalUnitProperties(
-						    &(lulist->guid[i]), &luProps);
-					if (stmfRet == STMF_STATUS_SUCCESS)
-					{
-						extractlunalias(luProps.alias, viewp->view_data._LUName);
+					stmfRet = stmfGetLuPropEx(hdl, STMF_LU_PROP_FILENAME, dataFileName, &fileNameSize);
+					if (stmfRet != STMF_STATUS_SUCCESS) {
+						stmfRet = stmfGetLuPropEx(hdl, STMF_LU_PROP_META_FILENAME, dataFileName, &fileNameSize);
+						if (stmfRet != STMF_STATUS_SUCCESS) {
+							stmfRet = stmfGetLogicalUnitProperties(&(lulist->guid[i]), &luProps);
+							strncpy(dataFileName, luProps.alias, sizeof(luProps.alias));
+						}
 					}
-					else
-					{
+					
+					if (stmfRet == STMF_STATUS_SUCCESS) {
+						if (!extractlunalias(dataFileName, viewp->view_data._LUName))
+							strncpy(viewp->view_data._LUName, dataFileName, sizeof(dataFileName));
+					} else {
 						(void) printf("Get standby lun alias faild.\n");
 						free(viewp);
 						goto lunview_exit;
 					}
-				}
-				else
-				{
+				} else {
 					(void)strncpy(viewp->view_data._LUName, unavail, 256);
 				}
 				/*获取lun的serial num*/

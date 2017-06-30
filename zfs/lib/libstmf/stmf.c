@@ -119,7 +119,7 @@ static int setProviderData(int fd, char *, nvlist_t *, int, uint64_t *);
 static int createDiskResource(luResourceImpl *);
 static int createDiskLu(diskResource *, stmfGuid *);
 static int deleteDiskLu(stmfGuid *luGuid);
-static int getDiskProp(luResourceImpl *, uint32_t, char *, size_t *);
+static int getDiskProp(luResourceImpl *, uint32_t, char *, size_t *, boolean_t);
 static int getDiskAllProps(stmfGuid *luGuid, luResource *hdl);
 static int loadDiskPropsFromDriver(luResourceImpl *, sbd_lu_props_t *);
 static int removeGuidFromDiskStore(stmfGuid *);
@@ -2602,7 +2602,36 @@ stmfGetLuProp(luResource hdl, uint32_t prop, char *propVal, size_t *propLen)
 	}
 
 	if (luPropsHdl->type == STMF_DISK) {
-		ret = getDiskProp(luPropsHdl, prop, propVal, propLen);
+		ret = getDiskProp(luPropsHdl, prop, propVal, propLen, B_FALSE);
+	} else {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	return (ret);
+}
+
+/*
+ * stmfGetLuPropEx
+ *
+ * Purpose: Get current value for a resource property, standby also can get property
+ *
+ * hdl - luResource from a previous call to stmfCreateLuResource
+ *
+ * resourceProp - a valid resource property type
+ *
+ * propVal - void pointer to a pointer of the value to be retrieved
+ */
+int
+stmfGetLuPropEx(luResource hdl, uint32_t prop, char *propVal, size_t *propLen)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	luResourceImpl *luPropsHdl = hdl;
+	if (hdl == NULL || propLen == NULL || propVal == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	if (luPropsHdl->type == STMF_DISK) {
+		ret = getDiskProp(luPropsHdl, prop, propVal, propLen, B_TRUE);
 	} else {
 		return (STMF_ERROR_INVALID_ARG);
 	}
@@ -3125,9 +3154,11 @@ stmfSetLuProp(luResource hdl, uint32_t prop, const char *propVal)
  * propVal - pointer to character to contain the retrieved property value
  * propLen - On input this is the length of propVal. On failure, it contains the
  *           number of bytes required for propVal
+ * get_standby - standby also retrieved property value
  */
 static int
-getDiskProp(luResourceImpl *hdl, uint32_t prop, char *propVal, size_t *propLen)
+getDiskProp(luResourceImpl *hdl, uint32_t prop, char *propVal, size_t *propLen,
+	boolean_t get_standby)
 {
 	int ret = STMF_STATUS_SUCCESS;
 	diskResource *diskLu = hdl->resource;
@@ -3170,8 +3201,11 @@ getDiskProp(luResourceImpl *hdl, uint32_t prop, char *propVal, size_t *propLen)
 		return (STMF_ERROR_NO_PROP_STANDBY);
 	}
 #endif
-	if (diskLu->mediaLoaded == 0) {
-		return (STMF_ERROR_NO_PROP_STANDBY);
+
+	if (!get_standby) {
+		if (diskLu->mediaLoaded == 0) {
+			return (STMF_ERROR_NO_PROP_STANDBY);
+		}
 	}
 
 	switch (prop) {

@@ -390,6 +390,8 @@ int stmfGetLogicalUnitProviderProperties(stmfProviderName *providerName,
     stmfLogicalUnitProviderProperties *providerProperties);
 int stmfGetLuProp(luResource hdl, uint32_t propType, char *prop,
     size_t *propLen);
+int stmfGetLuPropEx(luResource hdl, uint32_t propType, char *prop,
+    size_t *propLen);
 int stmfGetLuResource(stmfGuid *luGuid, luResource *hdl);
 int stmfGetPersistMethod(uint8_t *persistType, boolean_t serviceState);
 int stmfGetProviderData(char *providerName, nvlist_t **nvl, int providerType);
