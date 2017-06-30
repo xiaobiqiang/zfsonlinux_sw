@@ -60,6 +60,9 @@
 #define	ZVOL_VALID			0x1
 #define	ZVOL_INVALID		0x2
 
+#define ZVOL_REMOVE_WAIT_GAP	200	/* ms */
+#define ZVOL_REMOVE_WAIT_COUNT	8
+
 unsigned int zvol_inhibit_dev = 0;
 unsigned int zvol_major = ZVOL_MAJOR;
 unsigned int zvol_prefetch_bytes = (128 * 1024);
@@ -101,6 +104,7 @@ typedef struct zvol_state {
 	kmutex_t		zv_state_lock;		/* protect zv_state */
 	kcondvar_t		zv_cv;		/* wait create minor done */
 	uint8_t			zv_state;
+	kcondvar_t		zv_rele_cv;
 } zvol_state_t;
 
 typedef enum {
@@ -1141,8 +1145,8 @@ zvol_open(struct block_device *bdev, fmode_t flag)
 	if (zv->zv_open_count == 0) {
 		error = zvol_first_open(zv);
 		if (error) {
-			cmn_err(CE_WARN, "%s first open failed error = %d",
-				__func__, error);
+			cmn_err(CE_WARN, "%s first open %s failed error = %d",
+				__func__, zv->zv_name, error);
 			goto out_mutex;
 		}
 	}
@@ -1189,8 +1193,10 @@ zvol_release(struct gendisk *disk, fmode_t mode)
 
     mutex_enter(&zv->zv_state_lock);
 	zv->zv_open_count--;
-	if (zv->zv_open_count == 0)
+	if (zv->zv_open_count == 0) {
 		zvol_last_close(zv);
+		cv_signal(&zv->zv_rele_cv);
+	}
     mutex_exit(&zv->zv_state_lock);
 
 	if (drop_mutex)
@@ -1583,6 +1589,7 @@ zvol_alloc(dev_t dev, const char *name)
 	mutex_init(&zv->zv_state_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&zv->zv_cv, NULL, CV_DEFAULT, NULL);
 	zv->zv_state = ZVOL_UNINITIALIZED;
+	cv_init(&zv->zv_rele_cv, NULL, CV_DEFAULT, NULL);
 	
 	blk_queue_make_request(zv->zv_queue, zvol_request);
 	blk_queue_set_write_cache(zv->zv_queue, B_TRUE, B_TRUE);
@@ -1639,6 +1646,7 @@ zvol_free(zvol_state_t *zv)
 
 	mutex_destroy(&zv->zv_state_lock);
 	cv_destroy(&zv->zv_cv);
+	cv_destroy(&zv->zv_rele_cv);
 	kmem_free(zv, sizeof (zvol_state_t));
 }
 
@@ -1943,6 +1951,7 @@ zvol_remove_minors_impl(const char *name)
 {
 	zvol_state_t *zv, *zv_next;
 	int namelen = ((name) ? strlen(name) : 0);
+	int count = ZVOL_REMOVE_WAIT_COUNT;
 
 	if (zvol_inhibit_dev)
 		return;
@@ -1956,11 +1965,17 @@ zvol_remove_minors_impl(const char *name)
 		    (strncmp(zv->zv_name, name, namelen) == 0 &&
 		    (zv->zv_name[namelen] == '/' ||
 		    zv->zv_name[namelen] == '@'))) {
-
+#if 0
 			/* If in use, leave alone */
 			if (zv->zv_open_count > 0)
 				continue;
-
+#endif
+			while (zv->zv_open_count && count > 0) {
+				cv_timedwait(&zv->zv_rele_cv, &zvol_state_lock, 
+					ddi_get_lbolt() + msecs_to_jiffies(ZVOL_REMOVE_WAIT_GAP * 1000));
+				count--;
+			}
+			
 			zvol_remove(zv);
 			zvol_free(zv);
 		}
@@ -1974,6 +1989,7 @@ static void
 zvol_remove_minor_impl(const char *name)
 {
 	zvol_state_t *zv, *zv_next;
+	int count = ZVOL_REMOVE_WAIT_COUNT;
 
 	if (zvol_inhibit_dev)
 		return;
@@ -1987,9 +2003,17 @@ zvol_remove_minor_impl(const char *name)
 		zv_next = list_next(&zvol_state_list, zv);
 
 		if (strcmp(zv->zv_name, name) == 0) {
+#if 0
 			/* If in use, leave alone */
 			if (zv->zv_open_count > 0)
 				continue;
+#endif
+			while (zv->zv_open_count && count > 0) {
+				cv_timedwait(&zv->zv_rele_cv, &zvol_state_lock, 
+					ddi_get_lbolt() + msecs_to_jiffies(ZVOL_REMOVE_WAIT_GAP * 1000));
+				count--;
+			}
+
 			zvol_remove(zv);
 			zvol_free(zv);
 			break;
