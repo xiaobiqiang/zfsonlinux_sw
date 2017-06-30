@@ -430,6 +430,18 @@ pppt_enable_clustersan(void)
 			stmf_clustersan_alua_state_sync,
 			(void *)alua_state, TQ_SLEEP);
 		/* get other's alua state */
+
+		if (pppt_conn.ic_pppt_rx_taskq == NULL) {
+			pppt_conn.ic_pppt_rx_taskq = taskq_create(
+				"pppt_ic_pppt_rx_taskq",
+				1, minclsyspri, 1, INT_MAX, TASKQ_PREPOPULATE);
+		}
+
+		if (pppt_conn.ic_stmf_rx_taskq == NULL) {
+			pppt_conn.ic_stmf_rx_taskq = taskq_create(
+				"pppt_ic_stmf_rx_taskq",
+				1, minclsyspri, 1, INT_MAX, TASKQ_PREPOPULATE);
+		}
 	}
 
 	return (0);
@@ -440,7 +452,11 @@ pppt_disable_clustersan(void)
 {
 	stmf_clustersan_modunload();
 	taskq_destroy(pppt_conn.ic_cs_asyn_taskq);
+	taskq_destroy(pppt_conn.ic_pppt_rx_taskq);
+	taskq_destroy(pppt_conn.ic_stmf_rx_taskq);
 	pppt_conn.ic_cs_asyn_taskq = NULL;
+	pppt_conn.ic_pppt_rx_taskq = NULL;
+	pppt_conn.ic_stmf_rx_taskq = NULL;
 }
 #endif /* #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN) */
 

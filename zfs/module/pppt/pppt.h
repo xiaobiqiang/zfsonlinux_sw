@@ -314,6 +314,8 @@ typedef struct {
 
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
 	taskq_t			*ic_cs_asyn_taskq;
+	taskq_t			*ic_pppt_rx_taskq;
+	taskq_t			*ic_stmf_rx_taskq;
 	taskq_t			*ic_cs_rx_tq;
 	boolean_t		ic_cs_rx_tq_exit;
 #endif

@@ -1137,7 +1137,7 @@ stmf_ic_rx_msg(char *buf, size_t len)
 	case STMF_ICM_SESSION_CREATE:
 	case STMF_ICM_SESSION_DESTROY:
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
-		taskq_dispatch(pppt_conn.ic_cs_asyn_taskq,
+		taskq_dispatch(pppt_conn.ic_pppt_rx_taskq,
 			(void (*)(void *))pppt_msg_rx, (void *)m, TQ_SLEEP);
 		break;
 #endif
@@ -1161,7 +1161,7 @@ stmf_ic_rx_msg(char *buf, size_t len)
 	case STMF_ICM_NOTIFY_AVS_MASTER_STATE:
 	case STMF_ICM_SET_REMOTE_SYNC_FLAG:
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
-		taskq_dispatch(pppt_conn.ic_cs_asyn_taskq,
+		taskq_dispatch(pppt_conn.ic_stmf_rx_taskq,
 			(void (*)(void *))stmf_msg_rx, (void *)m, TQ_SLEEP);
 		break;
 #endif
