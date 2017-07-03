@@ -139,6 +139,7 @@ AC_CONFIG_FILES([
 	module/zpios/Makefile
 	module/fct/Makefile
 	module/qlt/Makefile
+	module/qlf/Makefile
 	module/stmf/Makefile
 	module/stmf_sbd/Makefile
 	module/pppt/Makefile

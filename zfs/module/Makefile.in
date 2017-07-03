@@ -8,6 +8,7 @@ subdir-m += zpios
 subdir-m += fct
 subdir-m += stmf
 subdir-m += qlt
+subdir-m += qlf
 subdir-m += stmf_sbd
 subdir-m += pppt
 subdir-m += fmd_transport
