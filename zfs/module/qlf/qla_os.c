@@ -2361,6 +2361,10 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct rsp_que *rsp = NULL;
 	bars = pci_select_bars(pdev, IORESOURCE_MEM | IORESOURCE_IO);
 	sht = &qla2xxx_driver_template;
+
+	ql_log(ql_log_info, NULL, 0x0005,
+	    "start attach qlf driver\n");
+
 	if (pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2422 ||
 	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2432 ||
 	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP8432 ||
@@ -5802,7 +5806,7 @@ static struct pci_device_id qla2xxx_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2261) },
 	{ 0 },
 };
-MODULE_DEVICE_TABLE(pci, qla2xxx_pci_tbl);
+//MODULE_DEVICE_TABLE(pci, qla2xxx_pci_tbl);
 
 static struct pci_driver qla2xxx_pci_driver = {
 	.name		= QLA2XXX_DRIVER_NAME,
