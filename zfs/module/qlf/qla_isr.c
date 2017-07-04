@@ -1803,7 +1803,7 @@ qlt_handle_ct_completion(struct scsi_qla_host *vha, uint8_t *rsp)
 		    qcmd->param.resp_offset,
 		    ct->ct_resp_payload, ct->ct_resp_size);
 	}
-	qlt_dmem_free(NULL, qcmd->dbuf);
+	//qlt_dmem_free(NULL, qcmd->dbuf);
 	qcmd->dbuf = NULL;
 
 	if ((status == 0) || (status == 0x15)) {
@@ -1898,7 +1898,7 @@ qlt_handle_unsol_els_completion(struct scsi_qla_host *vha, uint8_t *rsp)
 	}
 
 	if (qcmd->dbuf != NULL) {
-		qlt_dmem_free(NULL, qcmd->dbuf);
+		//qlt_dmem_free(NULL, qcmd->dbuf);
 		qcmd->dbuf = NULL;
 	}
 
@@ -1920,7 +1920,7 @@ qlt_handle_unsol_els_completion(struct scsi_qla_host *vha, uint8_t *rsp)
 			    info);
 		}
 	} else {
-		ql_dbg(ql_dbg_tgt, vha, 0xe041, "status (0xh) sucode1=%xh subconde2=%xh\n",
+		ql_dbg(ql_dbg_tgt, vha, 0xe041, "status (%xh) sucode1=%xh subconde2=%xh\n",
 		    status, subcode1, subcode2);
 		fct_send_response_done(cmd,
 		    QLT_FIRMWARE_ERROR(status, subcode1, subcode2), 0);
@@ -1994,7 +1994,7 @@ qlt_handle_unsol_els_abort_completion(struct scsi_qla_host *vha, uint8_t *rsp)
 	ASSERT(qcmd->flags & QLT_CMD_ABORTING);
 
 	if (qcmd->dbuf != NULL) {
-		qlt_dmem_free(NULL, qcmd->dbuf);
+		//qlt_dmem_free(NULL, qcmd->dbuf);
 		qcmd->dbuf = NULL;
 	}
 
@@ -2074,7 +2074,7 @@ qlt_handle_sol_els_completion(struct scsi_qla_host *vha, uint8_t *rsp)
 			    qcmd->param.resp_offset,
 			    els->els_resp_payload, els->els_resp_size);
 		}
-		qlt_dmem_free(NULL, qcmd->dbuf);
+		//qlt_dmem_free(NULL, qcmd->dbuf);
 		qcmd->dbuf = NULL;
 	}
 
@@ -2904,7 +2904,7 @@ qla24xx_abort_iocb_entry(scsi_qla_host_t *vha, struct req_que *req,
 	    (cmd->cmd_type == FCT_CMD_SOL_CT));
 	qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
 	if (qcmd->dbuf != NULL) {
-		qlt_dmem_free(NULL, qcmd->dbuf);
+		//qlt_dmem_free(NULL, qcmd->dbuf);
 		qcmd->dbuf = NULL;
 	}
 	ASSERT(qcmd->flags & QLT_CMD_ABORTING);
@@ -2928,6 +2928,9 @@ void qla24xx_process_response_queue(struct scsi_qla_host *vha,
 {
 	struct sts_entry_24xx *pkt;
 	struct qla_hw_data *ha = vha->hw;
+	uint8_t *resp;
+	uint8_t c;
+	
 
 	if (!vha->flags.online)
 		return;
@@ -2968,16 +2971,15 @@ void qla24xx_process_response_queue(struct scsi_qla_host *vha,
 			qla24xx_logio_entry(vha, rsp->req,
 			    (struct logio_entry_24xx *)pkt);
 			break;
-        case CT_IOCB_TYPE:
-			uint8_t *resp = (uint8_t *)pkt;
+        	case CT_IOCB_TYPE:
+			resp = (uint8_t *)pkt;
 			qlt_handle_ct_completion(vha, resp);
 			#if 0
 			qla24xx_els_ct_entry(vha, rsp->req, pkt, CT_IOCB_TYPE);
 			#endif
 			break;
-        case ELS_IOCB_TYPE:
-			uint8_t c;
-			uint8_t *resp = (uint8_t *)pkt;
+        	case ELS_IOCB_TYPE:
+			resp = (uint8_t *)pkt;
 			c = (uint8_t)(((uint8_t)resp[0x1f]) >> 5);
 			if (c == 0) {
 				qlt_handle_sol_els_completion(vha,

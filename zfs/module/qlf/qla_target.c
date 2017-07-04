@@ -42,7 +42,8 @@
 #include "qla_def.h"
 #include "qla_target.h"
 
-static char *qlini_mode = QLA2XXX_INI_MODE_STR_ENABLED;
+extern struct stmf_port_provider *qlt_pp;
+static char *qlini_mode = QLA2XXX_INI_MODE_STR_DISABLED;
 module_param(qlini_mode, charp, S_IRUGO);
 MODULE_PARM_DESC(qlini_mode,
 	"Determines when initiator mode will be enabled. Possible values: "
@@ -52,7 +53,7 @@ MODULE_PARM_DESC(qlini_mode,
 	"\"disabled\" - initiator mode will never be enabled; "
 	"\"enabled\" (default) - initiator mode will always stay enabled.");
 
-int ql2x_ini_mode = QLA2XXX_INI_MODE_EXCLUSIVE;
+int ql2x_ini_mode = QLA2XXX_INI_MODE_DISABLED;
 
 /*
  * From scsi/fc/fc_fcp.h
@@ -1294,7 +1295,6 @@ static int __qlt_24xx_handle_abts(struct scsi_qla_host *vha,
 static void qlt_24xx_handle_abts(struct scsi_qla_host *vha,
 	struct abts_recv_from_24xx *abts)
 {
-	struct qla_hw_data *ha = vha->hw;
 	uint8_t * resp = (uint8_t *)abts;
 	qlt_abts_cmd_t	*qcmd;
 	fct_cmd_t	*cmd;
@@ -2498,7 +2498,6 @@ static struct qla_tgt_cmd *qlt_ctio_to_cmd(struct scsi_qla_host *vha,
 static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	uint32_t status, void *ctio)
 {
-	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt_cmd *qla_cmd;
 	fct_cmd_t	*cmd;
 	scsi_task_t *task;
@@ -2509,7 +2508,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	uint32_t	hndl;
 	uint32_t	rex1;
 	uint16_t	oxid;
-	uint16_t	status;
+	//uint16_t	status;
 	uint16_t	flags;
 	uint8_t 	abort_req;
 	uint8_t 	n;
@@ -2525,7 +2524,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 
 	/* XXX: Check validity of the IOCB by checking 4th byte. */
 	hndl = ioread32(rsp+4);
-	status = ioread16(rsp+8);
+	//status = ioread16(rsp+8);
 	flags = ioread16(rsp+0x1a);
 	oxid = ioread16(rsp+0x20);
 	rex1 = ioread32(rsp+0x14);
@@ -2642,8 +2641,9 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		}
 
 		ASSERT(dbuf != NULL);
-		if (dbuf->db_flags & DB_DIRECTION_FROM_RPORT)
-			qlt_dmem_dma_sync(dbuf, DDI_DMA_SYNC_FORCPU);
+		
+		//if (dbuf->db_flags & DB_DIRECTION_FROM_RPORT)
+		//	qlt_dmem_dma_sync(dbuf, DDI_DMA_SYNC_FORCPU);
 		if (flags & BIT_15) {
 			dbuf->db_flags = (uint16_t)(dbuf->db_flags |
 				DB_STATUS_GOOD_SENT);
@@ -2664,7 +2664,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	fct_cmd_fca_aborted(cmd, fc_st, iof);
 
 	ql_dbg(ql_dbg_tgt, vha, 0xe01e, 
-		"(%p)(%xh,%xh),%x %x %x\n",
+		"(%p)(%xh,%xh),%x %x %llx\n",
 		cmd, cmd->cmd_oxid, cmd->cmd_rxid,
 		cmd->cmd_handle, qcmd->fw_xchg_addr,
 		fc_st);
@@ -3840,10 +3840,9 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 	fct_cmd_t	*cmd;
 	scsi_task_t	*task;
 	qlt_cmd_t	*qcmd;
-	uint8_t		*p, *q, *tm;
-	int rc;
+	uint8_t		*p, *q, tm;
 	uint32_t rportid, cdb_size;
-	uint8 atio_prt = (uint8 *)atio;
+	uint8_t *atio_prt = (uint8_t *)atio;
 	
 
 	if (unlikely(tgt == NULL)) {
@@ -3895,33 +3894,25 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 		*/
 		cdb_size = 16;
 		if (atio_prt[0x20 + 11] >= 3) {
-			uint8 b = atio_prt[0x20 + 11];
-			uint16 b1;
+			uint8_t b = atio_prt[0x20 + 11];
+			uint16_t b1;
 			if ((b & 3) == 3) {
 				ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 					"bidirectional I/O not supported\n");
-				cmn_err(CE_WARN, "qlt(%d) CMD with bidirectional I/O "
-					"received, dropping the cmd as bidirectional "
-					" transfers are not yet supported", qlt->instance);
 				/* XXX abort the I/O */
 				return;
 			}
-			cdb_size = (uint16)(cdb_size + (b & 0xfc));
+			cdb_size = (uint16_t)(cdb_size + (b & 0xfc));
 			/*
 			 * Verify that we have enough entries. Without additional CDB
 			 * Everything will fit nicely within the same 64 bytes. So the
 			 * additional cdb size is essentially the # of additional bytes
 			 * we need.
 			 */
-			b1 = (uint16)b;
-			if (((((b1 & 0xfc) + 63) >> 6) + 1) > ((uint16)atio_prt[1])) {
+			b1 = (uint16_t)b;
+			if (((((b1 & 0xfc) + 63) >> 6) + 1) > ((uint16_t)atio_prt[1])) {
 				ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 					"extended cdb received\n");
-				cmn_err(CE_WARN, "qlt(%d): cmd received with extended "
-					" cdb (cdb size = %d bytes), however the firmware "
-					" did not DMAed the entire FCP_CMD IU, entry count "
-					" is %d while it should be %d", qlt->instance,
-					cdb_size, atio_prt[1], ((((b1 & 0xfc) + 63) >> 6) + 1));
 				/* XXX abort the I/O */
 				return;
 			}
@@ -3930,7 +3921,7 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 		rportid = (((uint32_t)atio_prt[8 + 5]) << 16) |
 	    (((uint32_t)atio_prt[8 + 6]) << 8) | atio_prt[8+7];
 		
-		cmd = fct_scsi_task_alloc(ha->qlt_port, FCT_HANDLE_NONE,
+		cmd = fct_scsi_task_alloc(vha->qlt_port, FCT_HANDLE_NONE,
 		    rportid, atio_prt+0x20, cdb_size, STMF_TASK_EXT_NONE);
 		if (cmd == NULL) {
 			ql_dbg(ql_dbg_tgt, vha, 0xe058, 
@@ -3989,14 +3980,14 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 				*p++ = *q++;
 				xtra--;
 				if (q == ((uint8_t *)ha->tgt.atio_ring + 
-					(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp)) {
+					(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp))) {
 					q = (uint8_t *)ha->tgt.atio_ring;
 				}
 			}
 			for (i = 0; i < 4; i++) {
 				cb[i] = *q++;
 				if (q == ((uint8_t *)ha->tgt.atio_ring + 
-					(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp)) {
+					(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp))) {
 					q = (uint8_t *)ha->tgt.atio_ring;
 				}
 			}
@@ -4744,7 +4735,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	qla_tgt_cmd = qlt_get_cmd(vha, qcmd->handle);
 
 	if (qla_tgt_cmd == NULL) {
-		cmn_err(CE_WARN, "qlt_get_cmd failed.");
+		printk("qlt_get_cmd failed.");
 		return (FCT_FAILURE);
 	}
 
@@ -4756,7 +4747,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
 	qla_tgt_cmd->atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
 	qla_tgt_cmd->atio.u.isp24.attr = (uint8_t)(flags >> 9);
-	qla_tgt_cmd->atio->u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
+	qla_tgt_cmd->atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
 	qla_tgt_cmd->offset = dbuf->db_relative_offset;
 	qla_tgt_cmd->bufflen = dbuf->db_data_size;
 	qla_tgt_cmd->sg = qsgl->handle_list->sc_list.sgl;
@@ -4782,14 +4773,13 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 	scsi_task_t *task	= (scsi_task_t *)cmd->cmd_specific;
 	uint16_t flags;
 	uint8_t scsi_status;
-	uint8_t *psd, sensbuf[24];		/* sense data */
 	int xmit_type = QLA_TGT_XMIT_STATUS;
 	struct qla_tgt_cmd *qla_tgt_cmd;
 
 	qla_tgt_cmd = qlt_get_cmd(vha, qcmd->handle);
 
 	if (qla_tgt_cmd == NULL) {
-		cmn_err(CE_WARN, "qlt_get_cmd failed.");
+		printk("qlt_get_cmd failed.\n");
 		return (FCT_FAILURE);
 	}
 	scsi_status = task->task_scsi_status;
@@ -4801,7 +4791,7 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
 	qla_tgt_cmd->atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
 	qla_tgt_cmd->atio.u.isp24.attr = (uint8_t)(flags >> 9);
-	qla_tgt_cmd->atio->u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
+	qla_tgt_cmd->atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
 
 	if (cmd->cmd_type == FCT_CMD_RCVD_ABTS) {
 		qla_tgt_cmd->aborted = cmd->cmd_type;
@@ -4837,7 +4827,7 @@ qlt_abort_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 static void
 qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 {
-	return (FCT_SUCCESS);
+	return;
 }
 
 static fct_status_t
@@ -4850,7 +4840,7 @@ void
 qlt_populate_hba_fru_details(struct fct_local_port *port,
     struct fct_port_attrs *port_attrs)
 {
-	return (FCT_SUCCESS);
+	return;
 }
 
 fct_status_t
@@ -4864,7 +4854,6 @@ static fct_status_t
 qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 {
 	scsi_qla_host_t *vha = (scsi_qla_host_t *)port->port_fca_private;	
-	fct_status_t ret;
 	uint32_t speed = FC_PORTSPEED_UNKNOWN;
 	uint32_t port_type = FC_PORTTYPE_UNKNOWN;
 
@@ -4873,7 +4862,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	    vha->d_id.b.area << 8 | vha->d_id.b.al_pa;
 	
 	/* get link speed */
-	switch (vha->ha->link_data_rate) {
+	switch (vha->hw->link_data_rate) {
 	case PORT_SPEED_1GB:
 		speed = FC_PORTSPEED_1GBIT;
 		break;
@@ -4896,7 +4885,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 		speed = FC_PORTSPEED_32GBIT;
 		break;
 	}
-	li->port_speed = vha->ha->link_data_rate;
+	li->port_speed = vha->hw->link_data_rate;
 	
 	/* get port topology */
 	switch (vha->hw->current_topology) {
@@ -4910,7 +4899,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 		break;
 	case ISP_CFG_N:
 		port_type = PORT_TOPOLOGY_PT_TO_PT;
-		li->port_fca_flogi_done = 1
+		li->port_fca_flogi_done = 1;
 		break;
 	case ISP_CFG_F:
 		port_type = PORT_TOPOLOGY_FABRIC_PT_TO_PT;
@@ -4937,9 +4926,7 @@ fct_status_t
 qlt_port_start(void* arg)
 {
 	scsi_qla_host_t *vha = (scsi_qla_host_t *)arg;
-	struct qla_hw_data hw = vha->hw;
 	fct_local_port_t *port;
-	fct_dbuf_store_t *fds;
 	fct_status_t ret;
 
 #if 0
@@ -4968,7 +4955,7 @@ qlt_port_start(void* arg)
 	fds->fds_copy_threshold = (uint32_t)MMU_PAGESIZE;
 	fds->fds_fca_private = (void *)qlt;
 #endif
-	vha->port = port;
+	vha->qlt_port = port;
 	/*
 	 * Since we keep everything in the state struct and dont allocate any
 	 * port private area, just use that pointer to point to the
@@ -5003,11 +4990,11 @@ qlt_port_start(void* arg)
 	port->port_fca_version = FCT_FCA_MODREV_1;
 
 	if ((ret = fct_register_local_port(port)) != FCT_SUCCESS) {
-		cmn_err(CE_WARN, "fct_register_local_port status=%llxh\n", ret);
-		goto qlt_pstart_fail_2_5;
+		printk("fct_register_local_port status=%llxh\n", ret);
+		goto qlt_pstart_fail;
 	}
 
-	cmn_err(CE_CONT, "Qlogic qlt(%d) "
+	printk("Qlogic qlt(%d) "
 	    "WWPN=%02x%02x%02x%02x%02x%02x%02x%02x:"
 	    "WWNN=%02x%02x%02x%02x%02x%02x%02x%02x\n",
 	    vha->hw->pdev->dev.id,

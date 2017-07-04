@@ -53,6 +53,39 @@
 #define QLA2XXX_COMMAND_COUNT_INIT	250
 #define QLA2XXX_IMMED_NOTIFY_COUNT_INIT 250
 
+#define	QLT_CMD_ABORTING		1
+#define	QLT_CMD_ABORTED			2
+#define	QLT_CMD_TYPE_SOLICITED		4
+
+#define	IOCB_SIZE		64
+
+#define	QLT_MAX_LOGINS	2048
+#define	QLT_MAX_XCHGES	2048
+
+/*
+ * Error codes. FSC stands for Failure sub code.
+ */
+#define	QLT_FAILURE			FCT_FCA_FAILURE
+#define	QLT_SUCCESS			FCT_SUCCESS
+#define	QLT_FSC(x)			((uint64_t)(x) << 40)
+#define	QLT_DMA_STUCK			(QLT_FAILURE | QLT_FSC(1))
+#define	QLT_MAILBOX_STUCK		(QLT_FAILURE | QLT_FSC(2))
+#define	QLT_ROM_STUCK			(QLT_FAILURE | QLT_FSC(3))
+#define	QLT_UNEXPECTED_RESPONSE		(QLT_FAILURE | QLT_FSC(4))
+#define	QLT_MBOX_FAILED			(QLT_FAILURE | QLT_FSC(5))
+#define	QLT_MBOX_NOT_INITIALIZED	(QLT_FAILURE | QLT_FSC(6))
+#define	QLT_MBOX_BUSY			(QLT_FAILURE | QLT_FSC(7))
+#define	QLT_MBOX_ABORTED		(QLT_FAILURE | QLT_FSC(8))
+#define	QLT_MBOX_TIMEOUT		(QLT_FAILURE | QLT_FSC(9))
+#define	QLT_RESP_TIMEOUT		(QLT_FAILURE | QLT_FSC(10))
+#define	QLT_FLASH_TIMEOUT		(QLT_FAILURE | QLT_FSC(11))
+#define	QLT_FLASH_ACCESS_ERROR		(QLT_FAILURE | QLT_FSC(12))
+#define	QLT_BAD_NVRAM_DATA		(QLT_FAILURE | QLT_FSC(13))
+#define	QLT_FIRMWARE_ERROR_CODE		(QLT_FAILURE | QLT_FSC(14))
+
+#define	QLT_FIRMWARE_ERROR(s, c1, c2)	(QLT_FIRMWARE_ERROR_CODE | \
+	(((uint64_t)s) << 32) | (((uint64_t)c1) << 24) | ((uint64_t)c2))
+
 /*
  * Used to mark which completion handles (for RIO Status's) are for CTIO's
  * vs. regular (non-target) info. This is checked for in
@@ -916,6 +949,75 @@ struct qla_tgt_srr_ctio {
 	struct qla_tgt_cmd *cmd;
 };
 
+/*
+ * A DMA cookie contains DMA address information required to
+ * program a DMA engine
+ */
+typedef struct {
+	union {
+		uint64_t	_dmac_ll;	/* 64 bit DMA address */
+		uint32_t 	_dmac_la[2];    /* 2 x 32 bit address */
+	} _dmu;
+	size_t		dmac_size;	/* DMA cookie size */
+	uint_t		dmac_type;	/* bus specific type bits */
+} ddi_dma_cookie_t;
+
+typedef struct __ddi_dma_handle {
+	struct pci_dev *dev;
+	void * ptr;
+	size_t size;
+	dma_addr_t *dma_handle;
+	int flag;
+}*ddi_dma_handle_t;
+
+struct qlt_dma_handle {
+	struct qlt_dma_handle	*next;
+	ddi_dma_handle_t	dma_handle;
+	ddi_dma_cookie_t	first_cookie;
+	uint_t			num_cookies;
+	uint_t			num_cookies_fetched;
+	struct sg_table sc_list;
+};
+
+typedef struct qlt_dma_handle qlt_dma_handle_t;
+
+struct qlt_dma_sgl {
+	uint16_t		handle_count;
+	uint16_t		cookie_count;
+	uint16_t		cookie_next_fetch;
+	uint16_t		cookie_prefetched;
+	qlt_dma_handle_t	*handle_list;
+	qlt_dma_handle_t	*handle_next_fetch;
+	size_t			qsize;
+	ddi_dma_cookie_t	cookie[1];
+};
+
+typedef struct qlt_dma_sgl qlt_dma_sgl_t;
+
+typedef struct qlt_abts_cmd {
+	uint8_t		buf[IOCB_SIZE];
+	uint16_t	qid;
+} qlt_abts_cmd_t;
+
+typedef struct qlt_cmd {
+	fct_cmd_t	*cmd;
+	uint32_t	handle;
+	stmf_data_buf_t	*dbuf;		/* dbuf with handle 0 for SCSI cmds */
+	stmf_data_buf_t	*dbuf_rsp_iu;	/* dbuf for possible FCP_RSP IU */
+	uint32_t	fw_xchg_addr;
+	uint16_t	oxid;
+	uint16_t	flags;
+	union {
+		uint16_t	resp_offset;
+		uint8_t		atio_byte3;
+	} param;
+	uint16_t	qid;
+} qlt_cmd_t;
+
+typedef struct {
+	int	dummy;
+} qlt_remote_port_t;
+
 #define QLA_TGT_XMIT_DATA		1
 #define QLA_TGT_XMIT_STATUS		2
 #define QLA_TGT_XMIT_ALL		(QLA_TGT_XMIT_STATUS|QLA_TGT_XMIT_DATA)
@@ -1006,5 +1108,6 @@ extern void qlt_stop_phase1(struct qla_tgt *);
 extern void qlt_stop_phase2(struct qla_tgt *);
 extern irqreturn_t qla83xx_msix_atio_q(int, void *);
 extern void qlt_83xx_iospace_config(struct qla_hw_data *);
+extern fct_status_t qlt_port_start(void* arg);
 
 #endif /* __QLA_TARGET_H */

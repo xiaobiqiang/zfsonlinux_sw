@@ -26,6 +26,18 @@
 #include <linux/aer.h>
 #include <linux/mutex.h>
 
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <sys/byteorder.h>
+#include <sys/atomic.h>
+#include <sys/stmf_defines.h>
+#include <sys/fct_defines.h>
+#include <sys/stmf.h>
+#include <sys/fct.h>
+#include <sys/portif.h>
+#include <sys/stmf_ioctl.h>
+#include <sys/ddi.h>
+
 #include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_device.h>
@@ -39,6 +51,28 @@
 #define QLA2XXX_DRIVER_NAME	"qla2xxx"
 #define QLA2XXX_APIDEV		"ql2xapidev"
 #define QLA2XXX_MANUFACTURER	"QLogic Corporation"
+
+#undef mutex_init
+#define mutex_init(mutex) \
+do {                                                    \
+        static struct lock_class_key __key;             \
+                                                        \
+        __mutex_init((mutex), #mutex, &__key);          \
+} while (0)
+
+#undef VERIFY
+#define VERIFY          0x2f
+
+#undef PORT_SPEED_UNKNOWN
+#define PORT_SPEED_UNKNOWN      0
+
+#ifndef ULLONG_MAX
+#define ULLONG_MAX			(~0ULL)
+#endif
+
+#ifndef LLONG_MAX
+#define LLONG_MAX			((long long)(~0ULL>>1))
+#endif
 
 /*
  * We have MAILBOX_REGISTER_COUNT sized arrays in a few places,

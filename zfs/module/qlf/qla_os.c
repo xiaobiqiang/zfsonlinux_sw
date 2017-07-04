@@ -20,6 +20,7 @@
 
 #include "qla_target.h"
 
+
 /*
  * Driver version
  */
@@ -41,7 +42,7 @@ static struct kmem_cache *ctx_cachep;
  */
 int ql_errlev = ql_log_all;
 
-static struct stmf_port_provider *qlt_pp;
+struct stmf_port_provider *qlt_pp;
 
 static int ql2xenableclass2;
 module_param(ql2xenableclass2, int, S_IRUGO|S_IRUSR);
@@ -2953,6 +2954,8 @@ skip_dpc:
 	    ha->isp_ops->fw_version_str(base_vha, fw_str, sizeof(fw_str)));
 
 	qlt_add_target(ha, base_vha);
+	qlt_port_start(base_vha);
+	qlt_enable_vha(base_vha);
 
 	clear_bit(PFLG_DRIVER_PROBING, &base_vha->pci_flags);
 	return 0;
