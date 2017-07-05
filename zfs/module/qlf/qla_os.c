@@ -42,8 +42,6 @@ static struct kmem_cache *ctx_cachep;
  */
 int ql_errlev = ql_log_all;
 
-struct stmf_port_provider *qlt_pp;
-
 static int ql2xenableclass2;
 module_param(ql2xenableclass2, int, S_IRUGO|S_IRUSR);
 MODULE_PARM_DESC(ql2xenableclass2,
@@ -2957,9 +2955,21 @@ skip_dpc:
 	    base_vha->host_no,
 	    ha->isp_ops->fw_version_str(base_vha, fw_str, sizeof(fw_str)));
 
+	ql_log(ql_log_info, base_vha, 0x00fb,
+            "ready to add target\n");
 	qlt_add_target(ha, base_vha);
+	ql_log(ql_log_info, base_vha, 0x00fb,
+            "end add target\n");
+	ql_log(ql_log_info, base_vha, 0x00fb,
+            "ready to start target\n");
 	qlt_port_start(base_vha);
-	qlt_enable_vha(base_vha);
+	ql_log(ql_log_info, base_vha, 0x00fb,
+            "end to add target\n");
+	//ql_log(ql_log_info, base_vha, 0x00fb,
+        //    "ready to enbale vha!");
+	//qlt_enable_vha(base_vha);
+	//ql_log(ql_log_info, base_vha, 0x00fb,
+        //    "end enbale vha!");
 
 	clear_bit(PFLG_DRIVER_PROBING, &base_vha->pci_flags);
 	return 0;
@@ -5902,15 +5912,6 @@ qla2x00_module_init(void)
 		    ret);
 	}
 
-	qlt_pp = (stmf_port_provider_t *)stmf_alloc(
-		    STMF_STRUCT_PORT_PROVIDER, 0, 0);
-	qlt_pp->pp_portif_rev = PORTIF_REV_1;
-	qlt_pp->pp_name = QLA2XXX_DRIVER_NAME;
-	if (stmf_register_port_provider(qlt_pp) != STMF_SUCCESS) {
-		stmf_free(qlt_pp);
-		return (EIO);
-	}
-	
 	return ret;
 }
 

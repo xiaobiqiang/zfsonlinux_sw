@@ -42,7 +42,8 @@
 #include "qla_def.h"
 #include "qla_target.h"
 
-extern struct stmf_port_provider *qlt_pp;
+
+static struct stmf_port_provider *qlt_pp;
 static char *qlini_mode = QLA2XXX_INI_MODE_STR_DISABLED;
 module_param(qlini_mode, charp, S_IRUGO);
 MODULE_PARM_DESC(qlini_mode,
@@ -111,6 +112,7 @@ static mempool_t *qla_tgt_mgmt_cmd_mempool;
 static struct workqueue_struct *qla_tgt_wq;
 static DEFINE_MUTEX(qla_tgt_mutex);
 static LIST_HEAD(qla_tgt_glist);
+unsigned int MMU_PAGESIZE = 4096;
 
 /* ha->hardware_lock supposed to be held on entry (to protect tgt->sess_list) */
 static struct qla_tgt_sess *qlt_find_sess_by_port_name(
@@ -4827,6 +4829,123 @@ qlt_abort_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 static void
 qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 {
+	stmf_change_status_t		st;
+
+	ASSERT((cmd == FCT_CMD_PORT_ONLINE) ||
+	    (cmd == FCT_CMD_PORT_OFFLINE) ||
+	    (cmd == FCT_CMD_FORCE_LIP) ||
+	    (cmd == FCT_ACK_PORT_ONLINE_COMPLETE) ||
+	    (cmd == FCT_ACK_PORT_OFFLINE_COMPLETE));
+
+	// qlt = (qlt_state_t *)port->port_fca_private;
+	st.st_completion_status = FCT_SUCCESS;
+	st.st_additional_info = NULL;
+
+	//EL(qlt, "port (%p) qlt_state (%xh) cmd (%xh) arg (%p)\n",
+	  //  port, qlt->qlt_state, cmd, arg);
+
+	switch (cmd) {
+	case FCT_CMD_PORT_ONLINE:
+#if 0		
+		if (qlt->qlt_state == FCT_STATE_ONLINE)
+			st.st_completion_status = STMF_ALREADY;
+		else if (qlt->qlt_state != FCT_STATE_OFFLINE)
+			st.st_completion_status = FCT_FAILURE;
+		if (st.st_completion_status == FCT_SUCCESS) {
+			qlt->qlt_state = FCT_STATE_ONLINING;
+			qlt->qlt_state_not_acked = 1;
+			//st.st_completion_status = qlt_port_online(qlt);
+			st.st_completion_status = STMF_SUCCESS;
+			if (st.st_completion_status != STMF_SUCCESS) {
+				EL(qlt, "PORT_ONLINE status=%xh\n",
+				    st.st_completion_status);
+				qlt->qlt_state = FCT_STATE_OFFLINE;
+				qlt->qlt_state_not_acked = 0;
+			} else {
+				qlt->qlt_state = FCT_STATE_ONLINE;
+			}
+		}
+		fct_ctl(port->port_lport, FCT_CMD_PORT_ONLINE_COMPLETE, &st);
+		qlt->qlt_change_state_flags = 0;
+#endif
+		fct_ctl(port->port_lport, FCT_CMD_PORT_ONLINE_COMPLETE, &st);
+		break;
+
+	case FCT_CMD_PORT_OFFLINE:
+#if 0		
+		if (qlt->qlt_state == FCT_STATE_OFFLINE) {
+			st.st_completion_status = STMF_ALREADY;
+		} else if (qlt->qlt_state != FCT_STATE_ONLINE) {
+			st.st_completion_status = FCT_FAILURE;
+		}
+		if (st.st_completion_status == FCT_SUCCESS) {
+			qlt->qlt_state = FCT_STATE_OFFLINING;
+			qlt->qlt_state_not_acked = 1;
+
+			if (ssci->st_rflags & STMF_RFLAG_COLLECT_DEBUG_DUMP) {
+				(void) qlt_firmware_dump(port, ssci);
+			}
+			qlt->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
+			//st.st_completion_status = qlt_port_offline(qlt);
+			st.st_completion_status = STMF_SUCCESS;
+			if (st.st_completion_status != STMF_SUCCESS) {
+				EL(qlt, "PORT_OFFLINE status=%xh\n",
+				    st.st_completion_status);
+				qlt->qlt_state = FCT_STATE_ONLINE;
+				qlt->qlt_state_not_acked = 0;
+			} else {
+				qlt->qlt_state = FCT_STATE_OFFLINE;
+			}
+		}
+#endif		
+		fct_ctl(port->port_lport, FCT_CMD_PORT_OFFLINE_COMPLETE, &st);
+		break;
+#if 0
+	case FCT_ACK_PORT_ONLINE_COMPLETE:
+
+		qlt->qlt_state_not_acked = 0;
+		break;
+
+	case FCT_ACK_PORT_OFFLINE_COMPLETE:
+
+		qlt->qlt_state_not_acked = 0;
+		if ((qlt->qlt_change_state_flags & STMF_RFLAG_RESET) &&
+		    (qlt->qlt_stay_offline == 0)) {
+			if ((ret = fct_port_initialize(port,
+			    qlt->qlt_change_state_flags,
+			    "qlt_ctl FCT_ACK_PORT_OFFLINE_COMPLETE "
+			    "with RLFLAG_RESET")) != FCT_SUCCESS) {
+				EL(qlt, "fct_port_initialize status=%llxh\n",
+				    ret);
+				cmn_err(CE_WARN, "qlt_ctl: "
+				    "fct_port_initialize failed, please use "
+				    "stmfstate to start the port-%s manualy",
+				    qlt->qlt_port_alias);
+			}
+		}
+
+		break;
+
+	case FCT_CMD_FORCE_LIP:
+
+		if (qlt->qlt_fcoe_enabled) {
+			EL(qlt, "force lip is an unsupported command "
+			    "for this adapter type\n");
+		} else {
+			if (qlt->qlt_state == FCT_STATE_ONLINE) {
+				*((fct_status_t *)arg) = qlt_force_lip(qlt);
+				EL(qlt, "forcelip done\n");
+			}
+		}
+		
+		break;
+#endif
+
+	default:
+		// EL(qlt, "unsupport cmd - 0x%02X\n", cmd);
+		break;
+	}
+
 	return;
 }
 
@@ -4848,6 +4967,32 @@ qlt_info(uint32_t cmd, fct_local_port_t *port,
     void *arg, uint8_t *buf, uint32_t *bufsizep)
 {
 	return (FCT_SUCCESS);
+}
+
+stmf_data_buf_t *
+qlt_dmem_alloc(fct_local_port_t *port, uint32_t size, uint32_t *pminsize,
+    uint32_t flags)
+{
+	return NULL;
+}
+
+void
+qlt_dmem_free(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
+{
+	return;
+}
+
+stmf_status_t
+qlt_dma_setup_dbuf(fct_local_port_t *port, stmf_data_buf_t *dbuf,
+    uint32_t flags)
+{
+	return STMF_SUCCESS;
+}
+
+void
+qlt_dma_teardown_dbuf(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
+{
+	return;
 }
 
 static fct_status_t
@@ -4927,7 +5072,14 @@ qlt_port_start(void* arg)
 {
 	scsi_qla_host_t *vha = (scsi_qla_host_t *)arg;
 	fct_local_port_t *port;
+	fct_dbuf_store_t *fds;
 	fct_status_t ret;
+	struct nvram_24xx *nv = vha->hw->nvram;
+
+	qlt_pp = (stmf_port_provider_t *)stmf_alloc(
+                    STMF_STRUCT_PORT_PROVIDER, 0, 0);
+        qlt_pp->pp_portif_rev = PORTIF_REV_1;
+        qlt_pp->pp_name = QLA2XXX_DRIVER_NAME;
 
 #if 0
 	if (qlt_dmem_init(qlt) != QLT_SUCCESS) {
@@ -4941,20 +5093,19 @@ qlt_port_start(void* arg)
 	if (port == NULL) {
 		goto qlt_pstart_fail;
 	}
-#if 0
+
 	fds = (fct_dbuf_store_t *)fct_alloc(FCT_STRUCT_DBUF_STORE, 0, 0);
 	if (fds == NULL) {
 		goto qlt_pstart_fail_2;
 	}
-	vha->qlt_port = port;
 	fds->fds_alloc_data_buf = qlt_dmem_alloc;
 	fds->fds_free_data_buf = qlt_dmem_free;
 	fds->fds_setup_dbuf = qlt_dma_setup_dbuf;
 	fds->fds_teardown_dbuf = qlt_dma_teardown_dbuf;
 	fds->fds_max_sgl_xfer_len = QLT_DMA_SG_LIST_LENGTH * MMU_PAGESIZE;
 	fds->fds_copy_threshold = (uint32_t)MMU_PAGESIZE;
-	fds->fds_fca_private = (void *)qlt;
-#endif
+	fds->fds_fca_private = (void *)vha;
+
 	vha->qlt_port = port;
 	/*
 	 * Since we keep everything in the state struct and dont allocate any
@@ -4963,13 +5114,35 @@ qlt_port_start(void* arg)
 	 */
 	port->port_fca_private = vha;
 	port->port_fca_abort_timeout = 5 * 1000;	/* 5 seconds */
-	bcopy(vha->node_name, port->port_nwwn, WWN_SIZE);
-	bcopy(vha->port_name, port->port_pwwn, WWN_SIZE);
+	printk("Qlogic qlt(%d) "
+            "WWPN=%02x%02x%02x%02x%02x%02x%02x%02x:"
+            "WWNN=%02x%02x%02x%02x%02x%02x%02x%02x\n",
+            vha->hw->pdev->dev.id,
+            nv->port_name[0],
+            nv->port_name[1],
+            nv->port_name[2],
+            nv->port_name[3],
+            nv->port_name[4],
+            nv->port_name[5],
+            nv->port_name[6],
+            nv->port_name[7],
+            nv->node_name[0],
+            nv->node_name[1],
+            nv->node_name[2],
+            nv->node_name[3],
+            nv->node_name[4],
+            nv->node_name[5],
+            nv->node_name[6],
+            nv->node_name[7]);
+
+	bcopy(nv->node_name, port->port_nwwn, WWN_SIZE);
+	bcopy(nv->port_name, port->port_pwwn, WWN_SIZE);
 	fct_wwn_to_str(port->port_nwwn_str, port->port_nwwn);
 	fct_wwn_to_str(port->port_pwwn_str, port->port_pwwn);
 	port->port_default_alias = vha->qla_port_alias;
 	port->port_pp = qlt_pp;
-	//port->port_fds = fds;
+	printk("qlt_pp : %p\n", qlt_pp);
+	port->port_fds = fds;
 	port->port_max_logins = QLT_MAX_LOGINS;
 	port->port_max_xchges = QLT_MAX_XCHGES;
 	port->port_fca_fcp_cmd_size = sizeof (qlt_cmd_t);
@@ -4984,6 +5157,7 @@ qlt_port_start(void* arg)
 	port->port_send_cmd_response = qlt_send_cmd_response;
 	port->port_abort_cmd = qlt_abort_cmd;
 	port->port_ctl = qlt_ctl;
+	printk("prot_ctl : %p", qlt_ctl);
 	port->port_flogi_xchg = qlt_do_flogi;
 	port->port_populate_hba_details = qlt_populate_hba_fru_details;
 	port->port_info = qlt_info;
@@ -4998,22 +5172,22 @@ qlt_port_start(void* arg)
 	    "WWPN=%02x%02x%02x%02x%02x%02x%02x%02x:"
 	    "WWNN=%02x%02x%02x%02x%02x%02x%02x%02x\n",
 	    vha->hw->pdev->dev.id,
-	    vha->port_name[0],
-	    vha->port_name[1],
-	    vha->port_name[2],
-	    vha->port_name[3],
-	    vha->port_name[4],
-	    vha->port_name[5],
-	    vha->port_name[6],
-	    vha->port_name[7],
-	    vha->node_name[0],
-	    vha->node_name[1],
-	    vha->node_name[2],
-	    vha->node_name[3],
-	    vha->node_name[4],
-	    vha->node_name[5],
-	    vha->node_name[6],
-	    vha->node_name[7]);
+	    nv->port_name[0],
+	    nv->port_name[1],
+	    nv->port_name[2],
+	    nv->port_name[3],
+	    nv->port_name[4],
+	    nv->port_name[5],
+	    nv->port_name[6],
+	    nv->port_name[7],
+	    nv->node_name[0],
+	    nv->node_name[1],
+	    nv->node_name[2],
+	    nv->node_name[3],
+	    nv->node_name[4],
+	    nv->node_name[5],
+	    nv->node_name[6],
+	    nv->node_name[7]);
 
 	return (QLT_SUCCESS);
 #if 0
@@ -5022,9 +5196,11 @@ qlt_pstart_fail_3:
 
 qlt_pstart_fail_2_5:
 	fct_free(fds);
+#endif
 qlt_pstart_fail_2:
 	fct_free(port);
 	vha->qlt_port = NULL;
+#if 0
 qlt_pstart_fail_1:
 	qlt_dma_handle_pool_fini(qlt);
 	qlt_dmem_fini(qlt);
