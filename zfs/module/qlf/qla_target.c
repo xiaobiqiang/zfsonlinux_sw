@@ -390,6 +390,7 @@ static int qlt_reset(struct scsi_qla_host *vha, void *iocb, int mcmd)
 	int res = 0;
 	struct imm_ntfy_from_isp *n = (struct imm_ntfy_from_isp *)iocb;
 	struct atio_from_isp *a = (struct atio_from_isp *)iocb;
+#if 0
 
 	loop_id = le16_to_cpu(n->u.isp24.nport_handle);
 	if (loop_id == 0xFFFF) {
@@ -442,6 +443,7 @@ static int qlt_reset(struct scsi_qla_host *vha, void *iocb, int mcmd)
 
 	return qlt_issue_task_mgmt(sess, unpacked_lun, mcmd,
 	    iocb, QLA24XX_MGMT_SEND_NACK);
+#endif
 }
 
 /* ha->hardware_lock supposed to be held on entry */
@@ -733,9 +735,9 @@ static struct qla_tgt_sess *qlt_create_sess(
 			if (sess->deleted)
 				qlt_undelete_sess(sess);
 
-			kref_get(&sess->se_sess->sess_kref);
-			ha->tgt.tgt_ops->update_sess(sess, fcport->d_id, fcport->loop_id,
-						(fcport->flags & FCF_CONF_COMP_SUPPORTED));
+			//kref_get(&sess->se_sess->sess_kref);
+			//ha->tgt.tgt_ops->update_sess(sess, fcport->d_id, fcport->loop_id,
+			//			(fcport->flags & FCF_CONF_COMP_SUPPORTED));
 
 			if (sess->local && !local)
 				sess->local = 0;
@@ -774,6 +776,7 @@ static struct qla_tgt_sess *qlt_create_sess(
 	 * TPG demo mode.  If this is successful a target mode FC nexus
 	 * is created.
 	 */
+#if 0
 	if (ha->tgt.tgt_ops->check_initiator_node_acl(vha,
 	    &fcport->port_name[0], sess, &be_sid[0], fcport->loop_id) < 0) {
 		kfree(sess);
@@ -784,6 +787,7 @@ static struct qla_tgt_sess *qlt_create_sess(
 	 * access across ->hardware_lock reaquire.
 	 */
 	kref_get(&sess->se_sess->sess_kref);
+#endif
 
 	sess->conf_compl_supported = (fcport->flags & FCF_CONF_COMP_SUPPORTED);
 	BUILD_BUG_ON(sizeof(sess->port_name) != sizeof(fcport->port_name));
@@ -791,6 +795,7 @@ static struct qla_tgt_sess *qlt_create_sess(
 
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 	list_add_tail(&sess->sess_list_entry, &ha->tgt.qla_tgt->sess_list);
+	printk("add new sess to sess_list_entry!\n");
 	ha->tgt.qla_tgt->sess_count++;
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
@@ -814,8 +819,10 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 	struct qla_tgt_sess *sess;
 	unsigned long flags;
 
+#if 0
 	if (!vha->hw->tgt.tgt_ops)
 		return;
+#endif
 
 	if (!tgt || (fcport->port_type != FCT_INITIATOR))
 		return;
@@ -835,7 +842,7 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 
 		spin_lock_irqsave(&ha->hardware_lock, flags);
 	} else {
-		kref_get(&sess->se_sess->sess_kref);
+		//kref_get(&sess->se_sess->sess_kref);
 
 		if (sess->deleted) {
 			qlt_undelete_sess(sess);
@@ -849,8 +856,8 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf007,
 			    "Reappeared sess %p\n", sess);
 		}
-		ha->tgt.tgt_ops->update_sess(sess, fcport->d_id, fcport->loop_id,
-					(fcport->flags & FCF_CONF_COMP_SUPPORTED));
+		//ha->tgt.tgt_ops->update_sess(sess, fcport->d_id, fcport->loop_id,
+		//			(fcport->flags & FCF_CONF_COMP_SUPPORTED));
 	}
 
 	if (sess && sess->local) {
@@ -862,7 +869,7 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 	}
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
-	ha->tgt.tgt_ops->put_sess(sess);
+	//ha->tgt.tgt_ops->put_sess(sess);
 }
 
 void qlt_fc_port_deleted(struct scsi_qla_host *vha, fc_port_t *fcport)
@@ -4276,9 +4283,10 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 	    "scsi(%ld): ha state %d init_done %d oper_mode %d topo %d\n",
 	    vha->host_no, atomic_read(&vha->loop_state), vha->flags.init_done,
 	    ha->operating_mode, ha->current_topology);
-
+#if 0
 	if (!ha->tgt.tgt_ops)
 		return;
+#endif
 
 	if (unlikely(tgt == NULL)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe03a,
@@ -4628,6 +4636,8 @@ int qlt_add_target(struct qla_hw_data *ha, struct scsi_qla_host *base_vha)
 
 	if (!(base_vha->host->hostt->supported_mode & MODE_TARGET))
 		base_vha->host->hostt->supported_mode |= MODE_TARGET;
+
+	printk("init the qla_tgt\n");
 
 	tgt->ha = ha;
 	tgt->vha = base_vha;

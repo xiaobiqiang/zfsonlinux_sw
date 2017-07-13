@@ -719,15 +719,18 @@ skip_rio:
 	case MBA_LIP_OCCURRED:		/* Loop Initialization Procedure */
 		ql_dbg(ql_dbg_async, vha, 0x5009,
 		    "LIP occurred (%x).\n", mb[1]);
+		printk("proccess 80108012\n");
 
 		if (atomic_read(&vha->loop_state) != LOOP_DOWN) {
 			atomic_set(&vha->loop_state, LOOP_DOWN);
 			atomic_set(&vha->loop_down_timer, LOOP_DOWN_TIME);
+			printk("mark all device lost!\n");
 			qla2x00_mark_all_devices_lost(vha, 1);
 		}
 
 		if (vha->vp_idx) {
 			atomic_set(&vha->vp_state, VP_FAILED);
+			printk("set the vport state failed!\n");
 			fc_vport_set_state(vha->fc_vport, FC_VPORT_FAILED);
 		}
 
@@ -903,13 +906,16 @@ skip_rio:
 		 *           vp_idx does not match
 		 *       Event is not global, vp_idx does not match
 		 */
+		printk("process 80148012!\n");
 		if (IS_QLA2XXX_MIDTYPE(ha) &&
 		    ((mb[1] == 0xffff && (mb[3] & 0xff) != 0xff) ||
-			(mb[1] != 0xffff)) && vha->vp_idx != (mb[3] & 0xff))
+			(mb[1] != 0xffff)) && vha->vp_idx != (mb[3] & 0xff)) {
+			printk("is qla2xxxx midtype!\n");	
 			break;
+		}
 
 		if (mb[2] == 0x7) {
-			ql_dbg(ql_dbg_async, vha, 0x5010,
+			ql_log(ql_log_info, vha, 0x5010,
 			    "Port %s %04x %04x %04x.\n",
 			    mb[1] == 0xffff ? "unavailable" : "logout",
 			    mb[1], mb[2], mb[3]);
@@ -919,11 +925,13 @@ skip_rio:
 
 			/* Port logout */
 			fcport = qla2x00_find_fcport_by_loopid(vha, mb[1]);
-			if (!fcport)
+			if (!fcport) {
+				printk("can not find the fcport!\n");
 				break;
+			}
 			if (atomic_read(&fcport->state) != FCS_ONLINE)
 				break;
-			ql_dbg(ql_dbg_async, vha, 0x508a,
+			ql_log(ql_log_info, vha, 0x508a,
 			    "Marking port lost loopid=%04x portid=%06x.\n",
 			    fcport->loop_id, fcport->d_id.b24);
 			qla2x00_mark_device_lost(fcport->vha, fcport, 1, 1);
@@ -934,6 +942,7 @@ global_port_update:
 				atomic_set(&vha->loop_state, LOOP_DOWN);
 				atomic_set(&vha->loop_down_timer,
 				    LOOP_DOWN_TIME);
+				printk("8014 mark all devices lost!\n")	;
 				vha->device_flags |= DFLG_NO_CABLE;
 				qla2x00_mark_all_devices_lost(vha, 1);
 			}
@@ -942,6 +951,7 @@ global_port_update:
 				atomic_set(&vha->vp_state, VP_FAILED);
 				fc_vport_set_state(vha->fc_vport,
 				    FC_VPORT_FAILED);
+				printk("vp state failed mark all devices lost!\n");
 				qla2x00_mark_all_devices_lost(vha, 1);
 			}
 
@@ -1162,8 +1172,10 @@ global_port_update:
 
 	qlt_async_event(mb[0], vha, mb);
 
-	if (!vha->vp_idx && ha->num_vhosts)
+	if (!vha->vp_idx && ha->num_vhosts) {
+		printk("alert all vps!\n");
 		qla2x00_alert_all_vps(rsp, mb);
+	}
 }
 
 /**
@@ -2956,6 +2968,8 @@ void qla24xx_process_response_queue(struct scsi_qla_host *vha,
 			continue;
 		}
 
+		printk("pkt->entry_type:%x\n", pkt->entry_type);
+
 		switch (pkt->entry_type) {
 		case STATUS_TYPE:
 			qla2x00_status_entry(vha, rsp, pkt);
@@ -3140,6 +3154,7 @@ qla24xx_intr_handler(int irq, void *dev_id)
 			break;
 		} else if ((stat & HSRX_RISC_INT) == 0)
 			break;
+		printk("intr status:%x\n", stat);
 
 		switch (stat & 0xff) {
 		case INTR_ROM_MB_SUCCESS:

@@ -855,8 +855,10 @@ qla2x00_wait_for_hba_online(scsi_qla_host_t *vha)
 
 		msleep(1000);
 	}
-	if (base_vha->flags.online)
+	if (base_vha->flags.online) {
 		return_status = QLA_SUCCESS;
+		printk("hba online success!\n");
+	}
 	else
 		return_status = QLA_FUNCTION_FAILED;
 
@@ -2965,11 +2967,11 @@ skip_dpc:
 	qlt_port_start(base_vha);
 	ql_log(ql_log_info, base_vha, 0x00fb,
             "end to add target\n");
-	//ql_log(ql_log_info, base_vha, 0x00fb,
-        //    "ready to enbale vha!");
-	//qlt_enable_vha(base_vha);
-	//ql_log(ql_log_info, base_vha, 0x00fb,
-        //    "end enbale vha!");
+	ql_log(ql_log_info, base_vha, 0x00fb,
+            "ready to enbale vha!");
+	qlt_enable_vha(base_vha);
+	ql_log(ql_log_info, base_vha, 0x00fb,
+            "end enbale vha!");
 
 	clear_bit(PFLG_DRIVER_PROBING, &base_vha->pci_flags);
 	return 0;
@@ -3199,6 +3201,7 @@ qla2x00_remove_one(struct pci_dev *pdev)
 	}
 
 	qla2x00_wait_for_hba_ready(base_vha);
+	qlt_disable_vha(base_vha);
 
 	ha->flags.host_shutting_down = 1;
 
