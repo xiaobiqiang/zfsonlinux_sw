@@ -1,1 +1,0 @@
-cmd_/usr/suwei/zfsonlinux/zfs/module/fct/zfct.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /usr/suwei/zfsonlinux/zfs/module/fct/zfct.ko /usr/suwei/zfsonlinux/zfs/module/fct/zfct.o /usr/suwei/zfsonlinux/zfs/module/fct/zfct.mod.o

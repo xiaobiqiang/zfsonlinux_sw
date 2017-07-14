@@ -1,1 +1,0 @@
-cmd_/usr/suwei/zfsonlinux/zfs/module/fct/zfct.o := ld -m elf_x86_64   -r -o /usr/suwei/zfsonlinux/zfs/module/fct/zfct.o /usr/suwei/zfsonlinux/zfs/module/fct/fct.o /usr/suwei/zfsonlinux/zfs/module/fct/discovery.o ; scripts/mod/modpost /usr/suwei/zfsonlinux/zfs/module/fct/zfct.o
