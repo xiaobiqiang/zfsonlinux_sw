@@ -61,7 +61,11 @@ do {                                                    \
 } while (0)
 
 #undef VERIFY
-#define VERIFY          0x2f
+#define VERIFY(cond)                                                    \
+        (void)(unlikely(!(cond)) &&                                     \
+            spl_panic(__FILE__, __FUNCTION__, __LINE__,                 \
+            "%s", "VERIFY(" #cond ") failed\n"))
+
 
 #undef PORT_SPEED_UNKNOWN
 #define PORT_SPEED_UNKNOWN      0

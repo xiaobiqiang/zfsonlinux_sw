@@ -42,8 +42,8 @@
 #include <sys/fctio.h>
 #include <sys/zfs_context.h>
 
-#include "fct_impl.h"
-#include "discovery.h"
+#include <sys/fct_impl.h>
+#include <sys/discovery.h>
 
 disc_action_t fct_handle_local_port_event(fct_i_local_port_t *iport);
 disc_action_t fct_walk_discovery_queue(fct_i_local_port_t *iport);
@@ -1116,6 +1116,7 @@ fct_dequeue_els(fct_i_remote_port_t *irp)
 	atomic_and_32(&icmd->icmd_flags, ~ICMD_IN_IRP_QUEUE);
 	rw_exit(&irp->irp_lock);
 }
+EXPORT_SYMBOL(fct_dequeue_els);
 
 fct_status_t
 fct_register_remote_port(fct_local_port_t *port, fct_remote_port_t *rp,
@@ -1129,6 +1130,8 @@ fct_register_remote_port(fct_local_port_t *port, fct_remote_port_t *rp,
 
 	iport = (fct_i_local_port_t *)port->port_fct_private;
 	irp = (fct_i_remote_port_t *)rp->rp_fct_private;
+
+	printk("fct_register_remote_port entry!\n");
 
 	if ((ret = port->port_register_remote_port(port, rp, cmd)) !=
 	    FCT_SUCCESS)

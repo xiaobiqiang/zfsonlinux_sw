@@ -61,6 +61,7 @@
 
 #define	QLT_MAX_LOGINS	2048
 #define	QLT_MAX_XCHGES	2048
+#define	QLT_DMA_SG_LIST_LENGTH	1270
 
 /*
  * Error codes. FSC stands for Failure sub code.

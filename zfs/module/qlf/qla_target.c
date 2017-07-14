@@ -390,6 +390,8 @@ static int qlt_reset(struct scsi_qla_host *vha, void *iocb, int mcmd)
 	int res = 0;
 	struct imm_ntfy_from_isp *n = (struct imm_ntfy_from_isp *)iocb;
 	struct atio_from_isp *a = (struct atio_from_isp *)iocb;
+
+	dump_stack();
 #if 0
 
 	loop_id = le16_to_cpu(n->u.isp24.nport_handle);
@@ -824,6 +826,7 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 		return;
 #endif
 
+	dump_stack();
 	if (!tgt || (fcport->port_type != FCT_INITIATOR))
 		return;
 
@@ -4279,7 +4282,7 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 	struct qla_tgt *tgt = ha->tgt.qla_tgt;
 	int login_code;
 
-	ql_dbg(ql_dbg_tgt, vha, 0xe039,
+	ql_log(ql_log_info, vha, 0xe039,
 	    "scsi(%ld): ha state %d init_done %d oper_mode %d topo %d\n",
 	    vha->host_no, atomic_read(&vha->loop_state), vha->flags.init_done,
 	    ha->operating_mode, ha->current_topology);
@@ -4289,7 +4292,7 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 #endif
 
 	if (unlikely(tgt == NULL)) {
-		ql_dbg(ql_dbg_tgt, vha, 0xe03a,
+		ql_log(ql_log_info, vha, 0xe03a,
 		    "ASYNC EVENT %#x, but no tgt (ha %p)\n", code, ha);
 		return;
 	}
@@ -4309,7 +4312,7 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 	case MBA_SYSTEM_ERR:		/* System Error */
 	case MBA_REQ_TRANSFER_ERR:	/* Request Transfer Error */
 	case MBA_RSP_TRANSFER_ERR:	/* Response Transfer Error */
-		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf03a,
+		ql_log(ql_log_info, vha, 0xf03a,
 		    "qla_target(%d): System error async event %#x "
 		    "occurred", vha->vp_idx, code);
 		break;
@@ -4319,12 +4322,13 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 
 	case MBA_LOOP_UP:
 	{
-		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf03b,
+		ql_log(ql_log_info, vha, 0xf03b,
 		    "qla_target(%d): Async LOOP_UP occurred "
 		    "(m[0]=%x, m[1]=%x, m[2]=%x, m[3]=%x)", vha->vp_idx,
 		    le16_to_cpu(mailbox[0]), le16_to_cpu(mailbox[1]),
 		    le16_to_cpu(mailbox[2]), le16_to_cpu(mailbox[3]));
 		if (tgt->link_reinit_iocb_pending) {
+			printk("link reinit iocb pending!\n");
 			qlt_send_notify_ack(vha, (void *)&tgt->link_reinit_iocb,
 			    0, 0, 0, 0, 0, 0);
 			tgt->link_reinit_iocb_pending = 0;
@@ -4336,7 +4340,7 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 	case MBA_LOOP_DOWN:
 	case MBA_LIP_RESET:
 	case MBA_RSCN_UPDATE:
-		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf03c,
+		ql_log(ql_log_info, vha, 0xf03c,
 		    "qla_target(%d): Async event %#x occurred "
 		    "(m[0]=%x, m[1]=%x, m[2]=%x, m[3]=%x)", vha->vp_idx, code,
 		    le16_to_cpu(mailbox[0]), le16_to_cpu(mailbox[1]),
@@ -4344,7 +4348,7 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 		break;
 
 	case MBA_PORT_UPDATE:
-		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf03d,
+		ql_log(ql_log_info, vha, 0xf03d,
 		    "qla_target(%d): Port update async event %#x "
 		    "occurred: updating the ports database (m[0]=%x, m[1]=%x, "
 		    "m[2]=%x, m[3]=%x)", vha->vp_idx, code,
@@ -4353,15 +4357,15 @@ void qlt_async_event(uint16_t code, struct scsi_qla_host *vha,
 
 		login_code = le16_to_cpu(mailbox[2]);
 		if (login_code == 0x4)
-			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf03e,
+			ql_log(ql_log_info, vha, 0xf03e,
 			    "Async MB 2: Got PLOGI Complete\n");
 		else if (login_code == 0x7)
-			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf03f,
+			ql_log(ql_log_info, vha, 0xf03f,
 			    "Async MB 2: Port Logged Out\n");
 		break;
 
 	default:
-		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf040,
+		ql_log(ql_log_info, vha, 0xf040,
 		    "qla_target(%d): Async event %#x occurred: "
 		    "ignore (m[0]=%x, m[1]=%x, m[2]=%x, m[3]=%x)", vha->vp_idx,
 		    code, le16_to_cpu(mailbox[0]), le16_to_cpu(mailbox[1]),

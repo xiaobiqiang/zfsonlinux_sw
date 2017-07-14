@@ -739,6 +739,10 @@ skip_rio:
 
 		vha->flags.management_server_logged_in = 0;
 		qla2x00_post_aen_work(vha, FCH_EVT_LIP, mb[1]);
+		if ( atomic_read(&vha->loop_state) == LOOP_UP ) {
+			fct_handle_event(vha->qlt_port,
+				    FCT_EVENT_LINK_RESET, 0, 0);
+		}
 		break;
 
 	case MBA_LOOP_UP:		/* Loop Up Event */
@@ -753,6 +757,8 @@ skip_rio:
 
 		vha->flags.management_server_logged_in = 0;
 		qla2x00_post_aen_work(vha, FCH_EVT_LINKUP, ha->link_data_rate);
+		fct_handle_event(vha->qlt_port, FCT_EVENT_LINK_UP,
+			    0, 0);
 		break;
 
 	case MBA_LOOP_DOWN:		/* Loop Down Event */
@@ -799,6 +805,8 @@ skip_rio:
 		vha->flags.management_server_logged_in = 0;
 		ha->link_data_rate = PORT_SPEED_UNKNOWN;
 		qla2x00_post_aen_work(vha, FCH_EVT_LINKDOWN, 0);
+		fct_handle_event(vha->qlt_port, FCT_EVENT_LINK_DOWN,
+			    0, 0);
 		break;
 
 	case MBA_LIP_RESET:		/* LIP reset occurred */
@@ -821,6 +829,10 @@ skip_rio:
 		ha->operating_mode = LOOP;
 		vha->flags.management_server_logged_in = 0;
 		qla2x00_post_aen_work(vha, FCH_EVT_LIPRESET, mb[1]);
+		if ( atomic_read(&vha->loop_state) == LOOP_UP ) {
+			fct_handle_event(vha->qlt_port,
+				    FCT_EVENT_LINK_RESET, 0, 0);
+		}
 		break;
 
 	/* case MBA_DCBX_COMPLETE: */
@@ -864,6 +876,10 @@ skip_rio:
 
 		ha->flags.gpsc_supported = 1;
 		vha->flags.management_server_logged_in = 0;
+		if ( atomic_read(&vha->loop_state) == LOOP_UP ) {
+			fct_handle_event(vha->qlt_port,
+				    FCT_EVENT_LINK_RESET, 0, 0);
+		}
 		break;
 
 	case MBA_CHG_IN_CONNECTION:	/* Change in connection mode */
@@ -957,6 +973,8 @@ global_port_update:
 
 			vha->flags.management_server_logged_in = 0;
 			ha->link_data_rate = PORT_SPEED_UNKNOWN;
+			fct_handle_event(vha->qlt_port,
+			    FCT_EVENT_LINK_DOWN, 0, 0);
 			break;
 		}
 
@@ -968,7 +986,7 @@ global_port_update:
 		atomic_set(&vha->loop_down_timer, 0);
 		if (atomic_read(&vha->loop_state) != LOOP_DOWN &&
 		    atomic_read(&vha->loop_state) != LOOP_DEAD) {
-			ql_dbg(ql_dbg_async, vha, 0x5011,
+			ql_log(ql_log_info, vha, 0x5011,
 			    "Asynchronous PORT UPDATE ignored %04x/%04x/%04x.\n",
 			    mb[1], mb[2], mb[3]);
 
@@ -976,7 +994,7 @@ global_port_update:
 			break;
 		}
 
-		ql_dbg(ql_dbg_async, vha, 0x5012,
+		ql_log(ql_log_info, vha, 0x5012,
 		    "Port database changed %04x %04x %04x.\n",
 		    mb[1], mb[2], mb[3]);
 
@@ -990,11 +1008,14 @@ global_port_update:
 		if (vha->vp_idx == 0 && !qla_ini_mode_enabled(vha))
 			set_bit(SCR_PENDING, &vha->dpc_flags);
 
+		printk("set LOOP RESYNC_NEEDED!\n");
 		set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
 		set_bit(LOCAL_LOOP_UPDATE, &vha->dpc_flags);
 		set_bit(VP_CONFIG_OK, &vha->vp_flags);
 
 		qlt_async_event(mb[0], vha, mb);
+		fct_handle_event(vha->qlt_port,
+		    FCT_EVENT_LINK_UP, 0, 0);
 		break;
 
 	case MBA_RSCN_UPDATE:		/* State Change Registration */

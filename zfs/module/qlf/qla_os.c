@@ -3375,6 +3375,7 @@ void qla2x00_mark_device_lost(scsi_qla_host_t *vha, fc_port_t *fcport,
 	if (!do_login)
 		return;
 
+	dump_stack();
 	set_bit(RELOGIN_NEEDED, &vha->dpc_flags);
 
 	if (fcport->login_retry == 0) {
@@ -4035,6 +4036,7 @@ qla2x00_do_work(struct scsi_qla_host *vha)
 	list_for_each_entry_safe(e, tmp, &work, list) {
 		list_del_init(&e->list);
 
+		printk("e->type:%x\n", e->type);
 		switch (e->type) {
 		case QLA_EVT_AEN:
 			fc_host_post_event(vha->host, fc_get_event_number(),

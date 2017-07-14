@@ -46,8 +46,8 @@
 #include <sys/modhash.h>
 #include <sys/modhash_impl.h>
 #include <linux/utsname_compat.h>
-#include "fct_impl.h"
-#include "discovery.h"
+#include <sys/fct_impl.h>
+#include <sys/discovery.h>
 //#include <sys/zfs_context.h>
 #ifdef SOLARIS
 static int fct_attach(dev_info_t *dip, ddi_attach_cmd_t cmd);
@@ -1423,6 +1423,7 @@ fct_portid_to_portptr(fct_i_local_port_t *iport, uint32_t portid)
 	return (NULL);
 
 }
+EXPORT_SYMBOL(fct_portid_to_portptr);
 
 /*
  * Called with irp_lock held as writer.
@@ -1437,6 +1438,7 @@ fct_queue_rp(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	iport->iport_rp_tb[hash_key] = irp;
 	iport->iport_nrps++;
 }
+EXPORT_SYMBOL(fct_queue_rp);
 
 /*
  * Called with irp_lock and iport_lock held as writer.
@@ -1928,6 +1930,7 @@ fct_post_to_discovery_queue(fct_i_local_port_t *iport,
 	}
 	mutex_exit(&iport->iport_worker_lock);
 }
+EXPORT_SYMBOL(fct_post_to_discovery_queue);
 
 stmf_status_t
 fct_xfer_scsi_data(scsi_task_t *task, stmf_data_buf_t *dbuf, uint32_t ioflags)

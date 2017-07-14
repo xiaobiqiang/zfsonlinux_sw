@@ -10,6 +10,12 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <sys/rwlock.h>
+#include <sys/taskq.h>
+#include <sys/condvar.h>
+#include <sys/atomic.h>
+#include <sys/fct_impl.h>
+#include <sys/discovery.h>
 
 #include "qla_devtbl.h"
 
@@ -158,6 +164,7 @@ qla2x00_async_login(struct scsi_qla_host *vha, fc_port_t *fcport,
 	if (rval != QLA_SUCCESS) {
 		fcport->flags &= ~FCF_ASYNC_SENT;
 		fcport->flags |= FCF_LOGIN_NEEDED;
+		dump_stack();
 		set_bit(RELOGIN_NEEDED, &vha->dpc_flags);
 		goto done_free_sp;
 	}
@@ -456,6 +463,7 @@ qla2x00_async_login_done(struct scsi_qla_host *vha, fc_port_t *fcport,
 		if (rval == QLA_NOT_LOGGED_IN) {
 			fcport->flags &= ~FCF_ASYNC_SENT;
 			fcport->flags |= FCF_LOGIN_NEEDED;
+			dump_stack();
 			set_bit(RELOGIN_NEEDED, &vha->dpc_flags);
 			break;
 		}
@@ -473,8 +481,10 @@ qla2x00_async_login_done(struct scsi_qla_host *vha, fc_port_t *fcport,
 		break;
 	case MBS_COMMAND_ERROR:
 		fcport->flags &= ~FCF_ASYNC_SENT;
-		if (data[1] & QLA_LOGIO_LOGIN_RETRIED)
+		if (data[1] & QLA_LOGIO_LOGIN_RETRIED) {
 			set_bit(RELOGIN_NEEDED, &vha->dpc_flags);
+			dump_stack();
+		}
 		else
 			qla2x00_mark_device_lost(vha, fcport, 1, 0);
 		break;
@@ -517,8 +527,10 @@ qla2x00_async_adisc_done(struct scsi_qla_host *vha, fc_port_t *fcport,
 
 	/* Retry login. */
 	fcport->flags &= ~FCF_ASYNC_SENT;
-	if (data[1] & QLA_LOGIO_LOGIN_RETRIED)
+	if (data[1] & QLA_LOGIO_LOGIN_RETRIED) {
 		set_bit(RELOGIN_NEEDED, &vha->dpc_flags);
+		dump_stack();
+	}
 	else
 		qla2x00_mark_device_lost(vha, fcport, 1, 0);
 
@@ -3214,6 +3226,7 @@ qla2x00_configure_local_loop(scsi_qla_host_t *vha)
 			ql_dbg(ql_dbg_disc, vha, 0x201b,
 			    "Scheduling resync.\n");
 			set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
+			dump_stack();
 			continue;
 		}
 
@@ -3308,6 +3321,12 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	struct fc_rport_identifiers rport_ids;
 	struct fc_rport *rport;
 	unsigned long flags;
+	fct_remote_port_t	*rp;
+	fct_i_remote_port_t	*irp;
+	fct_local_port_t	*port = vha->qlt_port;
+	fct_i_local_port_t *iport =
+	    (fct_i_local_port_t *)port->port_fct_private;
+	stmf_scsi_session_t	*ses   = NULL;
 
 	rport_ids.node_name = wwn_to_u64(fcport->node_name);
 	rport_ids.port_name = wwn_to_u64(fcport->port_name);
@@ -3315,6 +3334,83 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	    fcport->d_id.b.area << 8 | fcport->d_id.b.al_pa;
 	rport_ids.roles = FC_RPORT_ROLE_UNKNOWN;
 	fcport->rport = rport = fc_remote_port_add(vha->host, 0, &rport_ids);
+
+	printk("start registe remote port\n");
+	rp = fct_alloc(FCT_STRUCT_REMOTE_PORT,
+		port->port_fca_rp_private_size, 0);
+	if (rp == NULL) {
+		//fct_queue_cmd_for_termination(cmd,
+		//    FCT_ALLOC_FAILURE);
+		return;
+	}
+
+	irp = (fct_i_remote_port_t *)rp->rp_fct_private;
+	rw_init(&irp->irp_lock, 0, RW_DRIVER, 0);
+	irp->irp_rp = rp;
+	irp->irp_portid =  rport_ids.port_id;
+	printk("rport_ids.port_id = %x\n", rport_ids.port_id);
+	rp->rp_port = port;
+	rp->rp_id =  rport_ids.port_id;
+	rp->rp_handle = FCT_HANDLE_NONE;
+	
+	rw_enter(&iport->iport_lock, RW_WRITER);
+	/* Make sure nobody created the struct except us */
+	if (fct_portid_to_portptr(iport, rport_ids.port_id)) {
+		/* Oh well, free it */
+		fct_free(rp);
+	} else {
+		fct_queue_rp(iport, irp);
+	}
+	stmf_wwn_to_devid_desc((scsi_devid_desc_t *)irp->irp_id,
+		    fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
+	atomic_or_32(&irp->irp_flags, IRP_PLOGI_DONE);
+	atomic_add_32(&iport->iport_nrps_login, 1);
+	if (irp->irp_deregister_timer) {
+		irp->irp_deregister_timer = 0;
+		irp->irp_dereg_count = 0;
+	}
+	rw_downgrade(&iport->iport_lock);
+
+	/* A PLOGI is by default a logout of previous session */
+	irp->irp_deregister_timer = ddi_get_lbolt() +
+	    drv_usectohz(USEC_DEREG_RP_TIMEOUT);
+	irp->irp_dereg_count = 0;
+	fct_post_to_discovery_queue(iport, irp, NULL);
+
+	/* A PLOGI also invalidates any RSCNs related to this rp */
+	atomic_add_32(&irp->irp_rscn_counter, 1);
+	rw_exit(&iport->iport_lock);
+	printk("end registe remote port!\n");
+
+	printk("start create session\n");
+	ses = (stmf_scsi_session_t *)stmf_alloc(STMF_STRUCT_SCSI_SESSION, 0, 0);
+	if (ses) {
+		ses->ss_port_private = irp;
+		ses->ss_rport_id = (scsi_devid_desc_t *)irp->irp_id;
+		ses->ss_lport = port->port_lport;
+		printk("%s invoke register_scsi_session", __func__);
+		
+		if (stmf_register_scsi_session(port->port_lport, ses) !=
+		    STMF_SUCCESS) {
+			stmf_free(ses);
+			ses = NULL;
+		} else {
+			irp->irp_session = ses;
+			irp->irp_session->ss_rport_alias = irp->irp_snn;
+
+			/*
+			 * The reason IRP_SCSI_SESSION_STARTED is different
+			 * from IRP_PRLI_DONE is that we clear IRP_PRLI_DONE
+			 * inside interrupt context. We dont want to deregister
+			 * the session from an interrupt.
+			 */
+			atomic_or_32(&irp->irp_flags, IRP_SCSI_SESSION_STARTED);
+		}
+	}
+		
+	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+	printk("end create session!\n");
+
 	if (!rport) {
 		ql_log(ql_log_warn, vha, 0x2006,
 		    "Unable to allocate fc remote port.\n");
@@ -3427,6 +3523,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 		    0xfc, mb, BIT_1|BIT_0);
 		if (rval != QLA_SUCCESS) {
 			set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
+			dump_stack();
 			return rval;
 		}
 		if (mb[0] != MBS_COMMAND_COMPLETE) {
@@ -3653,6 +3750,7 @@ qla2x00_find_all_fabric_devs(scsi_qla_host_t *vha,
 			atomic_set(&vha->loop_down_timer, 0);
 			set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
 			set_bit(LOCAL_LOOP_UPDATE, &vha->dpc_flags);
+			dump_stack();
 			break;
 		}
 
@@ -4179,6 +4277,7 @@ int qla2x00_perform_loop_resync(scsi_qla_host_t *ha)
 			set_bit(LOCAL_LOOP_UPDATE, &ha->dpc_flags);
 			set_bit(REGISTER_FC4_NEEDED, &ha->dpc_flags);
 			set_bit(LOOP_RESYNC_NEEDED, &ha->dpc_flags);
+			dump_stack();
 
 			rval = qla2x00_loop_resync(ha);
 		} else
@@ -4850,6 +4949,7 @@ qla2x00_restart_isp(scsi_qla_host_t *vha)
 			spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 			set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
+			dump_stack();
 		}
 
 		/* if no cable then assume it's good */
@@ -5936,6 +6036,7 @@ qla24xx_configure_vhba(scsi_qla_host_t *vha)
 	atomic_set(&vha->loop_state, LOOP_UP);
 	set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
 	set_bit(LOCAL_LOOP_UPDATE, &vha->dpc_flags);
+	dump_stack();
 	rval = qla2x00_loop_resync(base_vha);
 
 	return rval;
