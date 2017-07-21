@@ -3791,14 +3791,10 @@ static void qlt_send_busy(struct scsi_qla_host *vha,
 	struct ctio7_to_24xx *ctio24;
 	struct qla_hw_data *ha = vha->hw;
 	request_t *pkt;
+	uint32_t rportid;
 	struct qla_tgt_sess *sess = NULL;
+	uint8_t *atio_prt = (uint8_t *)atio;
 
-	sess = ha->tgt.tgt_ops->find_sess_by_s_id(vha,
-	    atio->u.isp24.fcp_hdr.s_id);
-	if (!sess) {
-		qlt_send_term_exchange(vha, NULL, atio, 1);
-		return;
-	}
 	/* Sending marker isn't necessary, since we called from ISR */
 
 	pkt = (request_t *)qla2x00_alloc_iocbs(vha, NULL);
@@ -3809,12 +3805,15 @@ static void qlt_send_busy(struct scsi_qla_host *vha,
 		return;
 	}
 
+	rportid = (((uint32_t)atio_prt[8 + 5]) << 16) |
+	    (((uint32_t)atio_prt[8 + 6]) << 8) | atio_prt[8+7];
+
 	pkt->entry_count = 1;
 	pkt->handle = QLA_TGT_SKIP_HANDLE | CTIO_COMPLETION_HANDLE_MARK;
 
 	ctio24 = (struct ctio7_to_24xx *)pkt;
 	ctio24->entry_type = CTIO_TYPE7;
-	ctio24->nport_handle = sess->loop_id;
+	ctio24->nport_handle = fct_get_rp_handle(vha->qlt_port, rportid);
 	ctio24->timeout = cpu_to_le16(QLA_TGT_TIMEOUT);
 	ctio24->vp_index = vha->vp_idx;
 	ctio24->initiator_id[0] = atio->u.isp24.fcp_hdr.s_id[2];

@@ -3388,6 +3388,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 		ses->ss_port_private = irp;
 		ses->ss_rport_id = (scsi_devid_desc_t *)irp->irp_id;
 		ses->ss_lport = port->port_lport;
+
 		printk("%s invoke register_scsi_session", __func__);
 		
 		if (stmf_register_scsi_session(port->port_lport, ses) !=
