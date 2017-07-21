@@ -3335,93 +3335,98 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	rport_ids.roles = FC_RPORT_ROLE_UNKNOWN;
 	fcport->rport = rport = fc_remote_port_add(vha->host, 0, &rport_ids);
 
-	printk("start registe remote port\n");
-	rp = fct_alloc(FCT_STRUCT_REMOTE_PORT,
-		port->port_fca_rp_private_size, 0);
-	if (rp == NULL) {
-		//fct_queue_cmd_for_termination(cmd,
-		//    FCT_ALLOC_FAILURE);
-		return;
-	}
-
-	irp = (fct_i_remote_port_t *)rp->rp_fct_private;
-	rw_init(&irp->irp_lock, 0, RW_DRIVER, 0);
-	irp->irp_rp = rp;
-	irp->irp_portid =  rport_ids.port_id;
-	printk("rport_ids.port_id = %x\n", rport_ids.port_id);
-	rp->rp_port = port;
-	rp->rp_id =  rport_ids.port_id;
-	rp->rp_handle = FCT_HANDLE_NONE;
+	if (!rport) {
+                ql_log(ql_log_warn, vha, 0x2006,
+                    "Unable to allocate fc remote port.\n");
+                return;
+        }
 	
-	rw_enter(&iport->iport_lock, RW_WRITER);
-	/* Make sure nobody created the struct except us */
-	if (fct_portid_to_portptr(iport, rport_ids.port_id)) {
-		/* Oh well, free it */
-		fct_free(rp);
-	} else {
-		fct_queue_rp(iport, irp);
-	}
-	stmf_wwn_to_devid_desc((scsi_devid_desc_t *)irp->irp_id,
-		    fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
-	atomic_or_32(&irp->irp_flags, IRP_PLOGI_DONE);
-	atomic_add_32(&iport->iport_nrps_login, 1);
-	if (irp->irp_deregister_timer) {
-		irp->irp_deregister_timer = 0;
-		irp->irp_dereg_count = 0;
-	}
-	rw_downgrade(&iport->iport_lock);
+	/*
+         * Create target mode FC NEXUS in qla_target.c if target mode is
+         * enabled..
+         */
+        qlt_fc_port_added(vha, fcport);
 
-	/* A PLOGI is by default a logout of previous session */
-	irp->irp_deregister_timer = ddi_get_lbolt() +
-	    drv_usectohz(USEC_DEREG_RP_TIMEOUT);
-	irp->irp_dereg_count = 0;
-	fct_post_to_discovery_queue(iport, irp, NULL);
 
-	/* A PLOGI also invalidates any RSCNs related to this rp */
-	atomic_add_32(&irp->irp_rscn_counter, 1);
-	rw_exit(&iport->iport_lock);
-	printk("end registe remote port!\n");
+	if ( fcport->duplicate_fcport != TRUE ) {
+		printk("start registe remote port\n");
+		rp = fct_alloc(FCT_STRUCT_REMOTE_PORT,
+			port->port_fca_rp_private_size, 0);
+		if (rp == NULL) {
+			//fct_queue_cmd_for_termination(cmd,
+			//    FCT_ALLOC_FAILURE);
+			return;
+		}
 
-	printk("start create session\n");
-	ses = (stmf_scsi_session_t *)stmf_alloc(STMF_STRUCT_SCSI_SESSION, 0, 0);
-	if (ses) {
-		ses->ss_port_private = irp;
-		ses->ss_rport_id = (scsi_devid_desc_t *)irp->irp_id;
-		ses->ss_lport = port->port_lport;
-
-		printk("%s invoke register_scsi_session", __func__);
-		
-		if (stmf_register_scsi_session(port->port_lport, ses) !=
-		    STMF_SUCCESS) {
-			stmf_free(ses);
-			ses = NULL;
+		irp = (fct_i_remote_port_t *)rp->rp_fct_private;
+		rw_init(&irp->irp_lock, 0, RW_DRIVER, 0);
+		irp->irp_rp = rp;
+		irp->irp_portid =  rport_ids.port_id;
+		printk("rport_ids.port_id = %x\n", rport_ids.port_id);
+		rp->rp_port = port;
+		rp->rp_id =  rport_ids.port_id;
+		rp->rp_handle = FCT_HANDLE_NONE;
+	
+		rw_enter(&iport->iport_lock, RW_WRITER);
+		/* Make sure nobody created the struct except us */
+		if (fct_portid_to_portptr(iport, rport_ids.port_id)) {
+			/* Oh well, free it */
+			fct_free(rp);
 		} else {
-			irp->irp_session = ses;
+			fct_queue_rp(iport, irp);
+		}
+		stmf_wwn_to_devid_desc((scsi_devid_desc_t *)irp->irp_id,
+			    fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
+		atomic_or_32(&irp->irp_flags, IRP_PLOGI_DONE);
+		atomic_add_32(&iport->iport_nrps_login, 1);
+		if (irp->irp_deregister_timer) {
+			irp->irp_deregister_timer = 0;
+			irp->irp_dereg_count = 0;
+		}
+		rw_downgrade(&iport->iport_lock);
+
+		/* A PLOGI is by default a logout of previous session */
+		irp->irp_deregister_timer = ddi_get_lbolt() +
+		    drv_usectohz(USEC_DEREG_RP_TIMEOUT);
+		irp->irp_dereg_count = 0;
+		fct_post_to_discovery_queue(iport, irp, NULL);
+	
+		/* A PLOGI also invalidates any RSCNs related to this rp */
+		atomic_add_32(&irp->irp_rscn_counter, 1);
+		rw_exit(&iport->iport_lock);
+		printk("end registe remote port!\n");
+
+		printk("start create session\n");
+		ses = (stmf_scsi_session_t *)stmf_alloc(STMF_STRUCT_SCSI_SESSION, 0, 0);
+		if (ses) {
+			ses->ss_port_private = irp;
+			ses->ss_rport_id = (scsi_devid_desc_t *)irp->irp_id;
+			ses->ss_lport = port->port_lport;
+
+			printk("%s invoke register_scsi_session", __func__);
+		
+			if (stmf_register_scsi_session(port->port_lport, ses) !=
+			    STMF_SUCCESS) {
+				stmf_free(ses);
+				ses = NULL;
+			} else {
+				irp->irp_session = ses;
 			irp->irp_session->ss_rport_alias = irp->irp_snn;
 
-			/*
-			 * The reason IRP_SCSI_SESSION_STARTED is different
-			 * from IRP_PRLI_DONE is that we clear IRP_PRLI_DONE
-			 * inside interrupt context. We dont want to deregister
-			 * the session from an interrupt.
-			 */
-			atomic_or_32(&irp->irp_flags, IRP_PRLI_DONE);
+				/*
+				 * The reason IRP_SCSI_SESSION_STARTED is different
+				 * from IRP_PRLI_DONE is that we clear IRP_PRLI_DONE
+				 * inside interrupt context. We dont want to deregister
+				 * the session from an interrupt.
+				 */
+				atomic_or_32(&irp->irp_flags, IRP_PRLI_DONE);
+			}
 		}
-	}
 		
-	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
-	printk("end create session!\n");
-
-	if (!rport) {
-		ql_log(ql_log_warn, vha, 0x2006,
-		    "Unable to allocate fc remote port.\n");
-		return;
+		atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+		printk("end create session!\n");
 	}
-	/*
-	 * Create target mode FC NEXUS in qla_target.c if target mode is
-	 * enabled..
-	 */
-	qlt_fc_port_added(vha, fcport);
+
 
 	spin_lock_irqsave(fcport->vha->host->host_lock, flags);
 	*((fc_port_t **)rport->dd_data) = fcport;
