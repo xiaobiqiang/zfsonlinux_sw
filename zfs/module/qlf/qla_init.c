@@ -3405,7 +3405,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 			 * inside interrupt context. We dont want to deregister
 			 * the session from an interrupt.
 			 */
-			atomic_or_32(&irp->irp_flags, IRP_SCSI_SESSION_STARTED);
+			atomic_or_32(&irp->irp_flags, IRP_PRLI_DONE);
 		}
 	}
 		
