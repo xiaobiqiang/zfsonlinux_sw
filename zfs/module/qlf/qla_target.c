@@ -744,7 +744,6 @@ static struct qla_tgt_sess *qlt_create_sess(
 			if (sess->local && !local)
 				sess->local = 0;
 			spin_unlock_irqrestore(&ha->hardware_lock, flags);
-			fcport->duplicate_fcport = TRUE;
 
 			return sess;
 		}

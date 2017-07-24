@@ -3347,8 +3347,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
          */
         qlt_fc_port_added(vha, fcport);
 
-
-	if ( fcport->duplicate_fcport != TRUE ) {
+	if (!fct_portid_to_portptr(iport, rport_ids.port_id)) {
 		printk("start registe remote port\n");
 		rp = fct_alloc(FCT_STRUCT_REMOTE_PORT,
 			port->port_fca_rp_private_size, 0);
@@ -3369,12 +3368,8 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	
 		rw_enter(&iport->iport_lock, RW_WRITER);
 		/* Make sure nobody created the struct except us */
-		if (fct_portid_to_portptr(iport, rport_ids.port_id)) {
-			/* Oh well, free it */
-			fct_free(rp);
-		} else {
-			fct_queue_rp(iport, irp);
-		}
+		
+		fct_queue_rp(iport, irp);
 		stmf_wwn_to_devid_desc((scsi_devid_desc_t *)irp->irp_id,
 			    fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
 		atomic_or_32(&irp->irp_flags, IRP_PLOGI_DONE);
@@ -3386,8 +3381,9 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 		rw_downgrade(&iport->iport_lock);
 
 		/* A PLOGI is by default a logout of previous session */
-		irp->irp_deregister_timer = ddi_get_lbolt() +
-		    drv_usectohz(USEC_DEREG_RP_TIMEOUT);
+		/* irp->irp_deregister_timer = ddi_get_lbolt() +
+		    drv_usectohz(USEC_DEREG_RP_TIMEOUT); */
+		irp->irp_deregister_timer = 0;
 		irp->irp_dereg_count = 0;
 		fct_post_to_discovery_queue(iport, irp, NULL);
 	

@@ -2064,7 +2064,6 @@ typedef struct fc_port {
 	uint16_t old_tgt_id;
 
 	uint8_t fcp_prio;
-	uint8_t duplicate_fcport;
 
 	uint8_t fabric_port_name[WWN_SIZE];
 	uint16_t fp_speed;
