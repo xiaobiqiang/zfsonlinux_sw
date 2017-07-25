@@ -4995,18 +4995,219 @@ qlt_dmem_free(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
 	return;
 }
 
+void
+qlt_dma_handle_pool_init(struct scsi_qla_host *vha)
+{
+	qlt_dma_handle_pool_t *pool;
+
+	pool = kmem_zalloc(sizeof (*pool), KM_SLEEP);
+	qlf_mutex_init(&pool->pool_lock, NULL, MUTEX_DRIVER, NULL);
+	vha->qlt_dma_handle_pool = pool;
+}
+
+void
+qlt_dma_handle_pool_fini(struct scsi_qla_host *vha)
+{
+	qlt_dma_handle_pool_t	*pool;
+	qlt_dma_handle_t	*handle, *next_handle;
+
+	pool = vha->qlt_dma_handle_pool;
+	qlf_mutex_enter(&pool->pool_lock);
+	/*
+	 * XXX Need to wait for free == total elements
+	 * XXX Not sure how other driver shutdown stuff is done.
+	 */
+	ASSERT(pool->num_free == pool->num_total);
+	if (pool->num_free != pool->num_total)
+		printk("num_free %d != num_total %d\n",
+		    pool->num_free, pool->num_total);
+	handle = pool->free_list;
+	while (handle) {
+		next_handle = handle->next;
+		kmem_free(handle, sizeof (*handle));
+		handle = next_handle;
+	}
+	vha->qlt_dma_handle_pool = NULL;
+	qlf_mutex_exit(&pool->pool_lock);
+	qlf_mutex_destroy(&pool->pool_lock);
+	kmem_free(pool, sizeof (*pool));
+}
+
+
+
+uint16_t qlt_sgl_prefetch = 0;
+
+/*
+ * Allocate a list of qlt_dma_handle containers from the free list
+ */
+static qlt_dma_handle_t *
+qlt_dma_alloc_handle_list(struct scsi_qla_host *vha, int handle_count)
+{
+	qlt_dma_handle_t	*tmp_handle;
+
+	tmp_handle = kmem_zalloc(sizeof (qlt_dma_handle_t), KM_SLEEP);
+	if (tmp_handle == NULL)
+		return NULL;
+	tmp_handle->sc_list.nents = tmp_handle->sc_list.orig_nents = handle_count;
+	tmp_handle->sc_list.sgl = kmem_zalloc(sizeof(struct scatterlist) * handle_count, KM_SLEEP);
+	if (tmp_handle->sc_list.sgl == NULL) {
+		kmem_free(tmp_handle, sizeof(qlt_dma_handle_t));
+		return NULL;
+	}
+	sg_init_table(tmp_handle->sc_list.sgl, tmp_handle->sc_list.orig_nents);
+	return tmp_handle;
+}
+
+/*
+ * Return a list of qlt_dma_handle containers to the free list.
+ */
+static void
+qlt_dma_free_handles(struct scsi_qla_host *vha, qlt_dma_handle_t *first_handle)
+{
+	qlt_dma_handle_pool_t *pool;
+	qlt_dma_handle_t *tmp_handle, *last_handle;
+	int handle_count;
+
+	/*
+	 * Traverse the list and unbind the handles
+	 */
+	ASSERT(first_handle);
+	tmp_handle = first_handle;
+	handle_count = 0;
+	while (tmp_handle != NULL) {
+		last_handle = tmp_handle;
+		/*
+		 * If the handle is bound, unbind the handle so it can be
+		 * reused. It may not be bound if there was a bind failure.
+		 */
+		if (tmp_handle->num_cookies != 0) {
+			tmp_handle->num_cookies = 0;
+			tmp_handle->num_cookies_fetched = 0;
+		}
+		tmp_handle = tmp_handle->next;
+		handle_count++;
+	}
+	/*
+	 * Insert this list into the free list
+	 */
+	pool = vha->qlt_dma_handle_pool;
+	qlf_mutex_enter(&pool->pool_lock);
+	last_handle->next = pool->free_list;
+	pool->free_list = first_handle;
+	pool->num_free += handle_count;
+	qlf_mutex_exit(&pool->pool_lock);
+}
+
+
 stmf_status_t
 qlt_dma_setup_dbuf(fct_local_port_t *port, stmf_data_buf_t *dbuf,
     uint32_t flags)
 {
-	return STMF_SUCCESS;
+	struct scsi_qla_host	*vha = port->port_fca_private;
+	qlt_dma_sgl_t		*qsgl;
+	struct stmf_sglist_ent	*sglp;
+	qlt_dma_handle_t	*handle_list, *th;
+	int			i, rv;
+	ddi_dma_cookie_t	*cookie_p;
+	int			numbufs;
+	uint16_t		cookie_count;
+	uint16_t		prefetch;
+	size_t			qsize;
+
+	/*
+	 * psuedo code:
+	 * get dma handle list from cache - one per sglist entry
+	 * foreach sglist entry
+	 *	bind dma handle to sglist vaddr
+	 * allocate space for DMA state to store in db_port_private
+	 * fill in port private object
+	 * if prefetching
+	 *	move all dma cookies into db_port_private
+	 */
+	dbuf->db_port_private = NULL;
+	numbufs = dbuf->db_sglist_length;
+	handle_list = qlt_dma_alloc_handle_list(vha, numbufs);
+	if (handle_list == NULL) {
+		printk("handle_list==NULL\n");
+		return (STMF_FAILURE);
+	}
+	/*
+	 * Loop through sglist and bind each entry to a handle
+	 */
+	th = handle_list;
+	sglp = &dbuf->db_sglist[0];
+	cookie_count = 0;
+	for (i = 0; i < numbufs; i++, sglp++) {
+		sg_set_buf(handle_list->sc_list.sgl+i, sglp->seg_addr, sglp->seg_length);
+	}
+
+	/*
+	 * Allocate our port private object for DMA mapping state.
+	 */
+	prefetch =  qlt_sgl_prefetch;
+	qsize = sizeof (qlt_dma_sgl_t);
+	if (prefetch) {
+		/* one extra ddi_dma_cookie allocated for alignment padding */
+		qsize += cookie_count * sizeof (ddi_dma_cookie_t);
+	}
+	qsgl = kmem_alloc(qsize, KM_SLEEP);
+	/*
+	 * Fill in the sgl
+	 */
+	dbuf->db_port_private = qsgl;
+	qsgl->qsize = qsize;
+	qsgl->handle_count = dbuf->db_sglist_length;
+	qsgl->cookie_prefetched = prefetch;
+	qsgl->cookie_count = cookie_count;
+	qsgl->cookie_next_fetch = 0;
+	qsgl->handle_list = handle_list;
+	qsgl->handle_next_fetch = handle_list;
+	//if (prefetch) {
+		/*
+		 * traverse handle list and move cookies to db_port_private
+		 */
+	/*	th = handle_list;
+		cookie_p = &qsgl->cookie[0];
+		for (i = 0; i < numbufs; i++) {
+			uint_t cc = th->num_cookies;
+
+			*cookie_p++ = th->first_cookie;
+			while (--cc > 0) {
+				ddi_dma_nextcookie(th->dma_handle, cookie_p++);
+			}
+			th->num_cookies_fetched = th->num_cookies;
+			th = th->next;
+		}
+	}*/
+
+	return (STMF_SUCCESS);
 }
 
 void
 qlt_dma_teardown_dbuf(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
 {
-	return;
+	struct scsi_qla_host	*vha = fds->fds_fca_private;
+	qlt_dma_sgl_t		*qsgl = dbuf->db_port_private;
+
+	ASSERT(vha);
+	ASSERT(qsgl);
+	ASSERT(dbuf->db_flags & DB_LU_DATA_BUF);
+
+	/*
+	 * unbind and free the dma handles
+	 */
+	if (qsgl->handle_list) {
+		if (qsgl->handle_list->sc_list.sgl) {
+			dma_unmap_sg(&vha->hw->pdev->dev, qsgl->handle_list->sc_list.sgl, 
+					qsgl->handle_list->sc_list.nents, DMA_BIDIRECTIONAL);
+			kmem_free(qsgl->handle_list->sc_list.sgl, 
+					sizeof(struct scatterlist) * qsgl->handle_list->sc_list.nents);
+		}
+		kmem_free(qsgl->handle_list, sizeof(qlt_dma_handle_t));
+	}
+	kmem_free(qsgl, qsgl->qsize);
 }
+
 
 static fct_status_t
 qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
@@ -5098,13 +5299,13 @@ qlt_port_start(void* arg)
 	if (qlt_dmem_init(qlt) != QLT_SUCCESS) {
 		return (FCT_FAILURE);
 	}
-
-	/* Initialize the ddi_dma_handle free pool */
-	qlt_dma_handle_pool_init(qlt);
 #endif
+	/* Initialize the ddi_dma_handle free pool */
+	qlt_dma_handle_pool_init(vha);
+
 	port = (fct_local_port_t *)fct_alloc(FCT_STRUCT_LOCAL_PORT, 0, 0);
 	if (port == NULL) {
-		goto qlt_pstart_fail;
+		goto qlt_pstart_fail_1;
 	}
 
 	fds = (fct_dbuf_store_t *)fct_alloc(FCT_STRUCT_DBUF_STORE, 0, 0);
@@ -5213,17 +5414,31 @@ qlt_pstart_fail_2_5:
 qlt_pstart_fail_2:
 	fct_free(port);
 	vha->qlt_port = NULL;
-#if 0
+
 qlt_pstart_fail_1:
-	qlt_dma_handle_pool_fini(qlt);
-	qlt_dmem_fini(qlt);
-#endif
+	qlt_dma_handle_pool_fini(vha);
 qlt_pstart_fail:
 	vha->qlt_port = NULL;
 
 	return (QLT_FAILURE);
 }
 
+fct_status_t
+qlt_port_stop(caddr_t arg)
+{
+	scsi_qla_host_t *vha = (scsi_qla_host_t *)arg;
+	fct_status_t ret;
+
+	if ((ret = fct_deregister_local_port(vha->qlt_port)) != FCT_SUCCESS) {
+		printk("fct_register_local_port status=%llxh\n", ret);
+		return (QLT_FAILURE);
+	}
+	fct_free(vha->qlt_port->port_fds);
+	fct_free(vha->qlt_port);
+	qlt_dma_handle_pool_fini(vha);
+	vha->qlt_port = NULL;
+	return (QLT_SUCCESS);
+}
 
 
 /**

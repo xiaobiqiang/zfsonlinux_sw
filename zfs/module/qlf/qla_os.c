@@ -3201,6 +3201,10 @@ qla2x00_remove_one(struct pci_dev *pdev)
 	}
 
 	qla2x00_wait_for_hba_ready(base_vha);
+	
+	if (qlt_port_stop((caddr_t)base_vha) != FCT_SUCCESS) {
+		return;
+	}
 	qlt_disable_vha(base_vha);
 
 	ha->flags.host_shutting_down = 1;
