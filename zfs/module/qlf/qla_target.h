@@ -87,6 +87,45 @@
 #define	QLT_FIRMWARE_ERROR(s, c1, c2)	(QLT_FIRMWARE_ERROR_CODE | \
 	(((uint64_t)s) << 32) | (((uint64_t)c1) << 24) | ((uint64_t)c2))
 
+
+#define	DMA_ATTR_V0		0
+#define	DMA_ATTR_VERSION	DMA_ATTR_V0
+
+#define	DDI_DEVICE_ATTR_V0 	0x0001
+#define	DDI_DEVICE_ATTR_V1 	0x0002
+
+/*
+ * endian-ness flags
+ */
+#define	 DDI_NEVERSWAP_ACC	0x00
+#define	 DDI_STRUCTURE_LE_ACC	0x01
+#define	 DDI_STRUCTURE_BE_ACC	0x02
+
+/*
+ * Data ordering values
+ */
+#define	DDI_STRICTORDER_ACC	0x00
+#define	DDI_UNORDERED_OK_ACC    0x01
+#define	DDI_MERGING_OK_ACC	0x02
+#define	DDI_LOADCACHING_OK_ACC  0x03
+#define	DDI_STORECACHING_OK_ACC 0x04
+
+#define	DDI_DMA_CONSISTENT	0x0010
+#define	DDI_DMA_EXCLUSIVE	0x0020
+#define	DDI_DMA_STREAMING	0x0040
+
+#define	DDI_DMA_DONTWAIT	((int (*)())0)
+#define	DDI_DMA_SLEEP		((int (*)())1)
+
+/*
+ * Flag definitions for the allocation functions.
+ */
+#define	DDI_DMA_WRITE		0x0001	/* Direction memory --> IO 	*/
+#define	DDI_DMA_READ		0x0002	/* Direction IO --> memory	*/
+#define	DDI_DMA_RDWR		(DDI_DMA_READ | DDI_DMA_WRITE)
+
+#define EL(qlt, fmt...)	do { printk(fmt); } while(0)
+
 /*
  * Used to mark which completion handles (for RIO Status's) are for CTIO's
  * vs. regular (non-target) info. This is checked for in
@@ -963,6 +1002,15 @@ typedef struct {
 	uint_t		dmac_type;	/* bus specific type bits */
 } ddi_dma_cookie_t;
 
+#define	dmac_laddress	_dmu._dmac_ll
+#ifdef _LONG_LONG_HTOL
+#define	dmac_notused    _dmu._dmac_la[0]
+#define	dmac_address    _dmu._dmac_la[1]
+#else
+#define	dmac_address	_dmu._dmac_la[0]
+#define	dmac_notused	_dmu._dmac_la[1]
+#endif
+
 typedef struct __ddi_dma_handle {
 	struct pci_dev *dev;
 	void * ptr;
@@ -970,6 +1018,39 @@ typedef struct __ddi_dma_handle {
 	dma_addr_t *dma_handle;
 	int flag;
 }*ddi_dma_handle_t;
+
+typedef struct __pci_regs_grp {
+	unsigned long phys_addr;
+	unsigned long vir_addr;
+	unsigned long size;
+}*pci_regs_grp_t;
+
+typedef struct ddi_device_acc_attr {
+	ushort_t devacc_attr_version;
+	uchar_t devacc_attr_endian_flags;
+	uchar_t devacc_attr_dataorder;
+	uchar_t devacc_attr_access;		/* access error protection */
+} ddi_device_acc_attr_t;
+
+typedef struct __ddi_acc_handle {
+	ddi_dma_handle_t   dma_handle;
+	pci_regs_grp_t     pci_handle;
+}*ddi_acc_handle_t;
+
+typedef struct ddi_dma_attr {
+	uint_t		dma_attr_version;	/* version number */
+	uint64_t	dma_attr_addr_lo;	/* low DMA address range */
+	uint64_t	dma_attr_addr_hi;	/* high DMA address range */
+	uint64_t	dma_attr_count_max;	/* DMA counter register */
+	uint64_t	dma_attr_align;		/* DMA address alignment */
+	uint_t		dma_attr_burstsizes;	/* DMA burstsizes */
+	uint32_t	dma_attr_minxfer;	/* min effective DMA size */
+	uint64_t 	dma_attr_maxxfer;	/* max DMA xfer size */
+	uint64_t 	dma_attr_seg;		/* segment boundary */
+	int		dma_attr_sgllen;	/* s/g length */
+	uint32_t	dma_attr_granular;	/* granularity of device */
+	uint_t		dma_attr_flags;		/* Bus specific DMA flags */
+} ddi_dma_attr_t;
 
 struct qlt_dma_handle {
 	struct qlt_dma_handle	*next;
@@ -1006,6 +1087,29 @@ struct qlt_dma_handle_pool {
 };
 
 typedef struct qlt_dma_handle_pool qlt_dma_handle_pool_t;
+
+struct qlt_dmem_bucket;
+
+typedef struct qlt_dmem_bctl {
+	struct qlt_dmem_bucket	*bctl_bucket;
+	struct qlt_dmem_bctl	*bctl_next;
+	uint64_t		bctl_dev_addr;
+	uint8_t			bctl_task_ndx;	/* notused */
+	stmf_data_buf_t		*bctl_buf;
+} qlt_dmem_bctl_t;
+
+typedef struct qlt_dmem_bucket {
+	uint32_t		dmem_buf_size;
+	uint32_t		dmem_nbufs;
+	uint32_t		dmem_nbufs_free;
+	uint8_t			*dmem_host_addr;
+	uint64_t		dmem_dev_addr;
+	ddi_dma_handle_t	dmem_dma_handle;
+	ddi_acc_handle_t	dmem_acc_handle;
+	kmutex_t		dmem_lock;
+	qlt_dmem_bctl_t		*dmem_bctl_free_list;
+	void			*dmem_bctls_mem;
+} qlt_dmem_bucket_t;
 
 typedef struct qlt_abts_cmd {
 	uint8_t		buf[IOCB_SIZE];

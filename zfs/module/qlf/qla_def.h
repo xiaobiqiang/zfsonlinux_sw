@@ -3540,6 +3540,15 @@ typedef struct scsi_qla_host {
 	unsigned long	host_no;
 	uint8_t		host_str[16];
 
+	struct qlt_dmem_bucket	**dmem_buckets;
+	
+	/* temp ref & stat counters */
+	uint32_t	qlt_bucketcnt[5];	/* element 0 = 2k */
+	uint64_t	qlt_bufref[5];		/* element 0 = 2k */
+	uint64_t	qlt_bumpbucket;		/* bigger buffer supplied */
+	uint64_t	qlt_pmintry;
+	uint64_t	qlt_pmin_ok;
+
 	struct qlt_dma_handle_pool
 				*qlt_dma_handle_pool;
 

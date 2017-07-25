@@ -81,7 +81,7 @@ qlf_mutex_clear_owner(kmutex_t *mp)
 	VERIFY3P(qlf_mutex_owner(mp), ==, NULL);			\
 }
 
-#define	mutex_tryenter(mp)					\
+#define	qlf_mutex_tryenter(mp)					\
 ({								\
 	int _rc_;						\
 								\

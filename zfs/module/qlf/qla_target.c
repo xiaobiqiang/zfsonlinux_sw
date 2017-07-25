@@ -38,7 +38,7 @@
 #include <scsi/scsi_tcq.h>
 #include <target/target_core_base.h>
 #include <target/target_core_fabric.h>
-
+#include <sys/sunddi.h>
 #include "qla_def.h"
 #include "qla_target.h"
 
@@ -103,6 +103,19 @@ static void qlt_send_term_exchange(struct scsi_qla_host *ha, struct qla_tgt_cmd
 	*cmd, struct atio_from_isp *atio, int ha_locked);
 static void qlt_reject_free_srr_imm(struct scsi_qla_host *ha,
 	struct qla_tgt_srr_imm *imm, int ha_lock);
+
+int ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom);
+fct_status_t qlt_dmem_init(scsi_qla_host_t *vha);
+void qlt_dmem_fini(scsi_qla_host_t *vha);
+stmf_data_buf_t *qlt_dmem_alloc(fct_local_port_t *port, uint32_t size, 
+	uint32_t *pminsize, uint32_t flags);
+stmf_data_buf_t *qlt_i_dmem_alloc(scsi_qla_host_t *vha, uint32_t size, 
+	uint32_t *pminsize, uint32_t flags);
+void qlt_i_dmem_free(scsi_qla_host_t *vha, stmf_data_buf_t *dbuf);
+void qlt_dmem_free(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf);
+void qlt_dmem_dma_sync(stmf_data_buf_t *dbuf, uint_t sync_type);
+
+
 /*
  * Global Variables
  */
@@ -4982,17 +4995,435 @@ qlt_info(uint32_t cmd, fct_local_port_t *port,
 	return (FCT_SUCCESS);
 }
 
+/********************************** basic func ****************************************/
+int
+ddi_dma_alloc_handle(struct pci_dev *pdev, ddi_dma_attr_t *attr,
+	int (*waitfp)(caddr_t), caddr_t arg, ddi_dma_handle_t *handlep)
+{
+	*handlep = kzalloc(sizeof(struct __ddi_dma_handle), GFP_KERNEL);
+	(*handlep)->dev = pdev;
+	return ((*handlep)->dev == NULL ? -1 : 0);
+}
+
+int
+ddi_dma_mem_alloc(ddi_dma_handle_t dma_handle, size_t length,
+	ddi_device_acc_attr_t *accattrp, uint_t flags,
+	int (*waitfp)(caddr_t), caddr_t arg, caddr_t *kaddrp,
+	size_t *real_length, ddi_acc_handle_t *handle)
+{
+	*handle = kzalloc(sizeof(struct __ddi_acc_handle), GFP_KERNEL);
+	if (*handle == NULL) {
+		printk("%s %d error\n", __func__, __LINE__);
+		return -1;
+	}
+	(*handle)->dma_handle = dma_handle;
+	dma_handle->ptr = dma_alloc_coherent(&dma_handle->dev->dev, length, &dma_handle->dma_handle, GFP_KERNEL);
+	if (dma_handle->ptr == NULL) {
+		kfree(*handle);
+		printk("%s %d error\n", __func__, __LINE__);
+		return (-1);
+	}
+	
+	dma_handle->size = length;
+	*kaddrp = dma_handle->ptr;
+	*real_length = length;
+	return DDI_SUCCESS;
+}
+
+int
+ddi_dma_addr_bind_handle(ddi_dma_handle_t handle, struct as *as,
+	caddr_t addr, size_t len, uint_t flags, int (*waitfp)(caddr_t),
+	caddr_t arg, ddi_dma_cookie_t *cookiep, uint_t *ccountp)
+{
+	*ccountp = 1;
+	cookiep->dmac_laddress = handle->dma_handle;
+	return DDI_SUCCESS;
+}
+
+int
+ddi_dma_unbind_handle(ddi_dma_handle_t h)
+{
+	return DDI_SUCCESS;
+}
+
+void
+ddi_dma_mem_free(ddi_acc_handle_t *handlep)
+{
+	dma_free_coherent(&(*handlep)->dma_handle->dev->dev, (*handlep)->dma_handle->size, 
+		(*handlep)->dma_handle->ptr, (*handlep)->dma_handle->dma_handle);
+	kfree(*handlep);
+	*handlep = NULL;
+}
+
+void
+ddi_dma_free_handle(ddi_dma_handle_t *handlep)
+{
+	kfree(*handlep);
+}
+
+
+int
+ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
+{
+	return (0);
+}
+
+/*********************************************************************************/
+
+#define	BUF_COUNT_2K		2048
+#define	BUF_COUNT_8K		512
+#define	BUF_COUNT_64K		256
+#define	BUF_COUNT_128K		1024
+/* merge alua_2w code to stable modified by zywang begin */
+#define	BUF_COUNT_256K		512
+/* merge alua_2w code to stable modified by zywang end */
+
+#define	QLT_DMEM_MAX_BUF_SIZE	(4 * 65536)
+#define	QLT_DMEM_NBUCKETS	5
+static qlt_dmem_bucket_t bucket2K	= { 2048, BUF_COUNT_2K },
+			bucket8K	= { 8192, BUF_COUNT_8K },
+			bucket64K	= { 65536, BUF_COUNT_64K },
+			bucket128k	= { (2 * 65536), BUF_COUNT_128K },
+			bucket256k	= { (4 * 65536), BUF_COUNT_256K };
+
+static qlt_dmem_bucket_t *dmem_buckets[] = { &bucket2K, &bucket8K,
+			&bucket64K, &bucket128k, &bucket256k, NULL };
+static ddi_device_acc_attr_t acc;
+static ddi_dma_attr_t qlt_scsi_dma_attr = {
+	DMA_ATTR_V0,		/* dma_attr_version */
+	0,			/* low DMA address range */
+	0xffffffffffffffff,	/* high DMA address range */
+	0xffffffff,		/* DMA counter register */
+	8192,			/* DMA address alignment */
+	0xff,			/* DMA burstsizes */
+	1,			/* min effective DMA size */
+	0xffffffff,		/* max DMA xfer size */
+	0xffffffff,		/* segment boundary */
+	1,			/* s/g list length */
+	1,			/* granularity of device */
+	0			/* DMA transfer flags */
+};
+
+fct_status_t
+qlt_dmem_init(scsi_qla_host_t *vha)
+{
+	qlt_dmem_bucket_t	*p;
+	qlt_dmem_bctl_t		*bctl, *bc;
+	qlt_dmem_bctl_t		*prev;
+	int			ndx, i;
+	uint32_t		total_mem;
+	uint8_t			*addr;
+	uint8_t			*host_addr;
+	uint64_t		dev_addr;
+	ddi_dma_cookie_t	cookie;
+	uint32_t		ncookie;
+	uint32_t		bsize;
+	size_t			len;
+
+	if (vha->qlt_bucketcnt[0] != 0) {
+		bucket2K.dmem_nbufs = vha->qlt_bucketcnt[0];
+	}
+	if (vha->qlt_bucketcnt[1] != 0) {
+		bucket8K.dmem_nbufs = vha->qlt_bucketcnt[1];
+	}
+	if (vha->qlt_bucketcnt[2] != 0) {
+		bucket64K.dmem_nbufs = vha->qlt_bucketcnt[2];
+	}
+	if (vha->qlt_bucketcnt[3] != 0) {
+		bucket128k.dmem_nbufs = vha->qlt_bucketcnt[3];
+	}
+	if (vha->qlt_bucketcnt[4] != 0) {
+		bucket256k.dmem_nbufs = vha->qlt_bucketcnt[4];
+	}
+
+	bsize = sizeof (dmem_buckets);
+	ndx = (int)(bsize / sizeof (void *));
+	/*
+	 * The reason it is ndx - 1 everywhere is becasue the last bucket
+	 * pointer is NULL.
+	 */
+	vha->dmem_buckets = (qlt_dmem_bucket_t **)kmem_zalloc(bsize +
+	    ((ndx - 1) * (int)sizeof (qlt_dmem_bucket_t)), KM_SLEEP);
+	for (i = 0; i < (ndx - 1); i++) {
+		vha->dmem_buckets[i] = (qlt_dmem_bucket_t *)
+		    ((uint8_t *)vha->dmem_buckets + bsize +
+		    (i * (int)sizeof (qlt_dmem_bucket_t)));
+		bcopy(dmem_buckets[i], vha->dmem_buckets[i],
+		    sizeof (qlt_dmem_bucket_t));
+	}
+	bzero(&acc, sizeof (acc));
+	acc.devacc_attr_version = DDI_DEVICE_ATTR_V0;
+	acc.devacc_attr_endian_flags = DDI_NEVERSWAP_ACC;
+	acc.devacc_attr_dataorder = DDI_STRICTORDER_ACC;
+	for (ndx = 0; (p = vha->dmem_buckets[ndx]) != NULL; ndx++) {
+		bctl = (qlt_dmem_bctl_t *)kmem_zalloc(p->dmem_nbufs *
+		    sizeof (qlt_dmem_bctl_t), KM_NOSLEEP);
+		if (bctl == NULL) {
+			EL(vha, "bctl==NULL\n");
+			goto alloc_bctl_failed;
+		}
+		p->dmem_bctls_mem = bctl;
+		qlf_mutex_init(&p->dmem_lock, NULL, MUTEX_DRIVER, NULL);
+		if ((i = ddi_dma_alloc_handle(vha->hw->pdev, &qlt_scsi_dma_attr,
+		    DDI_DMA_SLEEP, 0, &p->dmem_dma_handle)) != DDI_SUCCESS) {
+			EL(vha, "ddi_dma_alloc_handle status=%xh\n", i);
+			goto alloc_handle_failed;
+		}
+
+		total_mem = p->dmem_buf_size * p->dmem_nbufs;
+
+		if ((i = ddi_dma_mem_alloc(p->dmem_dma_handle, total_mem, &acc,
+		    DDI_DMA_STREAMING, DDI_DMA_DONTWAIT, 0, (caddr_t *)&addr,
+		    &len, &p->dmem_acc_handle)) != DDI_SUCCESS) {
+			EL(vha, "ddi_dma_mem_alloc status=%xh\n", i);
+			goto mem_alloc_failed;
+		}
+
+		if ((i = ddi_dma_addr_bind_handle(p->dmem_dma_handle, NULL,
+		    (caddr_t)addr, total_mem, DDI_DMA_RDWR | DDI_DMA_STREAMING,
+		    DDI_DMA_DONTWAIT, 0, &cookie, &ncookie)) != DDI_SUCCESS) {
+			EL(vha, "ddi_dma_addr_bind_handle status=%xh\n", i);
+			goto addr_bind_handle_failed;
+		}
+		if (ncookie != 1) {
+			EL(vha, "ncookie=%d\n", ncookie);
+			goto dmem_init_failed;
+		}
+
+		p->dmem_host_addr = host_addr = addr;
+		p->dmem_dev_addr = dev_addr = (uint64_t)cookie.dmac_laddress;
+		bsize = p->dmem_buf_size;
+		p->dmem_bctl_free_list = bctl;
+		p->dmem_nbufs_free = p->dmem_nbufs;
+		for (i = 0; i < p->dmem_nbufs; i++) {
+			stmf_data_buf_t	*db;
+			prev = bctl;
+			bctl->bctl_bucket = p;
+			bctl->bctl_buf = db = stmf_alloc(STMF_STRUCT_DATA_BUF,
+			    0, 0);
+			db->db_port_private = bctl;
+			db->db_sglist[0].seg_addr = host_addr;
+			bctl->bctl_dev_addr = dev_addr;
+			db->db_sglist[0].seg_length = db->db_buf_size = bsize;
+			db->db_sglist_length = 1;
+			host_addr += bsize;
+			dev_addr += bsize;
+			bctl++;
+			prev->bctl_next = bctl;
+		}
+		prev->bctl_next = NULL;
+	}
+
+	return (QLT_SUCCESS);
+
+dmem_failure_loop:;
+	bc = bctl;
+	while (bc) {
+		stmf_free(bc->bctl_buf);
+		bc = bc->bctl_next;
+	}
+dmem_init_failed:;
+	(void) ddi_dma_unbind_handle(p->dmem_dma_handle);
+addr_bind_handle_failed:;
+	ddi_dma_mem_free(&p->dmem_acc_handle);
+mem_alloc_failed:;
+	ddi_dma_free_handle(&p->dmem_dma_handle);
+alloc_handle_failed:;
+	kmem_free(p->dmem_bctls_mem, p->dmem_nbufs * sizeof (qlt_dmem_bctl_t));
+	mutex_destroy(&p->dmem_lock);
+alloc_bctl_failed:;
+	if (--ndx >= 0) {
+		p = vha->dmem_buckets[ndx];
+		bctl = p->dmem_bctl_free_list;
+		goto dmem_failure_loop;
+	}
+	kmem_free(vha->dmem_buckets, sizeof (dmem_buckets) +
+	    (((sizeof (dmem_buckets)/sizeof (void *))-1)*
+	    sizeof (qlt_dmem_bucket_t)));
+	vha->dmem_buckets = NULL;
+
+	return (QLT_FAILURE);
+}
+
+void
+qlt_dmem_fini(scsi_qla_host_t *vha)
+{
+	qlt_dmem_bucket_t *p;
+	qlt_dmem_bctl_t *bctl;
+	int ndx;
+
+	for (ndx = 0; (p = vha->dmem_buckets[ndx]) != NULL; ndx++) {
+		bctl = p->dmem_bctl_free_list;
+		while (bctl) {
+			stmf_free(bctl->bctl_buf);
+			bctl = bctl->bctl_next;
+		}
+		bctl = p->dmem_bctl_free_list;
+		(void) ddi_dma_unbind_handle(p->dmem_dma_handle);
+		ddi_dma_mem_free(&p->dmem_acc_handle);
+		ddi_dma_free_handle(&p->dmem_dma_handle);
+		kmem_free(p->dmem_bctls_mem,
+		    p->dmem_nbufs * sizeof (qlt_dmem_bctl_t));
+		mutex_destroy(&p->dmem_lock);
+	}
+	kmem_free(vha->dmem_buckets, sizeof (dmem_buckets) +
+	    (((sizeof (dmem_buckets)/sizeof (void *))-1)*
+	    sizeof (qlt_dmem_bucket_t)));
+	vha->dmem_buckets = NULL;
+}
+
 stmf_data_buf_t *
 qlt_dmem_alloc(fct_local_port_t *port, uint32_t size, uint32_t *pminsize,
     uint32_t flags)
 {
-	return NULL;
+	return (qlt_i_dmem_alloc((scsi_qla_host_t *)
+	    port->port_fca_private, size, pminsize,
+	    flags));
 }
 
+/* ARGSUSED */
+stmf_data_buf_t *
+qlt_i_dmem_alloc(scsi_qla_host_t *vha, uint32_t size, uint32_t *pminsize,
+    uint32_t flags)
+{
+	qlt_dmem_bucket_t	*p;
+	qlt_dmem_bctl_t 	*bctl;
+	int			i;
+	uint32_t		size_possible = 0;
+
+	if (size > QLT_DMEM_MAX_BUF_SIZE) {
+		goto qlt_try_partial_alloc;
+	}
+
+	/* 1st try to do a full allocation */
+	for (i = 0; (p = vha->dmem_buckets[i]) != NULL; i++) {
+		if (p->dmem_buf_size >= size) {
+			if (p->dmem_nbufs_free) {
+				mutex_enter(&p->dmem_lock);
+				bctl = p->dmem_bctl_free_list;
+				if (bctl == NULL) {
+					mutex_exit(&p->dmem_lock);
+					continue;
+				}
+				p->dmem_bctl_free_list =
+				    bctl->bctl_next;
+				p->dmem_nbufs_free--;
+				vha->qlt_bufref[i]++;
+				mutex_exit(&p->dmem_lock);
+				bctl->bctl_buf->db_data_size = size;
+				return (bctl->bctl_buf);
+			} else {
+				vha->qlt_bumpbucket++;
+			}
+		}
+	}
+
+qlt_try_partial_alloc:
+
+	vha->qlt_pmintry++;
+
+	/* Now go from high to low */
+	for (i = QLT_DMEM_NBUCKETS - 1; i >= 0; i--) {
+		p = vha->dmem_buckets[i];
+		if (p->dmem_nbufs_free == 0)
+			continue;
+		if (!size_possible) {
+			size_possible = p->dmem_buf_size;
+		}
+		if (*pminsize > p->dmem_buf_size) {
+			/* At this point we know the request is failing. */
+			if (size_possible) {
+				/*
+				 * This caller is asking too much. We already
+				 * know what we can give, so get out.
+				 */
+				break;
+			} else {
+				/*
+				 * Lets continue to find out and tell what
+				 * we can give.
+				 */
+				continue;
+			}
+		}
+		mutex_enter(&p->dmem_lock);
+		if (*pminsize <= p->dmem_buf_size) {
+			bctl = p->dmem_bctl_free_list;
+			if (bctl == NULL) {
+				/* Someone took it. */
+				size_possible = 0;
+				mutex_exit(&p->dmem_lock);
+				continue;
+			}
+			p->dmem_bctl_free_list = bctl->bctl_next;
+			p->dmem_nbufs_free--;
+			mutex_exit(&p->dmem_lock);
+			bctl->bctl_buf->db_data_size = p->dmem_buf_size;
+			vha->qlt_pmin_ok++;
+			return (bctl->bctl_buf);
+		}
+	}
+
+	*pminsize = size_possible;
+
+	return (NULL);
+}
+
+/* ARGSUSED */
+void
+qlt_i_dmem_free(scsi_qla_host_t *vha, stmf_data_buf_t *dbuf)
+{
+	qlt_dmem_free(0, dbuf);
+}
+
+/* ARGSUSED */
 void
 qlt_dmem_free(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
 {
-	return;
+	qlt_dmem_bctl_t		*bctl;
+	qlt_dmem_bucket_t	*p;
+
+	ASSERT((dbuf->db_flags & DB_LU_DATA_BUF) == 0);
+
+	bctl = (qlt_dmem_bctl_t *)dbuf->db_port_private;
+	p = bctl->bctl_bucket;
+	mutex_enter(&p->dmem_lock);
+	bctl->bctl_next = p->dmem_bctl_free_list;
+	p->dmem_bctl_free_list = bctl;
+	p->dmem_nbufs_free++;
+	mutex_exit(&p->dmem_lock);
+}
+
+void
+qlt_dmem_dma_sync(stmf_data_buf_t *dbuf, uint_t sync_type)
+{
+	qlt_dmem_bctl_t		*bctl;
+	qlt_dma_sgl_t		*qsgl;
+	qlt_dmem_bucket_t	*p;
+	qlt_dma_handle_t	*th;
+	int			rv;
+
+	if (dbuf->db_flags & DB_LU_DATA_BUF) {
+		/*
+		 * go through ddi handle list
+		 */
+		qsgl = (qlt_dma_sgl_t *)dbuf->db_port_private;
+		th = qsgl->handle_list;
+		while (th) {
+			rv = ddi_dma_sync(th->dma_handle,
+			    0, 0, sync_type);
+			if (rv != DDI_SUCCESS) {
+				printk("ddi_dma_sync FAILED\n");
+			}
+			th = th->next;
+		}
+	} else {
+		bctl = (qlt_dmem_bctl_t *)dbuf->db_port_private;
+		p = bctl->bctl_bucket;
+		(void) ddi_dma_sync(p->dmem_dma_handle, (off_t)
+		    (bctl->bctl_dev_addr - p->dmem_dev_addr),
+		    dbuf->db_data_size, sync_type);
+	}
 }
 
 void
@@ -5291,15 +5722,14 @@ qlt_port_start(void* arg)
 	struct nvram_24xx *nv = vha->hw->nvram;
 
 	qlt_pp = (stmf_port_provider_t *)stmf_alloc(
-                    STMF_STRUCT_PORT_PROVIDER, 0, 0);
-        qlt_pp->pp_portif_rev = PORTIF_REV_1;
-        qlt_pp->pp_name = QLA2XXX_DRIVER_NAME;
+		STMF_STRUCT_PORT_PROVIDER, 0, 0);
+    qlt_pp->pp_portif_rev = PORTIF_REV_1;
+    qlt_pp->pp_name = QLA2XXX_DRIVER_NAME;
 
-#if 0
-	if (qlt_dmem_init(qlt) != QLT_SUCCESS) {
+	if (qlt_dmem_init(vha) != QLT_SUCCESS) {
 		return (FCT_FAILURE);
 	}
-#endif
+
 	/* Initialize the ddi_dma_handle free pool */
 	qlt_dma_handle_pool_init(vha);
 
