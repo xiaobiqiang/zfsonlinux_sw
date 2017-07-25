@@ -995,6 +995,18 @@ struct qlt_dma_sgl {
 
 typedef struct qlt_dma_sgl qlt_dma_sgl_t;
 
+/*
+ * Structure to maintain ddi_dma_handle free pool.
+ */
+struct qlt_dma_handle_pool {
+	kmutex_t	pool_lock;	/* protects all fields */
+	qlt_dma_handle_t	*free_list;
+	int			num_free;
+	int			num_total;
+};
+
+typedef struct qlt_dma_handle_pool qlt_dma_handle_pool_t;
+
 typedef struct qlt_abts_cmd {
 	uint8_t		buf[IOCB_SIZE];
 	uint16_t	qid;
@@ -1110,5 +1122,5 @@ extern void qlt_stop_phase2(struct qla_tgt *);
 extern irqreturn_t qla83xx_msix_atio_q(int, void *);
 extern void qlt_83xx_iospace_config(struct qla_hw_data *);
 extern fct_status_t qlt_port_start(void* arg);
-
+extern fct_status_t qlt_port_stop(caddr_t arg);
 #endif /* __QLA_TARGET_H */

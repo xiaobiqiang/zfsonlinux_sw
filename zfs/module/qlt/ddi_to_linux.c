@@ -10,7 +10,7 @@
 #include <sys/fct.h>
 #include "ddi_to_linux.h"
 #include <linux/delay.h>
-#include <sys/qla_def.h>
+#include "qla_def.h"
 #include "qlt.h"
 #include <asm/io.h>
 

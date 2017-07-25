@@ -52,9 +52,9 @@
 #include "qlt_ioctl.h"
 #include "qlt_open.h"
 #include <sys/stmf_ioctl.h>
-#include <sys/qla_def.h>
 #include <linux/device.h>
 #include <linux/miscdevice.h>
+#include "qla_def.h"
 #include "ddi_to_linux.h"
 
 
@@ -274,7 +274,7 @@ static struct pci_device_id qlt_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2261) },
 	{ 0 },
 };
-MODULE_DEVICE_TABLE(pci, qlt_pci_tbl);
+//MODULE_DEVICE_TABLE(pci, qlt_pci_tbl);
 
 /*
 static const struct pci_error_handlers qlt_err_handler = {

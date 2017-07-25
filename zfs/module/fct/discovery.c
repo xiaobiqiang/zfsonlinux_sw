@@ -1418,7 +1418,7 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
 
-
+	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1578,6 +1578,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
 
+	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	/* We dont support solicited PRLIs yet */
 	ASSERT(cmd->cmd_type == FCT_CMD_RCVD_ELS);
 
@@ -1734,7 +1735,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	char			 info[FCT_INFO_LEN];
 	clock_t			 end_time;
 
-
+	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1833,6 +1834,7 @@ fct_process_prlo(fct_i_cmd_t *icmd)
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
 
+	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	/* We do not support solicited PRLOs yet */
 	ASSERT(cmd->cmd_type == FCT_CMD_RCVD_ELS);
 
@@ -1909,6 +1911,7 @@ fct_process_rcvd_adisc(fct_i_cmd_t *icmd)
 	uint32_t		*q;
 	fct_status_t		ret;
 
+	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	fct_dequeue_els(irp);
 	atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
 
@@ -1946,6 +1949,7 @@ fct_process_unknown_els(fct_i_cmd_t *icmd)
 	fct_status_t		 ret   = FCT_FAILURE;
 	uint8_t			 op    = 0;
 
+	printk("zjn %s iport=%p\n", __func__, iport);
 	ASSERT(icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
 	atomic_add_16_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
@@ -1969,6 +1973,7 @@ fct_process_rscn(fct_i_cmd_t *icmd)
 	uint8_t			*rscn_req_payload;
 	uint32_t		 rscn_req_size;
 
+	printk("zjn %s icmd=%p iport=%p\n", __func__, icmd, iport);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
 	atomic_add_16_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	if (icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS) {
@@ -2008,6 +2013,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	disc_action_t	ret = DISC_ACTION_NO_WORK;
 	uint8_t		op;
 
+	printk("zjn %s iport=%p irp=%p\n", __func__, iport, irp);
 	mutex_exit(&iport->iport_worker_lock);
 
 	/*
@@ -2123,6 +2129,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 		fct_status_t s;
 		fct_local_port_t *port = iport->iport_port;
 
+		printk("zjn %s iport=%p irp=%p FCT_CMD_SOL_ELS\n", __func__, iport, irp);
 		fct_dequeue_els(irp);
 		atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
 		atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);

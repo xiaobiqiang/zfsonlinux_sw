@@ -5328,27 +5328,6 @@ qlt_port_start(void* arg)
 	 */
 	port->port_fca_private = vha;
 	port->port_fca_abort_timeout = 5 * 1000;	/* 5 seconds */
-	printk("Qlogic qlt(%d) "
-            "WWPN=%02x%02x%02x%02x%02x%02x%02x%02x:"
-            "WWNN=%02x%02x%02x%02x%02x%02x%02x%02x\n",
-            vha->hw->pdev->dev.id,
-            nv->port_name[0],
-            nv->port_name[1],
-            nv->port_name[2],
-            nv->port_name[3],
-            nv->port_name[4],
-            nv->port_name[5],
-            nv->port_name[6],
-            nv->port_name[7],
-            nv->node_name[0],
-            nv->node_name[1],
-            nv->node_name[2],
-            nv->node_name[3],
-            nv->node_name[4],
-            nv->node_name[5],
-            nv->node_name[6],
-            nv->node_name[7]);
-
 	bcopy(nv->node_name, port->port_nwwn, WWN_SIZE);
 	bcopy(nv->port_name, port->port_pwwn, WWN_SIZE);
 	fct_wwn_to_str(port->port_nwwn_str, port->port_nwwn);

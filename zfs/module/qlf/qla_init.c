@@ -3357,11 +3357,12 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 			return;
 		}
 
+		printk("zjn %s alloc rp=%p\n", __func__, rp);
 		irp = (fct_i_remote_port_t *)rp->rp_fct_private;
 		rw_init(&irp->irp_lock, 0, RW_DRIVER, 0);
 		irp->irp_rp = rp;
 		irp->irp_portid =  rport_ids.port_id;
-		printk("rport_ids.port_id = %x\n", rport_ids.port_id);
+		printk("zjn %s rport_ids.port_id = %x\n", __func__, rport_ids.port_id);
 		rp->rp_port = port;
 		rp->rp_id =  rport_ids.port_id;
 		rp->rp_handle = FCT_HANDLE_NONE;

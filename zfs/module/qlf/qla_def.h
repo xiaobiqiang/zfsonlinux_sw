@@ -3526,59 +3526,6 @@ struct qla_hw_data {
 	int	allow_cna_fw_dump;
 };
 
-typedef struct {
-	union {
-		uint64_t	_dmac_ll;	/* 64 bit DMA address */
-		uint32_t 	_dmac_la[2];    /* 2 x 32 bit address */
-	} _dmu;
-	size_t		dmac_size;	/* DMA cookie size */
-	uint_t		dmac_type;	/* bus specific type bits */
-} ddi_dma_cookie_t;
-
-typedef struct __ddi_dma_handle {
-	struct pci_dev *dev;
-	void * ptr;
-	size_t size;
-	dma_addr_t *dma_handle;
-	int flag;
-}*ddi_dma_handle_t;
-
-struct qlt_dma_handle {
-	struct qlt_dma_handle	*next;
-	ddi_dma_handle_t	dma_handle;
-	ddi_dma_cookie_t	first_cookie;
-	uint_t			num_cookies;
-	uint_t			num_cookies_fetched;
-	struct sg_table sc_list;
-};
-
-typedef struct qlt_dma_handle qlt_dma_handle_t;
-
-struct qlt_dma_sgl {
-	uint16_t		handle_count;
-	uint16_t		cookie_count;
-	uint16_t		cookie_next_fetch;
-	uint16_t		cookie_prefetched;
-	qlt_dma_handle_t	*handle_list;
-	qlt_dma_handle_t	*handle_next_fetch;
-	size_t			qsize;
-	ddi_dma_cookie_t	cookie[1];
-};
-
-typedef struct qlt_dma_sgl qlt_dma_sgl_t;
-
-/*
- * Structure to maintain ddi_dma_handle free pool.
- */
-struct qlt_dma_handle_pool {
-	kmutex_t	pool_lock;	/* protects all fields */
-	qlt_dma_handle_t	*free_list;
-	int			num_free;
-	int			num_total;
-};
-
-typedef struct qlt_dma_handle_pool qlt_dma_handle_pool_t;
-
 /*
  * Qlogic scsi host structure
  */
