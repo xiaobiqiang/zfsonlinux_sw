@@ -4770,6 +4770,8 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
 	
 	qla_tgt_cmd->loop_id = cmd->cmd_rp->rp_handle;
+	qla_tgt_cmd->vha = vha;
+        qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
@@ -4814,6 +4816,8 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 	flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
 	
 	qla_tgt_cmd->loop_id = cmd->cmd_rp->rp_handle;
+	qla_tgt_cmd->vha = vha;
+        qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;	
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
