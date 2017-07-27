@@ -4753,25 +4753,31 @@ qlt_send_cmd(fct_cmd_t *cmd)
 fct_status_t
 qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 {
-	scsi_qla_host_t *vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+	scsi_qla_host_t *vha;
 	qlt_cmd_t *qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
 	qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
 	uint16_t flags;
 	int xmit_type = QLA_TGT_XMIT_DATA;
 	struct qla_tgt_cmd *qla_tgt_cmd;
 
-	qla_tgt_cmd = qlt_get_cmd(vha, qcmd->handle);
+	if (cmd->cmd_port) {
+		vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+	} else {
+		vha = NULL;
+	}
+
+	qla_tgt_cmd = kzalloc(sizeof(struct qla_tgt_cmd), GFP_KERNEL);
 
 	if (qla_tgt_cmd == NULL) {
-		printk("qlt_get_cmd failed.");
-		return (FCT_FAILURE);
+	        printk("zjn %s qlt_get_cmd failed.\n", __func__);
+	        return (FCT_FAILURE);
 	}
 
 	flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
 	
 	qla_tgt_cmd->loop_id = cmd->cmd_rp->rp_handle;
 	qla_tgt_cmd->vha = vha;
-        qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;
+	qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
@@ -4792,13 +4798,14 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 		qlt_xmit_response(qla_tgt_cmd, xmit_type, 0);
 	}
 
+	kfree(qla_tgt_cmd);
 	return (FCT_SUCCESS);
 }
 
 fct_status_t
 qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 {
-	scsi_qla_host_t *vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+	scsi_qla_host_t *vha;
 	qlt_cmd_t *qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
 	scsi_task_t *task	= (scsi_task_t *)cmd->cmd_specific;
 	uint16_t flags;
@@ -4806,18 +4813,25 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 	int xmit_type = QLA_TGT_XMIT_STATUS;
 	struct qla_tgt_cmd *qla_tgt_cmd;
 
-	qla_tgt_cmd = qlt_get_cmd(vha, qcmd->handle);
+	if (cmd->cmd_port) {
+                vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+        } else {
+                vha = NULL;
+        }
+
+	qla_tgt_cmd = kzalloc(sizeof(struct qla_tgt_cmd), GFP_KERNEL);
 
 	if (qla_tgt_cmd == NULL) {
-		printk("qlt_get_cmd failed.\n");
-		return (FCT_FAILURE);
+	        printk("zjn %s qlt_get_cmd failed.\n", __func__);
+	        return (FCT_FAILURE);
 	}
+	
 	scsi_status = task->task_scsi_status;
 	flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
 	
 	qla_tgt_cmd->loop_id = cmd->cmd_rp->rp_handle;
 	qla_tgt_cmd->vha = vha;
-        qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;	
+	qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;	
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
@@ -4846,6 +4860,7 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 	qla_tgt_cmd->se_cmd.scsi_status = task->task_scsi_status;
 
 	qlt_xmit_response(qla_tgt_cmd, xmit_type, task->task_scsi_status);
+	kfree(qla_tgt_cmd);
 
 	return (FCT_SUCCESS);
 }
