@@ -4767,56 +4767,56 @@ fct_status_t
 qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 {
 	scsi_qla_host_t *vha;
-	qlt_cmd_t *qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
-	qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
-	uint16_t flags;
-	int xmit_type = QLA_TGT_XMIT_DATA;
-	struct qla_tgt_cmd *qla_tgt_cmd;
-	bool sgl_mode = FALSE;
+        qlt_dmem_bctl_t *bctl = (qlt_dmem_bctl_t *)dbuf->db_port_private;
+        qlt_cmd_t *qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
+        qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
+        uint16_t flags;
+        int xmit_type = QLA_TGT_XMIT_DATA;
+        struct qla_tgt_cmd qla_tgt_cmd;
+        struct qla_dbuf_para dbuf_para;
+        bool sgl_mode = FALSE;
 
-	if (cmd->cmd_port) {
-		vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
-	} else {
-		vha = NULL;
-	}
+        if (cmd->cmd_port) {
+                vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+        } else {
+                vha = NULL;
+        }
+        qla_tgt_cmd.dbuf = &dbuf_para;
 
-	qla_tgt_cmd = kzalloc(sizeof(struct qla_tgt_cmd), GFP_KERNEL);
+        flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
 
-	if (qla_tgt_cmd == NULL) {
-	        printk("zjn %s qlt_get_cmd failed.\n", __func__);
-	        return (FCT_FAILURE);
-	}
+        qla_tgt_cmd.loop_id = cmd->cmd_rp->rp_handle;
+        qla_tgt_cmd.vha = vha;
+        qla_tgt_cmd.tgt = vha->hw->tgt.qla_tgt;
+        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
+        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
+        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
+        qla_tgt_cmd.atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
+        qla_tgt_cmd.atio.u.isp24.attr = (uint8_t)(flags >> 9);
+        qla_tgt_cmd.atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
+        qla_tgt_cmd.offset = dbuf->db_relative_offset;
+        qla_tgt_cmd.bufflen = dbuf->db_data_size;
+        if (dbuf->db_flags & DB_LU_DATA_BUF) {
+                qla_tgt_cmd.sg = qsgl->handle_list->sc_list.sgl;
+                qla_tgt_cmd.sg_cnt = qsgl->handle_list->sc_list.orig_nents;
+                sgl_mode = TRUE;
+        }
+        else {
+                qla_tgt_cmd.dbuf->db_data_size = dbuf->db_data_size;
+                qla_tgt_cmd.dbuf->bctl_dev_addr = bctl->bctl_dev_addr;
+        }
 
-	flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
-	
-	qla_tgt_cmd->loop_id = cmd->cmd_rp->rp_handle;
-	qla_tgt_cmd->vha = vha;
-	qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
-	qla_tgt_cmd->atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
-	qla_tgt_cmd->atio.u.isp24.attr = (uint8_t)(flags >> 9);
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
-	qla_tgt_cmd->offset = dbuf->db_relative_offset;
-	qla_tgt_cmd->bufflen = dbuf->db_data_size;
-	if (dbuf->db_flags & DB_LU_DATA_BUF) {
-		qla_tgt_cmd->sg = qsgl->handle_list->sc_list.sgl;
-		qla_tgt_cmd->sg_cnt = qsgl->handle_list->sc_list.orig_nents;
-		sgl_mode = TRUE;
-	}
-	
-	if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
-		qla_tgt_cmd->dma_data_direction = DMA_TO_DEVICE;
-		qlt_rdy_to_xfer(qla_tgt_cmd, sgl_mode);
-	} 
-	else {
-		qla_tgt_cmd->dma_data_direction = DMA_FROM_DEVICE;
-		qlt_xmit_response(qla_tgt_cmd, xmit_type, 0);
-	}
 
-	kfree(qla_tgt_cmd);
-	return (FCT_SUCCESS);
+        if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
+               qla_tgt_cmd.dma_data_direction = DMA_TO_DEVICE;
+                qlt_rdy_to_xfer(&qla_tgt_cmd, sgl_mode);
+        }
+        else {
+                qla_tgt_cmd.dma_data_direction = DMA_FROM_DEVICE;
+                qlt_xmit_response(&qla_tgt_cmd, xmit_type, 0);
+        }
+
+        return (FCT_SUCCESS);
 }
 
 fct_status_t
