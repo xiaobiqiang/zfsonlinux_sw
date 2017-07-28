@@ -165,7 +165,7 @@ fmd_idspace_lookup(fmd_idspace_t *ids, id_t id)
 {
 	fmd_idelem_t *ide;
 
-	ASSERT(MUTEX_HELD(&ids->ids_lock));
+	ASSERT(FMD_MUTEX_HELD(&ids->ids_lock));
 	ide = ids->ids_hash[id & (ids->ids_hashlen - 1)];
 
 	for (; ide != NULL; ide = ide->ide_next) {
@@ -269,7 +269,7 @@ fmd_idspace_alloc_locked(fmd_idspace_t *ids, void *data)
 {
 	id_t id;
 
-	ASSERT(MUTEX_HELD(&ids->ids_lock));
+	ASSERT(FMD_MUTEX_HELD(&ids->ids_lock));
 
 	if (ids->ids_count == ids->ids_maxid - ids->ids_minid + 1)
 		return (fmd_set_errno(ENOSPC));

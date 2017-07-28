@@ -32,7 +32,7 @@
 #include <unistd.h>
 #include <alloca.h>
 #include <stddef.h>
-//#include <fm/libtopo.h>
+#include <libtopo.h>
 
 #include "fmd_alloc.h"
 #include "fmd_string.h"
@@ -65,15 +65,13 @@ volatile uint32_t fmd_asru_fake_not_present = 0;
 static uint_t
 fmd_asru_strhash(fmd_asru_hash_t *ahp, const char *val)
 {
-//	return (topo_fmri_strhash(ahp->ah_topo->ft_hdl, val) % ahp->ah_hashlen);
-return 1;
+	return (topo_fmri_strhash(ahp->ah_topo->ft_hdl, val) % ahp->ah_hashlen);
 }
 
 static boolean_t
 fmd_asru_strcmp(fmd_asru_hash_t *ahp, const char *a, const char *b)
 {
-//	return (topo_fmri_strcmp(ahp->ah_topo->ft_hdl, a, b));
-return 1;
+	return (topo_fmri_strcmp(ahp->ah_topo->ft_hdl, a, b));
 }
 
 static fmd_asru_t *
@@ -104,7 +102,7 @@ fmd_asru_create(fmd_asru_hash_t *ahp, const char *uuid,
 static void
 fmd_asru_destroy(fmd_asru_t *ap)
 {
-	ASSERT(MUTEX_HELD(&ap->asru_lock));
+	ASSERT(FMD_MUTEX_HELD(&ap->asru_lock));
 	ASSERT(ap->asru_refs == 0);
 
 	nvlist_free(ap->asru_event);
@@ -120,7 +118,7 @@ fmd_asru_hash_insert(fmd_asru_hash_t *ahp, fmd_asru_t *ap)
 {
 	uint_t h = fmd_asru_strhash(ahp, ap->asru_name);
 
-	ASSERT(RW_WRITE_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&ahp->ah_lock));
 	ap->asru_next = ahp->ah_hash[h];
 	ahp->ah_hash[h] = ap;
 	ahp->ah_count++;
@@ -147,7 +145,7 @@ fmd_asru_hash_lookup(fmd_asru_hash_t *ahp, const char *name)
 	fmd_asru_t *ap;
 	uint_t h;
 
-	ASSERT(RW_LOCK_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_LOCK_HELD(&ahp->ah_lock));
 	h = fmd_asru_strhash(ahp, name);
 
 	for (ap = ahp->ah_hash[h]; ap != NULL; ap = ap->asru_next) {
@@ -236,7 +234,7 @@ fmd_asru_asru_hash_insert(fmd_asru_hash_t *ahp, fmd_asru_link_t *alp,
 {
 	uint_t h = fmd_asru_strhash(ahp, name);
 
-	ASSERT(RW_WRITE_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&ahp->ah_lock));
 	alp->al_asru_next = ahp->ah_asru_hash[h];
 	ahp->ah_asru_hash[h] = alp;
 	ahp->ah_al_count++;
@@ -248,7 +246,7 @@ fmd_asru_case_hash_insert(fmd_asru_hash_t *ahp, fmd_asru_link_t *alp,
 {
 	uint_t h = fmd_asru_strhash(ahp, name);
 
-	ASSERT(RW_WRITE_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&ahp->ah_lock));
 	alp->al_case_next = ahp->ah_case_hash[h];
 	ahp->ah_case_hash[h] = alp;
 }
@@ -258,7 +256,7 @@ fmd_asru_fru_hash_insert(fmd_asru_hash_t *ahp, fmd_asru_link_t *alp, char *name)
 {
 	uint_t h = fmd_asru_strhash(ahp, name);
 
-	ASSERT(RW_WRITE_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&ahp->ah_lock));
 	alp->al_fru_next = ahp->ah_fru_hash[h];
 	ahp->ah_fru_hash[h] = alp;
 }
@@ -269,7 +267,7 @@ fmd_asru_label_hash_insert(fmd_asru_hash_t *ahp, fmd_asru_link_t *alp,
 {
 	uint_t h = fmd_asru_strhash(ahp, name);
 
-	ASSERT(RW_WRITE_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&ahp->ah_lock));
 	alp->al_label_next = ahp->ah_label_hash[h];
 	ahp->ah_label_hash[h] = alp;
 }
@@ -280,7 +278,7 @@ fmd_asru_rsrc_hash_insert(fmd_asru_hash_t *ahp, fmd_asru_link_t *alp,
 {
 	uint_t h = fmd_asru_strhash(ahp, name);
 
-	ASSERT(RW_WRITE_HELD(&ahp->ah_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&ahp->ah_lock));
 	alp->al_rsrc_next = ahp->ah_rsrc_hash[h];
 	ahp->ah_rsrc_hash[h] = alp;
 }
@@ -289,7 +287,7 @@ static void
 fmd_asru_al_destroy(fmd_asru_link_t *alp)
 {
 	ASSERT(alp->al_refs == 0);
-	ASSERT(MUTEX_HELD(&alp->al_asru->asru_lock));
+	ASSERT(FMD_MUTEX_HELD(&alp->al_asru->asru_lock));
 
 	if (alp->al_log != NULL)
 		fmd_log_rele(alp->al_log);
@@ -452,10 +450,10 @@ fmd_asru_hash_recreate(fmd_log_t *lp, fmd_event_t *ep, fmd_asru_hash_t *ahp)
 	int64_t *diag_time;
 	nvlist_t *de_fmri, *de_fmri_dup;
 	uint_t nelem;
-//	topo_hdl_t *thp;
-//	char *class;
-//	nvlist_t *rsrc;
-//	int err;
+	topo_hdl_t *thp;
+	char *class;
+	nvlist_t *rsrc;
+	int err;
 	boolean_t injected;
 
 	/*
@@ -514,7 +512,6 @@ fmd_asru_hash_recreate(fmd_log_t *lp, fmd_event_t *ep, fmd_asru_hash_t *ahp)
 	}
 	(void) nvlist_xdup(flt, &flt_copy, &fmd.d_nva);
 
-#if 0
 	/*
 	 * For faults with a resource, re-evaluate the asru from the resource.
 	 */
@@ -528,7 +525,7 @@ fmd_asru_hash_recreate(fmd_log_t *lp, fmd_event_t *ep, fmd_asru_hash_t *ahp)
 		nvlist_free(asru);
 	}
 	fmd_fmri_topo_rele(thp);
-#endif
+
 	(void) nvlist_xdup(flt_copy, &flt, &fmd.d_nva);
 
 	fmd_case_recreate_suspect(cp, flt_copy);
@@ -1516,7 +1513,7 @@ fmd_asru_logevent(fmd_asru_link_t *alp)
 	nvlist_t *nvl;
 	char *class;
 
-	ASSERT(MUTEX_HELD(&ap->asru_lock));
+	ASSERT(FMD_MUTEX_HELD(&ap->asru_lock));
 	cip = (fmd_case_impl_t *)alp->al_case;
 	ASSERT(cip != NULL);
 

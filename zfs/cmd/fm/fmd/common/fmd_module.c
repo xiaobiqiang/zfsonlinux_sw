@@ -117,7 +117,7 @@ fmd_module_start(void *arg)
 	if (fmd.d_mod_event != NULL)
 		fmd_eventq_insert_at_head(mp->mod_queue, fmd.d_mod_event);
 
-	ASSERT(MUTEX_HELD(&mp->mod_lock));
+	ASSERT(FMD_MUTEX_HELD(&mp->mod_lock));
 	mp->mod_flags |= FMD_MOD_INIT;
 
 	(void) pthread_cond_broadcast(&mp->mod_cv);
@@ -420,7 +420,7 @@ fmd_module_destroy(fmd_module_t *mp)
 	fmd_conf_formal_t *cfp = mp->mod_argv;
 	int i;
 
-	ASSERT(MUTEX_HELD(&mp->mod_lock));
+	ASSERT(FMD_MUTEX_HELD(&mp->mod_lock));
 
 	if (mp->mod_thread != NULL) {
 		(void) pthread_mutex_unlock(&mp->mod_lock);
@@ -502,7 +502,7 @@ fmd_module_error(fmd_module_t *mp, int err)
 	nvlist_t *nvl = NULL;
 	char *class;
 
-	ASSERT(MUTEX_HELD(&mp->mod_lock));
+	ASSERT(FMD_MUTEX_HELD(&mp->mod_lock));
 	ASSERT(err != 0);
 
 	TRACE((FMD_DBG_MOD, "module aborted: err=%d", err));
@@ -585,7 +585,7 @@ fmd_module_dispatch(fmd_module_t *mp, fmd_event_t *e)
 			fmd_topo_rele(mp->mod_topo_current);
 			mp->mod_topo_current = (fmd_topo_t *)ep->ev_data;
 			fmd_topo_addref(mp->mod_topo_current);
-//			ops->fmdo_topo(hdl, mp->mod_topo_current->ft_hdl);
+			ops->fmdo_topo(hdl, mp->mod_topo_current->ft_hdl);
 			break;
 		}
 	}
@@ -1362,7 +1362,6 @@ fmd_modstat_snapshot(fmd_module_t *mp, fmd_ustat_snap_t *uss)
 struct topo_hdl *
 fmd_module_topo_hold(fmd_module_t *mp)
 {
-#if 0
 	fmd_modtopo_t *mtp;
 
 	ASSERT(fmd_module_locked(mp));
@@ -1373,7 +1372,6 @@ fmd_module_topo_hold(fmd_module_t *mp)
 	fmd_list_prepend(&mp->mod_topolist, mtp);
 
 	return (mtp->mt_topo->ft_hdl);
-#endif
 	return NULL;
 }
 
@@ -1386,7 +1384,7 @@ fmd_module_topo_rele(fmd_module_t *mp, struct topo_hdl *hdl)
 
 	for (mtp = fmd_list_next(&mp->mod_topolist); mtp != NULL;
 	    mtp = fmd_list_next(mtp)) {
-//		if (mtp->mt_topo->ft_hdl == hdl)
+		if (mtp->mt_topo->ft_hdl == hdl)
 			break;
 	}
 

@@ -298,7 +298,7 @@ fmd_case_mkcode(fmd_case_t *cp)
 	char **keys, **keyp;
 	const char *s;
 
-	ASSERT(MUTEX_HELD(&cip->ci_lock));
+	ASSERT(FMD_MUTEX_HELD(&cip->ci_lock));
 	ASSERT(cip->ci_state >= FMD_CASE_SOLVED);
 
 	/*
@@ -524,11 +524,10 @@ fmd_case_compare_elem(nvlist_t *nvl, nvlist_t *xnvl, const char *elem)
 		if (fmd_fmri_nvl2str(new_rsrc, new_name, new_namelen + 1) == -1)
 			goto done;
 	}
-#if 0
+
 	match = (fmri_present == new_fmri_present &&
 	    (fmri_present == 0 ||
 	    topo_fmri_strcmp(ftp->ft_hdl, name, new_name)));
-#endif
 done:
 	if (name != NULL)
 		fmd_free(name, namelen + 1);
@@ -1215,7 +1214,7 @@ fmd_case_hash_delete(fmd_case_hash_t *chp, fmd_case_impl_t *cip)
 	fmd_case_impl_t *cp, **pp;
 	uint_t h;
 
-	ASSERT(MUTEX_HELD(&cip->ci_lock));
+	ASSERT(FMD_MUTEX_HELD(&cip->ci_lock));
 
 	cip->ci_flags |= FMD_CF_DELETING;
 	(void) pthread_mutex_unlock(&cip->ci_lock);
@@ -1308,7 +1307,7 @@ fmd_case_destroy_suspects(fmd_case_impl_t *cip)
 {
 	fmd_case_susp_t *cis, *ncis;
 
-	ASSERT(MUTEX_HELD(&cip->ci_lock));
+	ASSERT(FMD_MUTEX_HELD(&cip->ci_lock));
 
 	if (cip->ci_proxy_asru)
 		fmd_free(cip->ci_proxy_asru, sizeof (uint8_t) *
@@ -1471,7 +1470,7 @@ fmd_case_destroy(fmd_case_t *cp, int visible)
 	fmd_case_impl_t *cip = (fmd_case_impl_t *)cp;
 	fmd_case_item_t *cit, *ncit;
 
-	ASSERT(MUTEX_HELD(&cip->ci_lock));
+	ASSERT(FMD_MUTEX_HELD(&cip->ci_lock));
 	ASSERT(cip->ci_refs == 0);
 
 	if (visible) {
@@ -1513,7 +1512,7 @@ fmd_case_hold_locked(fmd_case_t *cp)
 {
 	fmd_case_impl_t *cip = (fmd_case_impl_t *)cp;
 
-	ASSERT(MUTEX_HELD(&cip->ci_lock));
+	ASSERT(FMD_MUTEX_HELD(&cip->ci_lock));
 	if (cip->ci_flags & FMD_CF_DELETING)
 		fmd_panic("attempt to hold a deleting case %p (%s)\n",
 		    (void *)cip, cip->ci_uuid);
@@ -1558,7 +1557,7 @@ fmd_case_rele_locked(fmd_case_t *cp)
 {
 	fmd_case_impl_t *cip = (fmd_case_impl_t *)cp;
 
-	ASSERT(MUTEX_HELD(&cip->ci_lock));
+	ASSERT(FMD_MUTEX_HELD(&cip->ci_lock));
 	--cip->ci_refs;
 	ASSERT(cip->ci_refs != 0);
 }

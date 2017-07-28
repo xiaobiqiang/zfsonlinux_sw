@@ -945,7 +945,7 @@ fmd_conf_getparam(fmd_conf_t *cfp, const char *name)
 	ulong_t h = fmd_strhash(name) % cfp->cf_parhashlen;
 	fmd_conf_param_t *pp = cfp->cf_parhash[h];
 
-	ASSERT(RW_LOCK_HELD(&cfp->cf_lock));
+	ASSERT(FMD_RW_LOCK_HELD(&cfp->cf_lock));
 
 	for (; pp != NULL; pp = pp->cp_next) {
 		if (strcmp(name, pp->cp_formal->cf_name) == 0)

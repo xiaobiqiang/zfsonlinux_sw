@@ -227,7 +227,7 @@ fmd_fmri_get_drgen(void)
 
 	return (gen);
 }
-#if 0
+
 struct topo_hdl *
 fmd_fmri_topo_hold(int version)
 {
@@ -246,7 +246,7 @@ fmd_fmri_topo_rele(struct topo_hdl *thp)
 {
 	fmd_topo_rele_hdl(thp);
 }
-#endif
+
 /*
  * Interfaces for users of the plugins
  */
@@ -381,7 +381,6 @@ fmd_fmri_unusable(nvlist_t *nvl)
 int
 fmd_fmri_retire(nvlist_t *nvl)
 {
-#if 0
 	topo_hdl_t *thp;
 	int rv, err;
 
@@ -392,14 +391,11 @@ fmd_fmri_retire(nvlist_t *nvl)
 	fmd_fmri_topo_rele(thp);
 
 	return (rv);
-#endif
-	return 0;
 }
 
 int
 fmd_fmri_unretire(nvlist_t *nvl)
 {
-#if 0
 	topo_hdl_t *thp;
 	int rv, err;
 
@@ -410,8 +406,6 @@ fmd_fmri_unretire(nvlist_t *nvl)
 	fmd_fmri_topo_rele(thp);
 
 	return (rv);
-#endif
-	return 1;
 }
 
 int

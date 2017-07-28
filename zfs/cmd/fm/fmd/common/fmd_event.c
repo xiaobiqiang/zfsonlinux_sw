@@ -177,7 +177,7 @@ fmd_event_destroy(fmd_event_t *e)
 {
 	fmd_event_impl_t *ep = (fmd_event_impl_t *)e;
 
-	ASSERT(MUTEX_HELD(&ep->ev_lock));
+	ASSERT(FMD_MUTEX_HELD(&ep->ev_lock));
 	ASSERT(ep->ev_refs == 0);
 
 	/*
@@ -217,7 +217,7 @@ fmd_event_destroy(fmd_event_t *e)
 		fmd_ctl_fini(ep->ev_data);
 		break;
 	case FMD_EVT_TOPO:
-//		fmd_topo_rele(ep->ev_data);
+		fmd_topo_rele(ep->ev_data);
 		break;
 	}
 

@@ -44,7 +44,7 @@ fmd_ustat_chunk_init(fmd_ustat_t *usp, fmd_stat_t *base, uint_t len)
 	cp->usc_len = len;
 	cp->usc_refs = 1;
 
-	ASSERT(RW_WRITE_HELD(&usp->us_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&usp->us_lock));
 	fmd_list_append(&usp->us_chunks, cp);
 
 	return (cp);
@@ -53,7 +53,7 @@ fmd_ustat_chunk_init(fmd_ustat_t *usp, fmd_stat_t *base, uint_t len)
 static void
 fmd_ustat_chunk_hold(fmd_ustat_t *usp, fmd_ustat_chunk_t *cp)
 {
-	ASSERT(RW_WRITE_HELD(&usp->us_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&usp->us_lock));
 	cp->usc_refs++;
 	ASSERT(cp->usc_refs != 0);
 }
@@ -61,7 +61,7 @@ fmd_ustat_chunk_hold(fmd_ustat_t *usp, fmd_ustat_chunk_t *cp)
 static void
 fmd_ustat_chunk_rele(fmd_ustat_t *usp, fmd_ustat_chunk_t *cp)
 {
-	ASSERT(RW_WRITE_HELD(&usp->us_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&usp->us_lock));
 	ASSERT(cp->usc_refs != 0);
 
 	if (--cp->usc_refs == 0) {
@@ -151,7 +151,7 @@ fmd_ustat_snapshot(fmd_ustat_t *usp, fmd_ustat_snap_t *uss)
 static void
 fmd_ustat_delete_locked(fmd_ustat_t *usp, uint_t n, fmd_stat_t *sp, int strfree)
 {
-	ASSERT(RW_WRITE_HELD(&usp->us_lock));
+	ASSERT(FMD_RW_WRITE_HELD(&usp->us_lock));
 
 	for (; n-- != 0; sp++) {
 		uint_t h = fmd_strhash(sp->fmds_name) % usp->us_hashlen;
