@@ -260,7 +260,7 @@ fmd_xprt_class_hash_insert(fmd_xprt_impl_t *xip,
 	uint_t h = fmd_strhash(class) % xch->xch_hashlen;
 	fmd_xprt_class_t *xcp;
 
-	ASSERT(MUTEX_HELD(&xip->xi_lock));
+	ASSERT(FMD_MUTEX_HELD(&xip->xi_lock));
 
 	for (xcp = xch->xch_hash[h]; xcp != NULL; xcp = xcp->xc_next) {
 		if (strcmp(class, xcp->xc_class) == 0)
@@ -291,7 +291,7 @@ fmd_xprt_class_hash_delete(fmd_xprt_impl_t *xip,
 	uint_t h = fmd_strhash(class) % xch->xch_hashlen;
 	fmd_xprt_class_t *xcp, **pp;
 
-	ASSERT(MUTEX_HELD(&xip->xi_lock));
+	ASSERT(FMD_MUTEX_HELD(&xip->xi_lock));
 	pp = &xch->xch_hash[h];
 
 	for (xcp = *pp; xcp != NULL; xcp = xcp->xc_next) {
@@ -1090,30 +1090,29 @@ fmd_xprt_list_suspect_local(fmd_xprt_t *xp, nvlist_t *nvl)
 	    &nelem);
 	for (i = 0; i < nelem; i++) {
 		nvlist_t *flt_copy, *asru = NULL, *fru = NULL, *rsrc = NULL;
-//		topo_hdl_t *thp;
-//		char *loc = NULL;
-//		int err;
+		topo_hdl_t *thp;
+		char *loc = NULL;
+		int err;
 
-//		thp = fmd_fmri_topo_hold(TOPO_VERSION);
+		thp = fmd_fmri_topo_hold(TOPO_VERSION);
 		(void) nvlist_xdup(nvlp[i], &flt_copy, &fmd.d_nva);
 		(void) nvlist_lookup_nvlist(nvlp[i], FM_FAULT_RESOURCE, &rsrc);
 
 		/*
 		 * If no fru specified, get it from topo
 		 */
-//		if (nvlist_lookup_nvlist(nvlp[i], FM_FAULT_FRU, &fru) != 0 &&
-//		    rsrc && topo_fmri_fru(thp, rsrc, &fru, &err) == 0)
-//			(void) nvlist_add_nvlist(flt_copy, FM_FAULT_FRU, fru);
+		if (nvlist_lookup_nvlist(nvlp[i], FM_FAULT_FRU, &fru) != 0 &&
+		    rsrc && topo_fmri_fru(thp, rsrc, &fru, &err) == 0)
+			(void) nvlist_add_nvlist(flt_copy, FM_FAULT_FRU, fru);
 		/*
 		 * If no asru specified, get it from topo
 		 */
-//		if (nvlist_lookup_nvlist(nvlp[i], FM_FAULT_ASRU, &asru) != 0 &&
-//		    rsrc && topo_fmri_asru(thp, rsrc, &asru, &err) == 0)
-//			(void) nvlist_add_nvlist(flt_copy, FM_FAULT_ASRU, asru);
+		if (nvlist_lookup_nvlist(nvlp[i], FM_FAULT_ASRU, &asru) != 0 &&
+		    rsrc && topo_fmri_asru(thp, rsrc, &asru, &err) == 0)
+			(void) nvlist_add_nvlist(flt_copy, FM_FAULT_ASRU, asru);
 		/*
 		 * If no location specified, get it from topo
 		 */
-#if 0
 		if (nvlist_lookup_string(nvlp[i], FM_FAULT_LOCATION,
 		    &loc) != 0) {
 			if (fru && topo_fmri_label(thp, fru, &loc, &err) == 0)
@@ -1126,14 +1125,14 @@ fmd_xprt_list_suspect_local(fmd_xprt_t *xp, nvlist_t *nvl)
 			if (loc)
 				topo_hdl_strfree(thp, loc);
 		}
-#endif
+
 		if (fru)
 			nvlist_free(fru);
 		if (asru)
 			nvlist_free(asru);
 		if (rsrc)
 			nvlist_free(rsrc);
-//		fmd_fmri_topo_rele(thp);
+		fmd_fmri_topo_rele(thp);
 		fmd_case_insert_suspect(cp, flt_copy);
 	}
 
@@ -1174,11 +1173,11 @@ fmd_xprt_list_suspect(fmd_xprt_t *xp, nvlist_t *nvl)
 	nvlist_t **nvlp;
 	uint_t nelem = 0, nelem2 = 0, i;
 	int64_t *diag_time;
-//	topo_hdl_t *thp;
+	topo_hdl_t *thp;
 	char *class;
 	nvlist_t *rsrc, *asru, *de_fmri, *de_fmri_dup = NULL;
 	nvlist_t *flt_copy;
-//	int err;
+	int err;
 	nvlist_t **asrua = NULL;
 	uint8_t *proxy_asru = NULL;
 	int got_proxy_asru = 0;
@@ -1215,7 +1214,7 @@ fmd_xprt_list_suspect(fmd_xprt_t *xp, nvlist_t *nvl)
 		asrua = fmd_zalloc(sizeof (nvlist_t *) * nelem, FMD_SLEEP);
 		proxy_asru = fmd_zalloc(sizeof (uint8_t) * nelem, FMD_SLEEP);
 		diag_asru = fmd_zalloc(sizeof (uint8_t) * nelem, FMD_SLEEP);
-//		thp = fmd_fmri_topo_hold(TOPO_VERSION);
+		thp = fmd_fmri_topo_hold(TOPO_VERSION);
 		for (i = 0; i < nelem; i++) {
 			if (nvlist_lookup_nvlist(nvlp[i], FM_FAULT_ASRU,
 			    &asru) == 0 && asru != NULL)
@@ -1245,7 +1244,7 @@ fmd_xprt_list_suspect(fmd_xprt_t *xp, nvlist_t *nvl)
 				got_hc_asru = 1;
 				if (xip->xi_flags & FMD_XPRT_EXTERNAL)
 					continue;
-#if 0
+
 				if (topo_fmri_present(thp, asru, &err) != 0)
 					got_present_rsrc = 1;
 				if (topo_fmri_asru(thp, asru, &asrua[i],
@@ -1254,7 +1253,7 @@ fmd_xprt_list_suspect(fmd_xprt_t *xp, nvlist_t *nvl)
 					    FMD_PROXY_ASRU_FROM_ASRU;
 					got_proxy_asru = 1;
 				}
-#endif
+
 			} else if (nvlist_lookup_nvlist(nvlp[i],
 			    FM_FAULT_RESOURCE, &rsrc) == 0 && rsrc != NULL &&
 			    nvlist_lookup_string(rsrc, FM_FMRI_SCHEME,
@@ -1263,7 +1262,7 @@ fmd_xprt_list_suspect(fmd_xprt_t *xp, nvlist_t *nvl)
 				got_hc_rsrc = 1;
 				if (xip->xi_flags & FMD_XPRT_EXTERNAL)
 					continue;
-#if 0
+
 				if (topo_fmri_present(thp, rsrc, &err) != 0)
 					got_present_rsrc = 1;
 				if (topo_fmri_asru(thp, rsrc, &asrua[i],
@@ -1272,10 +1271,9 @@ fmd_xprt_list_suspect(fmd_xprt_t *xp, nvlist_t *nvl)
 					    FMD_PROXY_ASRU_FROM_RSRC;
 					got_proxy_asru = 1;
 				}
-#endif
 			}
 		}
-//		fmd_fmri_topo_rele(thp);
+		fmd_fmri_topo_rele(thp);
 	}
 
 	/*

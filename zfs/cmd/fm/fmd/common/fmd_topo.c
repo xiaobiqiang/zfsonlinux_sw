@@ -40,7 +40,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <assert.h>
-//#include <fm/libtopo.h>
+#include <libtopo.h>
 
 #include "fmd_alloc.h"
 #include "fmd_error.h"
@@ -53,11 +53,11 @@
 static void
 fmd_topo_rele_locked(fmd_topo_t *ftp)
 {
-	ASSERT(MUTEX_HELD(&fmd.d_topo_lock));
+	ASSERT(FMD_MUTEX_HELD(&fmd.d_topo_lock));
 
 	if (--ftp->ft_refcount == 0) {
 		fmd_list_delete(&fmd.d_topo_list, ftp);
-//		topo_close(ftp->ft_hdl);
+		topo_close(ftp->ft_hdl);
 		fmd_free(ftp, sizeof (fmd_topo_t));
 	}
 }
@@ -65,10 +65,10 @@ fmd_topo_rele_locked(fmd_topo_t *ftp)
 void
 fmd_topo_update(boolean_t need_force, boolean_t update)
 {
-//	int err;
-//	topo_hdl_t *tp;
+	int err;
+	topo_hdl_t *tp;
 	fmd_topo_t *ftp, *prev;
-//	char *id;
+	char *id;
 	const char *name;
 
 	(void) pthread_mutex_lock(&fmd.d_topo_lock);
@@ -81,18 +81,17 @@ fmd_topo_update(boolean_t need_force, boolean_t update)
 	/*
 	 * Update the topology snapshot.
 	 */
-#if 0
 	if ((tp = topo_open(TOPO_VERSION, name, &err)) == NULL)
 		fmd_panic("failed to open topology library: %s",
 		    topo_strerror(err));
-#endif
+
 	ftp = fmd_alloc(sizeof (fmd_topo_t), FMD_SLEEP);
-//	ftp->ft_hdl = tp;
+	ftp->ft_hdl = tp;
 	ftp->ft_time_begin = fmd_time_gethrtime();
 
 	if (update) {
 		/* create xyses hc xml file 		Aug, 2010 */
-//		topo_construct_xyses_hc_xml(tp, need_force);
+		topo_construct_xyses_hc_xml(tp, need_force);
 
 		/*
 	 	 * xyses system, we need to support to insert a new disk, so we need to clear the fault info 
@@ -100,7 +99,8 @@ fmd_topo_update(boolean_t need_force, boolean_t update)
 	 	 */
 	 	 system("/usr/bin/rm /var/fm/fmd/rsrc/*");
 	}
-#if 0
+
+
 	if (need_force) {
 		if ((id = topo_snap_hold(tp, NULL, &err)) == NULL)
 			fmd_panic("failed to get topology snapshot: %s",
@@ -112,7 +112,7 @@ fmd_topo_update(boolean_t need_force, boolean_t update)
 	}
 
 	topo_hdl_strfree(tp, id);
-#endif
+
 	ftp->ft_time_end = fmd_time_gethrtime();
 	fmd.d_stats->ds_topo_gen.fmds_value.ui64++;
 
@@ -168,7 +168,7 @@ fmd_topo_rele_hdl(topo_hdl_t *thp)
 	(void) pthread_mutex_lock(&fmd.d_topo_lock);
 	for (ftp = fmd_list_next(&fmd.d_topo_list); ftp != NULL;
 	    ftp = fmd_list_next(ftp)) {
-//		if (ftp->ft_hdl == thp)
+		if (ftp->ft_hdl == thp)
 			break;
 	}
 	ASSERT(ftp != NULL);
@@ -191,7 +191,7 @@ fmd_topo_fini(void)
 	(void) pthread_mutex_lock(&fmd.d_topo_lock);
 	while ((ftp = fmd_list_next(&fmd.d_topo_list)) != NULL) {
 		fmd_list_delete(&fmd.d_topo_list, ftp);
-//		topo_close(ftp->ft_hdl);
+		topo_close(ftp->ft_hdl);
 		fmd_free(ftp, sizeof (fmd_topo_t));
 	}
 	(void) pthread_mutex_unlock(&fmd.d_topo_lock);

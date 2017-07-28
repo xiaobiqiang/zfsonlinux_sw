@@ -1,0 +1,7 @@
+.MAKE_VERSION:	VERSION-1.0
+.BUILT_LAST_MAKE_RUN:
+common:
+	cd common; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+i86pc:
+	cd i86pc; pwd; VERSION='1.0' dmake install_h

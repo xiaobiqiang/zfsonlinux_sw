@@ -224,7 +224,7 @@ fmd_scheme_create(const char *name)
 static void
 fmd_scheme_destroy(fmd_scheme_t *sp)
 {
-	ASSERT(MUTEX_HELD(&sp->sch_lock));
+	ASSERT(FMD_MUTEX_HELD(&sp->sch_lock));
 	ASSERT(sp->sch_refs == 0);
 
 	if (sp->sch_dlp != NULL) {
@@ -322,7 +322,7 @@ fmd_scheme_hash_xlookup(fmd_scheme_hash_t *shp, const char *name, uint_t h)
 {
 	fmd_scheme_t *sp;
 
-	ASSERT(RW_LOCK_HELD(&shp->sch_rwlock));
+	ASSERT(FMD_RW_LOCK_HELD(&shp->sch_rwlock));
 
 	for (sp = shp->sch_hash[h]; sp != NULL; sp = sp->sch_next) {
 		if (strcmp(sp->sch_name, name) == 0)

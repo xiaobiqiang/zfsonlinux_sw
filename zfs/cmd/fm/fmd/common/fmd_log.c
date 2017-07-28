@@ -111,7 +111,7 @@ fmd_log_write(fmd_log_t *lp, const void *buf, size_t n)
 	ssize_t resid = n;
 	ssize_t len;
 
-	ASSERT(MUTEX_HELD(&lp->log_lock));
+	ASSERT(FMD_MUTEX_HELD(&lp->log_lock));
 
 	while (resid != 0) {
 		if ((len = write(lp->log_fd, buf, resid)) <= 0)
@@ -451,7 +451,7 @@ fmd_log_open(const char *root, const char *name, const char *tag)
 void
 fmd_log_close(fmd_log_t *lp)
 {
-	ASSERT(MUTEX_HELD(&lp->log_lock));
+	ASSERT(FMD_MUTEX_HELD(&lp->log_lock));
 	ASSERT(lp->log_refs == 0);
 
 	if ((lp->log_flags & FMD_LF_EAOPEN) && ea_close(&lp->log_ea) != 0) {
@@ -735,7 +735,7 @@ fmd_log_commit(fmd_log_t *lp, fmd_event_t *e)
 	if (!(lp->log_flags & FMD_LF_REPLAY))
 		return; /* log does not require replay tagging */
 
-	ASSERT(MUTEX_HELD(&ep->ev_lock));
+	ASSERT(FMD_MUTEX_HELD(&ep->ev_lock));
 	ASSERT(ep->ev_log == lp && ep->ev_off != 0);
 
 	c = CAT_FMA_GROUP;
@@ -781,7 +781,7 @@ fmd_log_decommit(fmd_log_t *lp, fmd_event_t *e)
 	if (!(lp->log_flags & FMD_LF_REPLAY))
 		return; /* log does not require replay tagging */
 
-	ASSERT(MUTEX_HELD(&ep->ev_lock));
+	ASSERT(FMD_MUTEX_HELD(&ep->ev_lock));
 	ASSERT(ep->ev_log == lp);
 
 	(void) pthread_mutex_lock(&lp->log_lock);

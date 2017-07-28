@@ -39,10 +39,10 @@ extern int fmd_rw_read_held(pthread_rwlock_t *);
 extern int fmd_rw_write_held(pthread_rwlock_t *);
 extern int fmd_mutex_held(pthread_mutex_t *);
 
-#define	RW_READ_HELD(x)		fmd_rw_read_held(x)
-#define	RW_WRITE_HELD(x)	fmd_rw_write_held(x)
-#define	RW_LOCK_HELD(x)		(RW_READ_HELD(x) || RW_WRITE_HELD(x))
-#define	MUTEX_HELD(x)		fmd_mutex_held(x)
+#define	FMD_RW_READ_HELD(x)		fmd_rw_read_held(x)
+#define	FMD_RW_WRITE_HELD(x)	fmd_rw_write_held(x)
+#define	FMD_RW_LOCK_HELD(x)		(FMD_RW_READ_HELD(x) || FMD_RW_WRITE_HELD(x))
+#define	FMD_MUTEX_HELD(x)		fmd_mutex_held(x)
 
 #ifdef DEBUG
 extern int fmd_assert(const char *, const char *, int);

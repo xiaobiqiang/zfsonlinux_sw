@@ -1,0 +1,16 @@
+.MAKE_VERSION:	VERSION-1.0
+/data/tjp/workspace/code/tjp_dev/proto/root_i386/usr/include/libipmi.h:
+	/usr/bin/rm -f /data/tjp/workspace/code/tjp_dev/proto/root_i386/usr/include/libipmi.h; install -s -m 644 -f /data/tjp/workspace/code/tjp_dev/proto/root_i386/usr/include common/libipmi.h
+.BUILT_LAST_MAKE_RUN:
+amd64:
+	cd amd64; pwd; dmake install
+clean:
+	/usr/bin/rm -f 
+	/usr/bin/rm -f   lint.out llib-l.ln 
+clobber:
+	/usr/bin/rm -f   .po 
+common/libipmi.check:
+	echo "checking common/libipmi.h"; /opt/onbld/bin/cstyle common/libipmi.h ;  /opt/onbld/bin/hdrchk common/libipmi.h 
+.BUILT_LAST_MAKE_RUN:
+i386:
+	cd i386; pwd; dmake install

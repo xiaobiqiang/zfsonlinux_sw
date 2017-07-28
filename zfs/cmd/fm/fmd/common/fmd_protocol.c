@@ -264,7 +264,7 @@ fmd_protocol_fmderror(int errnum, const char *format, va_list ap)
 	uint64_t ena = fmd_ena();
 	nvlist_t *nvl;
 	int err = 0;
-	char c, *msg;
+	char *msg=NULL;
 	//size_t len;
 
 	if (nvlist_xalloc(&nvl, NV_UNIQUE_NAME, &fmd.d_nva) != 0)

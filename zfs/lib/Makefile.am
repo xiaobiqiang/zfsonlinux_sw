@@ -4,4 +4,4 @@ SUBDIRS = libspl libavl libefi libshare libunicode libdiskmgt libfmd
 
 # These four libraries, which are installed as the final build product,
 # incorporate the five convenience libraries given above.
-SUBDIRS += libuutil libnvpair libzpool libzfs_core libzfs libclumgt fm
+SUBDIRS += libuutil libnvpair libzpool libzfs_core libzfs libclumgt libipmi fm

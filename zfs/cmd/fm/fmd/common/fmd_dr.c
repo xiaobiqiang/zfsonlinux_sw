@@ -57,9 +57,9 @@
 #include <unistd.h>
 //#include <libsysevent.h>
 
-#undef MUTEX_HELD
-#undef RW_READ_HELD
-#undef RW_WRITE_HELD
+#undef FMD_MUTEX_HELD
+#undef FMD_RW_READ_HELD
+#undef FMD_RW_WRITE_HELD
 
 #include "fmd_asru.h"
 #include "fmd_error.h"

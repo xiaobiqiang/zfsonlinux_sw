@@ -1,0 +1,25 @@
+.MAKE_VERSION:	VERSION-1.0
+.BUILT_LAST_MAKE_RUN:
+SUNW,Netra-X4200-M2:
+	cd SUNW,Netra-X4200-M2; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+SUNW,Sun-Fire-X4200-M2:
+	cd SUNW,Sun-Fire-X4200-M2; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+SUNW,Sun-Fire-X4200-Server:
+	cd SUNW,Sun-Fire-X4200-Server; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+SUNW,Sun-Fire-X4500:
+	cd SUNW,Sun-Fire-X4500; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+SUNW,Sun-Fire-X4540:
+	cd SUNW,Sun-Fire-X4540; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+SUNW,Sun-Fire-X4600-M2:
+	cd SUNW,Sun-Fire-X4600-M2; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+i386:
+	cd i386; pwd; VERSION='1.0' dmake install_h
+.BUILT_LAST_MAKE_RUN:
+i86pc:
+	cd i86pc; pwd; VERSION='1.0' dmake install_h

@@ -26,7 +26,7 @@
 
 #include <sys/types.h>
 //#include <sys/fm/protocol.h>
-//#include <fm/topo_hc.h>
+#include <topo_hc.h>
 
 #include <unistd.h>
 #include <signal.h>
@@ -1230,10 +1230,9 @@ fmd_case_add_suspect(fmd_hdl_t *hdl, fmd_case_t *cp, nvlist_t *nvl)
 	char *class;
 	topo_hdl_t *thp;
 	int err;
-	nvlist_t *rsrc = NULL, *asru = NULL, *fru = NULL;
-	//nvlist_t *rsrc = NULL, *asru_prop = NULL, *asru = NULL, *fru = NULL;
+	nvlist_t *rsrc = NULL, *asru_prop = NULL, *asru = NULL, *fru = NULL;
 
-//	char *loc = NULL, *serial = NULL;
+	char *loc = NULL, *serial = NULL;
 
 	if (cip->ci_state >= FMD_CASE_SOLVED) {
 		fmd_api_error(mp, EFMD_CASE_STATE, "cannot add suspect to "
@@ -1250,7 +1249,7 @@ fmd_case_add_suspect(fmd_hdl_t *hdl, fmd_case_t *cp, nvlist_t *nvl)
 	(void) nvlist_lookup_nvlist(nvl, FM_FAULT_RESOURCE, &rsrc);
 	(void) nvlist_lookup_nvlist(nvl, FM_FAULT_ASRU, &asru);
 	(void) nvlist_lookup_nvlist(nvl, FM_FAULT_FRU, &fru);
-#if 0
+
 	if (rsrc != NULL) {
 		if (strncmp(class, "defect", 6) == 0) {
 			if (asru == NULL && topo_fmri_getprop(thp, rsrc,
@@ -1324,7 +1323,6 @@ fmd_case_add_suspect(fmd_hdl_t *hdl, fmd_case_t *cp, nvlist_t *nvl)
 			topo_hdl_strfree(thp, serial);
 		}
 	}
-#endif
 
 	err = fmd_module_topo_rele(mp, thp);
 	ASSERT(err == 0);
