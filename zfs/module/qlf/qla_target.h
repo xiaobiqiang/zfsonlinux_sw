@@ -1131,6 +1131,8 @@ typedef struct qlt_cmd {
 	uint32_t	fw_xchg_addr;
 	uint16_t	oxid;
 	uint16_t	flags;
+	uint8_t s_id[3];
+        uint8_t attr;
 	union {
 		uint16_t	resp_offset;
 		uint8_t		atio_byte3;

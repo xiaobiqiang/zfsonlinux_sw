@@ -1674,7 +1674,7 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	pkt->initiator_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
 	pkt->initiator_id[2] = atio->u.isp24.fcp_hdr.s_id[0];
 	pkt->exchange_addr = atio->u.isp24.exchange_addr;
-	pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	pkt->u.status0.flags |= (atio->u.isp24.attr << 9);;
 	pkt->u.status0.ox_id = swab16(atio->u.isp24.fcp_hdr.ox_id);
 	pkt->u.status0.relative_offset = cpu_to_le32(prm->cmd->offset);
 
@@ -3972,6 +3972,10 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 		qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
 		qcmd->fw_xchg_addr = atio->u.isp24.exchange_addr;
 		qcmd->param.atio_byte3 = atio_prt[3];
+		qcmd->s_id[0] = atio->u.isp24.fcp_hdr.s_id[0];
+                qcmd->s_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
+                qcmd->s_id[2] = atio->u.isp24.fcp_hdr.s_id[2];
+                qcmd->attr = atio->u.isp24.attr;
 		qcmd->qid = 0;
 		cmd->cmd_oxid = atio->u.isp24.fcp_hdr.ox_id;
 		cmd->cmd_rxid = atio->u.isp24.fcp_hdr.rx_id;
@@ -4788,11 +4792,11 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
         qla_tgt_cmd.loop_id = cmd->cmd_rp->rp_handle;
         qla_tgt_cmd.vha = vha;
         qla_tgt_cmd.tgt = vha->hw->tgt.qla_tgt;
-        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
-        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
-        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
+	qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = qcmd->s_id[0];
+        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[1] = qcmd->s_id[1];
+        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[2] = qcmd->s_id[2];
         qla_tgt_cmd.atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
-        qla_tgt_cmd.atio.u.isp24.attr = (uint8_t)(flags >> 9);
+        qla_tgt_cmd.atio.u.isp24.attr = qcmd->attr;
         qla_tgt_cmd.atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
         qla_tgt_cmd.offset = dbuf->db_relative_offset;
         qla_tgt_cmd.bufflen = dbuf->db_data_size;
