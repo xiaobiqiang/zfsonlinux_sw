@@ -2202,7 +2202,7 @@ out_unmap_unlock:
 }
 EXPORT_SYMBOL(qlt_xmit_response);
 
-int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd)
+int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 {
 	struct ctio7_to_24xx *pkt;
 	struct scsi_qla_host *vha = cmd->vha;
@@ -2225,9 +2225,11 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd)
 	ql_dbg(ql_dbg_tgt, vha, 0xe01b, "CTIO_start: vha(%d)",
 	    (int)vha->vp_idx);
 
-	/* Calculate number of entries and segments required */
-	if (qlt_pci_map_calc_cnt(&prm) != 0)
-		return -EAGAIN;
+	if( sgl_mode == TRUE ){
+		/* Calculate number of entries and segments required */
+		if (qlt_pci_map_calc_cnt(&prm) != 0)
+			return -EAGAIN;
+	}
 
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
@@ -2242,8 +2244,19 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd)
 	pkt = (struct ctio7_to_24xx *)prm.pkt;
 	pkt->u.status0.flags |= cpu_to_le16(CTIO7_FLAGS_DATA_OUT |
 	    CTIO7_FLAGS_STATUS_MODE_0);
-	qlt_load_data_segments(&prm, vha);
-
+	if( sgl_mode == TRUE ) {
+		qlt_load_data_segments(&prm, vha);
+	}
+	else {
+		pkt->dseg_count = 1;
+		pkt->u.status0.transfer_length = cmd->dbuf->db_data_size;
+		pkt->u.status0.dseg_0_address[0] = 
+			cpu_to_le32(LSD(cmd->dbuf->bctl_dev_addr));
+		pkt->u.status0.dseg_0_address[1] = 
+			cpu_to_le32(MSD(cmd->dbuf->bctl_dev_addr));
+		pkt->u.status0.dseg_0_length = cmd->dbuf->db_data_size;
+	}
+	
 	cmd->state = QLA_TGT_STATE_NEED_DATA;
 
 	qla2x00_start_iocbs(vha, vha->req);
@@ -3427,7 +3440,7 @@ static void qlt_handle_srr(struct scsi_qla_host *vha,
 			    0, 0, 0, NOTIFY_ACK_SRR_FLAGS_ACCEPT, 0, 0);
 			spin_unlock_irqrestore(&ha->hardware_lock, flags);
 			if (xmit_type & QLA_TGT_XMIT_DATA)
-				qlt_rdy_to_xfer(cmd);
+				qlt_rdy_to_xfer(cmd, 0);
 		} else {
 			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf066,
 			    "qla_target(%d): SRR for out data for cmd "
@@ -4759,6 +4772,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	uint16_t flags;
 	int xmit_type = QLA_TGT_XMIT_DATA;
 	struct qla_tgt_cmd *qla_tgt_cmd;
+	bool sgl_mode = FALSE;
 
 	if (cmd->cmd_port) {
 		vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
@@ -4786,12 +4800,15 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	qla_tgt_cmd->atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
 	qla_tgt_cmd->offset = dbuf->db_relative_offset;
 	qla_tgt_cmd->bufflen = dbuf->db_data_size;
-	qla_tgt_cmd->sg = qsgl->handle_list->sc_list.sgl;
-	qla_tgt_cmd->sg_cnt = qsgl->handle_list->sc_list.orig_nents;
+	if (dbuf->db_flags & DB_LU_DATA_BUF) {
+		qla_tgt_cmd->sg = qsgl->handle_list->sc_list.sgl;
+		qla_tgt_cmd->sg_cnt = qsgl->handle_list->sc_list.orig_nents;
+		sgl_mode = TRUE;
+	}
 	
 	if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
 		qla_tgt_cmd->dma_data_direction = DMA_TO_DEVICE;
-		qlt_rdy_to_xfer(qla_tgt_cmd);
+		qlt_rdy_to_xfer(qla_tgt_cmd, sgl_mode);
 	} 
 	else {
 		qla_tgt_cmd->dma_data_direction = DMA_FROM_DEVICE;
