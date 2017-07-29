@@ -1825,7 +1825,7 @@ static inline int qlt_has_data(struct qla_tgt_cmd *cmd)
  */
 static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	struct qla_tgt_prm *prm, int xmit_type, uint8_t scsi_status,
-	uint32_t *full_req_cnt)
+	uint32_t *full_req_cnt, bool sgl_mode)
 {
 	struct qla_tgt *tgt = cmd->tgt;
 	struct scsi_qla_host *vha = tgt->vha;
@@ -1869,8 +1869,14 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	ql_dbg(ql_dbg_tgt, vha, 0xe013, "CTIO start: vha(%d)\n", vha->vp_idx);
 
 	if ((xmit_type & QLA_TGT_XMIT_DATA) && qlt_has_data(cmd)) {
-		if  (qlt_pci_map_calc_cnt(prm) != 0)
-			return -EAGAIN;
+		if(sgl_mode == TRUE ) {
+			if  (qlt_pci_map_calc_cnt(prm) != 0)
+				return -EAGAIN;
+		}
+		else {
+			prm->seg_cnt = 1;
+			prm->req_cnt = 1;
+		}
 	}
 
 	*full_req_cnt = prm->req_cnt;
@@ -2088,7 +2094,7 @@ skip_explict_conf:
  * QLA_TGT_XMIT_STATUS for >= 24xx silicon
  */
 int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
-	uint8_t scsi_status)
+	uint8_t scsi_status, bool sgl_mode)
 {
 	struct scsi_qla_host *vha = cmd->vha;
 	struct qla_hw_data *ha = vha->hw;
@@ -2107,7 +2113,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	    1 : 0, cmd->bufflen, cmd->sg_cnt, cmd->dma_data_direction);
 
 	res = qlt_pre_xmit_response(cmd, &prm, xmit_type, scsi_status,
-	    &full_req_cnt);
+	    &full_req_cnt, sgl_mode);
 	if (unlikely(res != 0)) {
 		if (res == QLA_TGT_PRE_XMIT_RESP_CMD_ABORTED)
 			return 0;
@@ -2134,7 +2140,18 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		    cpu_to_le16(CTIO7_FLAGS_DATA_IN |
 			CTIO7_FLAGS_STATUS_MODE_0);
 
-		qlt_load_data_segments(&prm, vha);
+		if( sgl_mode == TRUE ) {
+			qlt_load_data_segments(&prm, vha);
+		}
+		else {
+			pkt->dseg_count = 1;
+			pkt->u.status0.transfer_length = cmd->dbuf->db_data_size;
+			pkt->u.status0.dseg_0_address[0] = 
+				cpu_to_le32(LSD(cmd->dbuf->bctl_dev_addr));
+			pkt->u.status0.dseg_0_address[1] = 
+				cpu_to_le32(MSD(cmd->dbuf->bctl_dev_addr));
+			pkt->u.status0.dseg_0_length = cmd->dbuf->db_data_size;
+		}
 
 		if (prm.add_status_pkt == 0) {
 			if (xmit_type & QLA_TGT_XMIT_STATUS) {
@@ -3459,7 +3476,7 @@ static void qlt_handle_srr(struct scsi_qla_host *vha,
 
 	/* Transmit response in case of status and data-in cases */
 	if (resp)
-		qlt_xmit_response(cmd, xmit_type, se_cmd->scsi_status);
+		qlt_xmit_response(cmd, xmit_type, se_cmd->scsi_status, TRUE);
 
 	return;
 
@@ -4813,7 +4830,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 
         if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
                qla_tgt_cmd.dma_data_direction = DMA_TO_DEVICE;
-				qlt_xmit_response(&qla_tgt_cmd, xmit_type, 0);
+				qlt_xmit_response(&qla_tgt_cmd, xmit_type, 0, sgl_mode);
         }
         else {
                 qla_tgt_cmd.dma_data_direction = DMA_FROM_DEVICE;
@@ -4880,7 +4897,7 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 
 	qla_tgt_cmd->se_cmd.scsi_status = task->task_scsi_status;
 
-	qlt_xmit_response(qla_tgt_cmd, xmit_type, task->task_scsi_status);
+	qlt_xmit_response(qla_tgt_cmd, xmit_type, task->task_scsi_status, FALSE);
 	kfree(qla_tgt_cmd);
 
 	return (FCT_SUCCESS);
