@@ -3440,7 +3440,7 @@ static void qlt_handle_srr(struct scsi_qla_host *vha,
 			    0, 0, 0, NOTIFY_ACK_SRR_FLAGS_ACCEPT, 0, 0);
 			spin_unlock_irqrestore(&ha->hardware_lock, flags);
 			if (xmit_type & QLA_TGT_XMIT_DATA)
-				qlt_rdy_to_xfer(cmd, 0);
+				qlt_rdy_to_xfer(cmd, TRUE);
 		} else {
 			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf066,
 			    "qla_target(%d): SRR for out data for cmd "
@@ -4792,7 +4792,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
         qla_tgt_cmd.loop_id = cmd->cmd_rp->rp_handle;
         qla_tgt_cmd.vha = vha;
         qla_tgt_cmd.tgt = vha->hw->tgt.qla_tgt;
-	qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = qcmd->s_id[0];
+		qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = qcmd->s_id[0];
         qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[1] = qcmd->s_id[1];
         qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[2] = qcmd->s_id[2];
         qla_tgt_cmd.atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
@@ -4813,11 +4813,11 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 
         if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
                qla_tgt_cmd.dma_data_direction = DMA_TO_DEVICE;
-                qlt_rdy_to_xfer(&qla_tgt_cmd, sgl_mode);
+				qlt_xmit_response(&qla_tgt_cmd, xmit_type, 0);
         }
         else {
                 qla_tgt_cmd.dma_data_direction = DMA_FROM_DEVICE;
-                qlt_xmit_response(&qla_tgt_cmd, xmit_type, 0);
+				qlt_rdy_to_xfer(&qla_tgt_cmd, sgl_mode);
         }
 
         return (FCT_SUCCESS);
