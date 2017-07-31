@@ -5565,11 +5565,13 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
 		flags = (uint16_t)(flags | 2);
 		qlt_dmem_dma_sync(dbuf, DDI_DMA_SYNC_FORDEV);
-		qsgl->handle_list->sc_list.nents = dma_map_sg(&qlt->dip->dev, 
+		if(dbuf->db_flags & DB_LU_DATA_BUF)
+			qsgl->handle_list->sc_list.nents = dma_map_sg(&qlt->dip->dev, 
 				qsgl->handle_list->sc_list.sgl, qsgl->handle_list->sc_list.orig_nents, DMA_TO_DEVICE);
 	} else {
 		flags = (uint16_t)(flags | 1);
-		qsgl->handle_list->sc_list.nents = dma_map_sg(&qlt->dip->dev, 
+		if(dbuf->db_flags & DB_LU_DATA_BUF)
+			qsgl->handle_list->sc_list.nents = dma_map_sg(&qlt->dip->dev, 
 				qsgl->handle_list->sc_list.sgl, qsgl->handle_list->sc_list.orig_nents, DMA_FROM_DEVICE);
 	}
 
@@ -5598,6 +5600,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 	req[2] = dbuf->db_handle;
 	QMEM_WR32_REQ(qlt, qi, req+4, cmd->cmd_handle);
 	QMEM_WR16_REQ(qlt, qi, req+8, cmd->cmd_rp->rp_handle);
+	//QMEM_WR16_REQ(qlt, qi, req+8, 0);
 	QMEM_WR16_REQ(qlt, qi, req+10, 60);	/* 60 seconds timeout */
 	QMEM_WR16_REQ(qlt, qi, req+12, cookie_count);
 	QMEM_WR32_REQ(qlt, qi, req+0x10, cmd->cmd_rportid);
