@@ -1881,6 +1881,7 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 
 	*full_req_cnt = prm->req_cnt;
 
+#if 0
 	if (se_cmd->se_cmd_flags & SCF_UNDERFLOW_BIT) {
 		prm->residual = se_cmd->residual_count;
 		ql_dbg(ql_dbg_tgt, vha, 0xe014,
@@ -1898,6 +1899,7 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 		    cmd->bufflen, prm->rq_result);
 		prm->rq_result |= SS_RESIDUAL_OVER;
 	}
+#endif
 
 	if (xmit_type & QLA_TGT_XMIT_STATUS) {
 		/*
@@ -2371,7 +2373,7 @@ done:
 		if (!ha_locked && !in_interrupt())
 			msleep(250); /* just in case */
 
-		vha->hw->tgt.tgt_ops->free_cmd(cmd);
+		/* vha->hw->tgt.tgt_ops->free_cmd(cmd); */
 	}
 }
 
@@ -2585,6 +2587,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	rex1 = ioread32(rsp+0x14);
 	n = rsp[2];
 
+#if 0
 	if (!CMD_HANDLE_VALID(hndl)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe01e,
 			"handle = %xh\n", hndl);
@@ -2631,6 +2634,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 
 		return;
 	}
+#endif
 
 	if (flags & BIT_14) {
 		abort_req = 1;
@@ -4796,6 +4800,9 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
         struct qla_tgt_cmd qla_tgt_cmd;
         struct qla_dbuf_para dbuf_para;
         bool sgl_mode = FALSE;
+		
+		memset(&qla_tgt_cmd, 0, sizeof(qla_tgt_cmd));
+		memset(&dbuf_para, 0, sizeof(dbuf_para));
 
         if (cmd->cmd_port) {
                 vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
@@ -4806,7 +4813,8 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 
         flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
 
-        qla_tgt_cmd.loop_id = cmd->cmd_rp->rp_handle;
+        /* qla_tgt_cmd.loop_id = cmd->cmd_rp->rp_handle; */
+		qla_tgt_cmd.loop_id = 0;
         qla_tgt_cmd.vha = vha;
         qla_tgt_cmd.tgt = vha->hw->tgt.qla_tgt;
 		qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = qcmd->s_id[0];

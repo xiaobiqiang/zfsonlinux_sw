@@ -1203,8 +1203,8 @@ static inline void qla_reverse_ini_mode(struct scsi_qla_host *ha)
 extern void qlt_24xx_atio_pkt_all_vps(struct scsi_qla_host *,
 	struct atio_from_isp *);
 extern void qlt_response_pkt_all_vps(struct scsi_qla_host *, response_t *);
-extern int qlt_rdy_to_xfer(struct qla_tgt_cmd *, bool sgl_mode);
-extern int qlt_xmit_response(struct qla_tgt_cmd *, int, uint8_t);
+extern int qlt_rdy_to_xfer(struct qla_tgt_cmd *, bool);
+extern int qlt_xmit_response(struct qla_tgt_cmd *, int, uint8_t, bool);
 extern void qlt_xmit_tm_rsp(struct qla_tgt_mgmt_cmd *);
 extern void qlt_free_mcmd(struct qla_tgt_mgmt_cmd *);
 extern void qlt_free_cmd(struct qla_tgt_cmd *cmd);
