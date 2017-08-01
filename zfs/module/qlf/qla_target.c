@@ -1643,7 +1643,7 @@ static inline uint32_t qlt_make_handle(struct scsi_qla_host *vha)
 static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	struct scsi_qla_host *vha)
 {
-	uint32_t h;
+	/* uint32_t h; */
 	struct ctio7_to_24xx *pkt;
 	struct qla_hw_data *ha = vha->hw;
 	struct atio_from_isp *atio = &prm->cmd->atio;
@@ -1656,6 +1656,7 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	pkt->entry_count = (uint8_t)prm->req_cnt;
 	pkt->vp_index = vha->vp_idx;
 
+#if 0
 	h = qlt_make_handle(vha);
 	if (unlikely(h == QLA_TGT_NULL_HANDLE)) {
 		/*
@@ -1666,8 +1667,11 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 		return -EAGAIN;
 	} else
 		ha->tgt.cmds[h-1] = prm->cmd;
+#endif
 
-	pkt->handle = h | CTIO_COMPLETION_HANDLE_MARK;
+	/* pkt->handle = h | CTIO_COMPLETION_HANDLE_MARK; */
+	pkt->handle = prm->cmd->cmd_handle;
+	pkt->sys_define = prm->cmd->db_handle;
 	pkt->nport_handle = prm->cmd->loop_id;
 	pkt->timeout = cpu_to_le16(QLA_TGT_TIMEOUT);
 	pkt->initiator_id[0] = atio->u.isp24.fcp_hdr.s_id[2];
@@ -2147,12 +2151,12 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		}
 		else {
 			pkt->dseg_count = 1;
-			pkt->u.status0.transfer_length = cmd->dbuf->db_data_size;
+			pkt->u.status0.transfer_length = cmd->dbuf.db_data_size;
 			pkt->u.status0.dseg_0_address[0] = 
-				cpu_to_le32(LSD(cmd->dbuf->bctl_dev_addr));
+				cpu_to_le32(LSD(cmd->dbuf.bctl_dev_addr));
 			pkt->u.status0.dseg_0_address[1] = 
-				cpu_to_le32(MSD(cmd->dbuf->bctl_dev_addr));
-			pkt->u.status0.dseg_0_length = cmd->dbuf->db_data_size;
+				cpu_to_le32(MSD(cmd->dbuf.bctl_dev_addr));
+			pkt->u.status0.dseg_0_length = cmd->dbuf.db_data_size;
 		}
 
 		if (prm.add_status_pkt == 0) {
@@ -2268,12 +2272,12 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 	}
 	else {
 		pkt->dseg_count = 1;
-		pkt->u.status0.transfer_length = cmd->dbuf->db_data_size;
+		pkt->u.status0.transfer_length = cmd->dbuf.db_data_size;
 		pkt->u.status0.dseg_0_address[0] = 
-			cpu_to_le32(LSD(cmd->dbuf->bctl_dev_addr));
+			cpu_to_le32(LSD(cmd->dbuf.bctl_dev_addr));
 		pkt->u.status0.dseg_0_address[1] = 
-			cpu_to_le32(MSD(cmd->dbuf->bctl_dev_addr));
-		pkt->u.status0.dseg_0_length = cmd->dbuf->db_data_size;
+			cpu_to_le32(MSD(cmd->dbuf.bctl_dev_addr));
+		pkt->u.status0.dseg_0_length = cmd->dbuf.db_data_size;
 	}
 	
 	cmd->state = QLA_TGT_STATE_NEED_DATA;
@@ -2555,10 +2559,9 @@ static struct qla_tgt_cmd *qlt_ctio_to_cmd(struct scsi_qla_host *vha,
 static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	uint32_t status, void *ctio)
 {
-	struct qla_tgt_cmd *qla_cmd;
 	fct_cmd_t	*cmd;
 	scsi_task_t *task;
-	qlt_cmd_t	*qcmd;
+	struct qla_tgt_cmd *qcmd;
 	stmf_data_buf_t *dbuf;
 	fct_status_t	fc_st;
 	uint32_t	iof = 0;
@@ -2572,10 +2575,6 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	char		info[160];
 	uint8_t	*rsp = (uint8_t *)ctio;
 
-	qla_cmd = qlt_ctio_to_cmd(vha, handle, ctio);
-	if (qla_cmd == NULL)
-		return;
-
 	/* write a deadbeef in the last 4 bytes of the IOCB */
 	iowrite32(0xdeadbeef, rsp+0x3c);
 
@@ -2586,7 +2585,26 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	oxid = ioread16(rsp+0x20);
 	rex1 = ioread32(rsp+0x14);
 	n = rsp[2];
+	
+	cmd = fct_handle_to_cmd(vha->qlt_port, hndl);
+	if (cmd == NULL) {
+		ql_dbg(ql_dbg_tgt, vha, 0xe01e, 
+			"fct_handle_to_cmd cmd==NULL, hndl=%xh\n", hndl);
+		(void) snprintf(info, 160,
+			"qlt_handle_ctio_completion: cannot find "
+			"cmd, hndl-%x, status-%x, rsp-%p", hndl, status,
+			(void *)rsp);
+		info[159] = 0;
+		(void) fct_port_shutdown(vha->qlt_port,
+			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
+			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
+			STMF_RFLAG_COLLECT_DEBUG_DUMP, info);
 
+		return;
+	}
+
+	qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
+	
 #if 0
 	if (!CMD_HANDLE_VALID(hndl)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe01e,
@@ -2645,30 +2663,15 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		abort_req = 0;
 	}
 
-	cmd = fct_handle_to_cmd(vha->qlt_port, hndl);
-	if (cmd == NULL) {
-		ql_dbg(ql_dbg_tgt, vha, 0xe01e, 
-			"fct_handle_to_cmd cmd==NULL, hndl=%xh\n", hndl);
-		(void) snprintf(info, 160,
-			"qlt_handle_ctio_completion: cannot find "
-			"cmd, hndl-%x, status-%x, rsp-%p", hndl, status,
-			(void *)rsp);
-		info[159] = 0;
-		(void) fct_port_shutdown(vha->qlt_port,
-			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
-			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
-			STMF_RFLAG_COLLECT_DEBUG_DUMP, info);
-
-		return;
-	}
-
 	task = (scsi_task_t *)cmd->cmd_specific;
-	qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
+
+#if 0
 	if (qcmd->dbuf_rsp_iu) {
 		ASSERT((flags & (BIT_6 | BIT_7)) == BIT_7);
 		//qlt_dmem_free(NULL, qcmd->dbuf_rsp_iu);
 		qcmd->dbuf_rsp_iu = NULL;
 	}
+#endif
 
 	if ((status == 1) || (status == 2)) {
 		if (abort_req) {
@@ -2691,14 +2694,17 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		}
 	}
 	dbuf = NULL;
+	
 	if (((n & BIT_7) == 0) && (!abort_req)) {
+#if 0		
 		/* A completion of data xfer */
 		if (n == 0) {
 			dbuf = qcmd->dbuf;
 		} else {
 			dbuf = stmf_handle_to_buf(task, n);
 		}
-
+#endif
+		dbuf = stmf_handle_to_buf(task, qcmd->db_handle);
 		ASSERT(dbuf != NULL);
 		
 		//if (dbuf->db_flags & DB_DIRECTION_FROM_RPORT)
@@ -2725,7 +2731,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	ql_dbg(ql_dbg_tgt, vha, 0xe01e, 
 		"(%p)(%xh,%xh),%x %x %llx\n",
 		cmd, cmd->cmd_oxid, cmd->cmd_rxid,
-		cmd->cmd_handle, qcmd->fw_xchg_addr,
+		cmd->cmd_handle, qcmd->atio.u.isp24.exchange_addr,
 		fc_st);
 
 #if 0
@@ -3886,6 +3892,53 @@ static void qlt_send_busy(struct scsi_qla_host *vha,
 	qla2x00_start_iocbs(vha, vha->req);
 }
 
+static void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
+	struct atio_from_isp *atio_from, struct qla_tgt_cmd *cmd)
+{
+	struct qla_hw_data *ha = vha->hw;
+	struct qla_tgt *tgt = ha->tgt.qla_tgt;
+	struct qla_tgt_sess *sess = NULL;
+	struct atio_from_isp *atio = &cmd->atio;
+	unsigned char *cdb;
+	unsigned long flags;
+	uint32_t data_length;
+	int ret, fcp_task_attr, data_dir, bidi = 0;
+
+	INIT_LIST_HEAD(&cmd->cmd_list);
+	memcpy(&cmd->atio, atio_from, sizeof(*atio_from));
+	cmd->state = QLA_TGT_STATE_NEW;
+	cmd->tgt = ha->tgt.qla_tgt;
+	cmd->vha = vha;
+
+	/* TODO: */
+	cmd->loop_id = 0;
+	cdb = &atio->u.isp24.fcp_cmnd.cdb[0];
+	cmd->tag = atio->u.isp24.exchange_addr;
+	cmd->unpacked_lun = scsilun_to_int(
+		(struct scsi_lun *)&atio->u.isp24.fcp_cmnd.lun);
+
+	if (atio->u.isp24.fcp_cmnd.rddata &&
+		atio->u.isp24.fcp_cmnd.wrdata) {
+		bidi = 1;
+		data_dir = DMA_TO_DEVICE;
+	} else if (atio->u.isp24.fcp_cmnd.rddata)
+		data_dir = DMA_FROM_DEVICE;
+	else if (atio->u.isp24.fcp_cmnd.wrdata)
+		data_dir = DMA_TO_DEVICE;
+	else
+		data_dir = DMA_NONE;
+
+	fcp_task_attr = qlt_get_fcp_task_attr(vha,
+		atio->u.isp24.fcp_cmnd.task_attr);
+	data_length = be32_to_cpu(get_unaligned((uint32_t *)
+		&atio->u.isp24.fcp_cmnd.add_cdb[
+		atio->u.isp24.fcp_cmnd.add_cdb_len]));
+
+	ql_dbg(ql_dbg_tgt, vha, 0xe022,
+		"qla_target: START qla command: %p lun: 0x%04x (tag %d)\n",
+		cmd, cmd->unpacked_lun, cmd->tag);
+}
+
 uint8_t qlt_task_flags[] = { 1, 3, 2, 1, 4, 0, 1, 1 };
 
 /* ha->hardware_lock supposed to be held on entry */
@@ -3897,7 +3950,7 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 	struct qla_tgt *tgt = ha->tgt.qla_tgt;
 	fct_cmd_t	*cmd;
 	scsi_task_t	*task;
-	qlt_cmd_t	*qcmd;
+	struct qla_tgt_cmd	*qcmd;
 	uint8_t		*p, *q, tm;
 	uint32_t rportid, cdb_size;
 	uint8_t *atio_prt = (uint8_t *)atio;
@@ -3990,14 +4043,8 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 		}
 
 		task = (scsi_task_t *)cmd->cmd_specific;
-		qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
-		qcmd->fw_xchg_addr = atio->u.isp24.exchange_addr;
-		qcmd->param.atio_byte3 = atio_prt[3];
-		qcmd->s_id[0] = atio->u.isp24.fcp_hdr.s_id[0];
-                qcmd->s_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
-                qcmd->s_id[2] = atio->u.isp24.fcp_hdr.s_id[2];
-                qcmd->attr = atio->u.isp24.attr;
-		qcmd->qid = 0;
+		qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
+		qlt_24xx_fill_cmd(vha, atio, qcmd);
 		cmd->cmd_oxid = atio->u.isp24.fcp_hdr.ox_id;
 		cmd->cmd_rxid = atio->u.isp24.fcp_hdr.rx_id;
 		cmd->cmd_rportid = rportid;
@@ -4792,122 +4839,78 @@ fct_status_t
 qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 {
 	scsi_qla_host_t *vha;
-        qlt_dmem_bctl_t *bctl = (qlt_dmem_bctl_t *)dbuf->db_port_private;
-        qlt_cmd_t *qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
-        qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
-        uint16_t flags;
-        int xmit_type = QLA_TGT_XMIT_DATA;
-        struct qla_tgt_cmd qla_tgt_cmd;
-        struct qla_dbuf_para dbuf_para;
-        bool sgl_mode = FALSE;
-		
-		memset(&qla_tgt_cmd, 0, sizeof(qla_tgt_cmd));
-		memset(&dbuf_para, 0, sizeof(dbuf_para));
+    qlt_dmem_bctl_t *bctl = (qlt_dmem_bctl_t *)dbuf->db_port_private;
+    struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
+    qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
+    uint16_t flags;
+    int xmit_type = QLA_TGT_XMIT_DATA;
+    bool sgl_mode = FALSE;
+	
+    if (cmd->cmd_port) {
+		vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+    } else {
+    	vha = NULL;
+    }
 
-        if (cmd->cmd_port) {
-                vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
-        } else {
-                vha = NULL;
-        }
-        qla_tgt_cmd.dbuf = &dbuf_para;
+	qcmd->cmd_handle = cmd->cmd_handle;
+	qcmd->db_handle = dbuf->db_handle;
+	qcmd->offset = dbuf->db_relative_offset;
+    qcmd->bufflen = dbuf->db_data_size;
+	
+    if (dbuf->db_flags & DB_LU_DATA_BUF) {
+		qcmd->sg = qsgl->handle_list->sc_list.sgl;
+        qcmd->sg_cnt = qsgl->handle_list->sc_list.orig_nents;
+        sgl_mode = TRUE;
+    } else {
+    	qcmd->dbuf.db_data_size = dbuf->db_data_size;
+        qcmd->dbuf.bctl_dev_addr = bctl->bctl_dev_addr;
+    }
 
-        flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
+    if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
+		qcmd->dma_data_direction = DMA_TO_DEVICE;
+		qlt_xmit_response(qcmd, xmit_type, 0, sgl_mode);
+    } else {
+		qcmd->dma_data_direction = DMA_FROM_DEVICE;
+		qlt_rdy_to_xfer(qcmd, sgl_mode);
+    }
 
-        /* qla_tgt_cmd.loop_id = cmd->cmd_rp->rp_handle; */
-		qla_tgt_cmd.loop_id = 0;
-        qla_tgt_cmd.vha = vha;
-        qla_tgt_cmd.tgt = vha->hw->tgt.qla_tgt;
-		qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[0] = qcmd->s_id[0];
-        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[1] = qcmd->s_id[1];
-        qla_tgt_cmd.atio.u.isp24.fcp_hdr.s_id[2] = qcmd->s_id[2];
-        qla_tgt_cmd.atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
-        qla_tgt_cmd.atio.u.isp24.attr = qcmd->attr;
-        qla_tgt_cmd.atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
-        qla_tgt_cmd.offset = dbuf->db_relative_offset;
-        qla_tgt_cmd.bufflen = dbuf->db_data_size;
-        if (dbuf->db_flags & DB_LU_DATA_BUF) {
-                qla_tgt_cmd.sg = qsgl->handle_list->sc_list.sgl;
-                qla_tgt_cmd.sg_cnt = qsgl->handle_list->sc_list.orig_nents;
-                sgl_mode = TRUE;
-        }
-        else {
-                qla_tgt_cmd.dbuf->db_data_size = dbuf->db_data_size;
-                qla_tgt_cmd.dbuf->bctl_dev_addr = bctl->bctl_dev_addr;
-        }
-
-
-        if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
-               qla_tgt_cmd.dma_data_direction = DMA_TO_DEVICE;
-				qlt_xmit_response(&qla_tgt_cmd, xmit_type, 0, sgl_mode);
-        }
-        else {
-                qla_tgt_cmd.dma_data_direction = DMA_FROM_DEVICE;
-				qlt_rdy_to_xfer(&qla_tgt_cmd, sgl_mode);
-        }
-
-        return (FCT_SUCCESS);
+    return (FCT_SUCCESS);
 }
 
 fct_status_t
 qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 {
 	scsi_qla_host_t *vha;
-	qlt_cmd_t *qcmd = (qlt_cmd_t *)cmd->cmd_fca_private;
+	struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
 	scsi_task_t *task	= (scsi_task_t *)cmd->cmd_specific;
 	uint16_t flags;
 	uint8_t scsi_status;
 	int xmit_type = QLA_TGT_XMIT_STATUS;
-	struct qla_tgt_cmd *qla_tgt_cmd;
 
 	if (cmd->cmd_port) {
-                vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
-        } else {
-                vha = NULL;
-        }
-
-	qla_tgt_cmd = kzalloc(sizeof(struct qla_tgt_cmd), GFP_KERNEL);
-
-	if (qla_tgt_cmd == NULL) {
-	        printk("zjn %s qlt_get_cmd failed.\n", __func__);
-	        return (FCT_FAILURE);
+		vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+	} else {
+		vha = NULL;
 	}
 	
 	scsi_status = task->task_scsi_status;
-	flags = (uint16_t)(((uint16_t)qcmd->param.atio_byte3 & 0xf0) << 5);
-	
-	qla_tgt_cmd->loop_id = cmd->cmd_rp->rp_handle;
-	qla_tgt_cmd->vha = vha;
-	qla_tgt_cmd->tgt = vha->hw->tgt.qla_tgt;	
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[0] = cmd->cmd_rportid & 0xF;
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[1] = (cmd->cmd_rportid >> 8) & 0xF;
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.s_id[2] = (cmd->cmd_rportid >> 16) & 0xF;
-	qla_tgt_cmd->atio.u.isp24.exchange_addr = qcmd->fw_xchg_addr;
-	qla_tgt_cmd->atio.u.isp24.attr = (uint8_t)(flags >> 9);
-	qla_tgt_cmd->atio.u.isp24.fcp_hdr.ox_id = cmd->cmd_oxid;
+	qcmd->cmd_handle = cmd->cmd_handle;
 
 	if (cmd->cmd_type == FCT_CMD_RCVD_ABTS) {
-		qla_tgt_cmd->aborted = cmd->cmd_type;
+		qcmd->aborted = cmd->cmd_type;
 	}
 
 	if(task->task_mgmt_function) {
 		/* no sense length, 4 bytes of resp info */
-		qla_tgt_cmd->offset = 4; 
+		qcmd->offset = 4;
 	}
 
-	bcopy(task->task_sense_data, qla_tgt_cmd->sense_buffer, task->task_sense_length);
+	bcopy(task->task_sense_data, qcmd->sense_buffer, task->task_sense_length);
+#if 0
 	qcmd->dbuf_rsp_iu = NULL;
+#endif
 
-	if (task->task_status_ctrl == TASK_SCTRL_OVER) {
-		qla_tgt_cmd->se_cmd.se_cmd_flags = SCF_OVERFLOW_BIT;
-	} else if (task->task_status_ctrl == TASK_SCTRL_UNDER) {
-		qla_tgt_cmd->se_cmd.se_cmd_flags = SCF_UNDERFLOW_BIT;
-	}
-
-	qla_tgt_cmd->se_cmd.scsi_status = task->task_scsi_status;
-
-	qlt_xmit_response(qla_tgt_cmd, xmit_type, task->task_scsi_status, FALSE);
-	kfree(qla_tgt_cmd);
-
+	qlt_xmit_response(qcmd, xmit_type, task->task_scsi_status, FALSE);
 	return (FCT_SUCCESS);
 }
 
@@ -5833,10 +5836,10 @@ qlt_port_start(void* arg)
 	port->port_fds = fds;
 	port->port_max_logins = QLT_MAX_LOGINS;
 	port->port_max_xchges = QLT_MAX_XCHGES;
-	port->port_fca_fcp_cmd_size = sizeof (qlt_cmd_t);
+	port->port_fca_fcp_cmd_size = sizeof (struct qla_tgt_cmd);
 	port->port_fca_rp_private_size = sizeof (qlt_remote_port_t);
-	port->port_fca_sol_els_private_size = sizeof (qlt_cmd_t);
-	port->port_fca_sol_ct_private_size = sizeof (qlt_cmd_t);
+	port->port_fca_sol_els_private_size = sizeof (struct qla_tgt_cmd);
+	port->port_fca_sol_ct_private_size = sizeof (struct qla_tgt_cmd);
 	port->port_get_link_info = qlt_get_link_info;
 	port->port_register_remote_port = qlt_register_remote_port;
 	port->port_deregister_remote_port = qlt_deregister_remote_port;

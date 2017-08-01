@@ -937,7 +937,13 @@ struct qla_tgt_cmd {
 	struct list_head cmd_list;
 
 	struct atio_from_isp atio;
-	struct qla_dbuf_para *dbuf;
+	struct qla_dbuf_para dbuf;
+	uint32_t cmd_handle;
+	uint8_t db_handle;
+#if 0
+	stmf_data_buf_t	*dbuf;		/* dbuf with handle 0 for SCSI cmds */
+	stmf_data_buf_t	*dbuf_rsp_iu;	/* dbuf for possible FCP_RSP IU */
+#endif
 };
 
 struct qla_tgt_sess_work_param {
@@ -1132,7 +1138,7 @@ typedef struct qlt_cmd {
 	uint16_t	oxid;
 	uint16_t	flags;
 	uint8_t s_id[3];
-        uint8_t attr;
+    uint8_t attr;
 	union {
 		uint16_t	resp_offset;
 		uint8_t		atio_byte3;
