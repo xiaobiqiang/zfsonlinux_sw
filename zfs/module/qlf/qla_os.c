@@ -2867,7 +2867,7 @@ que_init:
 	 * Startup the ctio thread for this host adapter
 	 */
 	ha->ctio_active = 0;
-	ha->ctio_thread = kthread_create(qla2x00_do_ctio, base_vha,
+	ha->ctio_thread = kthread_create(qla2x00_do_ctio, ha,
 	    "%s_ctio", base_vha->host_str);
 	if (IS_ERR(ha->ctio_thread)) {
 		ql_log(ql_log_fatal, base_vha, 0x00ed,
@@ -3178,7 +3178,7 @@ qla2x00_destroy_deferred_work(struct qla_hw_data *ha)
 		 * qla2xxx_wake_ctio checks for ->ctio_thread
 		 * so we need to zero it out.
 		 */
-		ha->dpc_thread = NULL;
+		ha->ctio_thread = NULL;
 		kthread_stop(t);
 	}
 }
