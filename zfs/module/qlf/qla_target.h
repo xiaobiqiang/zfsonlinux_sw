@@ -1242,4 +1242,11 @@ extern irqreturn_t qla83xx_msix_atio_q(int, void *);
 extern void qlt_83xx_iospace_config(struct qla_hw_data *);
 extern fct_status_t qlt_port_start(void* arg);
 extern fct_status_t qlt_port_stop(caddr_t arg);
+
+extern struct qla_ctio_msg * qlt_alloc_ctio_data_xfer_msg(fct_cmd_t *cmd, 
+	stmf_data_buf_t *dbuf, uint32_t ioflags);
+extern struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
+	fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags);
+extern void qlt_free_ctio_msg(struct qla_ctio_msg * msg);
+
 #endif /* __QLA_TARGET_H */

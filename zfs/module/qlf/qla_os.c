@@ -37,6 +37,11 @@ static struct kmem_cache *srb_cachep;
  * CT6 CTX allocation cache
  */
 static struct kmem_cache *ctx_cachep;
+
+/*
+ * CTIO msg allocation cache
+ */
+struct kmem_cache *ctio_cachep;
 /*
  * error level for logging
  */
@@ -320,6 +325,7 @@ qla2x00_stop_timer(scsi_qla_host_t *vha)
 }
 
 static int qla2x00_do_dpc(void *data);
+static int qla2x00_do_ctio(void *data);
 
 static void qla2x00_rst_aen(scsi_qla_host_t *);
 
@@ -2851,6 +2857,28 @@ que_init:
 	 */
 	qla2xxx_wake_dpc(base_vha);
 
+	ctio_cachep = kmem_cache_create("qla_ctio_msg_cache",
+		sizeof(struct qla_ctio_msg),
+		0, SLAB_PANIC, NULL);
+	spin_lock_init(&base_vha->ctio_lock);
+	INIT_LIST_HEAD(&base_vha->ctio_list);
+	
+	/*
+	 * Startup the ctio thread for this host adapter
+	 */
+	ha->ctio_active = 0;
+	ha->ctio_thread = kthread_create(qla2x00_do_ctio, base_vha,
+	    "%s_ctio", base_vha->host_str);
+	if (IS_ERR(ha->ctio_thread)) {
+		ql_log(ql_log_fatal, base_vha, 0x00ed,
+		    "Failed to start CTIO thread.\n");
+		ret = PTR_ERR(ha->ctio_thread);
+		goto probe_failed;
+	}
+	ql_dbg(ql_dbg_init, base_vha, 0x00ee,
+	    "CTIO thread started successfully.\n");
+	qla2xxx_wake_ctio(base_vha);
+
 	INIT_WORK(&ha->board_disable, qla2x00_disable_board_on_pci_error);
 
 	if (IS_QLA8031(ha) || IS_MCTP_CAPABLE(ha)) {
@@ -2996,6 +3024,13 @@ probe_failed:
 		kthread_stop(t);
 	}
 
+	if (ha->ctio_thread) {
+		struct task_struct *t = ha->ctio_thread;
+
+		ha->ctio_thread = NULL;
+		kthread_stop(t);
+	}
+
 	qla2x00_free_device(base_vha);
 
 	scsi_host_put(base_vha->host);
@@ -3130,6 +3165,17 @@ qla2x00_destroy_deferred_work(struct qla_hw_data *ha)
 
 		/*
 		 * qla2xxx_wake_dpc checks for ->dpc_thread
+		 * so we need to zero it out.
+		 */
+		ha->dpc_thread = NULL;
+		kthread_stop(t);
+	}
+
+	if (ha->ctio_thread) {
+		struct task_struct *t = ha->ctio_thread;
+		
+		/*
+		 * qla2xxx_wake_ctio checks for ->ctio_thread
 		 * so we need to zero it out.
 		 */
 		ha->dpc_thread = NULL;
@@ -5190,6 +5236,66 @@ end_loop:
 	return 0;
 }
 
+static int
+qla2x00_do_ctio(void *data)
+{
+	scsi_qla_host_t *base_vha;
+	struct qla_hw_data *ha;
+	struct qla_ctio_msg *msg;
+	unsigned long flags = 0;
+
+	ha = (struct qla_hw_data *)data;
+	base_vha = pci_get_drvdata(ha->pdev);
+	ha->ctio_active = 1;
+	
+	set_user_nice(current, -20);
+	set_current_state(TASK_INTERRUPTIBLE);
+	
+	while (!kthread_should_stop()) {
+		ql_dbg(ql_dbg_dpc, base_vha, 0x4000,
+		    "CTIO handler sleeping.\n");
+
+		schedule();
+		__set_current_state(TASK_RUNNING);
+
+		spin_lock_irqsave(&base_vha->ctio_lock, flags);
+		while (!list_empty(&base_vha->ctio_list)) {
+			msg = list_first_entry(&base_vha->ctio_list, 
+				struct qla_ctio_msg,
+				node);
+			list_del(&msg->node);
+			spin_unlock_irqrestore(&base_vha->ctio_lock, flags);
+			
+			if (msg->type == QLA_CTIO_DATA_XFER_DONE) {
+				fct_scsi_data_xfer_done(msg->cmd, 
+					msg->dbuf, 
+					msg->iof);
+			} else {
+				fct_send_response_done(msg->cmd, 
+					msg->fc_st, 
+					msg->iof);
+			}
+			
+			qlt_free_ctio_msg(msg);
+			spin_lock_irqsave(&base_vha->ctio_lock, flags);
+		}
+
+		spin_unlock_irqrestore(&base_vha->ctio_lock, flags);
+		set_current_state(TASK_INTERRUPTIBLE);
+	}
+
+	__set_current_state(TASK_RUNNING);
+	ql_dbg(ql_dbg_dpc, base_vha, 0x4011,
+	    "DPC handler exiting.\n");
+
+	/*
+	 * Make sure that nobody tries to wake us up again.
+	 */
+	ha->ctio_active = 0;
+
+	return 0;
+}
+
 void
 qla2xxx_wake_dpc(struct scsi_qla_host *vha)
 {
@@ -5197,6 +5303,16 @@ qla2xxx_wake_dpc(struct scsi_qla_host *vha)
 	struct task_struct *t = ha->dpc_thread;
 
 	if (!test_bit(UNLOADING, &vha->dpc_flags) && t)
+		wake_up_process(t);
+}
+
+void
+qla2xxx_wake_ctio(struct scsi_qla_host *vha)
+{
+	struct qla_hw_data *ha = vha->hw;
+	struct task_struct *t = ha->ctio_thread;
+
+	if (t)
 		wake_up_process(t);
 }
 

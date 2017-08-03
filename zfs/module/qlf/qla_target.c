@@ -127,6 +127,48 @@ static DEFINE_MUTEX(qla_tgt_mutex);
 static LIST_HEAD(qla_tgt_glist);
 unsigned int MMU_PAGESIZE = 4096;
 
+extern struct kmem_cache *ctio_cachep;
+
+struct qla_ctio_msg * qlt_alloc_ctio_data_xfer_msg(fct_cmd_t *cmd, 
+	stmf_data_buf_t *dbuf, uint32_t ioflags)
+{
+	struct qla_ctio_msg *msg = NULL;
+	msg = kmem_cache_zalloc(ctio_cachep, GFP_KERNEL | __GFP_ZERO);
+	
+	if (msg) {
+		msg->type = QLA_CTIO_DATA_XFER_DONE;
+		msg->cmd = cmd;
+		msg->dbuf = dbuf;
+		msg->iof = ioflags;
+		INIT_LIST_HEAD(&msg->node);
+	}
+
+	return msg;
+}
+
+struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
+	fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
+{
+	struct qla_ctio_msg *msg = NULL;
+	msg = kmem_cache_zalloc(ctio_cachep, GFP_KERNEL | __GFP_ZERO);
+	
+	if (msg) {
+		msg->type = QLA_CTIO_CMD_RESPONSE_DONE;
+		msg->cmd = cmd;
+		msg->fc_st = s;
+		msg->iof = ioflags;
+		INIT_LIST_HEAD(&msg->node);
+	}
+
+	return msg;
+}
+
+void qlt_free_ctio_msg(struct qla_ctio_msg * msg)
+{
+	if (msg)
+		kmem_cache_free(ctio_cachep, msg);
+}
+
 /* ha->hardware_lock supposed to be held on entry (to protect tgt->sess_list) */
 static struct qla_tgt_sess *qlt_find_sess_by_port_name(
 	struct qla_tgt *tgt,
@@ -2579,6 +2621,8 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	uint8_t 	n;
 	char		info[160];
 	uint8_t	*rsp = (uint8_t *)ctio;
+	struct qla_ctio_msg *msg;
+	unsigned long irq_flags = 0;
 
 	/* write a deadbeef in the last 4 bytes of the IOCB */
 	iowrite32(0xdeadbeef, rsp+0x3c);
@@ -2720,14 +2764,33 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		}
 
 		dbuf->db_xfer_status = fc_st;
-		fct_scsi_data_xfer_done(cmd, dbuf, iof);
+		msg = qlt_alloc_ctio_data_xfer_msg(cmd, dbuf, iof);
+		
+		if (msg) {
+			spin_lock_irqsave(&vha->ctio_lock, irq_flags);
+			list_add_tail(&msg->node, &vha->ctio_list);
+			spin_unlock_irqrestore(&vha->ctio_lock, irq_flags);
+			qla2xxx_wake_ctio(vha);
+		} else {
+			printk("%s alloc QLA_CTIO_DATA_XFER_DONE msg failed\n", 
+				__func__);
+		}
 		return;
 	}
 	if (!abort_req) {
 		/*
 		 * This was just a pure status xfer.
 		 */
-		fct_send_response_done(cmd, fc_st, iof);
+		msg = qlt_alloc_ctio_cmd_response_done_msg(cmd, fc_st, iof);
+		if (msg) {
+			spin_lock_irqsave(&vha->ctio_lock, irq_flags);
+			list_add_tail(&msg->node, &vha->ctio_list);
+			spin_unlock_irqrestore(&vha->ctio_lock, irq_flags);
+			qla2xxx_wake_ctio(vha);
+		} else {
+			printk("%s alloc QLA_CTIO_CMD_RESPONSE_DONE msg failed\n", 
+				__func__);
+		}
 		return;
 	}
 
