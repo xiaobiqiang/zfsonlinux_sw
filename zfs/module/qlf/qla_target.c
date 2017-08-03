@@ -1641,7 +1641,7 @@ static inline uint32_t qlt_make_handle(struct scsi_qla_host *vha)
 
 /* ha->hardware_lock supposed to be held on entry */
 static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
-	struct scsi_qla_host *vha)
+	struct scsi_qla_host *vha, int xmit_type)
 {
 	/* uint32_t h; */
 	struct ctio7_to_24xx *pkt;
@@ -1671,7 +1671,12 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 
 	/* pkt->handle = h | CTIO_COMPLETION_HANDLE_MARK; */
 	pkt->handle = prm->cmd->cmd_handle;
-	pkt->sys_define = prm->cmd->db_handle;
+	if (xmit_type == QLA_TGT_XMIT_DATA) {
+		pkt->sys_define = prm->cmd->db_handle;
+	} else {
+		pkt->sys_define = BIT_7;
+	}
+
 	pkt->nport_handle = prm->cmd->loop_id;
 	pkt->timeout = cpu_to_le16(QLA_TGT_TIMEOUT);
 	pkt->initiator_id[0] = atio->u.isp24.fcp_hdr.s_id[2];
@@ -2134,7 +2139,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	if (unlikely(res))
 		goto out_unmap_unlock;
 
-	res = qlt_24xx_build_ctio_pkt(&prm, vha);
+	res = qlt_24xx_build_ctio_pkt(&prm, vha, xmit_type);
 	if (unlikely(res != 0))
 		goto out_unmap_unlock;
 
@@ -2261,7 +2266,7 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 	if (res != 0)
 		goto out_unlock_free_unmap;
 
-	res = qlt_24xx_build_ctio_pkt(&prm, vha);
+	res = qlt_24xx_build_ctio_pkt(&prm, vha, QLA_TGT_XMIT_DATA);
 	if (unlikely(res != 0))
 		goto out_unlock_free_unmap;
 	pkt = (struct ctio7_to_24xx *)prm.pkt;
