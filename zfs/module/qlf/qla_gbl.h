@@ -199,6 +199,7 @@ extern int qla2x00_wait_for_fcoe_ctx_reset(scsi_qla_host_t *);
 
 extern void qla2xxx_wake_dpc(struct scsi_qla_host *);
 extern void qla2xxx_wake_ctio(struct scsi_qla_host *);
+extern void qla2xxx_wake_atio(struct scsi_qla_host *);
 
 extern void qla2x00_alert_all_vps(struct rsp_que *, uint16_t *);
 extern void qla2x00_async_event(scsi_qla_host_t *, struct rsp_que *,
