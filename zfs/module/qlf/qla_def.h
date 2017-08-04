@@ -3264,6 +3264,9 @@ struct qla_hw_data {
 	struct task_struct 	*ctio_thread;
 	uint8_t ctio_active;                 /* ctio routine is active */
 
+	struct task_struct 	*atio_thread;
+	uint8_t atio_active;                 /* ctio routine is active */
+
 	dma_addr_t	gid_list_dma;
 	struct gid_list_info *gid_list;
 	int		gid_list_info_size;
@@ -3529,17 +3532,6 @@ struct qla_hw_data {
 	int	allow_cna_fw_dump;
 };
 
-#define	QLA_CTIO_DATA_XFER_DONE		0
-#define	QLA_CTIO_CMD_RESPONSE_DONE	1
-
-struct qla_ctio_msg {
-	struct list_head	node;
-	int					type;
-	fct_cmd_t			*cmd;
-	stmf_data_buf_t 	*dbuf;
-	fct_status_t		fc_st;
-	uint32_t			iof;
-};
 
 /*
  * Qlogic scsi host structure
@@ -3552,6 +3544,9 @@ typedef struct scsi_qla_host {
 
 	struct list_head ctio_list;
 	spinlock_t ctio_lock;
+
+	struct list_head atio_list;
+	spinlock_t atio_lock;
 
 	/* Commonly used flags and state information. */
 	struct Scsi_Host *host;

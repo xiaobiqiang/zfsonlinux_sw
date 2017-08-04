@@ -128,12 +128,13 @@ static LIST_HEAD(qla_tgt_glist);
 unsigned int MMU_PAGESIZE = 4096;
 
 extern struct kmem_cache *ctio_cachep;
+extern struct kmem_cache *atio_cachep;
 
 struct qla_ctio_msg * qlt_alloc_ctio_data_xfer_msg(fct_cmd_t *cmd, 
 	stmf_data_buf_t *dbuf, uint32_t ioflags)
 {
 	struct qla_ctio_msg *msg = NULL;
-	msg = kmem_cache_zalloc(ctio_cachep, GFP_KERNEL | __GFP_ZERO);
+	msg = kmem_cache_zalloc(ctio_cachep, GFP_IOFS | __GFP_ZERO);
 	
 	if (msg) {
 		msg->type = QLA_CTIO_DATA_XFER_DONE;
@@ -141,6 +142,9 @@ struct qla_ctio_msg * qlt_alloc_ctio_data_xfer_msg(fct_cmd_t *cmd,
 		msg->dbuf = dbuf;
 		msg->iof = ioflags;
 		INIT_LIST_HEAD(&msg->node);
+	}
+	else {
+		printk("%s alloc cache failed!\n", __func__);
 	}
 
 	return msg;
@@ -150,7 +154,7 @@ struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
 	fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 {
 	struct qla_ctio_msg *msg = NULL;
-	msg = kmem_cache_zalloc(ctio_cachep, GFP_KERNEL | __GFP_ZERO);
+	msg = kmem_cache_zalloc(ctio_cachep, GFP_IOFS | __GFP_ZERO);
 	
 	if (msg) {
 		msg->type = QLA_CTIO_CMD_RESPONSE_DONE;
@@ -159,14 +163,39 @@ struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
 		msg->iof = ioflags;
 		INIT_LIST_HEAD(&msg->node);
 	}
+	else {
+		printk("%s alloc cache failed!\n", __func__);
+	}
+	return msg;
+}
+
+struct qla_atio_msg * qlt_alloc_atio_msg(struct atio_from_isp *atio)
+{
+	struct qla_atio_msg *msg = NULL;
+	msg = kmem_cache_zalloc(atio_cachep, GFP_IOFS | __GFP_ZERO);
+	
+	if (msg) {
+		memcpy(&msg->atio, atio, sizeof(struct atio_from_isp));
+		INIT_LIST_HEAD(&msg->node);
+	}
+	else {
+		printk("%s alloc cache failed!\n", __func__);
+	}
 
 	return msg;
 }
+
 
 void qlt_free_ctio_msg(struct qla_ctio_msg * msg)
 {
 	if (msg)
 		kmem_cache_free(ctio_cachep, msg);
+}
+
+void qlt_free_atio_msg(struct qla_atio_msg *msg)
+{
+	if (msg)
+		kmem_cache_free(atio_cachep, msg);
 }
 
 /* ha->hardware_lock supposed to be held on entry (to protect tgt->sess_list) */
@@ -447,6 +476,7 @@ static int qlt_reset(struct scsi_qla_host *vha, void *iocb, int mcmd)
 	struct atio_from_isp *a = (struct atio_from_isp *)iocb;
 
 	dump_stack();
+	return 0;
 #if 0
 
 	loop_id = le16_to_cpu(n->u.isp24.nport_handle);
@@ -1688,7 +1718,7 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	/* uint32_t h; */
 	struct ctio7_to_24xx *pkt;
 	struct qla_hw_data *ha = vha->hw;
-	struct atio_from_isp *atio = &prm->cmd->atio;
+	struct atio_from_isp *atio = prm->cmd->atio;
 
 	pkt = (struct ctio7_to_24xx *)vha->req->ring_ptr;
 	prm->pkt = pkt;
@@ -1891,7 +1921,7 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 
 		cmd->state = QLA_TGT_STATE_ABORTED;
 
-		qlt_send_term_exchange(vha, cmd, &cmd->atio, 0);
+		qlt_send_term_exchange(vha, cmd, cmd->atio, 0);
 
 		/* !! At this point cmd could be already freed !! */
 		return QLA_TGT_PRE_XMIT_RESP_CMD_ABORTED;
@@ -2538,7 +2568,7 @@ static int qlt_term_ctio_exchange(struct scsi_qla_host *vha, void *ctio,
 		term = 1;
 
 	if (term)
-		qlt_send_term_exchange(vha, cmd, &cmd->atio, 1);
+		qlt_send_term_exchange(vha, cmd, cmd->atio, 1);
 
 	return term;
 }
@@ -2799,7 +2829,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	ql_dbg(ql_dbg_tgt, vha, 0xe01e, 
 		"(%p)(%xh,%xh),%x %x %llx\n",
 		cmd, cmd->cmd_oxid, cmd->cmd_rxid,
-		cmd->cmd_handle, qcmd->atio.u.isp24.exchange_addr,
+		cmd->cmd_handle, qcmd->atio->u.isp24.exchange_addr,
 		fc_st);
 
 #if 0
@@ -2951,7 +2981,7 @@ static void qlt_do_work(struct work_struct *work)
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = ha->tgt.qla_tgt;
 	struct qla_tgt_sess *sess = NULL;
-	struct atio_from_isp *atio = &cmd->atio;
+	struct atio_from_isp *atio = cmd->atio;
 	unsigned char *cdb;
 	unsigned long flags;
 	uint32_t data_length;
@@ -3038,7 +3068,7 @@ out_term:
 	 * argument to qlt_send_term_exchange() and free the memory here.
 	 */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
-	qlt_send_term_exchange(vha, NULL, &cmd->atio, 1);
+	qlt_send_term_exchange(vha, NULL, cmd->atio, 1);
 	kmem_cache_free(qla_tgt_cmd_cachep, cmd);
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 	if (sess)
@@ -3568,7 +3598,7 @@ out_reject:
 		cmd->state = QLA_TGT_STATE_DATA_IN;
 		dump_stack();
 	} else
-		qlt_send_term_exchange(vha, cmd, &cmd->atio, 1);
+		qlt_send_term_exchange(vha, cmd, cmd->atio, 1);
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 }
 
@@ -3747,7 +3777,7 @@ static void qlt_prepare_srr_imm(struct scsi_qla_host *vha,
 				    sctio, sctio->srr_id);
 				list_del(&sctio->srr_list_entry);
 				qlt_send_term_exchange(vha, sctio->cmd,
-				    &sctio->cmd->atio, 1);
+				    sctio->cmd->atio, 1);
 				kfree(sctio);
 			}
 		}
@@ -3906,7 +3936,7 @@ static void qlt_handle_imm_notify(struct scsi_qla_host *vha,
  * ha->hardware_lock supposed to be held on entry. Might drop it, then reaquire
  * This function sends busy to ISP 2xxx or 24xx.
  */
-static void qlt_send_busy(struct scsi_qla_host *vha,
+void qlt_send_busy(struct scsi_qla_host *vha,
 	struct atio_from_isp *atio, uint16_t status)
 {
 	struct ctio7_to_24xx *ctio24;
@@ -3960,20 +3990,21 @@ static void qlt_send_busy(struct scsi_qla_host *vha,
 	qla2x00_start_iocbs(vha, vha->req);
 }
 
-static void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
+void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	struct atio_from_isp *atio_from, struct qla_tgt_cmd *cmd)
 {
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = ha->tgt.qla_tgt;
 	struct qla_tgt_sess *sess = NULL;
-	struct atio_from_isp *atio = &cmd->atio;
+	struct atio_from_isp *atio = cmd->atio;
 	unsigned char *cdb;
 	unsigned long flags;
 	uint32_t data_length;
 	int ret, fcp_task_attr, data_dir, bidi = 0;
 
 	INIT_LIST_HEAD(&cmd->cmd_list);
-	memcpy(&cmd->atio, atio_from, sizeof(*atio_from));
+	//memcpy(&cmd->atio, atio_from, sizeof(*atio_from));
+	cmd->atio = atio_from;
 	cmd->state = QLA_TGT_STATE_NEW;
 	cmd->tgt = ha->tgt.qla_tgt;
 	cmd->vha = vha;
@@ -4007,8 +4038,6 @@ static void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 		cmd, cmd->unpacked_lun, cmd->tag);
 }
 
-uint8_t qlt_task_flags[] = { 1, 3, 2, 1, 4, 0, 1, 1 };
-
 /* ha->hardware_lock supposed to be held on entry */
 /* called via callback from qla2xxx */
 static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
@@ -4016,12 +4045,8 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 {
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = ha->tgt.qla_tgt;
-	fct_cmd_t	*cmd;
-	scsi_task_t	*task;
-	struct qla_tgt_cmd	*qcmd;
-	uint8_t		*p, *q, tm;
-	uint32_t rportid, cdb_size;
-	uint8_t *atio_prt = (uint8_t *)atio;
+	struct qla_atio_msg *msg;
+	unsigned long irq_flags = 0;
 	
 
 	if (unlikely(tgt == NULL)) {
@@ -4056,129 +4081,17 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 		    atio->u.isp24.fcp_hdr.s_id[1],
 		    atio->u.isp24.fcp_hdr.s_id[2]);
 
-		if (unlikely(atio->u.isp24.exchange_addr ==
-		    ATIO_EXCHANGE_ADDRESS_UNKNOWN)) {
-			ql_dbg(ql_dbg_tgt, vha, 0xe058,
-			    "qla_target(%d): ATIO_TYPE7 "
-			    "received with UNKNOWN exchange address, "
-			    "sending QUEUE_FULL\n", vha->vp_idx);
-			qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
-			break;
-		}
-
+		msg = qlt_alloc_atio_msg(atio);
 		
-		/*
-		* If either bidirection xfer is requested of there is extended
-		* CDB, atio[0x20 + 11] will be greater than or equal to 3.
-		*/
-		cdb_size = 16;
-		if (atio_prt[0x20 + 11] >= 3) {
-			uint8_t b = atio_prt[0x20 + 11];
-			uint16_t b1;
-			if ((b & 3) == 3) {
-				ql_dbg(ql_dbg_tgt, vha, 0xe058, 
-					"bidirectional I/O not supported\n");
-				/* XXX abort the I/O */
-				return;
-			}
-			cdb_size = (uint16_t)(cdb_size + (b & 0xfc));
-			/*
-			 * Verify that we have enough entries. Without additional CDB
-			 * Everything will fit nicely within the same 64 bytes. So the
-			 * additional cdb size is essentially the # of additional bytes
-			 * we need.
-			 */
-			b1 = (uint16_t)b;
-			if (((((b1 & 0xfc) + 63) >> 6) + 1) > ((uint16_t)atio_prt[1])) {
-				ql_dbg(ql_dbg_tgt, vha, 0xe058, 
-					"extended cdb received\n");
-				/* XXX abort the I/O */
-				return;
-			}
-		}
-		
-		rportid = (((uint32_t)atio_prt[8 + 5]) << 16) |
-	    (((uint32_t)atio_prt[8 + 6]) << 8) | atio_prt[8+7];
-		
-		cmd = fct_scsi_task_alloc(vha->qlt_port, FCT_HANDLE_NONE,
-		    rportid, atio_prt+0x20, cdb_size, STMF_TASK_EXT_NONE);
-		if (cmd == NULL) {
-			ql_dbg(ql_dbg_tgt, vha, 0xe058, 
-				"fct_scsi_task_alloc cmd==NULL, send_buzy\n");
-			qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
-
-			return;
-		}
-
-		task = (scsi_task_t *)cmd->cmd_specific;
-		qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
-		qlt_24xx_fill_cmd(vha, atio, qcmd);
-		cmd->cmd_oxid = atio->u.isp24.fcp_hdr.ox_id;
-		cmd->cmd_rxid = atio->u.isp24.fcp_hdr.rx_id;
-		cmd->cmd_rportid = rportid;
-		cmd->cmd_lportid = (((uint32_t)atio_prt[8 + 1]) << 16) |
-		    (((uint32_t)atio_prt[8 + 2]) << 8) | atio_prt[8 + 3];
-		cmd->cmd_rp_handle = FCT_HANDLE_NONE;
-		/* Dont do a 64 byte read as this is IOMMU */
-		q = atio_prt + 0x28;
-		/* XXX Handle fcp_cntl */
-		task->task_cmd_seq_no = (uint32_t)(*q++);
-		task->task_csn_size = 8;
-		task->task_flags = qlt_task_flags[(*q++) & 7];
-		tm = *q++;
-		if (tm) {
-			if (tm & BIT_1)
-				task->task_mgmt_function = TM_ABORT_TASK_SET;
-			else if (tm & BIT_2)
-				task->task_mgmt_function = TM_CLEAR_TASK_SET;
-			else if (tm & BIT_4)
-				task->task_mgmt_function = TM_LUN_RESET;
-			else if (tm & BIT_5)
-				task->task_mgmt_function = TM_TARGET_COLD_RESET;
-			else if (tm & BIT_6)
-				task->task_mgmt_function = TM_CLEAR_ACA;
-			else
-				task->task_mgmt_function = TM_ABORT_TASK;
-		}
-		task->task_max_nbufs = STMF_BUFS_MAX;
-		task->task_csn_size = 8;
-		task->task_flags = (uint8_t)(task->task_flags | (((*q++) & 3) << 5));
-		p = task->task_cdb;
-		*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
-		*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
-		*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
-		*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
-		if (cdb_size > 16) {
-			uint16_t xtra = (uint16_t)(cdb_size - 16);
-			uint16_t i;
-			uint8_t cb[4];
-
-			while (xtra) {
-				*p++ = *q++;
-				xtra--;
-				if (q == ((uint8_t *)ha->tgt.atio_ring + 
-					(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp))) {
-					q = (uint8_t *)ha->tgt.atio_ring;
-				}
-			}
-			for (i = 0; i < 4; i++) {
-				cb[i] = *q++;
-				if (q == ((uint8_t *)ha->tgt.atio_ring + 
-					(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp))) {
-					q = (uint8_t *)ha->tgt.atio_ring;
-				}
-			}
-			task->task_expected_xfer_length = (((uint32_t)cb[0]) << 24) |
-			    (((uint32_t)cb[1]) << 16) |
-			    (((uint32_t)cb[2]) << 8) | cb[3];
+		if (msg) {
+			spin_lock_irqsave(&vha->atio_lock, irq_flags);
+			list_add_tail(&msg->node, &vha->atio_list);
+			spin_unlock_irqrestore(&vha->atio_lock, irq_flags);
+			qla2xxx_wake_atio(vha);
 		} else {
-			task->task_expected_xfer_length = (((uint32_t)q[0]) << 24) |
-			    (((uint32_t)q[1]) << 16) |
-			    (((uint32_t)q[2]) << 8) | q[3];
+			printk("%s alloc QLA_ATIO_MSG failed\n", 
+				__func__);
 		}
-
-		iowrite32(0xdeadbeef, atio_prt + 0x3c);
-		fct_post_rcvd_cmd(cmd, 0);	
 		break;
 
 	case IMMED_NOTIFY_TYPE:
@@ -5167,7 +5080,7 @@ ddi_dma_mem_alloc(ddi_dma_handle_t dma_handle, size_t length,
 }
 
 int
-ddi_dma_addr_bind_handle(ddi_dma_handle_t handle, struct as *as,
+ddi_dma_addr_bind_handle(ddi_dma_handle_t handle, struct as *reserved,
 	caddr_t addr, size_t len, uint_t flags, int (*waitfp)(caddr_t),
 	caddr_t arg, ddi_dma_cookie_t *cookiep, uint_t *ccountp)
 {

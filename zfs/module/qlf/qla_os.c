@@ -42,6 +42,12 @@ static struct kmem_cache *ctx_cachep;
  * CTIO msg allocation cache
  */
 struct kmem_cache *ctio_cachep;
+
+/*
+ * ATIO msg allocation cache
+ */
+struct kmem_cache *atio_cachep;
+
 /*
  * error level for logging
  */
@@ -326,6 +332,7 @@ qla2x00_stop_timer(scsi_qla_host_t *vha)
 
 static int qla2x00_do_dpc(void *data);
 static int qla2x00_do_ctio(void *data);
+static int qla2x00_do_atio(void *data);
 
 static void qla2x00_rst_aen(scsi_qla_host_t *);
 
@@ -2879,6 +2886,27 @@ que_init:
 	    "CTIO thread started successfully.\n");
 	qla2xxx_wake_ctio(base_vha);
 
+	atio_cachep = kmem_cache_create("qla_atio_msg_cache",
+		sizeof(struct qla_atio_msg),
+		0, SLAB_PANIC, NULL);
+	spin_lock_init(&base_vha->atio_lock);
+	INIT_LIST_HEAD(&base_vha->atio_list);
+	/*
+	 * Startup the atio thread for this host adapter
+	 */
+	ha->atio_active = 0;
+	ha->atio_thread = kthread_create(qla2x00_do_atio, ha,
+	    "%s_ctio", base_vha->host_str);
+	if (IS_ERR(ha->atio_thread)) {
+		ql_log(ql_log_fatal, base_vha, 0x00ed,
+		    "Failed to start ATIO thread.\n");
+		ret = PTR_ERR(ha->atio_thread);
+		goto probe_failed;
+	}
+	ql_dbg(ql_dbg_init, base_vha, 0x00ee,
+	    "ATIO thread started successfully.\n");
+	qla2xxx_wake_atio(base_vha);
+
 	INIT_WORK(&ha->board_disable, qla2x00_disable_board_on_pci_error);
 
 	if (IS_QLA8031(ha) || IS_MCTP_CAPABLE(ha)) {
@@ -3031,6 +3059,13 @@ probe_failed:
 		kthread_stop(t);
 	}
 
+	if (ha->atio_thread) {
+		struct task_struct *t = ha->atio_thread;
+
+		ha->atio_thread = NULL;
+		kthread_stop(t);
+	}
+
 	qla2x00_free_device(base_vha);
 
 	scsi_host_put(base_vha->host);
@@ -3179,6 +3214,17 @@ qla2x00_destroy_deferred_work(struct qla_hw_data *ha)
 		 * so we need to zero it out.
 		 */
 		ha->ctio_thread = NULL;
+		kthread_stop(t);
+	}
+
+	if (ha->atio_thread) {
+		struct task_struct *t = ha->atio_thread;
+		
+		/*
+		 * qla2xxx_wake_ctio checks for ->ctio_thread
+		 * so we need to zero it out.
+		 */
+		ha->atio_thread = NULL;
 		kthread_stop(t);
 	}
 }
@@ -5286,7 +5332,7 @@ qla2x00_do_ctio(void *data)
 
 	__set_current_state(TASK_RUNNING);
 	ql_dbg(ql_dbg_dpc, base_vha, 0x4011,
-	    "DPC handler exiting.\n");
+	    "ctio handler exiting.\n");
 
 	/*
 	 * Make sure that nobody tries to wake us up again.
@@ -5295,6 +5341,191 @@ qla2x00_do_ctio(void *data)
 
 	return 0;
 }
+
+uint8_t qlt_task_flags[] = { 1, 3, 2, 1, 4, 0, 1, 1 };
+
+static int
+qla2x00_do_atio(void *data)
+{
+	scsi_qla_host_t *vha;
+	struct qla_hw_data *ha;
+	struct qla_atio_msg *msg;
+	unsigned long flags = 0;
+	uint8_t *atio_prt = NULL;
+	struct atio_from_isp *atio = NULL;
+	fct_cmd_t	*cmd;
+	scsi_task_t	*task;
+	struct qla_tgt_cmd	*qcmd;
+	uint8_t		*p, *q, tm;
+	uint32_t rportid, cdb_size;
+
+	ha = (struct qla_hw_data *)data;
+	vha = pci_get_drvdata(ha->pdev);
+	ha->atio_active = 1;
+	
+	set_user_nice(current, -20);
+	set_current_state(TASK_INTERRUPTIBLE);
+	
+	while (!kthread_should_stop()) {
+		ql_dbg(ql_dbg_dpc, vha, 0x4000,
+		    "CTIO handler sleeping.\n");
+
+		schedule();
+		__set_current_state(TASK_RUNNING);
+
+		spin_lock_irqsave(&vha->atio_lock, flags);
+		while (!list_empty(&vha->atio_list)) {
+			msg = list_first_entry(&vha->atio_list, 
+				struct qla_atio_msg,
+				node);
+			list_del(&msg->node);
+			spin_unlock_irqrestore(&vha->atio_lock, flags);
+			atio_prt = (uint8_t *)(&msg->atio);
+			atio = &msg->atio;
+			
+			if (unlikely(atio->u.isp24.exchange_addr ==
+		    	ATIO_EXCHANGE_ADDRESS_UNKNOWN)) {
+					ql_dbg(ql_dbg_tgt, vha, 0xe058,
+				    "qla_target(%d): ATIO_TYPE7 "
+				    "received with UNKNOWN exchange address, "
+				    "sending QUEUE_FULL\n", vha->vp_idx);
+				qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
+				continue;
+			}
+
+		
+			/*
+			* If either bidirection xfer is requested of there is extended
+			* CDB, atio[0x20 + 11] will be greater than or equal to 3.
+			*/
+			cdb_size = 16;
+			if (atio_prt[0x20 + 11] >= 3) {
+				uint8_t b = atio_prt[0x20 + 11];
+				uint16_t b1;
+				if ((b & 3) == 3) {
+					ql_dbg(ql_dbg_tgt, vha, 0xe058, 
+						"bidirectional I/O not supported\n");
+					/* XXX abort the I/O */
+					continue;
+				}
+				cdb_size = (uint16_t)(cdb_size + (b & 0xfc));
+				/*
+				 * Verify that we have enough entries. Without additional CDB
+				 * Everything will fit nicely within the same 64 bytes. So the
+				 * additional cdb size is essentially the # of additional bytes
+				 * we need.
+				 */
+				b1 = (uint16_t)b;
+				if (((((b1 & 0xfc) + 63) >> 6) + 1) > ((uint16_t)atio_prt[1])) {
+					ql_dbg(ql_dbg_tgt, vha, 0xe058, 
+						"extended cdb received\n");
+					/* XXX abort the I/O */
+					continue;
+				}
+			}
+			
+			rportid = (((uint32_t)atio_prt[8 + 5]) << 16) |
+		    (((uint32_t)atio_prt[8 + 6]) << 8) | atio_prt[8+7];
+			
+			cmd = fct_scsi_task_alloc(vha->qlt_port, FCT_HANDLE_NONE,
+			    rportid, atio_prt+0x20, cdb_size, STMF_TASK_EXT_NONE);
+			if (cmd == NULL) {
+				ql_dbg(ql_dbg_tgt, vha, 0xe058, 
+					"fct_scsi_task_alloc cmd==NULL, send_buzy\n");
+				qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
+
+				continue;
+			}
+
+			task = (scsi_task_t *)cmd->cmd_specific;
+			qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
+			qlt_24xx_fill_cmd(vha, atio, qcmd);
+			cmd->cmd_oxid = atio->u.isp24.fcp_hdr.ox_id;
+			cmd->cmd_rxid = atio->u.isp24.fcp_hdr.rx_id;
+			cmd->cmd_rportid = rportid;
+			cmd->cmd_lportid = (((uint32_t)atio_prt[8 + 1]) << 16) |
+			    (((uint32_t)atio_prt[8 + 2]) << 8) | atio_prt[8 + 3];
+			cmd->cmd_rp_handle = FCT_HANDLE_NONE;
+			/* Dont do a 64 byte read as this is IOMMU */
+			q = atio_prt + 0x28;
+			/* XXX Handle fcp_cntl */
+			task->task_cmd_seq_no = (uint32_t)(*q++);
+			task->task_csn_size = 8;
+			task->task_flags = qlt_task_flags[(*q++) & 7];
+			tm = *q++;
+			if (tm) {
+				if (tm & BIT_1)
+					task->task_mgmt_function = TM_ABORT_TASK_SET;
+				else if (tm & BIT_2)
+					task->task_mgmt_function = TM_CLEAR_TASK_SET;
+				else if (tm & BIT_4)
+					task->task_mgmt_function = TM_LUN_RESET;
+				else if (tm & BIT_5)
+					task->task_mgmt_function = TM_TARGET_COLD_RESET;
+				else if (tm & BIT_6)
+					task->task_mgmt_function = TM_CLEAR_ACA;
+				else
+					task->task_mgmt_function = TM_ABORT_TASK;
+			}
+			task->task_max_nbufs = STMF_BUFS_MAX;
+			task->task_csn_size = 8;
+			task->task_flags = (uint8_t)(task->task_flags | (((*q++) & 3) << 5));
+			p = task->task_cdb;
+			*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
+			*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
+			*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
+			*p++ = *q++; *p++ = *q++; *p++ = *q++; *p++ = *q++;
+			if (cdb_size > 16) {
+				uint16_t xtra = (uint16_t)(cdb_size - 16);
+				uint16_t i;
+				uint8_t cb[4];
+
+				while (xtra) {
+					*p++ = *q++;
+					xtra--;
+					if (q == ((uint8_t *)ha->tgt.atio_ring + 
+						(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp))) {
+						q = (uint8_t *)ha->tgt.atio_ring;
+					}
+				}
+				for (i = 0; i < 4; i++) {
+					cb[i] = *q++;
+					if (q == ((uint8_t *)ha->tgt.atio_ring + 
+						(ha->tgt.atio_q_length + 1) * sizeof(struct atio_from_isp))) {
+						q = (uint8_t *)ha->tgt.atio_ring;
+					}
+				}
+				task->task_expected_xfer_length = (((uint32_t)cb[0]) << 24) |
+				    (((uint32_t)cb[1]) << 16) |
+				    (((uint32_t)cb[2]) << 8) | cb[3];
+			} else {
+				task->task_expected_xfer_length = (((uint32_t)q[0]) << 24) |
+				    (((uint32_t)q[1]) << 16) |
+				    (((uint32_t)q[2]) << 8) | q[3];
+			}
+
+			iowrite32(0xdeadbeef, atio_prt + 0x3c);
+			fct_post_rcvd_cmd(cmd, 0);
+					
+			spin_lock_irqsave(&vha->atio_lock, flags);
+		}
+
+		spin_unlock_irqrestore(&vha->atio_lock, flags);
+		set_current_state(TASK_INTERRUPTIBLE);
+	}
+
+	__set_current_state(TASK_RUNNING);
+	ql_dbg(ql_dbg_dpc, vha, 0x4011,
+	    "atio handler exiting.\n");
+
+	/*
+	 * Make sure that nobody tries to wake us up again.
+	 */
+	ha->atio_active = 0;
+
+	return 0;
+}
+
 
 void
 qla2xxx_wake_dpc(struct scsi_qla_host *vha)
@@ -5315,6 +5546,17 @@ qla2xxx_wake_ctio(struct scsi_qla_host *vha)
 	if (t)
 		wake_up_process(t);
 }
+
+void
+qla2xxx_wake_atio(struct scsi_qla_host *vha)
+{
+	struct qla_hw_data *ha = vha->hw;
+	struct task_struct *t = ha->atio_thread;
+
+	if (t)
+		wake_up_process(t);
+}
+
 
 /*
 *  qla2x00_rst_aen

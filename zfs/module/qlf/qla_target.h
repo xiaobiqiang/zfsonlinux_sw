@@ -936,7 +936,7 @@ struct qla_tgt_cmd {
 	struct scsi_qla_host *vha;
 	struct list_head cmd_list;
 
-	struct atio_from_isp atio;
+	struct atio_from_isp *atio;
 	struct qla_dbuf_para dbuf;
 	uint32_t cmd_handle;
 	uint8_t db_handle;
@@ -1028,7 +1028,7 @@ typedef struct __ddi_dma_handle {
 	struct pci_dev *dev;
 	void * ptr;
 	size_t size;
-	dma_addr_t *dma_handle;
+	dma_addr_t dma_handle;
 	int flag;
 }*ddi_dma_handle_t;
 
@@ -1154,6 +1154,27 @@ typedef struct {
 #define QLA_TGT_XMIT_STATUS		2
 #define QLA_TGT_XMIT_ALL		(QLA_TGT_XMIT_STATUS|QLA_TGT_XMIT_DATA)
 
+#define	QLA_CTIO_DATA_XFER_DONE		0
+#define	QLA_CTIO_CMD_RESPONSE_DONE	1
+
+struct qla_ctio_msg {
+	struct list_head	node;
+	int					type;
+	fct_cmd_t			*cmd;
+	stmf_data_buf_t 	*dbuf;
+	fct_status_t		fc_st;
+	uint32_t			iof;
+};
+
+struct qla_atio_msg {
+	struct list_head	node;
+	struct atio_from_isp atio;
+};
+
+struct as
+{
+	void *reserved;
+};
 
 extern struct qla_tgt_data qla_target;
 /*
@@ -1177,6 +1198,11 @@ extern void qlt_clear_mode(struct scsi_qla_host *ha);
 extern int __init qlt_init(void);
 extern void qlt_exit(void);
 extern void qlt_update_vp_map(struct scsi_qla_host *, int);
+extern void qlt_send_busy(struct scsi_qla_host *vha,
+	struct atio_from_isp *atio, uint16_t status);
+extern void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
+	struct atio_from_isp *atio_from, struct qla_tgt_cmd *cmd);
+
 
 /*
  * This macro is used during early initializations when host->active_mode
