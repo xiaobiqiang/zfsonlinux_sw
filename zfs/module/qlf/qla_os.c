@@ -2866,7 +2866,7 @@ que_init:
 
 	ctio_cachep = kmem_cache_create("qla_ctio_msg_cache",
 		sizeof(struct qla_ctio_msg),
-		0, SLAB_PANIC, NULL);
+		0, SLAB_HWCACHE_ALIGN, NULL);
 	spin_lock_init(&base_vha->ctio_lock);
 	INIT_LIST_HEAD(&base_vha->ctio_list);
 	
@@ -2888,7 +2888,7 @@ que_init:
 
 	atio_cachep = kmem_cache_create("qla_atio_msg_cache",
 		sizeof(struct qla_atio_msg),
-		0, SLAB_PANIC, NULL);
+		0, SLAB_HWCACHE_ALIGN, NULL);
 	spin_lock_init(&base_vha->atio_lock);
 	INIT_LIST_HEAD(&base_vha->atio_list);
 	/*

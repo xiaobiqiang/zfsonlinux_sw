@@ -134,7 +134,7 @@ struct qla_ctio_msg * qlt_alloc_ctio_data_xfer_msg(fct_cmd_t *cmd,
 	stmf_data_buf_t *dbuf, uint32_t ioflags)
 {
 	struct qla_ctio_msg *msg = NULL;
-	msg = kmem_cache_zalloc(ctio_cachep, GFP_IOFS | __GFP_ZERO);
+	msg = kmem_cache_zalloc(ctio_cachep, GFP_ATOMIC);
 	
 	if (msg) {
 		msg->type = QLA_CTIO_DATA_XFER_DONE;
@@ -154,7 +154,7 @@ struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
 	fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags)
 {
 	struct qla_ctio_msg *msg = NULL;
-	msg = kmem_cache_zalloc(ctio_cachep, GFP_IOFS | __GFP_ZERO);
+	msg = kmem_cache_zalloc(ctio_cachep, GFP_ATOMIC);
 	
 	if (msg) {
 		msg->type = QLA_CTIO_CMD_RESPONSE_DONE;
@@ -172,7 +172,7 @@ struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
 struct qla_atio_msg * qlt_alloc_atio_msg(struct atio_from_isp *atio)
 {
 	struct qla_atio_msg *msg = NULL;
-	msg = kmem_cache_zalloc(atio_cachep, GFP_IOFS | __GFP_ZERO);
+	msg = kmem_cache_zalloc(atio_cachep, GFP_ATOMIC);
 	
 	if (msg) {
 		memcpy(&msg->atio, atio, sizeof(struct atio_from_isp));
