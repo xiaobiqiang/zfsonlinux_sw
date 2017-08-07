@@ -2222,6 +2222,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		pkt->u.status0.flags |=
 		    cpu_to_le16(CTIO7_FLAGS_DATA_IN |
 			CTIO7_FLAGS_STATUS_MODE_0);
+		pkt->u.status0.flags |= cmd->flags;
 
 		if( sgl_mode == TRUE ) {
 			qlt_load_data_segments(&prm, vha);
@@ -2280,8 +2281,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		}
 	} else
 		qlt_24xx_init_ctio_to_isp(pkt, &prm);
-
-
+	
 	cmd->state = QLA_TGT_STATE_PROCESSED; /* Mid-level is done processing */
 
 	ql_dbg(ql_dbg_tgt, vha, 0xe01a,
@@ -2344,6 +2344,9 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 	pkt = (struct ctio7_to_24xx *)prm.pkt;
 	pkt->u.status0.flags |= cpu_to_le16(CTIO7_FLAGS_DATA_OUT |
 	    CTIO7_FLAGS_STATUS_MODE_0);
+
+	pkt->u.status0.flags |= cmd->flags;
+	
 	if( sgl_mode == TRUE ) {
 		qlt_load_data_segments(&prm, vha);
 	}
@@ -2356,6 +2359,8 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 			cpu_to_le32(MSD(cmd->dbuf.bctl_dev_addr));
 		pkt->u.status0.dseg_0_length = cmd->dbuf.db_data_size;
 	}
+
+	
 	
 	cmd->state = QLA_TGT_STATE_NEED_DATA;
 
@@ -4823,7 +4828,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
     qlt_dmem_bctl_t *bctl = (qlt_dmem_bctl_t *)dbuf->db_port_private;
     struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
     qlt_dma_sgl_t *qsgl = (qlt_dma_sgl_t *)(dbuf->db_port_private);
-    uint16_t flags;
+    uint16_t flags = 0;
     int xmit_type = QLA_TGT_XMIT_DATA;
     bool sgl_mode = FALSE;
 	
@@ -4833,10 +4838,14 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
     	vha = NULL;
     }
 
+	if (dbuf->db_flags & DB_SEND_STATUS_GOOD)
+		flags = (uint16_t)(flags | BIT_15);
+
 	qcmd->cmd_handle = cmd->cmd_handle;
 	qcmd->db_handle = dbuf->db_handle;
 	qcmd->offset = dbuf->db_relative_offset;
     qcmd->bufflen = dbuf->db_data_size;
+	qcmd->flags = flags;
 	
     if (dbuf->db_flags & DB_LU_DATA_BUF) {
 		qcmd->sg = qsgl->handle_list->sc_list.sgl;
@@ -4846,7 +4855,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
     	qcmd->dbuf.db_data_size = dbuf->db_data_size;
         qcmd->dbuf.bctl_dev_addr = bctl->bctl_dev_addr;
     }
-
+	
     if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {
 		qcmd->dma_data_direction = DMA_TO_DEVICE;
 		qlt_xmit_response(qcmd, xmit_type, 0, sgl_mode);

@@ -940,6 +940,7 @@ struct qla_tgt_cmd {
 	struct qla_dbuf_para dbuf;
 	uint32_t cmd_handle;
 	uint8_t db_handle;
+	uint16_t flags;
 #if 0
 	stmf_data_buf_t	*dbuf;		/* dbuf with handle 0 for SCSI cmds */
 	stmf_data_buf_t	*dbuf_rsp_iu;	/* dbuf for possible FCP_RSP IU */
