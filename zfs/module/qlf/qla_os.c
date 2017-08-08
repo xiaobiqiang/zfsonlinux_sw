@@ -2896,7 +2896,7 @@ que_init:
 	 */
 	ha->atio_active = 0;
 	ha->atio_thread = kthread_create(qla2x00_do_atio, ha,
-	    "%s_ctio", base_vha->host_str);
+	    "%s_atio", base_vha->host_str);
 	if (IS_ERR(ha->atio_thread)) {
 		ql_log(ql_log_fatal, base_vha, 0x00ed,
 		    "Failed to start ATIO thread.\n");

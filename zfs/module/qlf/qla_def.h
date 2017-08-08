@@ -3265,7 +3265,7 @@ struct qla_hw_data {
 	uint8_t ctio_active;                 /* ctio routine is active */
 
 	struct task_struct 	*atio_thread;
-	uint8_t atio_active;                 /* ctio routine is active */
+	uint8_t atio_active;                 /* atio routine is active */
 
 	dma_addr_t	gid_list_dma;
 	struct gid_list_info *gid_list;

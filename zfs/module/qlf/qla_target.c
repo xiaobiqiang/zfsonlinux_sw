@@ -4001,7 +4001,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = ha->tgt.qla_tgt;
 	struct qla_tgt_sess *sess = NULL;
-	struct atio_from_isp *atio = cmd->atio;
+	struct atio_from_isp *atio = NULL;
 	unsigned char *cdb;
 	unsigned long flags;
 	uint32_t data_length;
@@ -4010,6 +4010,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	INIT_LIST_HEAD(&cmd->cmd_list);
 	//memcpy(&cmd->atio, atio_from, sizeof(*atio_from));
 	cmd->atio = atio_from;
+	atio = cmd->atio;
 	cmd->state = QLA_TGT_STATE_NEW;
 	cmd->tgt = ha->tgt.qla_tgt;
 	cmd->vha = vha;
