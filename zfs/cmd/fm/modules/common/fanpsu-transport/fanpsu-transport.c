@@ -70,7 +70,7 @@ static void fpt_post_ereport(fmd_hdl_t *hdl, fmd_xprt_t *xprt, const char *proto
 
 static int fpt_check(topo_hdl_t *thp, tnode_t *node, void *arg){
 	nvlist_t *fmri;
-	nvlist_t *resault;
+	nvlist_t *resault = NULL;
 	int err;
 	fanpsu_monitor_t *fpmp = arg;
 	uint64_t ena;
@@ -98,7 +98,7 @@ static int fpt_check(topo_hdl_t *thp, tnode_t *node, void *arg){
 		syslog(LOG_ERR, "state update successed.\n");
 
 	if(resault){
-		fpt_post_ereport(fpmp->fpm_hdl, fpmp->fpm_xprt, "ceresdata", "trapinfo", ena, fmri, resault);
+		fpt_post_ereport(fpmp->fpm_hdl, fpmp->fpm_xprt, "sensor", "failure", ena, fmri, resault);
 	}else{
 		syslog(LOG_ERR, "There is no warning from fan and psu.\n");
 	}
@@ -150,6 +150,7 @@ void _fmd_init(fmd_hdl_t *hdl){
 	fanpsu_monitor_t *fpmp;
 
 	syslog(LOG_ERR,"fanpsu transport start.\n");
+
 	if(0 != fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info)){
 		syslog(LOG_ERR,"failed to run fmd_hdl_register in Link Transport Agent\n");
 		return;
