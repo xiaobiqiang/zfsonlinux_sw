@@ -936,11 +936,11 @@ struct qla_tgt_cmd {
 	struct scsi_qla_host *vha;
 	struct list_head cmd_list;
 
-	struct atio_from_isp *atio;
 	struct qla_dbuf_para dbuf;
 	uint32_t cmd_handle;
 	uint8_t db_handle;
 	uint16_t flags;
+	struct atio_from_isp *atio;
 #if 0
 	stmf_data_buf_t	*dbuf;		/* dbuf with handle 0 for SCSI cmds */
 	stmf_data_buf_t	*dbuf_rsp_iu;	/* dbuf for possible FCP_RSP IU */
@@ -1159,18 +1159,33 @@ typedef struct {
 #define	QLA_CTIO_CMD_RESPONSE_DONE	1
 
 struct qla_ctio_msg {
-	struct list_head	node;
+	struct work_struct ctio_work;
 	int					type;
 	fct_cmd_t			*cmd;
 	stmf_data_buf_t 	*dbuf;
 	fct_status_t		fc_st;
 	uint32_t			iof;
+	struct scsi_qla_host *vha;
+	uint16_t loop_id;	/* to save extra sess dereferences */
+	struct qla_tgt *tgt;	/* to save extra sess dereferences */
 };
 
 struct qla_atio_msg {
-	struct list_head	node;
-	struct atio_from_isp atio;
+	struct work_struct atio_work;
+	struct atio_from_isp *atio;
+	struct scsi_qla_host *vha;
+	uint16_t loop_id;	/* to save extra sess dereferences */
+	struct qla_tgt *tgt;	/* to save extra sess dereferences */
 };
+
+struct qla_abort_msg {
+	struct work_struct abort_work;
+	struct abts_recv_from_24xx abort;
+	struct scsi_qla_host *vha;
+	uint16_t loop_id;	/* to save extra sess dereferences */
+	struct qla_tgt *tgt;	/* to save extra sess dereferences */
+};
+
 
 struct as
 {

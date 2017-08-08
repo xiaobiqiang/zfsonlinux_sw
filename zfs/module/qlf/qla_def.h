@@ -3261,12 +3261,6 @@ struct qla_hw_data {
 	struct task_struct	*dpc_thread;
 	uint8_t dpc_active;                  /* DPC routine is active */
 
-	struct task_struct 	*ctio_thread;
-	uint8_t ctio_active;                 /* ctio routine is active */
-
-	struct task_struct 	*atio_thread;
-	uint8_t atio_active;                 /* atio routine is active */
-
 	dma_addr_t	gid_list_dma;
 	struct gid_list_info *gid_list;
 	int		gid_list_info_size;
@@ -3541,12 +3535,6 @@ typedef struct scsi_qla_host {
 	struct list_head vp_fcports;	/* list of fcports */
 	struct list_head work_list;
 	spinlock_t work_lock;
-
-	struct list_head ctio_list;
-	spinlock_t ctio_lock;
-
-	struct list_head atio_list;
-	spinlock_t atio_lock;
 
 	/* Commonly used flags and state information. */
 	struct Scsi_Host *host;
