@@ -3041,6 +3041,8 @@ qlt_do_abort(struct work_struct *abort_work)
 	    cmd, rex1, rex2, cmd->cmd_handle);
 
 	fct_post_rcvd_cmd(cmd, 0);
+
+	kmem_cache_free(abort_msg_cachep, msg);
 }
 
 /* ha->hardware_lock supposed to be held on entry */
