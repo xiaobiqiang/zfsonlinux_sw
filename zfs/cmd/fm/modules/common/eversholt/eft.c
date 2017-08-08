@@ -258,7 +258,8 @@ _fmd_init(fmd_hdl_t *hdl)
 	fmd_case_t *casep = NULL;
 	int count;
 	char *fname;
-	printf("eft begins.\n");
+	
+	syslog(LOG_ERR, "eft begins.\n");
 	(void) fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info);
 
 	/* keep handle for routines like out() which need it */
