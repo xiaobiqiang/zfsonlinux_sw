@@ -199,7 +199,7 @@ fmd_api_verror(fmd_module_t *mp, int err, const char *format, va_list ap)
 	if (fmd_module_locked(mp))
 		fmd_module_unlock(mp);
 
-	fmd_api_vxerror(mp, err, format, ap);
+	//fmd_api_vxerror(mp, err, format, ap);
 	fmd_module_abort(mp, err);
 }
 

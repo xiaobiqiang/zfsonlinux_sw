@@ -13,7 +13,7 @@ extern  struct ipmi_intf ipmi_open_intf;
 
 static int fanpsu_enum(topo_mod_t *mod, tnode_t *t_node, const char *name,
 		topo_instance_t min, topo_instance_t max, void *arg, void *unused);
-static int fanpsu_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t vers,
+static int fanpsu_wrong_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t vers,
 	nvlist_t *in, nvlist_t **out);
 static int get_fanpsu_status_by_name(fanpsu_handle_t *chp, const char *name, char *state);
 
@@ -24,7 +24,7 @@ const topo_modinfo_t fanpsu_info =
 const topo_method_t fanpsu_methods[] = {
 		{TOPO_METH_STATUS, TOPO_METH_FANPSU_UPDATE_STATE,
 		TOPO_METH_FANPSU_VERSION, TOPO_STABILITY_INTERNAL,
-		fanpsu_status},
+		fanpsu_wrong_status},
 		{NULL}
 };
 
@@ -167,7 +167,7 @@ fanpsu_node_list_walk(fanpsu_node_list_t *list, fanpsu_walk_ops_t *walk){
 	return 0;
 }
 
-static int fanpsu_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t vers,
+static int fanpsu_wrong_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t vers,
 	nvlist_t *in, nvlist_t **out){
 	nvlist_t *nvl;
 	fanpsu_handle_t * chp;
@@ -186,15 +186,16 @@ static int fanpsu_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t vers,
 	if (topo_mod_nvalloc(mod, &nvl, NV_UNIQUE_NAME) != 0)
 		return (topo_mod_seterrno(mod, EMOD_FMRI_NVL));
 
-	if (nvlist_add_string(nvl, TOPO_PROP_VAL_NAME,
-		TOPO_PROP_STATE) != 0 ||
-		nvlist_add_uint32(nvl, TOPO_PROP_VAL_TYPE, TOPO_TYPE_STRING) != 0 ||
-		nvlist_add_string(nvl, TOPO_PROP_VAL_VAL, state) != 0) {
-		nvlist_free(nvl);
-		return (topo_mod_seterrno(mod, EMOD_FMRI_NVL));
-	}
-
+	if(!strncmp(state, "ok", 2)){
+		if (nvlist_add_string(nvl, TOPO_PROP_VAL_NAME,
+			TOPO_PROP_STATE) != 0 ||
+			nvlist_add_uint32(nvl, TOPO_PROP_VAL_TYPE, TOPO_TYPE_STRING) != 0 ||
+			nvlist_add_string(nvl, TOPO_PROP_VAL_VAL, state) != 0) {
+			nvlist_free(nvl);
+			return (topo_mod_seterrno(mod, EMOD_FMRI_NVL));
+		}
 	*out = nvl;
+	}
 
 	return (0);
 }
@@ -232,7 +233,7 @@ fanpsu_enum(topo_mod_t *mod, tnode_t *t_node, const char *name,
 
 	return 0;
 }
-
+#if 0
 static void
 fanpsu_get_discrete_state_mini(char *header, char *separator,
 								uint8_t sensor_type, uint8_t event_type,
@@ -274,7 +275,7 @@ fanpsu_get_discrete_state_mini(char *header, char *separator,
 		c++;
 	}
 }
-
+#endif
 static int
 fanpsu_topo_node_create(fanpsu_handle_t *fp_hdl, fanpsu_nodeinfo_t *nodeinfo){
 	fanpsu_t *fp;
@@ -351,6 +352,7 @@ ipmi_sdr_get_sensor_fc(struct ipmi_intf *intf,
 {
 	char sval[16];
 	struct sensor_reading *sr;
+//	char *header = NULL;
 
 	sr = ipmi_sdr_read_sensor_value(intf, sensor, sdr_record_type, 2);
 
@@ -368,23 +370,32 @@ ipmi_sdr_get_sensor_fc(struct ipmi_intf *intf,
 
 		if (sr->s_reading_valid) {
 			if (IS_THRESHOLD_SENSOR(sensor) &&
-			sr->s_has_analog_value ) {
+					sr->s_has_analog_value ) {
 				/* Threshold Analog */
-				snprintf(sval, sizeof (sval), "%s",
-				ipmi_sdr_get_thresh_status(sr, "ns")
-			);
-		} else {
-		/* Analog & Discrete & Threshold/Discrete */
-		char *header = NULL;
-		snprintf(sval, sizeof("ok"), "%s", sr->s_reading_valid ? "ok" : "ns");
+					#if 0
+					snprintf(sval, sizeof (sval), "%s %s",
+						      sr->s_a_str,
+						      sr->s_a_units);
+					#endif
+					if(atoi(sr->s_a_str) > 0){
+						strncpy(sval, "ok", strlen("ok"));
+					}else{
+						strncpy(sval, "not ok", strlen("not ok"));
 
-		fanpsu_get_discrete_state_mini(header, ", ",
+					}
+			} else {
+				/* Analog & Discrete & Threshold/Discrete */
+				if(0 == strlen(sr->s_a_str)&&0 == strlen(sr->s_a_units)){
+					snprintf(sval, sizeof("ok"), "%s", "ok");
+				}
+				#if 0
+				fanpsu_get_discrete_state_mini(header, ", ",
 										sensor->sensor.type,
 										sensor->event_type,
 										sr->s_data2,
 										sr->s_data3);
-
-		}
+				#endif
+			}
 		}
 		else if (sr->s_scanning_disabled)
 			snprintf(sval, sizeof (sval), "Disabled");

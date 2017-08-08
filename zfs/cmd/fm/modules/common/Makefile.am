@@ -1,1 +1,1 @@
-SUBDIRS = zfs-retire zfs-diagnosis fanpsu-transport
+SUBDIRS = zfs-retire zfs-diagnosis fanpsu-transport eversholt

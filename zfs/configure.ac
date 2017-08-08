@@ -143,6 +143,7 @@ AC_CONFIG_FILES([
 	cmd/fm/modules/common/zfs-retire/Makefile
 	cmd/fm/modules/common/zfs-diagnosis/Makefile
 	cmd/fm/modules/common/fanpsu-transport/Makefile
+	cmd/fm/modules/common/eversholt/Makefile
 	cmd/fm/fmd/schemes/Makefile
 	cmd/fm/fmd/schemes/zfs/Makefile
 	contrib/Makefile
