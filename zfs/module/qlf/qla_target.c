@@ -5639,60 +5639,91 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	scsi_qla_host_t *vha = (scsi_qla_host_t *)port->port_fca_private;	
 	uint32_t speed = FC_PORTSPEED_UNKNOWN;
 	uint32_t port_type = FC_PORTTYPE_UNKNOWN;
+	int  rval;
+	uint16_t loop_id, topo, sw_cap;
+	uint8_t domain, area, al_pa;
+	fc_port_t *fcport;
 
+	rval = qla2x00_get_adapter_id(vha, &loop_id, &al_pa,
+			    &area, &domain, &topo, &sw_cap);
+
+	if (rval != QLA_SUCCESS) {
+		printk("qla2x00_get_adapter_id failed!\n");
+		return (STMF_FAILURE);
+	}
+	
 	/* get portid */
-	li->portid = vha->d_id.b.domain << 16 |
-	    vha->d_id.b.area << 8 | vha->d_id.b.al_pa;
+	li->portid = ((uint32_t)(area << 8 | al_pa)) |
+		    (((uint32_t)(domain)) << 16);
+
+	printk("portid = %x\n", li->portid);
 	
 	/* get link speed */
 	switch (vha->hw->link_data_rate) {
 	case PORT_SPEED_1GB:
-		speed = FC_PORTSPEED_1GBIT;
+		speed = PORT_SPEED_1G;
 		break;
 	case PORT_SPEED_2GB:
-		speed = FC_PORTSPEED_2GBIT;
+		speed = PORT_SPEED_2G;
 		break;
 	case PORT_SPEED_4GB:
-		speed = FC_PORTSPEED_4GBIT;
+		speed = PORT_SPEED_4G;
 		break;
 	case PORT_SPEED_8GB:
-		speed = FC_PORTSPEED_8GBIT;
+		speed = PORT_SPEED_8G;
 		break;
 	case PORT_SPEED_10GB:
-		speed = FC_PORTSPEED_10GBIT;
+		speed = PORT_SPEED_10G;
 		break;
 	case PORT_SPEED_16GB:
-		speed = FC_PORTSPEED_16GBIT;
+		speed = PORT_SPEED_16G;
 		break;
 	case PORT_SPEED_32GB:
 		speed = FC_PORTSPEED_32GBIT;
 		break;
 	}
-	li->port_speed = vha->hw->link_data_rate;
-	
-	/* get port topology */
-	switch (vha->hw->current_topology) {
-	case ISP_CFG_NL:
+	li->port_speed = speed;
+
+	if (topo == 4) {
+			ql_log(ql_log_info, vha, 0x200a,
+				"Cannot get topology - retrying.\n");
+			return (STMF_FAILURE);
+	}
+
+	switch (topo) {
+	case 0:
 		port_type = PORT_TOPOLOGY_PRIVATE_LOOP;
 		li->port_no_fct_flogi = 1;
 		break;
-	case ISP_CFG_FL:
+
+	case 1:
 		port_type = PORT_TOPOLOGY_PUBLIC_LOOP;
 		li->port_fca_flogi_done = 1;
 		break;
-	case ISP_CFG_N:
+
+	case 2:
 		port_type = PORT_TOPOLOGY_PT_TO_PT;
 		li->port_fca_flogi_done = 1;
 		break;
-	case ISP_CFG_F:
+
+	case 3:
 		port_type = PORT_TOPOLOGY_FABRIC_PT_TO_PT;
 		li->port_fca_flogi_done = 1;
 		break;
+
+	default:
+		ql_dbg(ql_dbg_disc, vha, 0x200f,
+			"HBA in unknown topology %x, using NL.\n", topo);
+		break;
 	}
+	
 	li->port_topology = port_type;
+
+	fcport = qlt_get_port_database(vha, loop_id);
+	
 	if (li->port_fca_flogi_done) {
-		bcopy(vha->port_name, li->port_rpwwn, 8);
-		bcopy(vha->node_name, li->port_rnwwn, 8);
+		bcopy(fcport->port_name, li->port_rpwwn, WWN_SIZE);
+		bcopy(fcport->node_name, li->port_rnwwn, WWN_SIZE);
 	}
 
 	return (FCT_SUCCESS);
