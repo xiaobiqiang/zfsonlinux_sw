@@ -5719,7 +5719,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	
 	li->port_topology = port_type;
 
-	fcport = qlt_get_port_database(vha, loop_id);
+	fcport = qlt_get_port_database(vha, 0);
 	
 	if (li->port_fca_flogi_done) {
 		bcopy(fcport->port_name, li->port_rpwwn, WWN_SIZE);
