@@ -260,6 +260,7 @@ typedef struct fct_local_port {
 	fct_status_t		(*port_info)(uint32_t cmd,
 		struct fct_local_port *port, void *arg, uint8_t *buf,
 		uint32_t *bufsizep);
+	void			(*port_free_atio)(void *fca_cmd);
 	int		port_fca_version;
 } fct_local_port_t;
 

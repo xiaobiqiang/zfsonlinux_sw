@@ -1305,6 +1305,7 @@ static void qlt_24xx_handle_abts(struct scsi_qla_host *vha,
 	}
 		
 	memcpy(&msg->abort, abts, sizeof(struct abts_recv_from_24xx));
+	msg->vha = vha;
 
 	INIT_WORK(&msg->abort_work, qlt_do_abort);
 	queue_work(qla_tgt_abort_wq, &msg->abort_work);
@@ -2531,6 +2532,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		msg->cmd = cmd;
 		msg->dbuf = dbuf;
 		msg->iof = iof;	
+		msg->vha = vha;
 
 		INIT_WORK(&msg->ctio_work, qlt_do_ctio);
 		queue_work(qla_tgt_ctio_wq, &msg->ctio_work);
@@ -2552,6 +2554,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		msg->cmd = cmd;
 		msg->fc_st = fc_st;
 		msg->iof = iof;
+		msg->vha = vha;
 
 		INIT_WORK(&msg->ctio_work, qlt_do_ctio);
 		queue_work(qla_tgt_ctio_wq, &msg->ctio_work);
@@ -4055,11 +4058,11 @@ static void qlt_24xx_atio_pkt(struct scsi_qla_host *vha,
 		if(!msg->atio) {
 			printk("%s alloc atio_cache failed!\n", __func__);
 		}
-		
 		memcpy(msg->atio, atio, sizeof(struct atio_from_isp));
+		msg->vha = vha;
 
 		INIT_WORK(&msg->atio_work, qlt_do_atio);
-		queue_work(qla_tgt_ctio_wq, &msg->atio_work);
+		queue_work(qla_tgt_atio_wq, &msg->atio_work);
 		break;
 
 	case IMMED_NOTIFY_TYPE:
@@ -4826,11 +4829,7 @@ qlt_xfer_scsi_data(fct_cmd_t *cmd, stmf_data_buf_t *dbuf, uint32_t ioflags)
 		qcmd->dma_data_direction = DMA_FROM_DEVICE;
 		qlt_rdy_to_xfer(qcmd, sgl_mode);
     }
-
-	if (qcmd->atio != NULL) {
-		kmem_cache_free(atio_cachep, qcmd->atio);
-	}
-
+	
     return (FCT_SUCCESS);
 }
 
@@ -5018,6 +5017,16 @@ qlt_info(uint32_t cmd, fct_local_port_t *port,
 {
 	return (FCT_SUCCESS);
 }
+
+void
+qlt_free_atio(void *fca_cmd)
+{
+	struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)fca_cmd;
+	if(qcmd->atio != NULL) {
+		kmem_cache_free(atio_cachep, qcmd->atio);
+	}
+}
+
 
 /********************************** basic func ****************************************/
 int
@@ -5768,6 +5777,7 @@ qlt_port_start(void* arg)
 	port->port_flogi_xchg = qlt_do_flogi;
 	port->port_populate_hba_details = qlt_populate_hba_fru_details;
 	port->port_info = qlt_info;
+	port->port_free_atio = qlt_free_atio;
 	port->port_fca_version = FCT_FCA_MODREV_1;
 
 	if ((ret = fct_register_local_port(port)) != FCT_SUCCESS) {

@@ -2107,6 +2107,8 @@ fct_cmd_free(fct_cmd_t *cmd)
 		}
 	}
 
+	port->port_free_atio(cmd->cmd_fca_private);
+
 	/* Free the cmd */
 	if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
 		if (iport->iport_cached_ncmds < max_cached_ncmds) {
@@ -2123,6 +2125,7 @@ fct_cmd_free(fct_cmd_t *cmd)
 	} else {
 		fct_free(cmd);
 	}
+
 }
 
 /* ARGSUSED */
