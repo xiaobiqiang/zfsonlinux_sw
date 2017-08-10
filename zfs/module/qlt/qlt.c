@@ -52,9 +52,9 @@
 #include "qlt_ioctl.h"
 #include "qlt_open.h"
 #include <sys/stmf_ioctl.h>
-#include <sys/qla_def.h>
 #include <linux/device.h>
 #include <linux/miscdevice.h>
+#include "qla_def.h"
 #include "ddi_to_linux.h"
 
 

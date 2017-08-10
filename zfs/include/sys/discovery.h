@@ -38,6 +38,8 @@ void fct_port_worker(void *arg);
 void fct_handle_els(fct_cmd_t *cmd);
 void fct_handle_sol_els_completion(fct_i_local_port_t *iport,
 						fct_i_cmd_t *icmd);
+extern void
+fct_dequeue_els(fct_i_remote_port_t *irp);
 
 #ifdef	__cplusplus
 }
