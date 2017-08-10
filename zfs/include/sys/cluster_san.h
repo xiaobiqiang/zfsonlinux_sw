@@ -464,11 +464,9 @@ int cluster_target_send_wait(cluster_target_port_t *ctp,
 	cluster_target_tran_data_t *data_array, int cnt, int pri);
 int cluster_target_session_send(cluster_target_session_t *cts,
 	cluster_tran_data_origin_t *origin_data, int pri);
-int cluster_san_set_hostname(char *hostname);
 #ifdef COMM_TEST
 int cluster_comm_test(int hostid, int datalen, int headlen);
 #endif
-int cluster_san_set_hostid(uint32_t hostid);
 int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf);
 int cluster_san_disable(void);
 int cluster_san_disable_target(char *link_name);
@@ -480,7 +478,7 @@ nvlist_t *cluster_san_get_state(void);
 int cluster_san_set_prop(const char *prop, const char *value);
 nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str, int timeout, int remote_hostid);
 void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
-uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
+void cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid);
 int cluster_target_session_hold(cluster_target_session_t *cts, void *tag);
 void cluster_target_session_rele(cluster_target_session_t *cts, void *tag);
@@ -538,6 +536,7 @@ void cluster_send_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 int cluster_get_host_ipmi_ip(uint32_t hostid, char *ipmi_ipaddr);
 
 void zfs_mirror_cancel_check_spa_txg(uint32_t hostid);
+void csh_rx_data_free_ext(cs_rx_data_t *cs_data);
 
 #endif/* #ifndef	_SYS_CLUSTER_SAN_H */
 

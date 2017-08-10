@@ -1,5 +1,4 @@
 #include <stdio.h>
-/*#include <stdio_ext.h>*/
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -10,60 +9,32 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#if	0
-#include <memory.h>
-#include <alloca.h>
-#include <ucontext.h>
-#endif
 #include <errno.h>
 #include <syslog.h>
 #include <string.h>
 #include <strings.h>
-/*#include <door.h>*/
 #include <wait.h>
 #include <mqueue.h>
-/*#include <libintl.h>*/
 #include <locale.h>
 #include <libzfs.h>
 #include <sys/types.h>
 #include <sys/int_types.h>
-/*#include <thread_pool.h>*/
 #include <sys/param.h>
 #include <sys/systeminfo.h>
-/*#include <sys/thread.h>*/
-/*#include <rpc/xdr.h>*/
-#if	0
-#include <priv.h>
-#include <libenv.h>
-#endif
 #include <libcluster.h>
-/*#include <priv_utils.h>*/
 #include <sys/fs/zfs.h>
 #include <sys/fs/zfs_hbx.h>
 #include <sys/zfs_ioctl.h>
-/*#include <rpcsvc/daemon_utils.h>*/
-/*#include <inet/ip.h>*/
-/*#include <net/if.h>*/
-/*#include <sys/sockio.h>*/
 #include <time.h>
 #include <stropts.h>
 #include <libnvpair.h>
-#if	0
-#include <kstat.h>
-#include <libdlpi.h>
-#include <libdllink.h>
-#include <libdlstat.h>
-#include <libinetutil.h>
-#include <hbaapi.h>
-#include <hbaapi-sun.h>
-#endif
 #include <sys/list.h>
 #include <sys/spa_impl.h>
 #include "deflt.h"
 #include "cn_cluster.h"
+#include "systemd_util.h"
 #include "if_util/if_util.h"
 #include "clusterd.h"
-/*#include <libzfs_sm.h>*/
 
 #define	CLUSTERD_CONF	"/etc/default/clusterd"
 int clusterd_log_lvl = 0;
@@ -94,6 +65,12 @@ char	sync_keyfile_path[512] = {"\0"};
 char ipmi_local_ip[16] = "255.255.255.255";
 char igb0_local_ip[16] = "255.255.255.255";
 
+char sbindir[MAXPATHLEN] = "/usr/local/sbin";
+char zpool_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool";
+char zpool_import_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool import -bfi";
+char zpool_export_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool export -f";
+char clusterd_cmd[MAXPATHLEN] = "/usr/local/sbin/clusterd";
+
 #define	FAILOVER_TIME_TAG "clusterd failover time:"
 
 typedef enum{
@@ -118,9 +95,9 @@ char ipmi_passwd[16];
 #if	0
 #define	ZPOOL_CMD		"/sbin/zpool"
 #else
-#define	ZPOOL_CMD		"/usr/local/sbin/zpool"
-#define	ZPOOL_IMPORT	"/usr/local/sbin/zpool import -bfi"
-#define	ZPOOL_EXPORT	"/usr/local/sbin/zpool export -f"
+#define	ZPOOL_CMD		zpool_cmd
+#define	ZPOOL_IMPORT	zpool_import_cmd
+#define	ZPOOL_EXPORT	zpool_export_cmd
 #endif
 
 typedef struct cluster_event_s {
@@ -359,17 +336,7 @@ static int handle_release_message_common(release_pools_message_t *r_msg);
 static int cluster_import_event_handler(const void *buffer, int bufsize);
 static struct link_list * cluster_get_local_pools(void);
 static uint32_t cluster_get_host_state(uint32_t hostid);
-/*static int start_clusterd_svcs();*/
-static void daemonize(void);
-/*static void clusterd_doorfunc(void *cookie, char *argp, size_t arg_size,
-			door_desc_t *dp, uint_t n_desc);*/
 static int hbx_do_cluster_cmd(char *buffer, int size, zfs_hbx_ioc_t iocmd);
-#if	0
-static int cluster_hold_critical();
-static int cluster_rele_critical();
-static int cluster_task_app_failover();
-int cluster_nthread_pool_scan();
-#endif
 static int cluster_poweroff_remote_event_handler(const void *buffer,
 	int bufsize);
 static int cluster_poweron_remote_event_handler(const void *buffer,
@@ -700,16 +667,11 @@ static int clusterd_host_is_need_failover(
 		syslog(LOG_WARNING, "%s: get the host(%d) is or not need failover failed",
 			__func__, hostid);
 	} else {
-	/* need zfs_mirror */
-#if	0
 		if (zc.zc_guid == 0) {
 			*need_failover = B_FALSE;
 		} else {
 			*need_failover = B_TRUE;
 		}
-#else
-		*need_failover = B_TRUE;
-#endif
 	}
 	libzfs_fini(zfs_handle);
 
@@ -1101,7 +1063,7 @@ static int cluster_remote_abnormal_handle(void *arg)
 	nvlist_t *config;
 	nvpair_t *elem = NULL;
 	nvlist_t *updated_pools = NULL;
-	/*uint64_t temp64;*/
+	uint64_t temp64;
 	libzfs_handle_t *hdl;
 	cluster_pool_thread_t *pool_node;
 	int ret;
@@ -1150,12 +1112,9 @@ static int cluster_remote_abnormal_handle(void *arg)
 	hbx_do_cluster_cmd("off", 4, ZFS_HBX_MIRROR_TIMEOUT_SWITCH);
 
 	bzero(&idata, sizeof(importargs_t));
-#if	0
 	idata.cluster_switch = 1;
 	idata.cluster_ignore = 1;
 	idata.remote_hostid = cluster_failover_state->hostid;
-#endif
-	idata.no_blkid = B_TRUE;
 	pools = zpool_search_import(hdl, &idata);
 	elem = nvlist_next_nvpair(pools, NULL);
 
@@ -1170,8 +1129,10 @@ static int cluster_remote_abnormal_handle(void *arg)
 		syslog(LOG_ERR, "remote abnormal, partner have no pool, do nothing");
 		goto EXIT;
 	}
-	zfs_do_hbx_get_nvlist(hdl, ZFS_HBX_GET_PARTNER_UPDATED_POOL,
-		cluster_failover_state->hostid, &updated_pools);
+	if ((ret = zfs_do_hbx_get_nvlist(hdl, ZFS_HBX_GET_PARTNER_UPDATED_POOL,
+		cluster_failover_state->hostid, &updated_pools)) != 0) {
+		syslog(LOG_ERR, "zfs_do_hbx_get_nvlist error %d", ret);
+	}
 
 	syslog(LOG_NOTICE, "remote abnormal: create the watch pool threads");
 	/* every pool use a thread */
@@ -1189,17 +1150,12 @@ static int cluster_remote_abnormal_handle(void *arg)
 		pool_node->pool_config = config;
 		pool_node->uncontrolled = B_FALSE;
 
-		/* need zfs_mirror */
-#if	0
 		if ((nvlist_lookup_uint64(updated_pools, nvpair_name(elem), &temp64))
 			== 0) {
 			pool_node->is_updated = B_TRUE;
 		} else {
 			pool_node->is_updated = B_FALSE;
 		}
-#else
-		pool_node->is_updated = B_TRUE;
-#endif
 		list_insert_tail(&cluster_failover_state->pool_list, pool_node);
 		ret = pthread_create(&pool_node->pid, NULL,
 			(void *(*)(void *))cluster_import_pool_thread, (void *)pool_node);
@@ -3643,7 +3599,8 @@ zpool_get_all_pools(libzfs_handle_t *hdl, int cluster_switch)
 	importargs_t args;
 
 	memset(&args, 0, sizeof(args));
-	args.no_blkid = B_TRUE;
+	args.no_blkid = 1;
+	args.cluster_ignore = 1;
 	return (zpool_search_import(hdl, &args));
 }
 
@@ -4143,7 +4100,7 @@ cluster_import_pools(int is_boot, int *failover_remote)
 	int err = 0;
 	void *thr_status = NULL;
 	char *poolname;
-	uint64_t pool_guid;
+	uint64_t pool_guid, pool_state;
 
 	pthread_mutex_lock(&import_thr_conf.import_pools_handler_mtx);
 
@@ -4194,6 +4151,12 @@ cluster_import_pools(int is_boot, int *failover_remote)
 			&poolname) == 0);
 		verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID, 
 			&pool_guid) == 0);
+		verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE,
+		    &pool_state) == 0);
+		if (pool_state == POOL_STATE_DESTROYED) {
+			c_log(LOG_WARNING, "pool '%s' state is destroyed\n", poolname);
+			continue;
+		}
 
 		/* filter the pool not in cluster */
 		if (!pool_in_cluster(config))
@@ -4272,12 +4235,13 @@ exit_func:
 static void
 cluster_check_sessions(void)
 {
-#if	0
 	libzfs_handle_t *libzfs;
 	nvlist_t *state, *targets, *sessions, *nvl_target, *nvl_session;
 	nvpair_t *target, *session;
 	uint32_t cs_state, link_state;
 	char *sessname;
+	int check_min_sessions = 1;
+	int check_try_times = 60;
 	int session_count, trys = 0;
 
 	if ((libzfs = libzfs_init()) == NULL) {
@@ -4285,7 +4249,7 @@ cluster_check_sessions(void)
 		return;
 	}
 
-	while (trys < 12) {
+	while (trys < check_try_times) {
 		state = zfs_clustersan_get_nvlist(libzfs, ZFS_CLUSTERSAN_STATE, NULL, 0);
 		if (state == NULL) {
 			syslog(LOG_ERR, "get clustersan state failed");
@@ -4306,7 +4270,7 @@ cluster_check_sessions(void)
 			while ((target = nvlist_next_nvpair(targets, target)) != NULL) {
 				verify(nvpair_value_nvlist(target, &nvl_target) == 0);
 				if (nvlist_lookup_nvlist(nvl_target, CS_NVL_SESS_LIST,
-					&sessions) == NULL) {
+					&sessions) == 0) {
 					while ((session = 
 						nvlist_next_nvpair(sessions, session)) != NULL) {
 						sessname = nvpair_name(session);
@@ -4322,16 +4286,15 @@ cluster_check_sessions(void)
 			}
 		}
 
-		if (session_count >= 2) {
+		if (session_count >= check_min_sessions) {
 			syslog(LOG_WARNING, "%d sessions connected", session_count);
 			break;
 		}
 		trys++;
-		sleep(5);
+		sleep(1);
 	}
 
 	libzfs_fini(libzfs);
-#endif
 }
 
 void *
@@ -4348,19 +4311,9 @@ cluster_task_setup(void *arg)
 	ret = cluster_import_pools(1, &failover_remote);
 	if (ret != 0 && ret != -2) {
 		syslog(LOG_ERR, "cluster_import_pools error: %d", ret);
-		return (NULL);
- 	}
-#if	0
-	ret = excute_cmd("hanet -t");
-	if (ret == 1) {
-		clusterd_old_ip_failover_enable = 1;
-		syslog(LOG_WARNING, "old ip failover enable.");
-	}
-	cluster_task_app_first_enable();
-	if (failover_remote)
-		cluster_task_app_failover();
-#endif
-	init_zpool_failover_conf();
+ 	} else
+		init_zpool_failover_conf();
+
 	return (NULL);
 }
 
@@ -6157,6 +6110,7 @@ usage(void)
 	syslog(LOG_ERR, "Usage: %s", MyName);
 	syslog(LOG_ERR, "\t[-v]\t\tverbose error messages");
 	syslog(LOG_ERR, "\t[-d]\t\tdisable daemonize");
+	syslog(LOG_ERR, "\t[-S]\t\tStart clusterd daemon in systemd");
 	exit(1);
 }
 
@@ -6169,46 +6123,11 @@ warn_hup(int i)
 
 static int daemon_disable = 0;
 
-/*
- * Processing for daemonization
- */
-static void
-daemonize(void)
-{
-	switch (fork()) {
-	case -1:
-		syslog(LOG_ERR, "clusterd: can't fork - errno %d", errno);
-		exit(2);
-		/* NOTREACHED */
-	case 0:		/* child */
-		break;
-
-	default:	/* parent */
-		_exit(0);
-	}
-	(void) chdir("/");
-
-	/*
-	 * Close stdin, stdout, and stderr.
-	 * Open again to redirect input+output
-	 */
-	(void) close(0);
-	(void) close(1);
-	(void) close(2);
-	(void) open("/dev/null", O_RDONLY);
-	(void) open("/dev/null", O_WRONLY);
-	(void) dup(1);
-	(void) setsid();
-}
-
 int
 main(int argc, char *argv[])
 {
-	/*pid_t pid;*/
 	int c, error;
-	/*struct rlimit rlset;*/
 	char *defval;
-	/*char buf[256] = {"\0"};*/
 	pthread_t tid;
 
 	/*
@@ -6263,6 +6182,13 @@ main(int argc, char *argv[])
 			if (errno != 0)
 				syslog(LOG_ERR, "Invalid LINK_DOWN_TIMEOUT=");
 		}
+		if ((defval = defread("SBINDIR=")) != NULL) {
+			strlcpy(sbindir, defval, MAXPATHLEN);
+			sprintf(zpool_cmd, "%s/zpool", sbindir);
+			sprintf(zpool_import_cmd, "%s/zpool import -bfi", sbindir);
+			sprintf(zpool_export_cmd, "%s/zpool export -f", sbindir);
+			sprintf(clusterd_cmd, "%s/clusterd", sbindir);
+		}
 
 		defopen(NULL);
 	}
@@ -6274,7 +6200,7 @@ main(int argc, char *argv[])
 	c_log(LOG_ERR, "ipmi_use_lanplus=%d, ipmi_user=%s, ipmi_passwd=%s",
 		ipmi_use_lanplus, ipmi_user, ipmi_passwd);
 
-	while ((c = getopt(argc, argv, CLUSTERD_CMD_OPTS)) != EOF) {
+	while ((c = getopt(argc, argv, "dv")) != EOF) {
 		switch (c) {
 		case 'd':
 			daemon_disable = 1;
@@ -6287,38 +6213,14 @@ main(int argc, char *argv[])
 		}
 	}
 
-
 	if (!daemon_disable)
-		daemonize();
+		systemd_daemonize();
+	else
+		write_pid();
 
-	/* Initialize */
-#if	0
-	memset(buf, 0, sizeof(buf));
-	error = sysinfo(SI_HW_SERIAL, buf, sizeof(buf));
-	if (error <= 0) {
-		syslog(LOG_ERR, "get hostid failed");
-		exit(1);
-	} else {
-		host_id = strtoul(buf, NULL, 10);
-	}
-#endif
-	host_id = gethostid();
+	host_id = get_system_hostid();
 
 	openlog(MyName, LOG_PID | LOG_NDELAY, LOG_DAEMON);
-#if	0
-	(void) _create_daemon_lock(CLUSTERD, DAEMON_UID, DAEMON_GID);
-	(void) enable_extended_FILE_stdio(-1, -1);
-	switch (_enter_daemon_lock(CLUSTERD)) {
-	case 0:
-		break;
-	case -1:
-		syslog(LOG_ERR, "Error locking for %s", CLUSTERD);
-		exit(2);
-	default:
-		/* daemon was already running */
-		exit(0);
-	}
-#endif
 	(void) signal(SIGHUP, warn_hup);
 	
 	system(CLUSTER_SMF_INIT_POST);
@@ -6350,18 +6252,6 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-#if	0
-	/* start cluster door service for hbx */
-	error = start_clusterd_svcs();
-	if (error != 0) {
-		syslog(LOG_ERR, "cluster door failed");
-		exit(1);
-	}
-
-	/* initialize link state */
-	strcpy(buf, "link_state=down");
-	hbx_do_cluster_cmd(buf, 0, ZFS_HBX_SET);
-#endif
 	if ((error = cn_cluster_init(clusterd_cn_rcv)) != 0) {
 		syslog(LOG_ERR, "cn_cluster_init() failed: error=%d", error);
 		exit(1);

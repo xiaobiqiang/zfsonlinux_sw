@@ -82,10 +82,6 @@ uint32_t cluster_failover_ipmi_switch = 0;
 
 uint32_t self_hostid = 0;
 
-utsname_t hw_utsname = {
-	"Prodigy", "", "", "", "", ""
-};
-
 static void cts_remove(cluster_target_session_t *cts);
 static void cluster_target_port_destroy(cluster_target_port_t *ctp);
 static void cts_send_direct_impl(cluster_target_session_t *cts,
@@ -1028,8 +1024,8 @@ void ctp_tx_rele(cluster_target_port_t *ctp)
 int cluster_san_init()
 {
 	uint32_t hostid;
-	char *hostname = hw_utsname.nodename;
-
+	char *hostname = utsname()->nodename;
+	
 	cs_cache_buf_init();
 	mutex_init(&clustersan_lock, NULL, MUTEX_DEFAULT, NULL);
 	rw_init(&clustersan_rwlock, NULL, RW_DRIVER, NULL);
@@ -1352,7 +1348,6 @@ int cluster_remote_import_pool(uint32_t remote_hostid, char *spa_name)
 
 void cluster_change_pool_owner_handle(cs_rx_data_t *cs_data)
 {
-	/* cluster_san_hostinfo_t *cshi = cs_data->cs_private; */
 	char *buf;
 
 	buf = kmem_zalloc(cs_data->data_len, KM_SLEEP);
@@ -1446,7 +1441,7 @@ void cluster_label_failover_host(cs_rx_data_t *cs_data, uint32_t need_failover)
 	cluster_san_host_sync_msg_ret(cshi, evt_header->msg_id,
 		CLUSTER_SAN_MSGTYPE_CLUSTER, 0);
 	if (need_failover == 0) {
-		/* zfs_mirror_cancel_check_spa_txg(cshi->hostid); */
+		zfs_mirror_cancel_check_spa_txg(cshi->hostid);
 	}
 	csh_rx_data_free(cs_data, B_TRUE);
 }
@@ -1637,24 +1632,7 @@ static void cluster_san_watchdog_fini(void)
 	mutex_destroy(&clustersan->cs_wd_mtx);
 	cv_destroy(&clustersan->cs_wd_cv);
 }
-int cluster_san_set_hostname(char *hostname)
-{
-	if (strlen(hostname) > 64) {
-		printk("hostname(%s) is too large\n", hostname);
-		return (-EINVAL);
-	}
-	memcpy(clustersan->cs_host.hostname, hostname, strlen(hostname));
-	return (0);
-}
-int cluster_san_set_hostid(uint32_t hostid)
-{
-	if (hostid < 1 || hostid > 255) {
-		printk("hostid %d error. ( 1 <= hostid <= 255)\n", hostid);
-		return (-EINVAL);
-	}
-	clustersan->cs_host.hostid = hostid;
-	return (0);
-}
+
 int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf)
 {
 	cluster_target_port_t *ctp;
@@ -1664,11 +1642,12 @@ int cluster_san_enable(char *clustername, char *linkname, nvlist_t *nvl_conf)
 	}
 
 	if (clustersan->cs_host.hostid < 1 || clustersan->cs_host.hostid > 255) {
-		printk("please set hostid.\n");
+		cmn_err(CE_WARN, "%s hostid %d is invalid", __func__,
+			clustersan->cs_host.hostid);
 		return (-EPERM);
 	}
 	if (clustersan->cs_host.hostname && strlen(clustersan->cs_host.hostname) == 0) {
-		printk("please set hostname.\n");
+		cmn_err(CE_WARN, "%s hostname is invalid", __func__);
 		return (-EPERM);
 	}
 
@@ -1719,12 +1698,12 @@ void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi)
 	atomic_inc_64(&cshi->ref_count);
 }
 
-uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
+void cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
 {
 	uint64_t ref_count;
 
 	if ((cshi == NULL) || (cshi == CLUSTER_SAN_BROADCAST_SESS)) {
-		return (0);
+		return;
 	}
 
 	ref_count = atomic_dec_64_nv(&cshi->ref_count);
@@ -1739,12 +1718,11 @@ uint64_t cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi)
 		mutex_destroy(&cshi->lock);
 		kmem_free(cshi, sizeof(cluster_san_hostinfo_t));
 	}
-	return (ref_count);
 }
 
 static void cluster_san_hostinfo_remove(cluster_san_hostinfo_t *cshi)
 {
-	uint64_t ret=0;
+	/* uint64_t ret = 0; */
 	cluster_target_session_t *cts;
 	cts_list_pri_t *cts_list;
 
@@ -1762,9 +1740,12 @@ static void cluster_san_hostinfo_remove(cluster_san_hostinfo_t *cshi)
 		kmem_free(cts_list, sizeof(cts_list_pri_t));
 	}
 	mutex_exit(&cshi->lock);
+	cluster_san_hostinfo_rele(cshi);
+	/*
 	do {
 		ret = cluster_san_hostinfo_rele(cshi);
 	}while(ret != 0);
+	*/
 }
 
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid)
@@ -3731,8 +3712,8 @@ static void cluster_target_session_destroy(cluster_target_session_t *cts)
 static void ctp_send_join_in_msg(
 	cluster_target_port_t *ctp, void *dst)
 {
-	uint32_t hostid = clustersan->cs_host.hostid;//zone_get_hostid(NULL);
-	char *hostname = clustersan->cs_host.hostname;//hw_utsname.nodename;
+	uint32_t hostid = zone_get_hostid(NULL);
+	char *hostname = utsname()->nodename;
 	nvlist_t *hostinfo;
 	char *buf;
 	size_t buflen;
@@ -5540,4 +5521,19 @@ clustersan_get_ipmi_switch(void)
 	return (cluster_failover_ipmi_switch);
 }
 
-
+EXPORT_SYMBOL(cluster_san_hostinfo_rele);
+EXPORT_SYMBOL(cts_link_up_to_down_handle);
+EXPORT_SYMBOL(cluster_san_hostinfo_hold);
+EXPORT_SYMBOL(cluster_san_host_sync_msg_ret);
+EXPORT_SYMBOL(cs_kmem_free);
+EXPORT_SYMBOL(cluster_san_host_asyn_send_clean);
+EXPORT_SYMBOL(csh_rx_hook_remove);
+EXPORT_SYMBOL(csh_link_evt_hook_add);
+EXPORT_SYMBOL(csh_rx_hook_add);
+EXPORT_SYMBOL(csh_link_evt_hook_remove);
+EXPORT_SYMBOL(cluster_san_host_asyn_send);
+EXPORT_SYMBOL(cluster_san_broadcast_send);
+EXPORT_SYMBOL(cluster_san_host_send);
+EXPORT_SYMBOL(csh_rx_data_free_ext);
+EXPORT_SYMBOL(cs_kmem_alloc);
+EXPORT_SYMBOL(cluster_san_host_sync_send_msg);

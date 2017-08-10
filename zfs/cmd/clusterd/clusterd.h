@@ -9,7 +9,6 @@
 extern "C" {
 #endif
 
-#define	CLUSTERD_CMD_OPTS	"vd"
 #if	0
 #define	DOOR_RESULT_BUFSZ	(sizeof (hbx_event_t))
 #define	SAFETY_BUFFER		8*1024

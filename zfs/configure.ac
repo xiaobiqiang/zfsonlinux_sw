@@ -90,11 +90,13 @@ AC_CONFIG_FILES([
 	lib/libnvpair/Makefile
 	lib/libunicode/Makefile
 	lib/libuutil/Makefile
+	lib/libcomm/Makefile
 	lib/libzpool/Makefile
 	lib/libzfs/libzfs.pc
 	lib/libzfs/libzfs_core.pc
 	lib/libzfs/Makefile
 	lib/libzfs_core/Makefile
+	lib/libstmf/Makefile
 	lib/libshare/Makefile
 	lib/libclumgt/Makefile
 	lib/fm/Makefile
@@ -146,6 +148,10 @@ AC_CONFIG_FILES([
 	cmd/fm/modules/common/eversholt/Makefile
 	cmd/fm/fmd/schemes/Makefile
 	cmd/fm/fmd/schemes/zfs/Makefile
+	cmd/stmfadm/Makefile
+	cmd/configd/Makefile
+	cmd/stmfsvc/Makefile
+	cmd/lunadm/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
@@ -160,6 +166,11 @@ AC_CONFIG_FILES([
 	module/zcommon/Makefile
 	module/zfs/Makefile
 	module/zpios/Makefile
+	module/fct/Makefile
+	module/qlt/Makefile
+	module/stmf/Makefile
+	module/stmf_sbd/Makefile
+	module/pppt/Makefile
 	include/Makefile
 	include/linux/Makefile
 	include/sys/Makefile

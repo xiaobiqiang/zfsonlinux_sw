@@ -1,0 +1,12 @@
+[Unit]
+Description=Start clusterd service
+DefaultDependencies=no
+Requires=NetworkManager.service
+After=zfs.target
+
+[Service]
+ExecStart=@sbindir@/clusterd -d
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

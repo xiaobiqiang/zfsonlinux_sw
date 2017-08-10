@@ -1411,6 +1411,7 @@ zpool_do_destroy(int argc, char **argv)
 
 	pool = argv[0];
 
+	zfs_destroy_all_lus(g_zfs, pool);
 	if ((zhp = zpool_open_canfail(g_zfs, pool)) == NULL) {
 		/*
 		 * As a special case, check for use of '/' in the name, and
@@ -1457,6 +1458,8 @@ zpool_export_one(zpool_handle_t *zhp, void *data)
 {
 	export_cbdata_t *cb = data;
 
+	zfs_enable_avs(g_zfs, (char *)zpool_get_name(zhp), 0);
+	zfs_standby_all_lus(g_zfs, (char *)zpool_get_name(zhp));
 	if (zpool_disable_datasets(zhp, cb->force) != 0)
 		return (1);
 
@@ -2388,6 +2391,8 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
 	free(stamp);
 #endif
+	zfs_import_all_lus(g_zfs, name);
+	zfs_enable_avs(g_zfs, name, 1);
 	zpool_close(zhp);
 	return (0);
 }
@@ -2464,13 +2469,15 @@ zpool_do_import(int argc, char **argv)
 	boolean_t xtreme_rewind = B_FALSE;
 	boolean_t no_blkid = B_FALSE;
 	boolean_t testquantum = B_FALSE;
+	boolean_t cluster_switch = B_FALSE;
+	uint64_t remote_hostid = 0;;
 	uint64_t pool_state, txg = -1ULL;
 	char *cachefile = NULL;
 	importargs_t idata = { 0 };
 	char *endptr;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":abCc:d:DEfFimnNo:qR:tT:VX")) != -1) {
+	while ((c = getopt(argc, argv, ":abCc:d:DEfFimnNo:qR:s:tT:VX")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
@@ -2536,6 +2543,16 @@ zpool_do_import(int argc, char **argv)
 			if (add_prop_list_default(zpool_prop_to_name(
 			    ZPOOL_PROP_CACHEFILE), "none", &props, B_TRUE))
 				goto error;
+			break;
+		case 's':
+			errno = 0;
+			remote_hostid = strtoull(optarg, &endptr, 0);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("invalid txg value\n"));
+				usage(B_FALSE);
+			}
+			cluster_switch = B_TRUE;
 			break;
 		case 't':
 			flags |= ZFS_IMPORT_TEMP_NAME;
@@ -2687,6 +2704,9 @@ zpool_do_import(int argc, char **argv)
 	idata.guid = searchguid;
 	idata.cachefile = cachefile;
 	idata.no_blkid = no_blkid;
+	idata.cluster_ignore = (flags & ZFS_IMPORT_IGNORE_CLUSTER ? 1 : 0);
+	idata.cluster_switch = cluster_switch;
+	idata.remote_hostid = remote_hostid;
 
 	pools = zpool_search_import(g_zfs, &idata);
 
@@ -6639,16 +6659,14 @@ release_callback(zpool_handle_t *zhp, void *data)
 	host_id = get_system_hostid();
 
 	pool_name = zpool_get_name(zhp);
-	partner_id = cbp->cb_rid > 0 ? cbp->cb_rid :
-		((host_id % 2) + 1);
-#if	0
+	/*partner_id = cbp->cb_rid > 0 ? cbp->cb_rid :
+		((host_id % 2) + 1); */
 	partner_id = get_partner_id(g_zfs, cbp->cb_rid);
 	if (partner_id == 0) {
 		fprintf(stderr, "don't known where to release, please give remote"
 			" hostid use option '-s hostid'\n");
 		return (1);
 	}
-#endif
 
 	if (!cbp->cb_allpools) {
 		if (strcmp(pool_name, cbp->cb_pool_name) == 0) {
@@ -6688,14 +6706,13 @@ release_callback(zpool_handle_t *zhp, void *data)
 		return (0);
 	}
 
-#if	0
-	zfs_narrow_dirty_mem();
+	/* zfs_narrow_dirty_mem(); */
 	syslog(LOG_NOTICE, "wait 10s to standby all luns");
 	sleep(10);
 	syslog(LOG_NOTICE, "wait 10s end");
 	zfs_enable_avs(g_zfs, (char *)zpool_get_name(zhp), 0);
 	zfs_standby_all_lus(g_zfs, (char *)zpool_get_name(zhp));
-#endif
+
 	if (zpool_disable_datasets(zhp, B_TRUE) != 0) {
 		/*zfs_restore_dirty_mem();*/
 		syslog(LOG_ERR, "zpool disable datasets failed, errno:%d", errno);

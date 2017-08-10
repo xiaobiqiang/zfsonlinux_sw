@@ -415,11 +415,14 @@ typedef struct importargs {
 	int paths;		/* number of paths to search		*/
 	char *poolname;		/* name of a pool to find		*/
 	uint64_t guid;		/* guid of a pool to find		*/
+	uint32_t remote_hostid;	/* remote hostid to search */
 	char *cachefile;	/* cachefile to use for import		*/
 	int can_be_active : 1;	/* can the pool be active?		*/
 	int unique : 1;		/* does 'poolname' already exist?	*/
 	int exists : 1;		/* set on return if pool already exists	*/
 	int no_blkid : 1;	/* don't use libblkid */
+	int cluster_switch : 1;	/* search remote's pools */
+	int cluster_ignore : 1;	/* don't filter remote's pools */
 } importargs_t;
 
 extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
@@ -843,8 +846,6 @@ extern void zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
     uint64_t flags);
 extern int zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt, uint8_t need_reply);
 extern int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen);
-extern int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid);
-extern int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname);
 extern int zfs_enable_clustersan(libzfs_handle_t *hd, char *clustername,
 	char *linkname, nvlist_t *conf, uint64_t flags);
 extern int zfs_disable_clustersan(libzfs_handle_t *hdl, uint64_t flags);
@@ -859,6 +860,7 @@ nvlist_t *zfs_clustersan_get_nvlist(libzfs_handle_t *hdl, uint32_t cmd,
 nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid);
 int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
+
 
 typedef struct spa_quantum_index {
 	uint64_t index;
@@ -883,6 +885,14 @@ extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
 	uint32_t hostid, nvlist_t **nv_ptr);
 
 extern int zfs_is_failover_prop(const char * prop);
+
+extern uint64_t get_partner_id(libzfs_handle_t *hdl, uint64_t rid);
+
+int zfs_create_lu(char *lu_name);
+void zfs_import_all_lus(libzfs_handle_t *hdl, char *data);
+void zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name);
+void zfs_destroy_all_lus(libzfs_handle_t *hdl, char *pool_name);
+void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
 
 #ifdef	__cplusplus
 }

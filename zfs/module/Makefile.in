@@ -5,11 +5,16 @@ subdir-m += unicode
 subdir-m += zcommon
 subdir-m += zfs
 subdir-m += zpios
+subdir-m += fct
+subdir-m += stmf
+subdir-m += qlt
+subdir-m += stmf_sbd
+subdir-m += pppt
 subdir-m += fmd_transport
 
 INSTALL_MOD_DIR ?= extra
 
-ZFS_MODULE_CFLAGS += -include @SPL_OBJ@/spl_config.h
+ZFS_MODULE_CFLAGS += -include @SPL_OBJ@/spl_config.h -DUNIQUE_FW_NAME
 ZFS_MODULE_CFLAGS += -include @abs_top_builddir@/zfs_config.h
 ZFS_MODULE_CFLAGS += -I@abs_top_srcdir@/include -I@SPL@/include -I@SPL@
 export ZFS_MODULE_CFLAGS

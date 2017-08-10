@@ -754,15 +754,17 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 		 ctp = target_port_array[1].ctp;
 	} else {
 		if (target_port_array[0].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->mac_addr, dev->dev_addr, ETHERADDRL) == 0) {
-			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[0].dev, dev);
+			/* printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[0].dev, dev); */
 			ctp = target_port_array[0].ctp;
 		} else if (target_port_array[1].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->mac_addr, dev->dev_addr, ETHERADDRL) == 0) {
-			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[1].dev, dev);
+			/* printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[1].dev, dev); */
 			ctp = target_port_array[1].ctp;
 		} else {
+#if 0
 			printk("receive package. mac(%x%x %x%x %x%x)\n", 
 				*(dev->dev_addr), *(dev->dev_addr+1),*(dev->dev_addr+2),
 				*(dev->dev_addr+3),*(dev->dev_addr+4),*(dev->dev_addr+5));
+#endif			
 			kfree_skb(skb);
 			spin_unlock_irq(&target_port_lock);
 			return (0);

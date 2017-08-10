@@ -874,6 +874,12 @@ extern void dmu_objset_register_type(dmu_objset_type_t ost,
     objset_used_cb_t *cb);
 extern void dmu_objset_set_user(objset_t *os, void *user_ptr);
 extern void *dmu_objset_get_user(objset_t *os);
+extern void dmu_get_lock_para(dmu_buf_t *handle, uint64_t offset,
+	uint64_t len, uint64_t *lock_offset, uint64_t *lock_len);
+extern void *dmu_get_crypt_data(dmu_buf_t *db, boolean_t *free_data);
+extern void dmu_free_crypt_data(void *data, uint64_t size);
+
+
 
 /*
  * Return the txg number for the given assigned transaction.

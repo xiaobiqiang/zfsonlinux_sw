@@ -3,6 +3,7 @@ Description=ZFS Event Daemon (zed)
 Documentation=man:zed(8)
 After=zfs-import-cache.service
 After=zfs-import-scan.service
+After=zfs-boot.service
 
 [Service]
 ExecStart=@sbindir@/zed -F

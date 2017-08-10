@@ -32,7 +32,9 @@ USER_C = \
 	kstat.c \
 	xdr.c \
 	include/sys/list.h \
-	include/sys/list_impl.h
+	include/sys/list_impl.h \
+	thread_pool.c \
+	thread_pool_impl.h 
 
 USER_ASM = atomic.S
 

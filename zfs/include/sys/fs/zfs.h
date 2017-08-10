@@ -819,6 +819,7 @@ typedef struct ddt_histogram {
 
 /* general zvol path */
 #define	ZVOL_DIR	"/dev"
+#define	ZVOL_FULL_DIR	"/dev/zvol/"
 
 #define	ZVOL_MAJOR		230
 #define	ZVOL_MINOR_BITS		4
@@ -913,6 +914,8 @@ typedef enum zfs_ioc {
 	ZFS_IOC_CLUSTERSAN,
 	ZFS_IOC_HBX,
 	ZFS_IOC_MIRROR_SPEED_TEST,
+	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
+	
 	/*
 	 * Linux - 3/64 numbers reserved.
 	 */
@@ -1001,6 +1004,10 @@ typedef  enum {
 #define	ZFS_IMPORT_IGNORE_CLUSTER	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x10
 
+#define	ZFS_SINGLE_DATA		"zfs:single_data"
+
+#define	ZFS_RDC_IP_OWNER	"rdc:ip_owner"
+
 /*
  * Sysevent payload members.  ZFS will generate the following sysevents with the
  * given payloads:
@@ -1077,8 +1084,6 @@ typedef  enum {
 	/* rpc rdma ioc */
 	ZFS_CLUSTERSAN_IOC_RPC_SVC			= 0x10,
 	ZFS_CLUSTERSAN_IOC_RPC_CLNT			= 0x11,
-	ZFS_CLUSTERSAN_SET_HOSTNAME			= 0x12,
-	ZFS_CLUSTERSAN_SET_HOSTID			= 0x13,
 	ZFS_CLUSTERSAN_COMM_TEST			= 0x14
 }zfs_clustersan_ioc_t;
 

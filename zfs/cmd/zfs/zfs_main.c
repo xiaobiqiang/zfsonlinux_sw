@@ -57,6 +57,7 @@
 #include <mqueue.h>
 #include <arpa/inet.h>
 
+#include <libstmf.h>
 #include <libzfs.h>
 #include <libzfs_core.h>
 #include <zfs_prop.h>
@@ -351,9 +352,7 @@ get_usage(zfs_help_t idx)
 			"\t    -p: show the host's pools\n"
 			"\t    -f: show ipmi addr and is or not need failover etc.\n"
 			"\t    -i: show the other info, such as host ip etc.\n"
-			"\tclustersan list-target [-v]\n"
-			"\tclustersan hostname <hostname>\n"
-			"\tclustersan hostid <hostid>\n"));
+			"\tclustersan list-target [-v]\n"));
 	case HELP_SPEEDTEST:
 		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
 			
@@ -924,6 +923,10 @@ zfs_do_create(int argc, char **argv)
 	}
 
 	ret = zfs_mount_and_share(g_zfs, argv[0], ZFS_TYPE_DATASET);
+
+	if (ret == 0 && type == ZFS_TYPE_VOLUME) {
+		zfs_create_lu(argv[0]);
+	}
 error:
 	nvlist_free(props);
 	return (ret);
@@ -3588,6 +3591,16 @@ typedef struct set_cbdata {
 	char		*cb_value;
 } set_cbdata_t;
 
+int 
+zfs_is_single_data_prop(const char *prop)
+{
+	if (strncmp(prop, ZFS_SINGLE_DATA, strlen(prop)) == 0)
+		return (1);
+
+	return (0);
+}
+
+
 static int
 set_callback(zfs_handle_t *zhp, void *data)
 {
@@ -3624,6 +3637,13 @@ set_callback(zfs_handle_t *zhp, void *data)
 		return (1);
 	}
 
+	if (zfs_is_single_data_prop(cbp->cb_propname)) {
+		if (atoi(cbp->cb_value) == 1) {
+			if (strchr(zfs_get_name(zhp), '/') != NULL)
+				stmfNotifyLuActive(zfs_get_name(zhp));
+		}
+	}
+	
 	if (set_failover_flag) {
 		if (set_failover_flag == 2) {			
 			send_cluster_message(buf, strlen(buf), cluster_msgtype_remove_failover);
@@ -3683,6 +3703,7 @@ check_failover_set(const char *prop, const char *value)
 		if (check_ip_addr(propval) == -1)
 			return (-1);
 	}
+
 	return (0);
 }
 
@@ -7584,10 +7605,6 @@ zfs_do_clustersan(int argc, char **argv)
 	} else if (argc > 1 && !strcmp(argv[1], "rpcto")) {
 		ret = -1;
 		/* ret = zfs_do_clustersan_rpcto(argc - 1, argv + 1); */
-	} else if (argc == 3 && !strcmp(argv[1], "hostname")) {
-		ret = zfs_set_hostname(g_zfs, argv[2]);
-	} else if (argc == 3 && !strcmp(argv[1], "hostid")) {
-		ret = zfs_set_hostid(g_zfs, argv[2]);
 	} else if (argc ==5 && !strcmp(argv[1], "comm")) {
 		ret = zfs_comm_test(g_zfs, argv[2], argv[3], argv[4]);
 	} else {

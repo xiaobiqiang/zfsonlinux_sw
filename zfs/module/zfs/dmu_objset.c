@@ -2450,6 +2450,7 @@ dmu_fsname(const char *snapname, char *buf)
 	return (0);
 }
 
+#ifdef _KERNEL
 void
 dmu_objset_replay_all_cache(objset_t *os)
 {
@@ -2459,7 +2460,6 @@ dmu_objset_replay_all_cache(objset_t *os)
     user_data = dmu_objset_get_user(os);
     mutex_exit(&os->os_user_ptr_lock);
 
-#ifdef _KERNEL
     if (spa_writeable(dmu_objset_spa(os))) {
         os->os_breplaying = B_TRUE;
         zil_replay(os, user_data, os->os_replay);
@@ -2470,10 +2470,7 @@ dmu_objset_replay_all_cache(objset_t *os)
         }
         os->os_breplaying = B_FALSE;
     }
-#endif
 }
-
-#ifdef _KERNEL
 
 void
 dmu_objset_insert_mirror_io(objset_t *os,

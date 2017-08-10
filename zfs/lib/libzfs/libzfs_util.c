@@ -46,13 +46,53 @@
 #include <wait.h>
 #include <syslog.h>
 #include <sys/vdev_impl.h>
-
+#include <sys/thread_pool.h>
 #include <libzfs.h>
 #include <libzfs_core.h>
+#include <libstmf.h>
 
 #include "libzfs_impl.h"
 #include "zfs_prop.h"
 #include "zfeature_common.h"
+
+#define	ZFS_ILU_MAX_NTHREAD		64
+#define NETCONFIG_FILE			"/dev/tcp"
+#define	IFCONFIG_CMD			"/usr/sbin/ifconfig"
+
+typedef struct zfs_ilu_list{
+	struct zfs_ilu_list *next;
+	struct zfs_ilu_list *prev;
+	char *lu_name;
+	pthread_t tid;
+	boolean_t run_thread;
+} zfs_ilu_list_t;
+
+typedef struct zfs_ilu_ctx {
+	char *pool_name;
+	tpool_t *zic_tp;
+	zfs_ilu_list_t *head;
+	zfs_ilu_list_t *tail;
+	int lun_cnt;
+} zfs_ilu_ctx_t;
+
+typedef struct zfs_standby_ilu_list{
+	struct zfs_standby_ilu_list *next;
+	char *lu_name;
+	stmfGuid lu_guid;
+} zfs_standby_ilu_list_t;
+
+typedef struct zfs_standby_ilu_ctx {
+	char *pool_name;
+	zfs_standby_ilu_list_t *head;
+	zfs_standby_ilu_list_t *tail;
+	int lun_cnt;
+} zfs_standby_ilu_ctx_t;
+
+typedef struct zfs_avs_ctx {
+	char *pool_name;
+	uint64_t dev_no;
+	int enabled;
+} zfs_avs_ctx_t;
 
 int
 libzfs_errno(libzfs_handle_t *hdl)
@@ -1945,52 +1985,7 @@ int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen
 	}
 	return (err);
 }
-int zfs_set_hostid(libzfs_handle_t *hdl, char *hostid)
-{
-	int err;
-	uint32_t id;
-	zfs_cmd_t zc = { 0 };
 
-	if (hostid == NULL) {
-		(void) printf("must give the hostid\n");
-		return (-1);
-	}
-	id = atoi(hostid);
-	if (id < 1 || id > 255) {
-		printf("hostid >= 1 and hostid <= 255\n");
-		return (-1);
-	}
-	zc.zc_pad[0] = (char)id;
-	zc.zc_cookie = ZFS_CLUSTERSAN_SET_HOSTID;
-	
-	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
-	if (err != 0) {
-		(void) printf("hostid set failed\n");
-	}
-	return (err);
-}
-int zfs_set_hostname(libzfs_handle_t *hdl, char *hostname)
-{
-	int err;
-	zfs_cmd_t zc = { 0 };
-
-	if (hostname == NULL) {
-		(void) printf("must give the hostname\n");
-		return (-1);
-	}
-	if (strlen(hostname) > 64) {
-		printf("the hostname is too long\n");
-		return (-1);
-	}
-	strcpy(zc.zc_name, hostname);
-	zc.zc_cookie = ZFS_CLUSTERSAN_SET_HOSTNAME;
-
-	err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
-	if (err != 0) {
-		(void) printf("hostname set failed\n");
-	}
-	return (err);
-}
 int zfs_enable_clustersan(libzfs_handle_t *hdl, char *clustername,
 	char *linkname, nvlist_t *conf, uint64_t flags)
 {
@@ -2530,3 +2525,690 @@ int zpool_init_dev_labels(char *path)
 	
 	return (ret);
 }
+
+int
+zfs_create_lu(char *lu_name)
+{
+	char dev_buf[512];
+	luResource hdl = NULL;
+	int ret = 0;
+	stmfGuid createdGuid;
+	sprintf(dev_buf, "%s%s", ZVOL_FULL_DIR, lu_name);
+	ret = stmfCreateLuResource(STMF_DISK, &hdl);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "Can not Create LU Resource");
+		return (1);
+	}
+	ret = stmfSetLuProp(hdl, STMF_LU_PROP_FILENAME, dev_buf);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "Can Assign Name for LU");
+		(void) stmfFreeLuResource(hdl);
+		return (1);
+	}
+
+	ret = stmfCreateLu(hdl, &createdGuid);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "Create LU fails");
+		(void) stmfFreeLuResource(hdl);
+		return (1);;
+	}
+	(void) stmfFreeLuResource(hdl);
+
+	return (0);
+}
+
+int 
+zfs_get_lus_call_back(zfs_handle_t *zhp, void *data)
+{
+	zfs_ilu_ctx_t *zicp = (zfs_ilu_ctx_t *)data;
+	zfs_ilu_list_t *lu_list;
+	syslog(LOG_DEBUG, "%s: zfs_name:%s", __func__, zfs_get_name(zhp));
+
+	if (zfs_get_type(zhp) == ZFS_TYPE_VOLUME) {
+		if ((zicp->pool_name != NULL) &&
+			(strcmp(zhp->zpool_hdl->zpool_name, zicp->pool_name) == 0)) {
+			lu_list = malloc(sizeof(zfs_ilu_list_t));
+			lu_list->lu_name = malloc(strlen(zfs_get_name(zhp)) + 1);
+			strcpy(lu_list->lu_name, zfs_get_name(zhp));
+			lu_list->next = NULL;
+			if (zicp->head == NULL) {
+				zicp->head = lu_list;
+			} else {
+				zicp->tail->next = lu_list;
+				lu_list->prev = zicp->tail;
+			}
+			zicp->tail = lu_list;
+			zicp->lun_cnt++;
+		}
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+int 
+zfs_import_pool_call_back(zfs_handle_t *zhp, void *data)
+{
+	zfs_ilu_ctx_t *zicp = (zfs_ilu_ctx_t *)data;
+	syslog(LOG_DEBUG, "%s: zfs_name:%s", __func__, zfs_get_name(zhp));
+	if (strcmp(zfs_get_name(zhp), zicp->pool_name) == 0) {
+		zfs_iter_filesystems(zhp, zfs_get_lus_call_back, data);
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+void* zfs_import_lu(void *arg)
+{
+	int ret;
+	stmfGuid createdGuid;
+	char dev_buf[512];
+	char *lu_name = (char *)arg;
+
+	syslog(LOG_DEBUG, " import lu enter, %s", lu_name);
+
+	sprintf(dev_buf, "%s%s", ZVOL_FULL_DIR, lu_name);
+	ret = stmfImportLu(STMF_DISK, dev_buf, &createdGuid);
+	if (ret == 0) {
+		stmfOnlineLogicalUnit(&createdGuid);
+		syslog(LOG_INFO, " import lu success, %s", lu_name);
+ 	} else {
+ 		syslog(LOG_ERR, " import lu failed, %s, ret:0x%x", lu_name, ret);
+ 	}
+	syslog(LOG_DEBUG, " import lu exit, %s", lu_name);
+
+	free(lu_name);
+	return (NULL);
+}
+
+void 
+zfs_import_all_lus(libzfs_handle_t *hdl, char *data)
+{
+	zfs_ilu_ctx_t zic;
+	zfs_ilu_list_t *lu_list;
+	int ret;
+	int tp_size;
+	zfs_cmd_t *zc;
+	int error;
+
+	zic.pool_name = data;
+	zic.head = NULL;
+	zic.tail = NULL;
+	zic.lun_cnt = 0;
+
+	zfs_iter_root(hdl, zfs_import_pool_call_back, (void *)&zic);
+	if (zic.lun_cnt == 0) {
+		return;
+	}
+
+	/*
+	tp_size = zic.lun_cnt;
+	if (tp_size > ZFS_ILU_MAX_NTHREAD) {
+		tp_size = ZFS_ILU_MAX_NTHREAD;
+	}
+	zic.zic_tp = tpool_create(1, tp_size, 0, NULL);
+	while ((lu_list = zic.head) != NULL) {
+		zic.head = zic.head->next;
+		if (lu_list == zic.tail) {
+			zic.tail = NULL;
+		}
+		
+		ret = tpool_dispatch(zic.zic_tp, (void (*)(void *))zfs_import_lu,
+			(void *)lu_list->lu_name);
+		if (ret != 0) {
+			zfs_import_lu(lu_list->lu_name);
+		}
+		free(lu_list);
+	}
+
+	if (zic.zic_tp != NULL) {
+		tpool_wait(zic.zic_tp);
+		tpool_destroy(zic.zic_tp);
+	}
+	*/
+	
+	lu_list = zic.head;
+	while (lu_list) {
+		lu_list->run_thread = B_TRUE;
+		error = pthread_create(&lu_list->tid, NULL, zfs_import_lu, lu_list->lu_name);
+		if (error) {
+			lu_list->run_thread = B_FALSE;
+			zfs_import_lu(lu_list->lu_name);
+		}
+		lu_list = lu_list->next;
+	}
+	
+	while ((lu_list = zic.head) != NULL) {
+		zic.head = zic.head->next;
+		if (lu_list->run_thread)
+			pthread_join(lu_list->tid, NULL);
+		free(lu_list);
+	}
+	
+	zc = malloc(sizeof(zfs_cmd_t));
+	if (zc == NULL) {
+		syslog(LOG_NOTICE, "%s: not wait pool(%s)'s zvol create minor done",
+			__func__, data);
+		return ;
+	}
+	strcpy(zc->zc_name, data);
+	ret = zfs_ioctl(hdl, ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT, zc);
+	if (ret != 0) {
+		syslog(LOG_NOTICE, "%s: failed wait pool(%s)'s zvol create minor done",
+			__func__, data);
+	}
+	free(zc);
+}
+
+int 
+zfs_standby_lu_access(char *dataset, void *data)
+{
+	char dev_path[MAXNAMELEN];
+	char prop_val[MAXNAMELEN];
+	size_t prop_val_sz = sizeof(prop_val);
+	stmfGuidList *lu_list;
+	stmfGuid lu_guid;
+	int ret;
+	int lu_num;
+	int len;
+	luResource hdl = NULL;
+	zfs_standby_ilu_ctx_t *zicp = (zfs_standby_ilu_ctx_t *)data;
+	zfs_standby_ilu_list_t *ilu = NULL;
+	
+	sprintf(dev_path, "%s%s", ZVOL_FULL_DIR, dataset);
+	
+	ret = stmfGetLogicalUnitList(&lu_list);
+	if (ret != STMF_STATUS_SUCCESS) {
+		syslog(LOG_ERR, "standby lu access, get lu list failed");
+		return (1);
+	}
+
+	for (lu_num = 0; lu_num < lu_list->cnt; lu_num ++) {
+		lu_guid = lu_list->guid[lu_num];
+		ret = stmfGetLuResource(&lu_guid, &hdl);
+		if (ret != STMF_STATUS_SUCCESS) {
+			syslog(LOG_ERR, "In standby lu access progress, Acquire LU Resource fails, error=%d"
+				", guid=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", ret,
+				lu_guid.guid[0], lu_guid.guid[1], lu_guid.guid[2], lu_guid.guid[3],
+				lu_guid.guid[4], lu_guid.guid[5], lu_guid.guid[6], lu_guid.guid[7],
+				lu_guid.guid[8], lu_guid.guid[9], lu_guid.guid[10], lu_guid.guid[11],
+				lu_guid.guid[12], lu_guid.guid[13], lu_guid.guid[14], lu_guid.guid[15]);
+			continue;
+		}
+		ret = stmfGetLuProp(hdl, STMF_LU_PROP_FILENAME, prop_val, &prop_val_sz);
+		if (ret != STMF_STATUS_SUCCESS && ret != STMF_ERROR_NO_PROP_STANDBY) {
+			(void) stmfFreeLuResource(hdl);
+			hdl = NULL;
+			syslog(LOG_ERR, "In standby lu access progress, Acquire LU Metadata Resource Fails err=%x ", ret);
+			continue;
+		}
+		
+		if (strcmp(dev_path, prop_val) == 0) {
+			ret = stmfLuStandbyAccess(&lu_guid);
+			if (ret != STMF_STATUS_SUCCESS) {
+				stmfFreeMemory(lu_list);
+				(void) stmfFreeLuResource(hdl);
+				syslog(LOG_ERR, "In standby lu access progress, Standby LU Metadata Resource Fails ");
+				return (1);
+			}
+
+			ilu = malloc(sizeof(zfs_standby_ilu_list_t));
+			len = strlen(dev_path) + 1;
+			ilu->lu_name = malloc(len);
+			memset(ilu->lu_name, 0, len);
+			snprintf(ilu->lu_name, len, "%s", dev_path);
+			ilu->lu_guid = lu_guid;
+			ilu->next = NULL;
+
+			if (zicp->head == NULL)
+				zicp->head = ilu;
+			else
+				zicp->tail->next = ilu;
+			
+			zicp->tail = ilu;
+			zicp->lun_cnt++;
+			break;
+		}
+		(void) stmfFreeLuResource(hdl);
+		hdl = NULL;
+	}
+
+	stmfFreeMemory(lu_list);
+	(void) stmfFreeLuResource(hdl);
+	
+	return (0);
+}
+
+int 
+zfs_standby_lu_access_callback(zfs_handle_t *zhp, void *data)
+{
+	zfs_standby_ilu_ctx_t *zicp = (zfs_standby_ilu_ctx_t *)data;
+	if (strcmp(zhp->zpool_hdl->zpool_name, zicp->pool_name) == 0 &&
+	   zfs_get_type(zhp) == ZFS_TYPE_VOLUME) {
+		zfs_standby_lu_access((char *)zfs_get_name(zhp), data);
+	}
+	return (0);
+
+}
+
+int 
+zfs_standby_pool_call_back(zfs_handle_t *zhp, void *data)
+{
+	zfs_iter_filesystems(zhp, zfs_standby_lu_access_callback, data);
+	return (0);
+}
+void 
+zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name)
+{
+	zfs_standby_ilu_ctx_t zic;
+	zfs_standby_ilu_list_t *ilu = NULL;
+	int ret;
+	
+	zic.pool_name = pool_name;
+	zic.head = NULL;
+	zic.tail = NULL;
+	zic.lun_cnt = 0;
+
+	zfs_iter_root(hdl, zfs_standby_pool_call_back, (void *)&zic);
+
+	syslog(LOG_ERR, "wait 3 seconds to close zvol %s", pool_name);
+	sleep(3);
+	syslog(LOG_ERR, "close zvol %s", pool_name);
+
+	if (zic.lun_cnt > 0) {
+		while ((ilu = zic.head) != NULL) {
+			zic.head = zic.head->next;
+			ret = stmfCloseStandbyLu(&ilu->lu_guid);
+			if (ret != STMF_STATUS_SUCCESS)
+				syslog(LOG_ERR, "In close standby lu progress, Standby LU Metadata Resource Fails ");
+
+			if (ilu->lu_name)
+				free(ilu->lu_name);
+			free(ilu);
+			zic.lun_cnt--;
+		}
+	}
+}
+
+int 
+zfs_destroy_lu(char *dataset)
+{
+	int stmf_proxy_door_fd;
+	char dev_path[MAXNAMELEN];
+	char prop_val[MAXNAMELEN];
+	size_t prop_val_sz = sizeof(prop_val);
+	stmfGuidList *lu_list;
+	stmfViewEntryList *view_entry_list; 
+	stmfGuid lu_guid;
+	int ret;
+	int lu_num;
+	int view_num;
+	luResource hdl = NULL;
+	boolean_t b_destroy_partner = B_TRUE;
+	boolean_t b_del_partion = B_FALSE;
+	stmf_remove_proxy_view_t *proxy_remove_view_entry;
+
+	sprintf(dev_path, "%s%s", ZVOL_FULL_DIR, dataset);
+	ret = stmfGetLogicalUnitList(&lu_list);
+	if (ret == STMF_STATUS_SUCCESS) {
+		for (lu_num = 0; lu_num < lu_list->cnt; lu_num ++) {
+			b_del_partion = B_TRUE;
+			lu_guid = lu_list->guid[lu_num];
+			ret = stmfGetLuResource(&lu_guid, &hdl);
+			if (ret != STMF_STATUS_SUCCESS) {
+				syslog(LOG_ERR, "Acquire LU Resource fails");
+				return (1);
+			}
+			ret = stmfGetLuProp(hdl, STMF_LU_PROP_FILENAME, prop_val, &prop_val_sz);
+			if (ret != STMF_STATUS_SUCCESS) {
+				(void) stmfFreeLuResource(hdl);
+				hdl = NULL;
+				syslog(LOG_ERR, "Acquire LU Metadata Resource Fails ");
+				continue;
+			}
+			if (strcmp(dev_path, prop_val) == 0) {
+				
+				ret = stmfGetViewEntryList(&lu_guid, &view_entry_list);
+				if (ret != STMF_STATUS_SUCCESS) {
+					syslog(LOG_ERR, "Acquire LU Partition Resource Fails ");
+					b_del_partion = B_FALSE;
+				}
+				if (b_del_partion) {
+					for (view_num = 0; view_num < view_entry_list->cnt; view_num ++) {
+						stmfRemoveViewEntry(&lu_guid,
+						     view_entry_list->ve[view_num].veIndex);
+						proxy_remove_view_entry = malloc(sizeof(stmf_remove_proxy_view_t));
+						bzero(proxy_remove_view_entry, sizeof(stmf_remove_proxy_view_t));
+						proxy_remove_view_entry->head.op_type = STMF_OP_DELETE;
+						proxy_remove_view_entry->head.item_type = STMF_VIEW_OP;
+						bcopy(&lu_guid, &proxy_remove_view_entry->lu_guid, sizeof(stmfGuid));
+						proxy_remove_view_entry->view_index = view_num;
+						free(proxy_remove_view_entry);
+					}
+					stmfFreeMemory(view_entry_list);
+				}
+				
+				ret = stmfOfflineLogicalUnit(&lu_guid);
+				if (ret != STMF_STATUS_SUCCESS) {
+					(void) stmfFreeLuResource(hdl);
+					hdl = NULL;
+					stmfFreeMemory(lu_list);
+					syslog(LOG_ERR, "In Delete  lu progress, Offline Lun Fails ");
+					return (1);
+				}
+				ret = stmfDeleteLu(&lu_guid);
+				if (ret != STMF_STATUS_SUCCESS) {
+					syslog(LOG_ERR, "Delete LU  Fails ");
+					(void) stmfFreeLuResource(hdl);
+					hdl = NULL;
+					continue;
+				}
+				
+				(void) stmfFreeLuResource(hdl);
+				hdl = NULL;
+				break;	
+			}
+
+			(void) stmfFreeLuResource(hdl);
+			hdl = NULL;
+			
+		}
+		stmfFreeMemory(lu_list);
+	}
+
+
+	return (0);
+}
+
+
+int 
+zfs_destroy_lu_callback(zfs_handle_t *zhp, void *data)
+{
+	if (strcmp(zhp->zpool_hdl->zpool_name, (char *)data) == 0 &&
+	   zfs_get_type(zhp) == ZFS_TYPE_VOLUME) {
+		zfs_destroy_lu((char *)zfs_get_name(zhp));
+	}
+	return (0);
+}
+
+int 
+zfs_destroy_pool_call_back(zfs_handle_t *zhp, void *data)
+{
+	zfs_iter_filesystems(zhp, zfs_destroy_lu_callback, data);
+	return (0);
+}
+void 
+zfs_destroy_all_lus(libzfs_handle_t *hdl, char *pool_name)
+{
+	zfs_iter_root(hdl, zfs_destroy_pool_call_back, (void *)pool_name);
+}
+
+#if 0
+void
+zfs_notify_export(libzfs_handle_t *hdl, char *poolname)
+{
+	zfs_cmd_t zc = {0};
+	strncpy(zc.zc_name, poolname, sizeof(zc.zc_name));
+	zc.zc_cookie = ZFS_HBX_POOL_EXPORT;
+	zfs_ioctl(hdl, ZFS_IOC_HBX, &zc);
+}
+#endif
+
+void
+zfs_config_avs_ip(char *ip_owner, int enable)
+{
+	char *eth, *ip, *netmask;
+	char cmd[512] = {0};
+	char buf[1024] = {0};
+	FILE *file;
+
+	syslog(LOG_ERR, "%s %s %d", __func__, ip_owner, enable);
+
+	eth = strtok(ip_owner, ",");
+	ip = strtok(NULL, ",");
+	netmask = strtok(NULL, ",");
+
+	if (netmask == NULL)
+		netmask = "255.255.255.0";
+
+	if (enable)
+		snprintf(cmd, sizeof(cmd), "%s %s plumb addif %s netmask %s up", 
+			IFCONFIG_CMD, eth, ip, netmask);
+	else
+		snprintf(cmd, sizeof(cmd), "%s %s removeif %s", 
+			IFCONFIG_CMD, eth, ip);
+
+	file = popen(cmd, "r");
+
+	if (file != NULL) {
+		while (fgets(buf, sizeof(buf), file) != NULL) {
+			if (buf[strlen(buf) - 1] == '\n')
+				buf[strlen(buf) - 1] = '\0';
+			syslog(LOG_ERR, "%s", buf);
+		}
+	} else {
+		syslog(LOG_ERR, "%s popen %s failed", __func__, cmd);
+	}
+	
+	pclose(file);
+}
+
+int zfs_enable_avs_iter_dataset(zfs_handle_t *zhp, void *data)
+{
+	zfs_avs_ctx_t *ctx = (zfs_avs_ctx_t *)data;
+
+	if (zfs_get_type(zhp) == ZFS_TYPE_VOLUME) {
+		nvlist_t *props, *nvl;
+		zfs_cmd_t zc = {0};
+		char *is_single_data;
+#if 0
+		nvpair_t *elem = NULL;
+		elem_node_t *head, *tail, *curnode;
+		char elems[256] = {0};
+		int pos = 0;
+
+		head = tail = NULL;
+#endif
+		strncpy(zc.zc_name, zfs_get_name(zhp), MAXPATHLEN);
+		props = zfs_get_user_props(zhp);
+
+		if (ctx->enabled) {
+
+			/* single data, notify lun to become active */
+			if (nvlist_lookup_nvlist(props, ZFS_SINGLE_DATA, &nvl) == 0) {
+				nvlist_lookup_string(nvl, ZPROP_VALUE, &is_single_data);
+				if (atoi(is_single_data)) {
+					syslog(LOG_INFO, "%s %s is single data",
+						__func__, zfs_get_name(zhp));
+					stmfNotifyLuActive(zfs_get_name(zhp));
+					goto iter_end;
+				}
+			}
+		}
+
+#if 0
+		if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0)
+			goto iter_end;
+
+		nvlist_add_uint64(nvl, ZFS_RDC_NET_RDEV, ctx->dev_no);
+
+		while ((elem = nvlist_next_nvpair(props, elem)) != NULL) {
+			char *str, *data_lun, *bm_lun;
+			char elem_name[256] = {0};
+			char propname[512] = {0}; 
+			int elem_id, is_primary;
+			nvlist_t *propval;
+			struct stat sb;
+
+			str = nvpair_name(elem);
+			if (strstr(str, ZFS_RDC_DESCRIPTION) == NULL)
+				continue;
+
+			strncpy(elem_name, str, strlen(str));
+
+			if ((str = strchr(elem_name, ':')) == NULL) {
+				syslog(LOG_WARNING, "%s elem %s error", 
+					__func__, elem_name);
+				continue;
+			}
+			
+			*str = '\0';
+			elem_id = atoi(elem_name);
+			
+			/* is primary */
+			memset(propname, 0, sizeof(propname));
+			snprintf(propname, sizeof(propname), "%d:%s", elem_id, ZFS_RDC_IS_PRIMARY);			
+			nvlist_lookup_nvlist(props, propname, &propval);
+			verify(nvlist_lookup_string(propval, ZPROP_VALUE, &str) == 0);
+			is_primary = 
+				(strncmp(str, ZFS_AVS_PRIMARY, strlen(ZFS_AVS_PRIMARY)) == 0) ? 1 : 0;
+			
+			/* data lun */
+			data_lun = is_primary ? ZFS_RDC_SRC_DATA_LUN : ZFS_RDC_DST_DATA_LUN;
+			memset(propname, 0, sizeof(propname));
+			snprintf(propname, sizeof(propname), "%d:%s", elem_id, data_lun);			
+			nvlist_lookup_nvlist(props, propname, &propval);
+			verify(nvlist_lookup_string(propval, ZPROP_VALUE, &str) == 0);
+			memset(&sb, 0, sizeof(sb));
+			
+			if (stat(str, &sb) < 0) {
+				syslog(LOG_ERR, "%s: %s stat failed", 
+					__func__, str);
+				continue;
+			}
+
+			syslog(LOG_DEBUG, "%s %"PRIx64, str, sb.st_rdev);
+
+			memset(propname, 0, sizeof(propname));
+			snprintf(propname, sizeof(propname), "%d:%s", elem_id, ZFS_RDC_DATA_LUN_RDEV);
+			nvlist_add_uint64(nvl, propname, sb.st_rdev);
+
+			/* bitmap lun */
+			bm_lun = is_primary ? ZFS_RDC_SRC_BM_LUN : ZFS_RDC_DST_BM_LUN;
+			memset(propname, 0, sizeof(propname));
+			snprintf(propname, sizeof(propname), "%d:%s", elem_id, bm_lun);			
+			nvlist_lookup_nvlist(props, propname, &propval);
+			verify(nvlist_lookup_string(propval, ZPROP_VALUE, &str) == 0);
+			memset(&sb, 0, sizeof(sb));
+
+			if (stat(str, &sb) < 0) {
+				syslog(LOG_ERR, "%s: %s stat failed", 
+					__func__, str);
+				continue;
+			}
+
+			syslog(LOG_DEBUG, "%s %"PRIx64, str, sb.st_rdev);
+			
+			memset(propname, 0, sizeof(propname));
+			snprintf(propname, sizeof(propname), "%d:%s", elem_id, ZFS_RDC_BM_LUN_RDEV);			
+			nvlist_add_uint64(nvl, propname, sb.st_rdev);
+
+			/* add to list */
+			curnode = malloc(sizeof(elem_node_t));
+			curnode->id = elem_id;
+			curnode->next = NULL;
+
+			if (tail) {
+				tail->next = curnode;
+				tail = curnode;
+			} else {
+				head = tail = curnode;
+			}
+		}
+
+		if (head == NULL) {
+			nvlist_free(nvl);
+			goto iter_end;
+		}
+
+		for (curnode = head; curnode; curnode = curnode->next)
+			pos += snprintf(elems + pos, sizeof(elems) - pos, "%d,", curnode->id);
+		
+		nvlist_add_string(nvl, ZFS_RDC_AVS_ELEMS, elems);
+		zcmd_write_conf_nvlist(zhp->zfs_hdl, &zc, nvl);
+
+		if (ctx->enabled) {			
+			if (zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_ENABLE_LU_AVS, &zc) != 0)
+				syslog(LOG_ERR, "%s: zfs_name %s enable avs failed\n", 
+					__func__, zfs_get_name(zhp));
+		} else {
+			if (zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_DISABLE_LU_AVS, &zc) != 0)
+				syslog(LOG_ERR, "%s: zfs_name %s disable avs failed\n", 
+					__func__, zfs_get_name(zhp));
+		}
+
+		nvlist_free(nvl);
+		
+		while (head) {
+			curnode = head;
+			head = curnode->next;
+			free(curnode);
+		}
+#endif
+	}
+
+iter_end:
+	zfs_close(zhp);
+	return (0);
+}
+
+int 
+zfs_enable_avs_iter_pool(zfs_handle_t *zhp, void *data)
+{
+	zfs_avs_ctx_t *ctx = (zfs_avs_ctx_t *)data;
+	syslog(LOG_DEBUG, "%s: zfs_name:%s", __func__, zfs_get_name(zhp));
+	if (strcmp(zfs_get_name(zhp), ctx->pool_name) == 0) {
+		nvlist_t *props, *propval;
+		char *ip_owner;
+		boolean_t b_config_ip = B_FALSE;
+
+		props = zfs_get_user_props(zhp);
+		if (nvlist_lookup_nvlist(props, ZFS_RDC_IP_OWNER, &propval) == 0) {
+			verify(nvlist_lookup_string(propval, ZPROP_VALUE, &ip_owner) == 0);
+			syslog(LOG_ERR, "%s: %s, %s", __func__, zfs_get_name(zhp),
+				ip_owner);
+			b_config_ip = B_TRUE;
+		}
+		
+		if (ctx->enabled) {
+			if (b_config_ip)
+				zfs_config_avs_ip(ip_owner, ctx->enabled);
+			
+			zfs_iter_filesystems(zhp, zfs_enable_avs_iter_dataset, data);
+		} else {
+			zfs_iter_filesystems(zhp, zfs_enable_avs_iter_dataset, data);
+
+			if (b_config_ip)
+				zfs_config_avs_ip(ip_owner, ctx->enabled);
+		}
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+void 
+zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled)
+{
+	zfs_avs_ctx_t ctx;
+	struct stat sb;	
+	
+	ctx.pool_name = data;
+	ctx.enabled = enabled;
+	
+#if 0
+	if (enabled) {
+		if (stat(NETCONFIG_FILE, &sb) < 0) {
+			syslog(LOG_ERR, "%s can't find device %s for transport\n", 
+				__func__, NETCONFIG_FILE);
+			return;
+		}
+
+		ctx.dev_no = sb.st_rdev;
+		syslog(LOG_NOTICE, "%s dev_no = 0x%"PRIx64, __func__, ctx.dev_no);
+	} else {
+		/* notify pool is ready to exported */
+		zfs_notify_export(hdl, data);
+	}
+#endif	
+	zfs_iter_root(hdl, zfs_enable_avs_iter_pool, (void *)&ctx);
+}
+

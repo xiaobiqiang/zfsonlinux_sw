@@ -153,6 +153,16 @@
 #endif  /* DTRACE_PROBE4 */
 #define DTRACE_PROBE4(a, b, c, d, e, f, g, h, i)	((void)0)
 
+#ifdef DTRACE_PROBE5
+#undef  DTRACE_PROBE5
+#endif  /* DTRACE_PROBE5 */
+#define DTRACE_PROBE5(a, b, c, d, e, f, g, h, i, j, k)	((void)0)
+
+#ifdef DTRACE_PROBE6
+#undef  DTRACE_PROBE6
+#endif  /* DTRACE_PROBE6 */
+#define DTRACE_PROBE6(a, b, c, d, e, f, g, h, i, j, k, l, m)	((void)0)
+
 /* Missing globals */
 extern char spl_version[32];
 extern unsigned long spl_hostid;

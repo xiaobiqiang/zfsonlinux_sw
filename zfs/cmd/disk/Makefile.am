@@ -17,7 +17,8 @@ disk_LDADD = \
 	$(top_builddir)/lib/libzpool/libzpool.la \
 	$(top_builddir)/lib/libzfs/libzfs.la \
 	$(top_builddir)/lib/libdiskmgt/libdiskmgt.la \
-	$(top_builddir)/lib/libzfs_core/libzfs_core.la
+	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
+	$(top_builddir)/lib/libstmf/libstmf.la
 
 disk_LDADD += $(ZLIB) -lxml2
 disk_LDFLAGS = -pthread

@@ -1389,7 +1389,6 @@ dmu_tx_sync_log(dmu_tx_t *tx)
 	return (tx->tx_bdirect);
 }
 
-
 void
 dmu_tx_commit(dmu_tx_t *tx)
 {
@@ -1667,6 +1666,32 @@ dmu_tx_hold_sa(dmu_tx_t *tx, sa_handle_t *hdl, boolean_t may_grow)
 	}
 }
 
+/*
+ * This function marks the transaction as being a "net free".  The end
+ * result is that refquotas will be disabled for this transaction, and
+ * this transaction will be able to use half of the pool space overhead
+ * (see dsl_pool_adjustedsize()).  Therefore this function should only
+ * be called for transactions that we expect will not cause a net increase
+ * in the amount of space used (but it's OK if that is occasionally not true).
+ */
+void
+dmu_tx_mark_netfree(dmu_tx_t *tx)
+{
+	dmu_tx_hold_t *txh;
+
+	txh = dmu_tx_hold_object_impl(tx, tx->tx_objset,
+	    DMU_NEW_OBJECT, THT_FREE, 0, 0);
+
+	/*
+	 * Pretend that this operation will free 1GB of space.  This
+	 * should be large enough to cancel out the largest write.
+	 * We don't want to use something like UINT64_MAX, because that would
+	 * cause overflows when doing math with these values (e.g. in
+	 * dmu_tx_try_assign()).
+	 */
+	txh->txh_space_tofree = txh->txh_space_tounref = 1024 * 1024 * 1024;
+}
+
 void
 dmu_tx_init(void)
 {
@@ -1705,4 +1730,5 @@ EXPORT_SYMBOL(dmu_tx_do_callbacks);
 EXPORT_SYMBOL(dmu_tx_hold_spill);
 EXPORT_SYMBOL(dmu_tx_hold_sa_create);
 EXPORT_SYMBOL(dmu_tx_hold_sa);
+EXPORT_SYMBOL(dmu_tx_sync_log);
 #endif

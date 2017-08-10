@@ -178,6 +178,7 @@ void dmu_tx_willuse_space(dmu_tx_t *tx, int64_t delta);
 void dmu_tx_dirty_buf(dmu_tx_t *tx, struct dmu_buf_impl *db);
 int dmu_tx_holds(dmu_tx_t *tx, uint64_t object);
 void dmu_tx_hold_space(dmu_tx_t *tx, uint64_t space);
+void dmu_tx_mark_netfree(dmu_tx_t *tx);
 boolean_t dmu_tx_sync_log(dmu_tx_t *tx);
 
 

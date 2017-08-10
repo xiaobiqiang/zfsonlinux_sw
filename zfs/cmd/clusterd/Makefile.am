@@ -13,6 +13,8 @@ clusterd_SOURCES = \
 	cn_cluster.h \
 	deflt.c \
 	deflt.h \
+	systemd_util.c \
+	systemd_util.h \
 	if_util/dnet_ntop.c \
 	if_util/dnet_pton.c \
 	if_util/hlist.h \
@@ -43,7 +45,8 @@ clusterd_LDADD = \
 	$(top_builddir)/lib/libuutil/libuutil.la \
 	$(top_builddir)/lib/libzpool/libzpool.la \
 	$(top_builddir)/lib/libzfs/libzfs.la \
-	$(top_builddir)/lib/libzfs_core/libzfs_core.la
+	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
+	$(top_builddir)/lib/libstmf/libstmf.la
 
 clusterd_LDADD += $(ZLIB)
 clusterd_LDFLAGS = -pthread

@@ -1350,6 +1350,8 @@ dmu_read_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size)
 	for (i = 0; i < numbufs; i++) {
 		uint64_t tocpy;
 		int64_t bufoff;
+		void *data;
+		boolean_t free_data = B_FALSE;
 		dmu_buf_t *db = dbp[i];
 
 		ASSERT(size > 0);
@@ -1372,8 +1374,12 @@ dmu_read_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size)
 			else
 				XUIOSTAT_BUMP(xuiostat_rbuf_copied);
 		} else {
-			err = uiomove((char *)db->db_data + bufoff, tocpy,
+			data = dmu_get_crypt_data(db, &free_data);
+			err = uiomove((char *)data + bufoff, tocpy,
 			    UIO_READ, uio);
+			if (free_data) {
+				dmu_free_crypt_data(data, db->db_size);
+			}
 		}
 		if (err)
 			break;
@@ -1469,6 +1475,7 @@ dmu_read_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size)
 
 	return (err);
 }
+EXPORT_SYMBOL(dmu_read_uio);
 
 static int
 dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
@@ -1631,6 +1638,7 @@ dmu_write_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size,
 
 	return (err);
 }
+EXPORT_SYMBOL(dmu_write_uio);
 #endif /* _KERNEL */
 
 /*
@@ -2309,6 +2317,24 @@ dmu_object_size_from_db(dmu_buf_t *db_fake, uint32_t *blksize,
 	DB_DNODE_EXIT(db);
 }
 
+void 
+dmu_get_lock_para(dmu_buf_t *handle, uint64_t offset, uint64_t len, 
+    uint64_t *lock_offset, uint64_t *lock_len)
+{
+	uint64_t blk_id;
+	dnode_t *dn;
+	dmu_buf_impl_t *dbuf = (dmu_buf_impl_t *)handle;
+	DB_DNODE_ENTER(dbuf);
+	dn = DB_DNODE(dbuf);
+	blk_id = dbuf_whichblock(dn, offset);
+	*lock_offset = blk_id << dn->dn_datablkshift;
+	blk_id =  dbuf_whichblock(dn, (offset + len));
+	if ((blk_id << (dn->dn_datablkshift)) < (offset + len))
+		blk_id += 1;
+	*lock_len = (blk_id << dn->dn_datablkshift) - *lock_offset;
+	DB_DNODE_EXIT(dbuf);
+}
+
 void
 byteswap_uint64_array(void *vbuf, size_t size)
 {
@@ -2352,6 +2378,35 @@ byteswap_uint16_array(void *vbuf, size_t size)
 void
 byteswap_uint8_array(void *vbuf, size_t size)
 {
+}
+
+void *
+dmu_get_crypt_data(dmu_buf_t *db, boolean_t *free_data)
+{
+	void *data;
+	dnode_t *dn;
+	objset_t *os;
+	dmu_buf_impl_t *db_impl;
+	
+	db_impl = (dmu_buf_impl_t *)db;
+	
+	DB_DNODE_ENTER(db_impl);
+	dn = DB_DNODE(db_impl);
+	os = dn->dn_objset;
+
+	/* not crypt */
+	data = db->db_data;
+	*free_data = B_FALSE;
+	
+	DB_DNODE_EXIT(db_impl);
+
+	return (data);
+}
+
+void 
+dmu_free_crypt_data(void *data, uint64_t size)
+{
+	zio_data_buf_free(data, size);
 }
 
 #ifdef _KERNEL
@@ -2675,6 +2730,11 @@ EXPORT_SYMBOL(dmu_request_arcbuf);
 EXPORT_SYMBOL(dmu_return_arcbuf);
 EXPORT_SYMBOL(dmu_assign_arcbuf);
 EXPORT_SYMBOL(dmu_buf_hold);
+EXPORT_SYMBOL(dmu_get_lock_para);
+EXPORT_SYMBOL(dmu_get_crypt_data);
+EXPORT_SYMBOL(dmu_free_crypt_data);
+
+
 EXPORT_SYMBOL(dmu_ot);
 
 module_param(zfs_mdcomp_disable, int, 0644);

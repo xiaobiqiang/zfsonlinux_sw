@@ -385,6 +385,10 @@ extern void zfs_destroy_unmount_origin(const char *);
 
 extern boolean_t dataset_name_hidden(const char *name);
 
+extern int zfs_objset_stats(zfs_cmd_t *zc);
+extern int zfs_set_prop(zfs_cmd_t *zc);
+
+
 enum zfsdev_state_type {
 	ZST_ONEXIT,
 	ZST_ZEVENT,

@@ -5,6 +5,8 @@ systemdunit_DATA = \
 	zfs-zed.service \
 	zfs-import-cache.service \
 	zfs-import-scan.service \
+	zfs-boot.service \
+	zfs-clusterd.service \
 	zfs-mount.service \
 	zfs-share.service \
 	zfs.target
@@ -13,6 +15,8 @@ EXTRA_DIST = \
 	$(top_srcdir)/etc/systemd/system/zfs-zed.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs-import-cache.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs-import-scan.service.in \
+	$(top_srcdir)/etc/systemd/system/zfs-boot.service.in \
+	$(top_srcdir)/etc/systemd/system/zfs-clusterd.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs-mount.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs-share.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs.target.in \
