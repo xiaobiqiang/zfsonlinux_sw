@@ -2509,7 +2509,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 			dbuf = stmf_handle_to_buf(task, n);
 		}
 #endif
-		dbuf = stmf_handle_to_buf(task, qcmd->db_handle);
+		dbuf = stmf_handle_to_buf(task, n);
 		ASSERT(dbuf != NULL);
 		
 		//if (dbuf->db_flags & DB_DIRECTION_FROM_RPORT)
