@@ -5642,7 +5642,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	uint32_t port_type = FC_PORTTYPE_UNKNOWN;
 	int  rval;
 	uint16_t loop_id, topo, sw_cap;
-	uint16_t remote_loop_id =5;
+	uint16_t remote_loop_id = 0;
 	uint8_t domain, area, al_pa;
 	uint16_t	entries = 0;
 	fc_port_t *fcport;
