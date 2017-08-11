@@ -2,6 +2,7 @@ include $(top_srcdir)/config/Rules.am
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
+	-I/usr/include/libxml2 \
 	-I$(top_srcdir)/lib/libspl/include
 
 lib_LTLIBRARIES = libzfs_retire.la

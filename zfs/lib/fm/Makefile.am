@@ -1,1 +1,1 @@
-SUBDIRS = libdiagcode libfmd_msg libexacct topo
+SUBDIRS = libdiagcode libfmd_msg libfmd_log libexacct topo

@@ -2,7 +2,8 @@ include $(top_srcdir)/config/Rules.am
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include	\
+	-I$(top_srcdir)/lib/fm/libfmd_msg/common
 
 lib_LTLIBRARIES = libfmd_msg.la
 

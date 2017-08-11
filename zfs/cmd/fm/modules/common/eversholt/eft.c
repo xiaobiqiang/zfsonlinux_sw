@@ -321,7 +321,7 @@ _fmd_init(fmd_hdl_t *hdl)
 		    OUTS(count));
 	
 	/*subcribe event for fanpsu ereport.*/
-	fmd_hdl_subscribe(Hdl, "ereport.sensor.failure");
+	//fmd_hdl_subscribe(Hdl, "ereport.sensor.failure");
 
 	/* subscribe to events we expect to consume */
 	lut_walk(Ereportenames, (lut_cb)dosubscribe, NULL);

@@ -104,6 +104,8 @@ AC_CONFIG_FILES([
 	lib/fm/libdiagcode/common/Makefile
 	lib/fm/libfmd_msg/Makefile
 	lib/fm/libfmd_msg/common/Makefile
+	lib/fm/libfmd_log/Makefile
+	lib/fm/libfmd_log/common/Makefile
 	lib/fm/libexacct/Makefile
 	lib/fm/libexacct/common/Makefile
 	lib/fm/topo/Makefile
@@ -140,6 +142,8 @@ AC_CONFIG_FILES([
 	cmd/fm/fmd/common/Makefile
 	cmd/fm/fmtopo/Makefile
 	cmd/fm/fmtopo/common/Makefile
+	cmd/fm/fmdump/Makefile
+	cmd/fm/fmdump/common/Makefile
 	cmd/fm/modules/Makefile
 	cmd/fm/modules/common/Makefile
 	cmd/fm/modules/common/zfs-retire/Makefile
