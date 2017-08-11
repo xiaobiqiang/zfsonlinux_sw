@@ -346,7 +346,7 @@ get_usage(zfs_help_t idx)
 			"\tclustersan hostname <hostname>\n"
 			"\tclustersan hostid <hostid>\n"));
 	case HELP_MULTICLUS:
-		return (gettext(
+		return (gettext("\n"
 		    "\tmulticlus -e <portname>\n"
 		    "\tmulticlus -vd\n"
 		    "\tmulticlus create/add <groupname> <zfsname>\n"

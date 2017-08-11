@@ -38,6 +38,9 @@
 #include <sys/zio.h>
 #include <sys/zil.h>
 #include <sys/sa.h>
+#ifdef _KERNEL
+#include <sys/zfs_group_dtl.h>
+#endif
 
 #ifdef	__cplusplus
 extern "C" {
@@ -56,6 +59,13 @@ struct dmu_tx;
 	(arc_buf_size(buf) > OBJSET_OLD_PHYS_SIZE)
 
 #define	OBJSET_FLAG_USERACCOUNTING_COMPLETE	(1ULL<<0)
+
+
+#define OS_NODE_TYPE_SLAVE		0
+#define OS_NODE_TYPE_MASTER		1   /* not used */
+#define OS_NODE_TYPE_MASTER2	2
+#define OS_NODE_TYPE_MASTER3	3
+#define OS_NODE_TYPE_MASTER4	4
 
 typedef struct objset_phys {
 	dnode_phys_t os_meta_dnode;
@@ -122,6 +132,44 @@ struct objset {
 	kmutex_t os_user_ptr_lock;
 	void *os_user_ptr;
 	sa_os_t *os_sa;
+
+	/* destroying when crypto keys aren't present */
+	boolean_t os_destroy_nokey;	
+	uint64_t	z_aclswitch_obj;
+	uint64_t	z_accesslist_obj;
+    uint64_t    os_group_obj;
+
+    uint64_t   os_is_group;
+    uint64_t   os_is_master;
+	/*
+	 * os_is_master == 0: os_node_type indicates the node type in the cluster group
+	 * os_is_master == 1: os_node_type is ignored
+	 */
+	uint64_t	os_node_type;	/* OS_NODE_TYPE_XXX */
+    uint64_t    os_master_os;
+    uint64_t    os_master_spa;
+    uint64_t    os_master_root;
+    uint64_t    os_self_root;
+    uint64_t    os_group_tx_seq;
+    char        os_group_name[MAXNAMELEN];
+
+	uint64_t	os_last_master_os;
+	uint64_t	os_last_master_spa;
+	boolean_t	os_will_be_master;
+
+	/* For NAS AVS */
+	uint64_t	os_zfs_nas_type;
+	uint64_t	bNassync;
+	char	os_remote_fsname[MAXNAMELEN]; /* poolname/fsname */
+	char	os_remote_ip[ZFS_ADDR_LEN];
+	uint64_t	os_remote_port;
+	uint64_t	os_local_port;
+
+#ifdef _KERNEL
+	zfs_group_dtl_thread_t os_group_dtl_th;
+	zfs_group_dtl_thread_t os_group_dtl3_th;
+	zfs_group_dtl_thread_t os_group_dtl4_th;
+#endif
 };
 
 #define	DMU_META_OBJSET		0
@@ -178,6 +226,8 @@ void dmu_objset_evict_done(objset_t *os);
 
 void dmu_objset_init(void);
 void dmu_objset_fini(void);
+void dmu_objset_set_group(objset_t *os, uint64_t master_spa, uint64_t master_os, uint64_t root);
+uint64_t objset_sec_reftime(objset_t *os);
 
 #ifdef	__cplusplus
 }

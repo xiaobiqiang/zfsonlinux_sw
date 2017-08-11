@@ -371,12 +371,61 @@ typedef struct zfs_cmd {
 } zfs_cmd_t;
 
 
+#define ZFS_DIR_LOWDATA_MSG_LEN	8
+
+
+
+
 typedef struct zfs_useracct {
 	char zu_domain[256];
 	uid_t zu_rid;
 	uint32_t zu_pad;
 	uint64_t zu_space;
 } zfs_useracct_t;
+
+#define MAX_QUOTA_DIRECTORIES 10
+#define MAX_QUOTA_ENTRIES 1024
+#define MAX_DIRLOWDATA_ENTRIES 1024
+
+typedef struct zfs_dirquota {
+	char zq_path[MAXPATHLEN];
+	uint64_t zq_value;
+    uint64_t zq_used;
+} zfs_dirquota_t;
+
+typedef struct zfs_dirlowdata {
+	char lowdata_path[MAXPATHLEN];
+	uint64_t lowdata;
+	uint64_t lowdata_period;
+	uint64_t lowdata_delete_period;
+	uint64_t lowdata_period_unit;
+	uint64_t lowdata_criteria;
+} zfs_dirlowdata_t;
+
+typedef struct nvpairvalue{	
+	char path[MAXPATHLEN];
+	char propname[MAXNAMELEN];
+	uint64_t object;
+	uint64_t value;
+}nvpairvalue_t;
+
+typedef struct zfs_group_dirquota_id {
+	uint64_t old_dirquota_id;
+	uint64_t new_dirquota_id;
+} zfs_group_dirquota_id_t;
+
+typedef struct zfs_cl_set_userquota{
+	char username[MAXPATHLEN];
+	char domain[MAXPATHLEN];
+	uint64_t type;
+	uint64_t quota;
+} zfs_cl_set_userquota_t;
+
+typedef struct zfs_cl_set_dirquota{
+	char path[MAXPATHLEN];
+	uint64_t object;
+	uint64_t quota;
+} zfs_cl_set_dirquota_t;
 
 #define	ZFSDEV_MAX_MINOR	(1 << 16)
 #define	ZFS_MIN_MINOR	(ZFSDEV_MAX_MINOR + 1)
@@ -423,6 +472,7 @@ typedef struct zfsdev_state {
 extern void *zfsdev_get_state(minor_t minor, enum zfsdev_state_type which);
 extern int zfsdev_getminor(struct file *filp, minor_t *minorp);
 extern minor_t zfsdev_minor_alloc(void);
+extern int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue);
 
 #endif	/* _KERNEL */
 

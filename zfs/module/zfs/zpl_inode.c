@@ -152,7 +152,7 @@ zpl_create(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	zpl_vap_init(vap, dir, mode, cr);
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL);
+	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
 
@@ -161,7 +161,7 @@ zpl_create(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 			error = zpl_init_acl(ip, dir);
 
 		if (error)
-			(void) zfs_remove(dir, dname(dentry), cr);
+			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
 
 	spl_fstrans_unmark(cookie);
@@ -195,7 +195,7 @@ zpl_mknod(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	vap->va_rdev = rdev;
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL);
+	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
 
@@ -204,7 +204,7 @@ zpl_mknod(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 			error = zpl_init_acl(ip, dir);
 
 		if (error)
-			(void) zfs_remove(dir, dname(dentry), cr);
+			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
 
 	spl_fstrans_unmark(cookie);
@@ -225,7 +225,7 @@ zpl_unlink(struct inode *dir, struct dentry *dentry)
 
 	crhold(cr);
 	cookie = spl_fstrans_mark();
-	error = -zfs_remove(dir, dname(dentry), cr);
+	error = -zfs_remove(dir, dname(dentry), cr, 0);
 
 	/*
 	 * For a CI FS we must invalidate the dentry to prevent the
@@ -406,7 +406,7 @@ zpl_symlink(struct inode *dir, struct dentry *dentry, const char *name)
 
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error)
-			(void) zfs_remove(dir, dname(dentry), cr);
+			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
 
 	spl_fstrans_unmark(cookie);
@@ -461,7 +461,7 @@ zpl_get_link_common(struct dentry *dentry, struct inode *ip, char **link)
 	uio.uio_segflg = UIO_SYSSPACE;
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_readlink(ip, &uio, cr);
+	error = -zfs_readlink(ip, &uio, cr, 0);
 	spl_fstrans_unmark(cookie);
 	crfree(cr);
 
@@ -554,7 +554,7 @@ zpl_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry)
 	igrab(ip); /* Use ihold() if available */
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_link(dir, ip, dname(dentry), cr);
+	error = -zfs_link(dir, ip, dname(dentry), cr, 0);
 	if (error) {
 		iput(ip);
 		goto out;

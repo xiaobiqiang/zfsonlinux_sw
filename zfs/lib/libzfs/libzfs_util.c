@@ -2371,8 +2371,8 @@ void zfs_print_separator(char septor, int cnt)
 int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 {
 	int err = 0;
-	group_info_t (*gs)[32] = {0};
-	group_info_t *ptr = NULL;
+	zfs_group_info_t (*gs)[32] = {0};
+	zfs_group_info_t *ptr = NULL;
 	char *gname = NULL;
 	uint_t cnt = 0;
 	uint_t gmcnt = 0;
@@ -2780,4 +2780,77 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	}
 	
 }
+
+
+int
+get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 
+	char *groupip, uint_t *num )
+{
+	int err = 0;
+	zfs_cmd_t zc = { 0 };
+	nvlist_t *config = NULL;
+	char **ipaddr = NULL;
+	int ii = 0;
+	char *iptr = NULL;
+	
+	zc.zc_cookie = flags;
+	if(GET_MASTER_IPFS == flags){
+		strcpy(zc.zc_name, groupip);
+	}
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0){
+		printf("zcmd_alloc_dst_nvlist: NULL\n");
+		return (-1);
+	}
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_GET_RPC_INFO, &zc);
+
+	if(err){
+		zcmd_free_nvlists(&zc);
+		return (zc.zc_cookie);
+	}
+	
+	if(zcmd_read_dst_nvlist(hdl, &zc, &config) != 0){
+		printf("cookie is: %d\n", zc.zc_cookie);
+		zcmd_free_nvlists(&zc);
+		return (-2);
+	}
+	zcmd_free_nvlists(&zc);
+	/* nvlist_print(stdout, config); */
+	if(GET_GROUP_IP == flags){
+		verify(nvlist_lookup_string_array(config, ZFS_RPC_GROUP_IP,
+		    &ipaddr, num) == 0);
+		iptr = groupip;
+		for(ii=0;ii<*num;ii++){
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+	} else if(GET_MASTER_IPFS == flags) {
+		memset(groupip, 0, 12*MAX_FSNAME_LEN);
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_IP, &ipaddr, num) == 0);
+		iptr = groupip;
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_FS, &ipaddr, num) == 0);
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_TYPE, &ipaddr, num) == 0);
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+	}
+	nvlist_free(config);
+
+	return (0);
+}
+
 

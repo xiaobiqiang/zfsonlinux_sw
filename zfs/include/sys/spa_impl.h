@@ -222,6 +222,7 @@ struct spa {
 	uint8_t		spa_claiming;		/* pool is doing zil_claim() */
 	boolean_t	spa_debug;		/* debug enabled? */
 	boolean_t	spa_is_root;		/* pool is root */
+	boolean_t	spa_disable_group;	/* pool's fs group disable */
 	int		spa_minref;		/* num refs when first opened */
 	int		spa_mode;		/* FREAD | FWRITE */
 	spa_log_state_t spa_log_state;		/* log state */
@@ -265,6 +266,17 @@ struct spa {
 	 */
 	spa_config_lock_t spa_config_lock[SCL_LOCKS]; /* config changes */
 	refcount_t	spa_refcount;		/* number of opens */
+
+	/*
+	 * spa_iokstat_lock protects spa_iokstat and
+	 * spa_queue_stats[].
+	 */
+	kmutex_t	spa_iokstat_lock;
+	struct kstat	*spa_iokstat;		/* kstat of io to this pool */
+	struct {
+		int spa_active;
+		int spa_queued;
+	} spa_queue_stats[ZIO_PRIORITY_NUM_QUEUEABLE];
 };
 
 extern char *spa_config_path;

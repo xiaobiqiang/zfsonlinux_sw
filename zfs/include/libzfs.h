@@ -68,7 +68,6 @@ extern "C" {
 #define	DEFAULT_IMPORT_PATH_SIZE	7
 extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 
-
 /* solaris stamp write */
 #define STAMP_OFFSET		2
 #define ZPOOL_INIT_PROGRESS	0x0
@@ -78,6 +77,9 @@ extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 #define COMPANY_NAME		0x12345678
 #define	VDEV_PAD_SIZE		(8 << 10)
 #define	ZPOOL_STAMP_SIZE	(VDEV_PAD_SIZE / 2)
+
+#define	GROUP_NODE_NUM		32
+#define	ZFS_NAME_LEN			256
 
 typedef struct zfs_group_sync_param
 {
@@ -106,6 +108,27 @@ typedef struct spa_quantum_index {
 	char *dev_name;
 }spa_quantum_index_t;
 /* solaris stamp write end */
+
+
+typedef struct zfs_rpc_arg {
+	uint_t	flag;
+	uint_t	bufcnt;	/* param counter */
+	uint_t	backoffset;
+	uint_t	filelen;
+	char		*filebuf;
+	char		*propname;
+	char		*value;
+	char		*buf[ZFS_NAME_LEN];	 /* param pointer */
+}zfs_rpc_arg_t;
+
+typedef struct zfs_rpc_ret {
+	uint_t	flag;
+	uint_t	backlen;
+	char		*backbuf;
+}zfs_rpc_ret_t;
+
+
+
 
 /*
  * libzfs errors
@@ -227,6 +250,9 @@ typedef struct zfs_allow {
 typedef struct zfs_handle zfs_handle_t;
 typedef struct zpool_handle zpool_handle_t;
 typedef struct libzfs_handle libzfs_handle_t;
+
+
+#define	RPC_SEND_RECV_SIZE	65536	/* 64*1024=65536 */
 
 /*
  * Library initialization
@@ -870,6 +896,9 @@ int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
  */
 extern void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
     char *fs_name, uint64_t flags, void* param);
+
+extern int get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 
+	char *groupip, uint_t *num );
 
 #ifdef	__cplusplus
 }

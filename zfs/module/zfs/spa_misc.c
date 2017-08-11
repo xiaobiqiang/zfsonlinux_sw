@@ -1995,6 +1995,38 @@ spa_maxblocksize(spa_t *spa)
 		return (SPA_OLD_MAXBLOCKSIZE);
 }
 
+uint64_t 
+spa_get_ios(spa_t *spa)
+{
+    int i = 0;
+    uint64_t total_ios = 0;
+    mutex_enter(&spa->spa_iokstat_lock);
+    for (i = 0; i < ZIO_PRIORITY_NUM_QUEUEABLE; i ++) {
+            if (i == ZIO_PRIORITY_SCRUB)
+                continue;
+            total_ios += spa->spa_queue_stats[i].spa_active + 
+                spa->spa_queue_stats[i].spa_queued;
+    }
+    mutex_exit(&spa->spa_iokstat_lock);
+
+    return (total_ios);
+}
+
+uint64_t
+spa_import_flags(spa_t *spa)
+{
+
+	return (spa->spa_import_flags);
+}
+
+boolean_t
+spa_get_group_flags(spa_t *spa)
+{
+
+	return (spa->spa_disable_group);
+}
+
+
 #if defined(_KERNEL) && defined(HAVE_SPL)
 /* Namespace manipulation */
 EXPORT_SYMBOL(spa_lookup);

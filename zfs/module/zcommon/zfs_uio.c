@@ -254,4 +254,26 @@ uioskip(uio_t *uiop, size_t n)
 	uiop->uio_resid -= n;
 }
 EXPORT_SYMBOL(uioskip);
+
+/*
+ * Dup the suio into the duio and diovec of size diov_cnt. If diov
+ * is too small to dup suio then an error will be returned, else 0.
+ */
+int
+uiodup(uio_t *suio, uio_t *duio, iovec_t *diov, int diov_cnt)
+{
+	int ix;
+	iovec_t *siov = suio->uio_iov;
+
+	*duio = *suio;
+	for (ix = 0; ix < suio->uio_iovcnt; ix++) {
+		diov[ix] = siov[ix];
+		if (ix >= diov_cnt)
+			return (1);
+	}
+	duio->uio_iov = diov;
+	return (0);
+}
+EXPORT_SYMBOL(uiodup);
+
 #endif /* _KERNEL */

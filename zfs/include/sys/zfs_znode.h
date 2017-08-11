@@ -39,12 +39,20 @@
 #include <sys/zfs_stat.h>
 #include <sys/zfs_rlock.h>
 #endif
-#include <sys/zfs_acl.h>
 #include <sys/zil.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
+
+struct zfs_sb;
+struct zfs_fuid_info;
+
+typedef enum vn_op_type{
+    VN_OP_SERVER = 0,
+    VN_OP_CLIENT
+}vn_op_type_t;
+
 
 /*
  * Additional file level attributes, that are stored
@@ -64,6 +72,8 @@ extern "C" {
 #define	ZFS_REPARSE		0x0000080000000000ull
 #define	ZFS_OFFLINE		0x0000100000000000ull
 #define	ZFS_SPARSE		0x0000200000000000ull
+#define	ZFS_WORM		0x0000400000000000ull
+#define ZFS_WORM_DUE    0x0000800000000000ull
 
 #define	ZFS_ATTR_SET(zp, attr, value, pflags, tx) \
 { \
@@ -110,6 +120,34 @@ extern "C" {
 #define	SA_ZPL_DXATTR(z)	z->z_attr_table[ZPL_DXATTR]
 #define	SA_ZPL_PAD(z)		z->z_attr_table[ZPL_PAD]
 
+#define	SA_ZPL_REMOTE_OBJECT(z)	z->z_attr_table[ZPL_REMOTE_OBJECT]
+#define	SA_ZPL_NBLKS(z)	z->z_attr_table[ZPL_NBLKS]
+#define	SA_ZPL_BLKSZ(z)	z->z_attr_table[ZPL_BLKSZ]
+#define	SA_ZPL_LOW(z)	z->z_attr_table[ZPL_LOW]
+#define	SA_ZPL_DIRLOWDATA(z)		z->z_attr_table[ZPL_DIRLOWDATA]
+
+#define	SA_ZPL_DIRQUOTA(z)		z->z_attr_table[ZPL_DIRQUOTA]
+#define	SA_ZPL_FILENAME(z)		z->z_attr_table[ZPL_FILENAME]
+
+
+/*
+ * Update atime, mtime and ctime. It increments idx by 3.
+ */
+#define	SA_ADD_BULK_AMCTIME(b, idx, zsb, zp) do { \
+	SA_ADD_BULK_ATTR(b, idx, SA_ZPL_ATIME(zsb), NULL, &zp->z_atime, \
+	    sizeof (zp->z_atime)); \
+	SA_ADD_BULK_ATTR(b, idx, SA_ZPL_MTIME(zsb), NULL, &zp->z_mtime, \
+	    sizeof (zp->z_mtime)); \
+	SA_ADD_BULK_ATTR(b, idx, SA_ZPL_CTIME(zsb), NULL, &zp->z_ctime, \
+	    sizeof (zp->z_ctime)); \
+	_NOTE(CONSTCOND) \
+} while (0)
+
+#define	ZFS_WORM_TRIGGER	(S_IRUSR | S_IRGRP | S_IROTH)
+#define	ZFS_WORM_APPEND_CHUNK	(1 << 18)
+#define	ZFS_WORM_CHUNK_MASK (~(ZFS_WORM_APPEND_CHUNK - 1))
+#define	ZFS_WORM_CHUNK_OFF_MASK	(ZFS_WORM_APPEND_CHUNK - 1)
+
 /*
  * Is ID ephemeral?
  */
@@ -124,7 +162,7 @@ extern "C" {
     spa_version(dmu_objset_spa(os)) >= SPA_VERSION_SA)
 
 #define	MASTER_NODE_OBJ	1
-
+#define	DATA_NODE_DIRTY	0xff
 /*
  * Special attributes for master node.
  * "userquota@" and "groupquota@" are also valid (from
@@ -137,6 +175,7 @@ extern "C" {
 #define	ZFS_FUID_TABLES		"FUID"
 #define	ZFS_SHARES_DIR		"SHARES"
 #define	ZFS_SA_ATTRS		"SA_ATTRS"
+#define	ZFS_NAS_GROUP		"NAS_GROUP"
 
 /*
  * Path component length
@@ -166,6 +205,85 @@ extern "C" {
 #define	ZFS_DIRENT_TYPE(de) BF64_GET(de, 60, 4)
 #define	ZFS_DIRENT_OBJ(de) BF64_GET(de, 0, 48)
 
+
+typedef struct zfs_group_phys {
+    uint64_t zp_atime[2];		/*  0 - last file access time */
+	uint64_t zp_mtime[2];		/* 16 - last file modification time */
+	uint64_t zp_ctime[2];		/* 32 - last file change time */
+	uint64_t zp_crtime[2];		/* 48 - creation time */
+	uint64_t zp_gen;		/* 64 - generation (txg of creation) */
+	uint64_t zp_mode;		/* 72 - file mode bits */
+	uint64_t zp_size;		/* 80 - size of file */
+	uint64_t zp_parent;		/* 88 - directory parent (`..') */
+	uint64_t zp_links;		/* 96 - number of links to file */
+	uint64_t zp_xattr;		/* 104 - DMU object for xattrs */
+	uint64_t zp_rdev;		/* 112 - dev_t for VBLK & VCHR files */
+	uint64_t zp_flags;		/* 120 - persistent flags */
+	uint64_t zp_uid;		/* 128 - file owner */
+	uint64_t zp_gid;		/* 136 - owning group */
+	uint64_t zp_blksz;
+	uint64_t zp_nblocks;
+	uint64_t zp_dirquota;
+	uint64_t zp_dirlowdata;
+	uint64_t zp_bquota;
+	uint64_t zp_low;
+	uint64_t zp_overquota;
+	uint64_t zp_old_gen;
+	uint64_t zp_scan[4];
+}zfs_group_phys_t;
+
+typedef enum zfs_group_role {
+        GROUP_VIRTUAL = 0,
+        GROUP_MASTER,
+        GROUP_SLAVE,
+}zfs_group_role_t;
+
+
+typedef struct zfs_group_object {
+	uint64_t master_spa;
+	uint64_t master_objset;
+	uint64_t master_object;
+	uint64_t data_spa;
+	uint64_t data_objset;
+	uint64_t data_object;
+	uint64_t local_spa;
+	uint64_t local_os;
+	uint64_t spa_host;
+	uint64_t master_gen;
+	uint64_t data_status;	/* control data_spa, data_objset, data_object */
+
+	uint64_t master2_spa;
+	uint64_t master2_objset;
+	uint64_t master2_object;
+	uint64_t master2_gen;
+
+	uint64_t master3_spa;
+	uint64_t master3_objset;
+	uint64_t master3_object;
+	uint64_t master3_gen;
+
+	uint64_t master4_spa;
+	uint64_t master4_objset;
+	uint64_t master4_object;
+	uint64_t master4_gen;
+
+	uint64_t data2_spa;
+	uint64_t data2_objset;
+	uint64_t data2_object;
+	uint64_t data2_status;	/* control data2_spa, data2_objset, data2_object */
+	
+	uint64_t slave_spa;
+	uint64_t slave_objset;
+	uint64_t slave_object;
+	uint64_t slave_gen;
+
+	uint64_t parent_spa;
+	uint64_t parent_objset;
+	uint64_t parent_object;
+	uint64_t parent_gen;	
+}zfs_group_object_t;
+
+
 /*
  * Directory entry locks control access to directory entries.
  * They are used to protect creates, deletes, and renames.
@@ -183,6 +301,7 @@ typedef struct zfs_dirlock {
 } zfs_dirlock_t;
 
 typedef struct znode {
+	zfs_sb_t   *z_zsb;
 	uint64_t	z_id;		/* object ID for this znode */
 	kmutex_t	z_lock;		/* znode modification lock */
 	krwlock_t	z_parent_lock;	/* parent lock for directories */
@@ -198,12 +317,17 @@ typedef struct znode {
 	uint64_t	z_mapcnt;	/* number of pages mapped to file */
 	uint64_t	z_gen;		/* generation (cached) */
 	uint64_t	z_size;		/* file size (cached) */
+	uint64_t	z_atime[2];	/* atime (cached) */
+	uint64_t	z_mtime[2];	/* mtime (cached) */
+	uint64_t	z_ctime[2];	/* ctime (cached) */
 	uint64_t	z_links;	/* file links (cached) */
 	uint64_t	z_pflags;	/* pflags (cached) */
 	uint64_t	z_uid;		/* uid fuid (cached) */
 	uint64_t	z_gid;		/* gid fuid (cached) */
+	uint64_t    z_nblks;
 	uint32_t	z_sync_cnt;	/* synchronous open count */
 	mode_t		z_mode;		/* mode (cached) */
+	uint64_t    z_parent;
 	kmutex_t	z_acl_lock;	/* acl data lock */
 	zfs_acl_t	*z_acl_cached;	/* cached acl */
 	krwlock_t	z_xattr_lock;	/* xattr data lock */
@@ -215,6 +339,19 @@ typedef struct znode {
 	boolean_t	z_is_ctldir;	/* are we .zfs entry */
 	boolean_t	z_is_stale;	/* are we stale due to rollback? */
 	struct inode	z_inode;	/* generic vfs inode */
+	
+	boolean_t   z_is_group;
+	zfs_group_role_t z_group_role;
+	zfs_group_object_t z_group_id;
+	uint64_t	z_low;	/* file is migrated to low data device */
+	uint64_t    z_dirquota;
+	uint64_t	z_dirlowdata;
+	uint64_t    z_bquota;
+	boolean_t	z_overquota;
+	uint64_t	z_old_gen;
+	char		z_filename[MAXNAMELEN];
+
+	int			nfs_query_data;
 } znode_t;
 
 typedef struct znode_hold {
@@ -303,6 +440,11 @@ extern unsigned int zfs_object_mutex_size;
 #define	STATE_CHANGED		(ATTR_CTIME)
 #define	CONTENT_MODIFIED	(ATTR_MTIME | ATTR_CTIME)
 
+
+#define ZFS_GROUP_OBJECT_ZERO(zp) \
+    ((zp)->z_group_id.master_spa == 0|| (zp)->z_group_id.master_objset == 0) 
+
+
 extern int	zfs_init_fs(zfs_sb_t *, znode_t **);
 extern void	zfs_set_dataprop(objset_t *);
 extern void	zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *,
@@ -366,9 +508,19 @@ extern zil_get_data_t zfs_get_data;
 extern zil_replay_func_t zfs_replay_vector[TX_MAX_TYPE];
 extern int zfsfstype;
 
+extern int zfs_obj_to_path(objset_t *osp, uint64_t obj, char *buf, int len);
+extern znode_t *zfs_znode_alloc_by_group(zfs_sb_t *zsb, uint64_t blksz,
+     zfs_group_object_t *group_object, zfs_group_phys_t *zphy);
+
+extern vn_op_type_t zfs_vn_lookup_type(znode_t *zp, char *name, uint64_t flag);
+extern vn_op_type_t zfs_vn_dir_type(znode_t *zp, uint64_t flag);
+extern vn_op_type_t zfs_vn_op_type(znode_t *zp, uint64_t flag);
+extern vn_op_type_t zfs_rw_type(znode_t *zp, uint64_t flags, znode_t **nzp);
+extern vn_op_type_t zfs_rw_type_data2(znode_t *zp, uint64_t flags, znode_t **nzp);
+
+extern void zfs_inquota(zfs_sb_t *zsb, znode_t *zp);
 #endif /* _KERNEL */
 
-extern int zfs_obj_to_path(objset_t *osp, uint64_t obj, char *buf, int len);
 
 #ifdef	__cplusplus
 }

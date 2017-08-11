@@ -481,7 +481,7 @@ zpl_shares_iterate(struct file *filp, struct dir_context *ctx)
 		goto out;
 
 	crhold(cr);
-	error = -zfs_readdir(ZTOI(dzp), ctx, cr);
+	error = -zfs_readdir(ZTOI(dzp), ctx, cr, 0);
 	crfree(cr);
 
 	iput(ZTOI(dzp));
