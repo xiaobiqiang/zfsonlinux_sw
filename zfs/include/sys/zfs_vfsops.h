@@ -41,6 +41,35 @@ extern "C" {
 struct zfs_sb;
 struct znode;
 
+#define DIR_OVERQUOTQ_FORMAT "%s%llx"
+
+#define DIR_QUOTA_FORMAT	"%s%llx"
+#define DIR_QUOTA_USED		"%s%llx" 
+#define DIR_QUOTA_PATH		"%s%llx" 
+
+#define DIR_LOWDATA_FORMAT	"%s%llx"
+#define DIR_LOWDATA_PERIOD_FORMAT	"%s%llx"
+#define DIR_LOWDATA_DELETE_PERIOD_FORMAT	"%s%llx"
+#define DIR_LOWDATA_PERIOD_UNIT_FORMAT	"%s%llx"
+#define DIR_LOWDATA_CRITERIA_FORMAT	"%s%llx"
+#define DIR_LOWDATA_PATH_FORMAT				"%s%llx"
+
+#define NASGROUP_MAP_NUM	10240
+
+extern const char *zfs_group_fid_map_key_spa_prefix_format;
+extern const char *zfs_group_fid_map_key_os_prefix_format;
+
+extern const char *zfs_dirquota_prefixex;
+extern const char *zfs_dirused_prefixex;
+extern const char *zfs_dirpath_name_prefixex;
+
+extern const char *zfs_dirlowdata_prefixex;
+extern const char *zfs_dirlowdata_period_prefixex;
+extern const char *zfs_dirlowdata_delete_period_prefixex;
+extern const char *zfs_dirlowdata_period_unit_prefixex;
+extern const char *zfs_dirlowdata_criteria_prefixex;
+extern const char *zfs_dirlowdata_path_prefixex;
+
 typedef struct zfs_mntopts {
 	char		*z_osname;	/* Objset name */
 	char		*z_mntpoint;	/* Primary mount point */
@@ -61,6 +90,16 @@ typedef struct zfs_mntopts {
 	boolean_t	z_nbmand;
 	boolean_t	z_do_nbmand;
 } zfs_mntopts_t;
+
+
+typedef enum softquota_error {
+	SOFTQUOTA_NO = 0,
+	SOFTQUOTA_OVER,
+	SOFTQUOTA_OVER_HARD,
+} softquota_error_t;
+
+#define SOFTQUOTA_OVER_TIME	60*60*24*7 
+
 
 typedef struct zfs_sb {
 	struct super_block *z_sb;	/* generic super_block */
@@ -115,6 +154,42 @@ typedef struct zfs_sb {
 	uint64_t	z_hold_size;	/* znode hold array size */
 	avl_tree_t	*z_hold_trees;	/* znode hold trees */
 	kmutex_t	*z_hold_locks;	/* znode hold locks */
+
+	uint64_t	z_softuserquota_obj;
+	uint64_t	z_softgroupquota_obj;
+	uint64_t	z_overquota;
+	uint64_t	z_dirquota_obj;
+	uint64_t	z_dirlowdata_obj;
+	uint64_t	z_nas_group_obj;
+	uint64_t*	z_group_map_objs;
+
+	uint64_t 	z_isworm;
+	uint64_t	z_autoworm;
+	uint64_t	z_wormrent;
+
+	taskq_t	  *notify_taskq;
+	taskq_t	  *overquota_taskq;
+	kmutex_t	z_group_dtl_obj_mutex;
+	uint64_t	z_group_dtl_obj;
+	uint64_t	z_group_dtl_obj_num;
+	kmutex_t	z_group_dtl_tree_mutex;
+	avl_tree_t	z_group_dtl_tree;
+	kmutex_t	z_group_dtl_tree2_mutex;
+	avl_tree_t	z_group_dtl_tree2;
+	kmutex_t	z_group_dtl_obj3_mutex;
+	uint64_t	z_group_dtl_obj3;
+	uint64_t	z_group_dtl_obj3_num;
+	kmutex_t	z_group_dtl_tree3_mutex;
+	avl_tree_t	z_group_dtl_tree3;
+	kmutex_t	z_group_dtl_obj4_mutex;
+	uint64_t	z_group_dtl_obj4;
+	uint64_t	z_group_dtl_obj4_num;
+	kmutex_t	z_group_dtl_tree4_mutex;
+	avl_tree_t	z_group_dtl_tree4;
+	void*		z_group_sync_obj;
+	boolean_t	z_is_setting_up;
+
+	
 } zfs_sb_t;
 
 #define	ZFS_SUPER_MAGIC	0x2fc12fc1
@@ -170,7 +245,8 @@ typedef struct zfid_short {
 typedef struct zfid_long {
 	zfid_short_t	z_fid;
 	uint8_t		zf_setid[6];		/* obj[i] = obj >> (8 * i) */
-	uint8_t		zf_setgen[4];		/* gen[i] = gen >> (8 * i) */
+	uint8_t		zf_dirquota[4];		  /* gen[i] = gen >> (8 * i) */
+	uint8_t		zf_dirlowdata[4];	
 } zfid_long_t;
 
 #define	SHORT_FID_LEN	(sizeof (zfid_short_t) - sizeof (uint16_t))
@@ -216,6 +292,35 @@ extern int zfs_statvfs(struct dentry *dentry, struct kstatfs *statp);
 extern int zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp);
 extern int zfs_replay_rawdata(objset_t *os, char *data, uint64_t object,
     uint64_t offset, uint64_t length);
+
+
+extern zfs_sb_t * zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_check_setting_up); 
+extern void zfs_sb_group_rele(zfs_sb_t *zsb,  void *tag);
+
+extern int zfs_set_overquota(zfs_sb_t *zsb, uint64_t dir_obj, boolean_t overquota, boolean_t remove, dmu_tx_t *tx_para);
+extern int zfs_set_dir_quota(zfs_sb_t *zsb, uint64_t dir_obj, char *path, uint64_t quota);
+extern boolean_t zfs_get_overquota(zfs_sb_t *zsb, uint64_t dir_obj);
+
+extern int zfs_owner_oversoftquota(zfs_sb_t *zsb, struct znode *zp, boolean_t isgroup);
+extern int zfs_get_dirquota(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirquota_t *dirquota);
+extern int zfs_get_dir_qutoa_many(zfs_sb_t *zsb,  uint64_t *cookiep, void *vbuf, uint64_t *bufsizep);
+extern void zfs_dir_updatequota(zfs_sb_t *zsb, struct znode *zp, uint64_t update_size,
+    uint64_t update_op, dmu_tx_t *tx);
+extern void zfs_fuid_updatequota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid, 
+    uint64_t update_size, uint64_t update_op, dmu_tx_t *tx);
+
+extern int zfs_del_dirquota(zfs_sb_t *zsb, uint64_t dir_obj);
+extern int zfs_set_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, char *path, 
+    const char *propname, uint64_t new_value, zfs_dirlowdata_t *dir_lowdata);
+extern int zfs_get_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirlowdata_t *dir_lowdata);
+extern int zfs_get_dir_lowdata_many(zfs_sb_t *zsb,  uint64_t *cookiep, void *vbuf, uint64_t *bufsizep);
+extern int zfs_del_dirlowdata(zfs_sb_t *zsb, uint64_t dir_obj);
+extern boolean_t zfs_overquota(zfs_sb_t *zsb, struct znode *zp, uint64_t dirquota_index);
+
+extern int zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid);
+
+extern bool super_hold(struct super_block *sb);
+extern void super_rele(struct super_block *sb);
 
 
 #ifdef	__cplusplus

@@ -50,8 +50,10 @@ static zprop_desc_t zfs_prop_table[ZFS_NUM_PROPS];
 const char *zfs_userquota_prop_prefixes[] = {
 	"userused@",
 	"userquota@",
+	"softuserquota@",
 	"groupused@",
-	"groupquota@"
+	"groupquota@",
+	"softgroupquota@"
 };
 
 zprop_desc_t *

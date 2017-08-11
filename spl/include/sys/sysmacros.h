@@ -73,7 +73,8 @@
 
 #define MAXMSGLEN			256
 #define MAXNAMELEN			256
-#define MAXPATHLEN			PATH_MAX
+//#define MAXPATHLEN			PATH_MAX
+#define MAXPATHLEN			1024
 #define MAXOFFSET_T			LLONG_MAX
 #define MAXBSIZE			8192
 #define DEV_BSIZE			512

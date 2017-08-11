@@ -631,8 +631,8 @@ zfsctl_snapdir_fid(struct inode *ip, fid_t *fidp)
 	for (i = 0; i < sizeof (zlfid->zf_setid); i++)
 		zlfid->zf_setid[i] = (uint8_t)(objsetid >> (8 * i));
 
-	for (i = 0; i < sizeof (zlfid->zf_setgen); i++)
-		zlfid->zf_setgen[i] = 0;
+//	for (i = 0; i < sizeof (zlfid->zf_setgen); i++)
+//		zlfid->zf_setgen[i] = 0;
 
 	return (0);
 }

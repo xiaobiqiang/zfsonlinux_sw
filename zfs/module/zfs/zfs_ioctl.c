@@ -189,6 +189,10 @@
 #include <linux/miscdevice.h>
 #include <sys/zfs_mirror.h>
 #include <sys/cluster_san.h>
+#include <sys/zfs_multiclus.h>
+#include <sys/zfs_group_dtl.h>
+#include <sys/zfs_group_sync.h>
+#include <sys/zfs_group_sync_data.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -2291,6 +2295,60 @@ zfs_ioc_snapshot_list_next(zfs_cmd_t *zc)
 		*strchr(zc->zc_name, '@') = '\0';
 	return (error);
 }
+
+
+int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
+{
+	
+	uint64_t object = pairvalue->object;
+	char *path = pairvalue->path;
+	const char *propname = pairvalue->propname;
+	uint64_t value = pairvalue->value;
+	zfs_sb_t *zsb = NULL;
+//	zfsvfs_t *zfsvfs = NULL;
+	int err;
+	zfs_dirlowdata_t dir_lowdata = {"",ZFS_LOWDATA_OFF,7,0,ZFS_LOWDATA_PERIOD_DAY,ZFS_LOWDATA_CRITERIA_ATIME};
+
+
+	/*
+	 * A correctly constructed propname is encoded as
+	 * userquota@<rid>-<domain>.
+	 */
+	 
+	/* cmn_err(CE_WARN, "Receive set_dir_lowdata message from slave 
+		Success!!!"); */
+//	err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_FALSE);
+	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
+	if (err == 0) {
+		
+		zfs_get_dir_low(zsb, pairvalue->object, &dir_lowdata);
+
+		if (strncmp(propname, zfs_dirlowdata_prefixex, strlen(zfs_dirlowdata_prefixex)) == 0) {
+			dir_lowdata.lowdata = value;
+		} else if (strncmp(propname, zfs_dirlowdata_period_prefixex,
+		    strlen(zfs_dirlowdata_period_prefixex)) == 0) {
+			dir_lowdata.lowdata_period = value;
+		} else if (strncmp(propname, zfs_dirlowdata_delete_period_prefixex,
+		    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0) {
+			dir_lowdata.lowdata_delete_period = value;
+		} else if (strncmp(propname, zfs_dirlowdata_period_unit_prefixex,
+		    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) {
+			dir_lowdata.lowdata_period_unit = value;
+		} else if (strncmp(propname, zfs_dirlowdata_criteria_prefixex,
+		    strlen(zfs_dirlowdata_criteria_prefixex)) == 0) {
+			dir_lowdata.lowdata_criteria = value;
+		}
+		err = zfs_set_dir_low(zsb, object, path, propname, value, &dir_lowdata);
+		if(err)
+		{
+			cmn_err(CE_WARN, "err=%d: master set dirlowdata Fail!!!",err);
+		}
+		zfs_sb_rele(zsb, FTAG);
+	}
+	return (err);
+}
+
+
 
 static int
 zfs_prop_set_userquota(const char *dsname, nvpair_t *pair)
@@ -5142,6 +5200,182 @@ zfs_ioc_do_clustersan(zfs_cmd_t *zc)
 	return (ret);
 }
 
+
+boolean_t zfs_multiclus_get_state(zfs_cmd_t *zc)
+{
+	boolean_t gstatus;
+	nvlist_t *config;
+	
+	gstatus = zfs_multiclus_enable();
+	if(B_FALSE == gstatus)
+	{
+		strcpy(zc->zc_string, "down");
+	}
+	else
+	{
+		zfs_get_group_state(&config,&zc->zc_multiclus_group,
+			&zc->zc_multiclus_break, &zc->zc_multiclus_onceflag);
+		if(config != NULL) 
+		{
+			strcpy(zc->zc_string, "up");
+			put_nvlist(zc, config);
+			nvlist_free(config);
+		}
+		else
+		{
+			strcpy(zc->zc_string, "Null");
+			return (B_TRUE);
+		}
+	}
+
+	return (B_TRUE);
+}
+
+int zfs_multiclus_get_dtlstatus(zfs_cmd_t *zc)
+{
+	int error = 0;
+	uint64_t	treenum[6] = {0};
+	if (zc == NULL)
+	{
+		return EINVAL;
+	}
+	
+	/* treenum[0 ~ 2] are for nas_group_dtl1-2 number
+	 *  treenum[0 ~ 2] are for nas_group_dtl1-2 number in disk;
+	 */
+	error = zfs_get_dtltree_status(treenum, zc->zc_string);
+	zc->zc_nvlist_conf_size = treenum[0];
+	zc->zc_nvlist_dst_size = treenum[1];
+	zc->zc_nvlist_src_size = treenum[2];
+	zc->zc_nvlist_conf = treenum[3];
+	zc->zc_nvlist_dst = treenum[4];
+	zc->zc_nvlist_src = treenum[5];
+	zc->zc_cookie = error;
+	return error;
+}
+
+int zfs_multiclus_clean_dtltree(zfs_cmd_t *zc)
+{
+	int error = 0;
+	objset_t *os = NULL;
+	if (zc == NULL){
+		return EINVAL;
+	}
+	
+	if ((error = dmu_objset_hold(zc->zc_string, FTAG, &os))){
+		return (error);
+	}
+
+	zfs_group_dtl_reset(os, NULL);
+	dmu_objset_rele(os, FTAG);
+	return error;
+}
+
+
+static int
+zfs_ioc_start_multiclus(zfs_cmd_t *zc)
+{
+	int error = 0;
+
+	switch (zc->zc_cookie)
+	{
+		case ENABLE_MULTICLUS:
+			error = zfs_multiclus_init();
+			break;
+
+		case DISABLE_MULTICLUS:
+			zfs_multiclus_fini();
+			break;
+
+		case SHOW_MULTICLUS:
+		case XML_MULTICLUS:
+			zfs_multiclus_get_state(zc);
+			break;
+
+		case CREATE_MULTICLUS:
+			error = zfs_multiclus_create_group(zc->zc_value, zc->zc_string);
+			break;
+
+		case ADD_MULTICLUS:
+			error = zfs_multiclus_add_group(zc->zc_value, zc->zc_string);
+			break;
+
+		case SET_MULTICLUS_SLAVE:
+			error = zfs_multiclus_set_slave(zc->zc_value, zc->zc_string);
+			break;
+
+		case SET_MULTICLUS_MASTER4:
+			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string, 
+				ZFS_MULTICLUS_MASTER4);
+			break;
+
+		case SET_MULTICLUS_MASTER3:
+			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string,
+				ZFS_MULTICLUS_MASTER3);
+			break;
+
+		case SET_MULTICLUS_MASTER2:
+			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string,
+				ZFS_MULTICLUS_MASTER2);
+			break;
+
+		case SET_MULTICLUS_MASTER:
+			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string, 
+				ZFS_MULTICLUS_MASTER);
+			break;
+
+		case GET_MULTICLUS_DTLSTATUS:
+			error = zfs_multiclus_get_dtlstatus(zc);
+			break;
+
+		case CLEAN_MULTICLUS_DTLTREE:
+			error = zfs_multiclus_clean_dtltree(zc);
+			break;
+
+		case SYNC_MULTICLUS_GROUP:
+			if (zc->zc_multiclus_pad[1] == 0) {
+				error = zfs_multiclus_sync_group(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0, ZFS_MULTICLUS_SYNC_CLUSTER);
+			} else {
+				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string, ZFS_MULTICLUS_SYNC_CLUSTER);
+			}
+
+			break;
+
+		case SYNC_MULTICLUS_GROUP_DATA:
+			if (zc->zc_multiclus_pad[1] == 0) {
+				error = zfs_multiclus_sync_group_data(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0, zc->zc_multiclus_pad[2] != 0);
+			} else {
+				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string, ZFS_MULTICLUS_SYNC_CLUSTER);
+			}
+			break;
+
+		default:
+			break;
+	}
+	return (error);
+}
+
+
+static int
+zfs_ioc_get_rpc_info(zfs_cmd_t *zc)
+{
+	int error = 0;
+	nvlist_t *config = NULL;
+	
+	if (zc->zc_cookie == GET_GROUP_IP) {
+		error = zfs_get_group_ip(&config);
+	} else if (zc->zc_cookie == GET_MASTER_IPFS) {
+		error = zfs_get_master_ip(zc->zc_name, &config);
+	}
+	/* strcpy(zc->zc_string, "up"); */
+	if(NULL != config){
+		put_nvlist(zc, config);
+		nvlist_free(config);
+	}
+	zc->zc_cookie = error;
+	return (error);
+}
+
 /*
  * innvl: {
  *     "holds" -> { snapname -> holdname (string), ... }
@@ -5650,6 +5884,22 @@ zfs_ioctl_register_clustersan(zfs_ioc_t ioc, zfs_ioc_legacy_func_t *func,
 }
 
 static void
+zfs_ioctl_register_multiclus(zfs_ioc_t ioc, zfs_ioc_legacy_func_t *func,
+		zfs_secpolicy_func_t *secpolicy)
+{
+	zfs_ioctl_register_legacy(ioc, func, secpolicy,
+			NO_NAME, B_FALSE, POOL_CHECK_NONE);
+}
+
+static void
+zfs_ioctl_register_get_rpc_info(zfs_ioc_t ioc, zfs_ioc_legacy_func_t *func,
+		zfs_secpolicy_func_t *secpolicy)
+{
+	zfs_ioctl_register_legacy(ioc, func, secpolicy,
+			NO_NAME, B_FALSE, POOL_CHECK_NONE);
+}
+
+static void
 zfs_ioctl_init(void)
 {
 	zfs_ioctl_register("snapshot", ZFS_IOC_SNAPSHOT,
@@ -5863,6 +6113,11 @@ zfs_ioctl_init(void)
         zfs_ioc_zvol_create_minor_done_wait, zfs_secpolicy_none,
         NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
+	zfs_ioctl_register_multiclus(ZFS_IOC_START_MULTICLUS, zfs_ioc_start_multiclus,
+			zfs_secpolicy_none);
+
+	zfs_ioctl_register_get_rpc_info(ZFS_IOC_GET_RPC_INFO, zfs_ioc_get_rpc_info,
+			zfs_secpolicy_none);
 	/*
 	 * ZoL functions
 	 */

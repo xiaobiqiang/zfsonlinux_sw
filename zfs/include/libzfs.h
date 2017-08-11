@@ -68,7 +68,6 @@ extern "C" {
 #define	DEFAULT_IMPORT_PATH_SIZE	7
 extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 
-
 /* solaris stamp write */
 #define STAMP_OFFSET		2
 #define ZPOOL_INIT_PROGRESS	0x0
@@ -78,6 +77,18 @@ extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 #define COMPANY_NAME		0x12345678
 #define	VDEV_PAD_SIZE		(8 << 10)
 #define	ZPOOL_STAMP_SIZE	(VDEV_PAD_SIZE / 2)
+
+#define	GROUP_NODE_NUM		32
+#define	ZFS_NAME_LEN			256
+
+typedef struct zfs_group_sync_param
+{
+	boolean_t	check_only;
+	boolean_t	stop_sync;
+	boolean_t	all_member_online;
+	char		*output_file;
+	char		*target_dir;
+} zfs_grp_sync_param_t;
 
 typedef struct zpool_stamp_para {
 	uint32_t pool_magic;
@@ -93,6 +104,27 @@ typedef struct zpool_stamp {
 } zpool_stamp_t;
 
 /* solaris stamp write end */
+
+
+typedef struct zfs_rpc_arg {
+	uint_t	flag;
+	uint_t	bufcnt;	/* param counter */
+	uint_t	backoffset;
+	uint_t	filelen;
+	char		*filebuf;
+	char		*propname;
+	char		*value;
+	char		*buf[ZFS_NAME_LEN];	 /* param pointer */
+}zfs_rpc_arg_t;
+
+typedef struct zfs_rpc_ret {
+	uint_t	flag;
+	uint_t	backlen;
+	char		*backbuf;
+}zfs_rpc_ret_t;
+
+
+
 
 /*
  * libzfs errors
@@ -214,6 +246,9 @@ typedef struct zfs_allow {
 typedef struct zfs_handle zfs_handle_t;
 typedef struct zpool_handle zpool_handle_t;
 typedef struct libzfs_handle libzfs_handle_t;
+
+
+#define	RPC_SEND_RECV_SIZE	65536	/* 64*1024=65536 */
 
 /*
  * Library initialization
@@ -893,6 +928,14 @@ void zfs_import_all_lus(libzfs_handle_t *hdl, char *data);
 void zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name);
 void zfs_destroy_all_lus(libzfs_handle_t *hdl, char *pool_name);
 void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
+/*
+ * multiclus functions. 
+ */
+extern void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
+    char *fs_name, uint64_t flags, void* param);
+
+extern int get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 
+	char *groupip, uint_t *num );
 
 #ifdef	__cplusplus
 }

@@ -83,4 +83,11 @@ extern int crgetngroups(const cred_t *cr);
 extern gid_t * crgetgroups(const cred_t *cr);
 extern int groupmember(gid_t gid, const cred_t *cr);
 
+extern uint_t crgetref(const cred_t *cr);
+extern int crsetresuid(cred_t *cr, uid_t r, uid_t e, uid_t s);
+extern int crsetresgid(cred_t *cr, gid_t r, gid_t e, gid_t s);
+extern int gidcmp(const void *v1, const void *v2);
+extern int crsetgroups(cred_t *cr, int n, gid_t *grp);
+extern int crsetugid(cred_t *cr, uid_t uid, gid_t gid);
+
 #endif  /* _SPL_CRED_H */

@@ -47,6 +47,9 @@
 #include <syslog.h>
 #include <sys/vdev_impl.h>
 #include <sys/thread_pool.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
+
 #include <libzfs.h>
 #include <libzfs_core.h>
 #include <libstmf.h>
@@ -3211,4 +3214,501 @@ zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled)
 #endif	
 	zfs_iter_root(hdl, zfs_enable_avs_iter_pool, (void *)&ctx);
 }
+
+
+void zfs_print_separator(char septor, int cnt)
+{
+	int i;
+	for(i=0; i<cnt; i++)
+	{
+		printf("%c", septor);
+	}
+	printf("\r\n");
+}
+
+int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
+{
+	int err = 0;
+	zfs_group_info_t (*gs)[32] = {0};
+	zfs_group_info_t *ptr = NULL;
+	char *gname = NULL;
+	uint_t cnt = 0;
+	uint_t gmcnt = 0;
+	uint64_t gnum = 0;
+	uint64_t *gmaster = NULL;
+	int space_num = 0;
+	nvlist_t *config = NULL;
+	char gmas[16] = {0};
+	char gnums[16] = {0};
+	char spa_id[32] = {0};
+	char gnode_id[16] = {0};
+	char avail_size[32] = {0};
+	char used_size[32] = {0};
+	char load_ios[16] = {0};
+	char *node_status[3] 
+		= {"offline","checking","online"};
+	int i = 0;
+	int index = 0;
+	xmlDocPtr gdoc;
+	xmlNodePtr root_node;
+	xmlNodePtr group_node;
+	xmlNodePtr fs_node;				
+	xmlChar *xmlbuff;
+	int buffersize;
+	uint64_t xmlfirst = 0;
+	
+	do{
+		if (zcmd_alloc_dst_nvlist(hdl, zc, 0) != 0){
+			printf("zcmd_alloc_dst_nvlist: NULL\r\n");
+			return -1;
+		}
+
+		err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MULTICLUS, zc);
+		if(err){
+			switch(flags)
+			{
+				case SHOW_MULTICLUS:
+					printf("Fail to show multiclus info, %d\n", err);
+					break;
+				case XML_MULTICLUS:
+					printf("Fail to show multiclus xml info, %d\n", err);
+					break;
+				default:
+					printf("Fail to get multiclus info, Type invalid\n");
+			}
+			zcmd_free_nvlists(zc);
+		}else if(strcmp(zc->zc_string, "down")){
+			if(zcmd_read_dst_nvlist(hdl, zc, &config) != 0){
+				zcmd_free_nvlists(zc);
+				return -1;
+			}
+		
+			zcmd_free_nvlists(zc);
+			/* nvlist_print(stdout, config); */
+			verify(nvlist_lookup_string(config, 
+				ZPOOL_CONFIG_MULTICLUS_GNAME, &gname) == 0);
+			verify(nvlist_lookup_uint64_array(config,
+				ZPOOL_CONFIG_MULTICLUS_MASTER, (uint64_t **)&gmaster, &gmcnt) == 0);
+			verify(nvlist_lookup_uint64(config,
+				ZPOOL_CONFIG_MULTICLUS_GNUM, &gnum) == 0);
+			verify(nvlist_lookup_uint64_array(config, 
+				ZPOOL_CONFIG_MULTICLUS,	(uint64_t **)&gs, &cnt) == 0);
+			if(SHOW_MULTICLUS == flags){
+				printf("Group Info:\r\n" );
+				zfs_print_separator('=', 43);
+				space_num = 41 - strlen("| Multiclus status | up ");
+				printf("| Multiclus status | up %*s |\r\n", space_num, "");
+				space_num = 20 - strlen(gname) ;
+				printf("| Group name       | %s%*s |\r\n", gname, space_num, "" );
+				sprintf(gmas, "%llu", gmaster[0]);
+				space_num = 20 - strlen(gmas);
+				printf("| Master node id   | %s%*s |\r\n", gmas, space_num, "");
+				memset(gmas, 0, 16);
+				sprintf(gmas, "%llu", gmaster[1]);
+				space_num = 20 - strlen(gmas);
+				printf("| Master2 node id  | %s%*s |\r\n", gmas, space_num, "");
+				memset(gmas, 0, 16);
+				sprintf(gmas, "%llu", gmaster[2]);
+				space_num = 20 - strlen(gmas);
+				printf("| Master3 node id  | %s%*s |\r\n", gmas, space_num, "");
+				memset(gmas, 0, 16);
+				sprintf(gmas, "%llu", gmaster[3]);
+				space_num = 20 - strlen(gmas);
+				printf("| Master4 node id  | %s%*s |\r\n", gmas, space_num, "");
+				memset(gmas, 0, 16);
+				sprintf(gnums, "%lld", gnum);
+				space_num = 20 - strlen(gnums);
+				printf("| Group number     | %s%*s |\r\n", gnums, space_num, "");
+				zfs_print_separator('=', 43);
+				
+				ptr = gs[0];
+				/* printf("cnt : %d\r\n", cnt); */
+				for(i=0; i<gnum; i++){
+					space_num = 20 - strlen(ptr->gi_fsname);
+					printf("| Fs name          | %s%*s |\r\n", ptr->gi_fsname, 
+					space_num, "");
+					ptr->node_type[MAX_FSNAME_LEN - 1] = 0;
+					space_num = 20 - strlen(ptr->node_type);
+					printf("| Node type        | %s%*s |\r\n", ptr->node_type, space_num, "");
+					sprintf(spa_id, "%llx", ptr->spa_id);
+					space_num = 20 - strlen(spa_id);
+					printf("| Spa id           | %s%*s |\r\n", spa_id, space_num, "");
+					sprintf(gnode_id, "%lld", ptr->gnode_id);
+					space_num = 20 - strlen(gnode_id);
+					printf("| Node id          | %s%*s |\r\n", gnode_id, space_num, "");
+					nicenum(ptr->avail_size, avail_size);
+					/* sprintf(avail_size, "%llx", ptr->avail_size); */
+					space_num = 20 - strlen(avail_size);
+					printf("| Avail size       | %s%*s |\r\n", avail_size, space_num, "");
+					nicenum(ptr->used_size, used_size);
+					/* sprintf(used_size, "%llx", ptr->used_size); */
+					space_num = 20 - strlen(used_size);
+					printf("| Used size        | %s%*s |\r\n", used_size, space_num, "");
+					sprintf(load_ios, "%lld", ptr->load_ios);
+					space_num = 20 - strlen(load_ios);
+					printf("| Load ios         | %s%*s |\r\n", load_ios, space_num, "");
+					index = ptr->node_status;
+					space_num = 20 - strlen(node_status[index]);
+					printf("| Status           | %s%*s |\r\n", 
+					node_status[index], space_num, "");
+					ptr++;
+					if(i<gnum-1){
+						zfs_print_separator('-', 43);
+					}
+				}
+				zfs_print_separator('=', 43);
+				zfs_print_separator(' ', 43);
+			}
+			else{
+				/* Create XML file */
+				if(!xmlfirst){
+					gdoc = xmlNewDoc((xmlChar *)"1.0");
+					root_node = xmlNewNode(NULL, (xmlChar *)"multiclus");
+					xmlDocSetRootElement(gdoc, root_node);
+					xmlfirst = 1;
+				}
+				
+				group_node = xmlNewChild(root_node, NULL, (xmlChar *)"group", NULL);
+				xmlSetProp(group_node, (xmlChar *)"mcstate", (xmlChar *)"up");
+				xmlSetProp(group_node, (xmlChar *)"gname", (xmlChar *)gname);
+				sprintf(gmas, "%llu", gmaster[0]);
+				xmlSetProp(group_node, (xmlChar *)"mhostid", (xmlChar *)gmas);
+				sprintf(gmas, "%llu", gmaster[1]);
+				xmlSetProp(group_node, (xmlChar *)"m2_hostid", (xmlChar *)gmas);
+				sprintf(gmas, "%llu", gmaster[2]);
+				xmlSetProp(group_node, (xmlChar *)"m3_hostid", 
+					(xmlChar *)gmas);
+				sprintf(gmas, "%llu", gmaster[3]);
+				xmlSetProp(group_node, (xmlChar *)"m4_hostid", 
+					(xmlChar *)gmas);
+				sprintf(gnums, "%llu", gnum);
+				xmlSetProp(group_node, (xmlChar *)"gnum", (xmlChar *)gnums);
+				
+				ptr = gs[0];
+				/* printf("cnt : %d\r\n", cnt); */
+				for(i=0; i<gnum; i++){
+					fs_node = xmlNewChild(group_node, NULL, (xmlChar *)"fsstats", NULL);
+					xmlSetProp(fs_node, (xmlChar *)"fsname", (xmlChar *)ptr->gi_fsname);
+					ptr->node_type[MAX_FSNAME_LEN - 1] = 0;
+					xmlSetProp(fs_node, (xmlChar *)"desc", (xmlChar *)ptr->node_type);
+					sprintf(gnode_id, "%lld", ptr->gnode_id);
+					xmlSetProp(fs_node, (xmlChar *)"fshostid", (xmlChar *)gnode_id);
+					nicenum(ptr->avail_size, avail_size);
+					/* sprintf(avail_size, "%llx", ptr->avail_size); */
+					xmlSetProp(fs_node, (xmlChar *)"fsavailsize", (xmlChar *)avail_size);
+					nicenum(ptr->used_size, used_size);
+					/* sprintf(used_size, "%llx", ptr->used_size); */
+					xmlSetProp(fs_node, (xmlChar *)"fsusedsize", (xmlChar *)used_size);
+					sprintf(load_ios, "%lld", ptr->load_ios);
+					xmlSetProp(fs_node, (xmlChar *)"fsloadios", (xmlChar *)load_ios);
+					index = ptr->node_status;
+					xmlSetProp(fs_node, (xmlChar *)"fsstatus", (xmlChar *)node_status[index]);
+					ptr++;
+				}
+				
+				if(zc->zc_multiclus_group == 0){
+					xmlDocDumpFormatMemory(gdoc, &xmlbuff, &buffersize, 1);
+					
+					xmlSaveFormatFileEnc("/tmp/multiclus.xml", gdoc, "UTF-8", 1);
+					xmlFreeDoc(gdoc);
+				}
+			}
+			nvlist_free(config);
+		}
+		else{
+			if(SHOW_MULTICLUS == flags){
+				printf("Multiclus_state: down\r\n");
+			}
+			else{
+				/* Create XML file */
+				gdoc = xmlNewDoc((xmlChar *)"1.0");
+				root_node = xmlNewNode(NULL, (xmlChar *)"multiclus");
+				xmlDocSetRootElement(gdoc, root_node);
+				group_node;
+				group_node = xmlNewChild(root_node, NULL, (xmlChar *)"group", NULL);
+				xmlSetProp(group_node, (xmlChar *)"mcstate", (xmlChar *)"down");
+				xmlDocDumpFormatMemory(gdoc, &xmlbuff, &buffersize, 1);
+				
+				xmlSaveFormatFileEnc("/tmp/multiclus.xml", gdoc, "UTF-8", 1);
+				xmlFreeDoc(gdoc);
+			}
+			zcmd_free_nvlists(zc);
+			
+		}
+
+	}while(zc->zc_multiclus_group > 0);
+	
+	return (err);
+}
+
+void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
+    char *fs_name, uint64_t flags, void* param) 
+{
+	int err,ret;
+	unsigned long interval = 0;
+	zfs_cmd_t zc = { 0 };
+	//char buf[RPC_SEND_RECV_SIZE] = {0};
+	char dtl_buf[6][32] = {0};
+
+	if (flags == ENABLE_MULTICLUS) {
+		//printf("ENABLE_MULTICAST\r\n");
+	} else if(flags == DISABLE_MULTICLUS) {
+		//printf("DISABLE_MULTICAST\r\n");
+	} else if (flags == SHOW_MULTICLUS) {
+		//printf("SHOW_MULTICLUS\r\n");
+	}
+// 	else if(flags == XML_MULTICLUS) {
+//		printf("XML_MULTICLUS\r\n");
+//	} else if(flags == ZFS_RPC_CALL_SERVER) {
+		//printf("ZFS_RPC_CALL_SERVER\r\n");
+//		zfs_rpc_server(NULL);
+//	} else if(flags == ZFS_RPC_CALL_TEST) {
+//		ret = zfs_rpc_msg_send( hdl, NULL, ZFS_RPC_DISK_TEST, (char*)buf);
+//		if(ret){
+//			printf("%s: Fail to call remote server!!!\n", __func__);
+//		}else {
+//			printf("%s: the remote info: %s\n", __func__, buf);
+//		}
+//		return;
+//	} 
+	else if (flags == SYNC_MULTICLUS_GROUP) {
+		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
+
+		if (group_name != NULL) {
+			strncpy(zc.zc_value, group_name, MAXPATHLEN * 2);
+		}
+		if (fs_name != NULL) {
+			strncpy(zc.zc_string, fs_name, MAXNAMELEN);
+		}
+
+		/* reuse 'zc_multiclus_pad' to hold sync/check flag */
+		zc.zc_multiclus_pad[0] = sync_param->check_only ? 1 : 0;
+		zc.zc_multiclus_pad[1] = sync_param->stop_sync ? 1 : 0;
+
+		strncpy(zc.zc_output_file, sync_param->output_file, MAXPATHLEN);
+
+		/* reuse 'zc_top_ds' to hold target dir */
+		if (sync_param->target_dir != NULL) {
+			strncpy(zc.zc_top_ds, sync_param->target_dir, MAXPATHLEN);
+		} else {
+			zc.zc_top_ds[0] = 0; /* root dir of the zfs filesystem */
+		}
+	} 
+	else if (flags == SYNC_MULTICLUS_GROUP_DATA) {
+		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
+
+		if (group_name != NULL) {
+			strncpy(zc.zc_value, group_name, MAXPATHLEN * 2);
+		}
+		if (fs_name != NULL) {
+			strncpy(zc.zc_string, fs_name, MAXNAMELEN);
+		}
+
+		/* reuse 'zc_multiclus_pad' to hold sync/check flag */
+		zc.zc_multiclus_pad[0] = sync_param->check_only ? 1 : 0;
+		zc.zc_multiclus_pad[1] = sync_param->stop_sync ? 1 : 0;
+		zc.zc_multiclus_pad[2] = sync_param->all_member_online ? 1 : 0;
+
+		strncpy(zc.zc_output_file, sync_param->output_file, MAXPATHLEN);
+
+		/* reuse 'zc_top_ds' to hold target dir */
+		if (sync_param->target_dir != NULL) {
+			strncpy(zc.zc_top_ds, sync_param->target_dir, MAXPATHLEN);
+		} else {
+			zc.zc_top_ds[0] = 0; /* root dir of the zfs filesystem */
+		}
+	} 
+	else {
+		if (group_name) {
+			//printf("group_name:%s\r\n", group_name);
+			strncpy(zc.zc_value, group_name, MAXPATHLEN * 2);
+		}
+		if (fs_name) {
+			//printf("fs_name:%s\r\n", fs_name);
+			strncpy(zc.zc_string, fs_name, MAXNAMELEN);
+		}
+	}
+
+	zc.zc_cookie = flags;	
+
+	if ( SHOW_MULTICLUS == flags|| XML_MULTICLUS == flags)	{
+		err = multiclus_info_print(hdl, &zc, flags);
+	
+	}else if(GET_MULTICLUS_DTLSTATUS == flags){
+		if (group_name && isdigit(group_name[0])) {
+			char *end;
+			interval = strtoul(group_name, &end, 10);
+			if (*end == '\0' ) {
+				if (interval == 0) {
+					(void) fprintf(stderr, gettext("interval "
+					    "cannot be zero\n"));
+				}
+			} 
+		}
+		do{
+			zc.zc_cookie = flags;
+			zc.zc_nvlist_conf_size = 0;
+			zc.zc_nvlist_dst_size = 0;
+			zc.zc_nvlist_src_size = 0;
+			zc.zc_nvlist_conf = 0;
+			zc.zc_nvlist_dst = 0;
+			zc.zc_nvlist_src = 0;
+			err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MULTICLUS, &zc);
+			if(err){
+				if(ENOENT == zc.zc_cookie){
+					printf("[Error]: Invalid fs name %d\n", zc.zc_cookie);
+				}else{
+					printf("Fail to get dtlstatus: %d\n", err);
+				}
+				interval = 0;
+			}else{
+				memset(dtl_buf[0], 0, 32);
+				memset(dtl_buf[1], 0, 32);
+				memset(dtl_buf[2], 0, 32);
+				memset(dtl_buf[3], 0, 32);
+				memset(dtl_buf[4], 0, 32);
+				memset(dtl_buf[5], 0, 32);
+				sprintf(dtl_buf[0], "%llu", zc.zc_nvlist_conf_size);
+				sprintf(dtl_buf[1], "%llu", zc.zc_nvlist_dst_size);
+				sprintf(dtl_buf[2], "%llu", zc.zc_nvlist_src_size);
+				sprintf(dtl_buf[3], "%llu", zc.zc_nvlist_conf);
+				sprintf(dtl_buf[4], "%llu", zc.zc_nvlist_dst);
+				sprintf(dtl_buf[5], "%llu", zc.zc_nvlist_src);
+				printf("===================================================================\n");
+				printf("|-------master2-------------master3-------------master4-----------|\n");
+				printf("|      %s/%s %*s%s/%s %*s%s/%s%*s|\n", dtl_buf[0], dtl_buf[3],19-strlen(dtl_buf[0])-1-strlen(dtl_buf[3]), "", 
+					dtl_buf[1], dtl_buf[4], 19-strlen(dtl_buf[1])-1-strlen(dtl_buf[4]), "", dtl_buf[2], dtl_buf[5],	
+					19-strlen(dtl_buf[2])-1-strlen(dtl_buf[5]), "");
+				printf("-------------------------------------------------------------------\n");
+				(void) sleep(interval);
+			}
+		}while(interval);
+	}else{
+		err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MULTICLUS, &zc);
+		if(err){
+			switch(flags)
+			{
+				case ENABLE_MULTICLUS:
+					printf("Fail to enable multiclus, %d\n", err);
+					break;
+				case DISABLE_MULTICLUS:
+					printf("Fail to disable multiclus, %d\n", err);
+					break;
+				case ZFS_RPC_CALL_SERVER:
+					printf("Fail to call multiclus rpc server, %d\n", err);
+					break;
+				case ZFS_RPC_CALL_TEST:
+					printf("Fail to call multiclus rpc test, :%d\n", err);
+					break;
+				case CREATE_MULTICLUS:
+					printf("Fail to create multiclus, %d\n", err);
+					break;
+				case ADD_MULTICLUS:
+					printf("Fail to add multiclus: %d\n", err);
+					break;
+				case SET_MULTICLUS_SLAVE:
+					printf("Fail to set multiclus slave, %d\n", err);
+					break;
+				case SET_MULTICLUS_MASTER4:
+					printf("Fail to set multiclus master4, %d\n", err);
+					break;
+				case SET_MULTICLUS_MASTER3:
+					printf("Fail to set multiclus master3, %d\n", err);
+					break;
+				case SET_MULTICLUS_MASTER2:
+					printf("Fail to set multiclus master2, %d\n", err);
+					break;
+				case SET_MULTICLUS_MASTER:
+					printf("Fail to set multiclus master, %d\n", err);
+					break;
+				case CLEAN_MULTICLUS_DTLTREE:
+					printf("Fail to clean multiclus dtltree, %d\n", err);
+					break;
+				case SYNC_MULTICLUS_GROUP:
+					printf("Fail to sync/check multiclus group, %d\n", err);
+					break;
+				case SYNC_MULTICLUS_GROUP_DATA:
+					printf("Fail to sync_data/check_data multiclus group, %d\n", err);
+					break;
+				default:
+					printf("Fail to set multiclus, Type invalid\n");
+					break;
+			}
+		}
+	}
+	
+}
+
+
+int
+get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 
+	char *groupip, uint_t *num )
+{
+	int err = 0;
+	zfs_cmd_t zc = { 0 };
+	nvlist_t *config = NULL;
+	char **ipaddr = NULL;
+	int ii = 0;
+	char *iptr = NULL;
+	
+	zc.zc_cookie = flags;
+	if(GET_MASTER_IPFS == flags){
+		strcpy(zc.zc_name, groupip);
+	}
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0){
+		printf("zcmd_alloc_dst_nvlist: NULL\n");
+		return (-1);
+	}
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_GET_RPC_INFO, &zc);
+
+	if(err){
+		zcmd_free_nvlists(&zc);
+		return (zc.zc_cookie);
+	}
+	
+	if(zcmd_read_dst_nvlist(hdl, &zc, &config) != 0){
+		printf("cookie is: %d\n", zc.zc_cookie);
+		zcmd_free_nvlists(&zc);
+		return (-2);
+	}
+	zcmd_free_nvlists(&zc);
+	/* nvlist_print(stdout, config); */
+	if(GET_GROUP_IP == flags){
+		verify(nvlist_lookup_string_array(config, ZFS_RPC_GROUP_IP,
+		    &ipaddr, num) == 0);
+		iptr = groupip;
+		for(ii=0;ii<*num;ii++){
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+	} else if(GET_MASTER_IPFS == flags) {
+		memset(groupip, 0, 12*MAX_FSNAME_LEN);
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_IP, &ipaddr, num) == 0);
+		iptr = groupip;
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_FS, &ipaddr, num) == 0);
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_TYPE, &ipaddr, num) == 0);
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+	}
+	nvlist_free(config);
+
+	return (0);
+}
+
 

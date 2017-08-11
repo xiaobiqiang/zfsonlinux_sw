@@ -33,6 +33,21 @@
 
 typedef struct iovec iovec_t;
 
+/*
+ * uio_extflg: extended flags
+ *
+ * NOTE: This flag will be used in uiomove to determine if non-temporal
+ * access, ie, access bypassing caches, should be used.  Filesystems that
+ * don't initialize this field could experience suboptimal performance due to
+ * the random data the field contains.
+ *
+ * NOTE: This flag is also used by uioasync callers to pass an extended
+ * uio_t (uioa_t), to uioasync enabled consumers. Unlike above all
+ * consumers of a uioa_t require the uio_extflg to be initialized.
+ */
+#define	UIO_COPY_DEFAULT	0x0000	/* no special options to copy */
+#define	UIO_COPY_CACHED		0x0001	/* copy should not bypass caches */
+
 typedef enum uio_rw {
 	UIO_READ =	0,
 	UIO_WRITE =	1,
