@@ -5636,13 +5636,18 @@ qlt_dma_teardown_dbuf(fct_dbuf_store_t *fds, stmf_data_buf_t *dbuf)
 static fct_status_t
 qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 {
-	scsi_qla_host_t *vha = (scsi_qla_host_t *)port->port_fca_private;	
+	scsi_qla_host_t *vha = (scsi_qla_host_t *)port->port_fca_private;
+	struct qla_hw_data *ha = vha->hw;
 	uint32_t speed = FC_PORTSPEED_UNKNOWN;
 	uint32_t port_type = FC_PORTTYPE_UNKNOWN;
 	int  rval;
 	uint16_t loop_id, topo, sw_cap;
+	uint16_t remote_loop_id = 0;
 	uint8_t domain, area, al_pa;
+	uint16_t	entries = 0;
 	fc_port_t *fcport;
+	char		*id_iter;
+	int index;
 
 	rval = qla2x00_get_adapter_id(vha, &loop_id, &al_pa,
 			    &area, &domain, &topo, &sw_cap);
@@ -5719,7 +5724,33 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	
 	li->port_topology = port_type;
 
-	fcport = qlt_get_port_database(vha, 0);
+	/* Get list of logged in devices. */
+	memset(ha->gid_list, 0, qla2x00_gid_list_size(ha));
+	rval = qla2x00_get_id_list(vha, ha->gid_list, ha->gid_list_dma,
+		&entries);
+	if (rval != QLA_SUCCESS) {
+		printk("qla2x00_get_id_list failed!\n");
+		return;
+	}
+
+	ql_dbg(ql_dbg_disc, vha, 0x2017,
+		"suwei Entries in ID list (%d).\n", entries);
+	ql_dump_buffer(ql_dbg_disc + ql_dbg_buffer, vha, 0x2075,
+		(uint8_t *)ha->gid_list,
+		entries * sizeof(struct gid_list_info));
+
+	/* Add devices to port list. */
+	id_iter = (char *)ha->gid_list;
+	if (IS_QLA2100(ha) || IS_QLA2200(ha))
+		remote_loop_id = (uint16_t)
+		    ((struct gid_list_info *)id_iter)->loop_id_2100;
+	else
+		remote_loop_id = le16_to_cpu(
+		    ((struct gid_list_info *)id_iter)->loop_id);
+
+	printk("suwei remote loop id = %d\n", remote_loop_id);
+	
+	fcport = qlt_get_port_database(vha, remote_loop_id);
 	
 	if (li->port_fca_flogi_done) {
 		bcopy(fcport->port_name, li->port_rpwwn, WWN_SIZE);
