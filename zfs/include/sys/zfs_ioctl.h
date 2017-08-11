@@ -350,12 +350,26 @@ typedef struct zfs_cmd {
 	uint64_t	zc_action_handle;
 	int		zc_cleanup_fd;
 	uint8_t		zc_simple;
-	uint8_t		zc_pad[3];		/* alignment */
+	uint8_t		zc_pad[4];		/* alignment */
 	uint64_t	zc_sendobj;
 	uint64_t	zc_fromobj;
 	uint64_t	zc_createtxg;
 	zfs_stat_t	zc_stat;
+
+	char		zc_top_ds[MAXPATHLEN];
+	//zfs_ioc_crypto_t zc_crypto;
+	boolean_t	zc_temphold;
+	uint64_t	zc_multiclus_stat;
+	uint64_t    zc_multiclus_group;		/*number of group*/
+	uint64_t    zc_multiclus_break;		/*next group index which need to query 
+									      and callback group*/
+	boolean_t   zc_multiclus_onceflag;		/* once query flag when 
+										SHOW_MULTICLUS == flags in zfs_start_multiclus  */
+	uint8_t		zc_multiclus_pad[4];		/* alignment */
+	char		zc_output_file[MAXPATHLEN];
+	
 } zfs_cmd_t;
+
 
 typedef struct zfs_useracct {
 	char zu_domain[256];

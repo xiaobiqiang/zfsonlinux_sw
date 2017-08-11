@@ -605,6 +605,14 @@ typedef struct zpool_rewind_policy {
 #define	VDEV_TYPE_LOG			"log"
 #define	VDEV_TYPE_L2CACHE		"l2cache"
 
+
+#define	ZPOOL_CONFIG_MULTICLUS_GNAME		"multiclus_gname"
+#define	ZPOOL_CONFIG_MULTICLUS_MASTER		"multiclus_master"
+#define	ZPOOL_CONFIG_MULTICLUS_GNUM		"multiclus_gnum"
+#define	ZPOOL_CONFIG_MULTICLUS_VDEV		"multiclus_vdev"
+#define	ZPOOL_CONFIG_MULTICLUS_CHILD	"multiclus_child"
+#define	ZPOOL_CONFIG_MULTICLUS_FSNAME	"multiclus_fsname"
+#define	ZPOOL_CONFIG_MULTICLUS		"multiclus_stats"
 /*
  * This is needed in userland to report the minimum necessary device size.
  */
@@ -892,7 +900,7 @@ typedef enum zfs_ioc {
 	ZFS_IOC_GET_BOOKMARKS,
 	ZFS_IOC_DESTROY_BOOKMARKS,
 	ZFS_IOC_CLUSTERSAN,
-	ZFS_IOC_MULTICLUS,
+	ZFS_IOC_START_MULTICLUS,
 
 	ZFS_IOC_HBX,
 	/*
