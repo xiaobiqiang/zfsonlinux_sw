@@ -79,6 +79,15 @@ extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 #define	VDEV_PAD_SIZE		(8 << 10)
 #define	ZPOOL_STAMP_SIZE	(VDEV_PAD_SIZE / 2)
 
+typedef struct zfs_group_sync_param
+{
+	boolean_t	check_only;
+	boolean_t	stop_sync;
+	boolean_t	all_member_online;
+	char		*output_file;
+	char		*target_dir;
+} zfs_grp_sync_param_t;
+
 typedef struct zpool_stamp_para {
 	uint32_t pool_magic;
 	uint32_t pool_real_owener;
@@ -855,6 +864,12 @@ nvlist_t *zfs_clustersan_get_nvlist(libzfs_handle_t *hdl, uint32_t cmd,
 nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid);
 int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg);
+
+/*
+ * multiclus functions. 
+ */
+extern void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
+    char *fs_name, uint64_t flags, void* param);
 
 #ifdef	__cplusplus
 }
