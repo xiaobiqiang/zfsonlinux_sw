@@ -49,7 +49,7 @@
 #include "esclex.h"
 #include "eftread.h"
 #include "check.h"
-#include "y.tab.h"
+#include "y_tab.h"
 #include "eftread.h"
 
 /* ridiculously long token buffer -- disallow any token longer than this */
