@@ -209,7 +209,6 @@ zfs_open(struct inode *ip, int mode, int flag, cred_t *cr)
 	zfs_sb_t *zsb = ITOZSB(ip);
 
 	ZFS_ENTER(zsb);
-//	ZFS_VERIFY_ZP(zp);
 	if (!zsb->z_os->os_is_group ||
         (zsb->z_os->os_is_group && zsb->z_os->os_is_master))
 	    ZFS_VERIFY_ZP(zp);
@@ -248,7 +247,6 @@ zfs_close(struct inode *ip, int flag, cred_t *cr)
 	zfs_sb_t *zsb = ITOZSB(ip);
 
 	ZFS_ENTER(zsb);
-//	ZFS_VERIFY_ZP(zp);
 	if (!zsb->z_os->os_is_group ||
         (zsb->z_os->os_is_group && zsb->z_os->os_is_master))
 	    ZFS_VERIFY_ZP(zp);
@@ -697,7 +695,6 @@ zfs_read(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	}
 
 	ZFS_ENTER(zsb);
-//	ZFS_VERIFY_ZP(zp);
 	if (!zsb->z_os->os_is_group ||
 		(zsb->z_os->os_is_group && zsb->z_os->os_is_master))
 		ZFS_VERIFY_ZP(zp);
@@ -1430,13 +1427,9 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	int		count = 0;
 	sa_bulk_attr_t	bulk[4];
 	uint64_t	mtime[2], ctime[2];
-<<<<<<< HEAD
 	boolean_t write_direct = B_FALSE;
     boolean_t sync;
 	ASSERTV(int	iovcnt = uio->uio_iovcnt);
-=======
-	int	iovcnt = uio->uio_iovcnt;
-	
 	char user_id[64];
 	uio_t uio_data2;
 	iovec_t* iovec = NULL;
@@ -1510,7 +1503,6 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		error = EIO;
 		goto out;
 	}
->>>>>>> old
 
 	/*
 	 * Fasttrack empty write
@@ -1668,17 +1660,11 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	while (n > 0) {
 		abuf = NULL;
 		woff = uio->uio_loffset;
-<<<<<<< HEAD
         sync = dmu_objset_sync_check(zsb->z_os);
-
-		if (zfs_owner_overquota(zsb, zp, B_FALSE) ||
-		    zfs_owner_overquota(zsb, zp, B_TRUE)) {
-=======
 again:
 		suq_err = zfs_owner_oversoftquota(zsb, zp, B_FALSE);
 		sgq_err = zfs_owner_oversoftquota(zsb, zp, B_TRUE);
 		if ( suq_err == SOFTQUOTA_OVER_HARD  || sgq_err == SOFTQUOTA_OVER_HARD) {
->>>>>>> old
 			if (abuf != NULL)
 				dmu_return_arcbuf(abuf);
 			error = SET_ERROR(EDQUOT);
@@ -1879,15 +1865,8 @@ tx_again:
 			zp->z_size = zsb->z_replay_eof;
 
 		error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
-<<<<<<< HEAD
 		
 		write_direct = dmu_tx_sync_log(tx);
-#if 0
-		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag,
-		    NULL, NULL);
-#endif
-=======
-
 		used += nbytes;
 		if (n <= nbytes && ((zsb->z_os->os_is_group == 0) || 
 			(zsb->z_os->os_is_group > 0 &&
@@ -1896,11 +1875,12 @@ tx_again:
 				zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE , tx); 
 			}
 		}
-		
-//		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag,
-//		    NULL, NULL);
+	
+#if 0
+		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag,
+		    NULL, NULL);
+#endif
 
->>>>>>> old
 		dmu_tx_commit(tx);
 
 		if (error != 0)
@@ -6286,9 +6266,10 @@ top:
 	
 	zfs_dirent_unlock(dl);
 
-<<<<<<< HEAD
+
 	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
-=======
+		zil_commit(zilog, 0);
+
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2
 		&& (flags & FBackupMaster) == 0 && error == 0){
 		z_carrier = zfs_group_dtl_carry(NAME_LINK, dzp, name, NULL, 0,
@@ -6309,10 +6290,6 @@ top:
 	}
 	
 	dmu_tx_commit(tx);
-	
-	if (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
->>>>>>> old
-		zil_commit(zilog, 0);
 
 	zfs_inode_update(dzp);
 	zfs_inode_update(szp);

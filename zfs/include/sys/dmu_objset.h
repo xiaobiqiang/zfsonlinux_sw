@@ -185,22 +185,6 @@ struct objset {
 	void *os_user_ptr;
 	sa_os_t *os_sa;
 
-<<<<<<< HEAD
-#ifdef _KERNEL
-    zil_replay_func_t *os_replay;
-    os_replay_data_func *os_replay_data;
-    list_t os_zil_list;
-    boolean_t os_breplaying;
-    os_cache_t *os_cache_all;
-    os_seg_worker_t *os_seg_record_worker;
-    os_seg_worker_t *os_seg_data_worker;
-    os_seg_data_lock_func *os_seg_data_lock;
-    os_seg_data_unlock_func *os_seg_data_unlock;
-
-    kmutex_t os_mirror_io_mutex[TXG_SIZE];
-    uint64_t os_mirror_io_num[TXG_SIZE];
-    list_t os_mirror_io_list[TXG_SIZE];
-=======
 	/* destroying when crypto keys aren't present */
 	boolean_t os_destroy_nokey;	
 	uint64_t	z_aclswitch_obj;
@@ -221,23 +205,23 @@ struct objset {
     uint64_t    os_group_tx_seq;
     char        os_group_name[MAXNAMELEN];
 
-	uint64_t	os_last_master_os;
-	uint64_t	os_last_master_spa;
-	boolean_t	os_will_be_master;
-
-	/* For NAS AVS */
-	uint64_t	os_zfs_nas_type;
-	uint64_t	bNassync;
-	char	os_remote_fsname[MAXNAMELEN]; /* poolname/fsname */
-	char	os_remote_ip[ZFS_ADDR_LEN];
-	uint64_t	os_remote_port;
-	uint64_t	os_local_port;
-
 #ifdef _KERNEL
+    zil_replay_func_t *os_replay;
+    os_replay_data_func *os_replay_data;
+    list_t os_zil_list;
+    boolean_t os_breplaying;
+    os_cache_t *os_cache_all;
+    os_seg_worker_t *os_seg_record_worker;
+    os_seg_worker_t *os_seg_data_worker;
+    os_seg_data_lock_func *os_seg_data_lock;
+    os_seg_data_unlock_func *os_seg_data_unlock;
+
+    kmutex_t os_mirror_io_mutex[TXG_SIZE];
+    uint64_t os_mirror_io_num[TXG_SIZE];
+    list_t os_mirror_io_list[TXG_SIZE];
 	zfs_group_dtl_thread_t os_group_dtl_th;
 	zfs_group_dtl_thread_t os_group_dtl3_th;
 	zfs_group_dtl_thread_t os_group_dtl4_th;
->>>>>>> old
 #endif
 };
 
