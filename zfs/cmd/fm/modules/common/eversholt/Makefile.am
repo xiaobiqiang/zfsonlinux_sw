@@ -31,7 +31,7 @@ USER_C = \
 	stable.c	\
 	tree.c		\
 	eftread.c	\
-	y.tab.c
+	y_tab.c
 
 libeversholt_la_LIBADD = 				\
 	$(top_builddir)/lib/libuutil/libuutil.la	
