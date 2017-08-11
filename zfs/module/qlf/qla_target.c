@@ -5644,6 +5644,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	uint16_t loop_id, topo, sw_cap;
 	uint16_t remote_loop_id = 0;
 	uint8_t domain, area, al_pa;
+	uint8_t remote_domain, remote_area, remote_al_pa;
 	uint16_t	entries = 0;
 	fc_port_t *fcport;
 	char		*id_iter;
@@ -5729,25 +5730,48 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	rval = qla2x00_get_id_list(vha, ha->gid_list, ha->gid_list_dma,
 		&entries);
 	if (rval != QLA_SUCCESS) {
-		printk("qla2x00_get_id_list failed!\n");
-		return;
+		printk("qla2x00_get_id_list error!\n");
+		return (STMF_FAILURE);
 	}
-
 	ql_dbg(ql_dbg_disc, vha, 0x2017,
-		"suwei Entries in ID list (%d).\n", entries);
+		"Entries in ID list (%d).\n", entries);
 	ql_dump_buffer(ql_dbg_disc + ql_dbg_buffer, vha, 0x2075,
 		(uint8_t *)ha->gid_list,
 		entries * sizeof(struct gid_list_info));
 
 	/* Add devices to port list. */
 	id_iter = (char *)ha->gid_list;
-	if (IS_QLA2100(ha) || IS_QLA2200(ha))
-		remote_loop_id = (uint16_t)
-		    ((struct gid_list_info *)id_iter)->loop_id_2100;
-	else
-		remote_loop_id = le16_to_cpu(
-		    ((struct gid_list_info *)id_iter)->loop_id);
+	for (index = 0; index < entries; index++) {
+		remote_domain = ((struct gid_list_info *)id_iter)->domain;
+		remote_area = ((struct gid_list_info *)id_iter)->area;
+		remote_al_pa = ((struct gid_list_info *)id_iter)->al_pa;
+		if (IS_QLA2100(ha) || IS_QLA2200(ha))
+			remote_loop_id = (uint16_t)
+			    ((struct gid_list_info *)id_iter)->loop_id_2100;
+		else
+			remote_loop_id = le16_to_cpu(
+			    ((struct gid_list_info *)id_iter)->loop_id);
+		id_iter += ha->gid_list_info_size;
 
+		/* Bypass reserved domain fields. */
+		if ((remote_domain & 0xf0) == 0xf0) {
+			printk("remote domain is invalid!\n");
+			return (STMF_FAILURE);
+		}
+
+		/* Bypass if not same domain and area of adapter. */
+		if (remote_area && remote_domain &&
+		    (remote_area != vha->d_id.b.area || remote_domain != vha->d_id.b.domain)) {
+			printk("remote domain or remote area is invalid!\n");
+			return (STMF_FAILURE);
+		}
+
+		/* Bypass invalid local loop ID. */
+		if (remote_loop_id > LAST_LOCAL_LOOP_ID) {
+			printk("remote_loop_id is invalid!\n");
+			return (STMF_FAILURE);
+		}
+	}
 	printk("suwei remote loop id = %d\n", remote_loop_id);
 	
 	fcport = qlt_get_port_database(vha, remote_loop_id);
