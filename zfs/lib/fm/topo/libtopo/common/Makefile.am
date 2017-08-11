@@ -6,7 +6,8 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/lib/libdiskmgt/include	\
 	-I$(top_srcdir)/lib/fm/topo/libtopo/common \
 	-I$(top_srcdir)/cmd/fm/fmd/common/ \
-	-I$(top_srcdir)/lib/libipmi
+	-I$(top_srcdir)/lib/libipmi \
+	-I/usr/include/libxml2
 
 lib_LTLIBRARIES = libtopo.la
 
