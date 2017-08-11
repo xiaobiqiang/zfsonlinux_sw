@@ -14,6 +14,7 @@ clumgt_SOURCES = \
 	clu_sync.c
 
 clumgt_LDADD = \
-	$(top_builddir)/lib/libclumgt/libclumgt.la
-clumgt_LDADD += -lnanomsg -lclumgt -lxml2 -lnvpair -lreadline -ltermcap
+	$(top_builddir)/lib/libclumgt/libclumgt.la \
+	$(top_builddir)/lib/libnvpair/libnvpair.la
+clumgt_LDADD += -lnanomsg -lclumgt -lxml2 -lreadline -ltermcap
 clumgt_LDFLAGS = -pthread
