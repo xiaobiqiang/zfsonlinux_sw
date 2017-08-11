@@ -2,7 +2,8 @@ include $(top_srcdir)/config/Rules.am
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include	\
+	-I$(top_srcdir)/lib/fm/libexacct/common
 
 lib_LTLIBRARIES = libexacct.la
 

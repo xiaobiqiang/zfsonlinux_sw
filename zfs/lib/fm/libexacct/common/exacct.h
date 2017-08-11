@@ -95,7 +95,7 @@ typedef struct ea_item {
 		char		*ei_u_string;
 		void		*ei_u_object;	/* for embedded packed object */
 		void		*ei_u_raw;
-	}			ei_u;
+	}ei_u;
 	ea_size_t		ei_size;
 } ea_item_t;
 
@@ -115,7 +115,7 @@ typedef struct ea_object {
 	union {
 		ea_group_t	eo_u_group;
 		ea_item_t	eo_u_item;
-	}			eo_u;
+	}eo_u;
 	struct ea_object	*eo_next;
 	ea_catalog_t		eo_catalog;
 } ea_object_t;
@@ -137,6 +137,14 @@ extern ea_object_t *ea_copy_object(const ea_object_t *);
 extern ea_object_t *ea_copy_object_tree(const ea_object_t *);
 extern ea_object_t *ea_get_object_tree(ea_file_t *, uint32_t);
 extern void exacct_seterr(int errval);
+extern int ea_set_group(ea_object_t *obj, ea_catalog_t tag);
+extern int ea_set_item(ea_object_t *obj, ea_catalog_t tag, const void *value, size_t valsize);
+extern int ea_attach_to_group(ea_object_t *group, ea_object_t *obj);
+extern size_t ea_pack_object(ea_object_t *obj, void *buf, size_t bufsize);
+extern int ea_free_item(ea_object_t *obj, int flag);
+extern void ea_free_object(ea_object_t *obj, int flag);
+extern void exacct_order32(uint32_t *);
+
 
 #ifdef	__cplusplus
 }

@@ -56,7 +56,7 @@ void log_null(FILE *file, const char *str){}
 /* END ADD */
 
 fmd_t fmd;
-pthread_t main_tid;
+extern pthread_t main_tid;
 /*
  * For DEBUG builds, we define a set of hooks for libumem that provide useful
  * default settings for the allocator's debugging facilities.

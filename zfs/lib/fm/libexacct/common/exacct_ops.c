@@ -42,7 +42,7 @@
 #define	DEFAULT_ENTRIES	4
 #define	SYSINFO_BUFSIZE	256
 
-extern pthread_t main_tid;
+pthread_t main_tid;
 
 static pthread_key_t	errkey = (pthread_key_t)(-1);
 static int		exacct_errval = 0;

@@ -1183,6 +1183,7 @@ fmtopo_exit(topo_hdl_t *thp, char *uuid, int err)
 
 	return (err);
 }
+extern pthread_t main_tid;
 
 int
 main(int argc, char *argv[])
@@ -1250,6 +1251,8 @@ main(int argc, char *argv[])
 			}
 		}
 	}
+
+	main_tid = pthread_self();
 
 	if (pcnt > 0)
 		get_pargs(argc, argv);
