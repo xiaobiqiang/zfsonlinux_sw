@@ -1477,7 +1477,7 @@ fmd_xprt_recv(fmd_xprt_t *xp, nvlist_t *nvl, hrtime_t hrt, boolean_t logonly)
 	    ((logonly == FMD_B_TRUE) ? "logging" : "posting"), class);
 
 	isereport = (strncmp(class, FM_EREPORT_CLASS,
-	    sizeof (FM_EREPORT_CLASS - 1)) == 0) ? FMD_B_TRUE : FMD_B_FALSE;
+	    strlen(FM_EREPORT_CLASS)) == 0) ? FMD_B_TRUE : FMD_B_FALSE;
 
 	/*
 	 * The logonly flag should only be set for ereports.

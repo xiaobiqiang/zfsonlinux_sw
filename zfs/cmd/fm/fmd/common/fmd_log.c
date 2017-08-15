@@ -70,6 +70,7 @@
 #include <sys/statvfs.h>
 #include <sys/fm/protocol.h>
 #include <uuid/uuid.h>
+#include <sys/vfs.h>
 
 #include <unistd.h>
 #include <limits.h>
@@ -522,7 +523,7 @@ fmd_log_append(fmd_log_t *lp, fmd_event_t *e, fmd_case_t *cp)
 	size_t nvsize, easize, frsize;
 	size_t itsize = 0;
 	char *nvbuf, *eabuf;
-	//statvfs64_t stv;
+	struct statfs stv;
 
 	(void) pthread_mutex_lock(&ep->ev_lock);
 
@@ -630,9 +631,8 @@ fmd_log_append(fmd_log_t *lp, fmd_event_t *e, fmd_case_t *cp)
 	 */
 	(void) pthread_mutex_lock(&lp->log_lock);
 
-	if (lp->log_minfree != 0){
-	//if (lp->log_minfree != 0 && fstatvfs64(lp->log_fd, &stv) == 0 &&
-	//   stv.f_bavail * stv.f_frsize < lp->log_minfree + easize) {
+	if (lp->log_minfree != 0 && fstatfs(lp->log_fd, &stv) == 0 &&
+	   stv.f_bavail * stv.f_frsize < lp->log_minfree + easize) {
 
 		TRACE((FMD_DBG_LOG, "append %s crosses minfree", lp->log_tag));
 		err = EFMD_LOG_MINFREE;
