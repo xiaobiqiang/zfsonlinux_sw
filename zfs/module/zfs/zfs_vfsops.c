@@ -75,6 +75,8 @@
 #include <linux/percpu_counter.h>
 #include <linux/security.h>
 
+extern int ZFS_GROUP_DTL_ENABLE;
+
 const char *zfs_group_map_key_name_prefix_format = "mspa%llu_mobjset%llu_mobj%llu_mgen%llu";
 const char *zfs_group_fid_map_key_spa_prefix_format = "object%llu_gen%llu_spa";
 const char *zfs_group_fid_map_key_os_prefix_format = "object%llu_gen%llu_objset";
@@ -735,6 +737,7 @@ zfs_mntopts_free(zfs_mntopts_t *zmo)
 
 	if (zmo->z_mntpoint)
 		strfree(zmo->z_mntpoint);
+
 	kmem_free(zmo, sizeof (zfs_mntopts_t));
 }
 
@@ -962,7 +965,7 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 		goto out;
 
 #ifdef _KERNEL
-	if(zsb->z_group_dtl_obj == 0){
+	if(zsb->z_group_dtl_obj == 0 && ZFS_GROUP_DTL_ENABLE){
 		zfs_group_dtl_init_obj(os, zsb, &zsb->z_group_dtl_obj, 0);
 	}
 #endif	
@@ -978,7 +981,7 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 		goto out;
 
 #ifdef _KERNEL
-	if(zsb->z_group_dtl_obj3 == 0){
+	if(zsb->z_group_dtl_obj3 == 0 && ZFS_GROUP_DTL_ENABLE){
 		zfs_group_dtl_init_obj(os, zsb, &zsb->z_group_dtl_obj3, 1);
 	}
 #endif	
@@ -995,7 +998,7 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 		goto out;
 
 #ifdef _KERNEL
-	if(zsb->z_group_dtl_obj4 == 0){
+	if(zsb->z_group_dtl_obj4 == 0 && ZFS_GROUP_DTL_ENABLE){
 		zfs_group_dtl_init_obj(os, zsb, &zsb->z_group_dtl_obj4, 2);
 	}
 #endif
@@ -1011,7 +1014,10 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	rrm_init(&zsb->z_teardown_lock, B_FALSE);
 	rw_init(&zsb->z_teardown_inactive_lock, NULL, RW_DEFAULT, NULL);
 	rw_init(&zsb->z_fuid_lock, NULL, RW_DEFAULT, NULL);
-
+	for (i = 0; i != 1024; i++)
+		mutex_init(&zsb->z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
+		
+	
 	size = MIN(1 << (highbit64(zfs_object_mutex_size)-1), ZFS_OBJ_MTX_MAX);
 	zsb->z_hold_size = size;
 	zsb->z_hold_trees = vmem_zalloc(sizeof (avl_tree_t) * size, KM_SLEEP);
@@ -1024,30 +1030,32 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 
 	zsb->notify_taskq = taskq_create("ZFS_NOTIFY_TASQ", 512, TASKQ_DEFAULTPRI, 1, 512, 0);
 	zsb->overquota_taskq = taskq_create("ZFS_OVERQUOTA_TASKQ", 512, TASKQ_DEFAULTPRI, 1, 512, 0);
-	zfs_group_dtl_create(&zsb->z_group_dtl_tree);
-	zfs_group_dtl_create(&zsb->z_group_dtl_tree2);
-	zfs_group_dtl_create(&zsb->z_group_dtl_tree3);
-	zfs_group_dtl_create(&zsb->z_group_dtl_tree4);
-	mutex_init(&zsb->z_group_dtl_obj_mutex, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&zsb->z_group_dtl_tree_mutex, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&zsb->z_group_dtl_tree2_mutex, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&os->os_group_dtl_th.z_group_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&os->os_group_dtl3_th.z_group_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&os->os_group_dtl4_th.z_group_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
-	cv_init(&os->os_group_dtl_th.z_group_dtl_cv, NULL, CV_DEFAULT, NULL);
-	cv_init(&os->os_group_dtl3_th.z_group_dtl_cv, NULL, CV_DEFAULT, NULL);
-	cv_init(&os->os_group_dtl4_th.z_group_dtl_cv, NULL, CV_DEFAULT, NULL);
-	mutex_init(&zsb->z_group_dtl_obj3_mutex, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&zsb->z_group_dtl_tree3_mutex, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&zsb->z_group_dtl_obj4_mutex, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&zsb->z_group_dtl_tree4_mutex, NULL, MUTEX_DEFAULT, NULL);
-	zsb->z_group_dtl_obj_num = 0;
-	zsb->z_group_dtl_obj3_num = 0;
-	zsb->z_group_dtl_obj4_num = 0;
-
+	if (ZFS_GROUP_DTL_ENABLE) {
+		zfs_group_dtl_create(&zsb->z_group_dtl_tree);
+		zfs_group_dtl_create(&zsb->z_group_dtl_tree2);
+		zfs_group_dtl_create(&zsb->z_group_dtl_tree3);
+		zfs_group_dtl_create(&zsb->z_group_dtl_tree4);
+		mutex_init(&zsb->z_group_dtl_obj_mutex, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&zsb->z_group_dtl_tree_mutex, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&zsb->z_group_dtl_tree2_mutex, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&os->os_group_dtl_th.z_group_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&os->os_group_dtl3_th.z_group_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&os->os_group_dtl4_th.z_group_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
+		cv_init(&os->os_group_dtl_th.z_group_dtl_cv, NULL, CV_DEFAULT, NULL);
+		cv_init(&os->os_group_dtl3_th.z_group_dtl_cv, NULL, CV_DEFAULT, NULL);
+		cv_init(&os->os_group_dtl4_th.z_group_dtl_cv, NULL, CV_DEFAULT, NULL);
+		mutex_init(&zsb->z_group_dtl_obj3_mutex, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&zsb->z_group_dtl_tree3_mutex, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&zsb->z_group_dtl_obj4_mutex, NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&zsb->z_group_dtl_tree4_mutex, NULL, MUTEX_DEFAULT, NULL);
+		zsb->z_group_dtl_obj_num = 0;
+		zsb->z_group_dtl_obj3_num = 0;
+		zsb->z_group_dtl_obj4_num = 0;
+	}
 	zsb->z_group_sync_obj = zfs_multiclus_create_group_sync_obj();
 	
 	*zsbp = zsb;
+	kmem_free(buf, MAXPATHLEN);
 	return (0);
 
 out:
@@ -1169,22 +1177,26 @@ zfs_sb_free(zfs_sb_t *zsb)
 		avl_destroy(&zsb->z_hold_trees[i]);
 		mutex_destroy(&zsb->z_hold_locks[i]);
 	}
+
+	for (i = 0; i != 1024; i++)
+		mutex_destroy(&zsb->z_hold_mtx[i]);
+
 	vmem_free(zsb->z_hold_trees, sizeof (avl_tree_t) * size);
 	vmem_free(zsb->z_hold_locks, sizeof (kmutex_t) * size);
 	zfs_mntopts_free(zsb->z_mntopts);
 
-	mutex_destroy(&zsb->z_group_dtl_obj_mutex);
-	mutex_destroy(&zsb->z_group_dtl_tree_mutex);
-	mutex_destroy(&zsb->z_group_dtl_tree2_mutex);
-	mutex_destroy(&zsb->z_group_dtl_obj3_mutex);
-	mutex_destroy(&zsb->z_group_dtl_tree3_mutex);
-	mutex_destroy(&zsb->z_group_dtl_obj4_mutex);
-	mutex_destroy(&zsb->z_group_dtl_tree4_mutex);
-
+	if (ZFS_GROUP_DTL_ENABLE) {
+		mutex_destroy(&zsb->z_group_dtl_obj_mutex);
+		mutex_destroy(&zsb->z_group_dtl_tree_mutex);
+		mutex_destroy(&zsb->z_group_dtl_tree2_mutex);
+		mutex_destroy(&zsb->z_group_dtl_obj3_mutex);
+		mutex_destroy(&zsb->z_group_dtl_tree3_mutex);
+		mutex_destroy(&zsb->z_group_dtl_obj4_mutex);
+		mutex_destroy(&zsb->z_group_dtl_tree4_mutex);
+	}
 	zfs_multiclus_destroy_group_sync_obj(zsb->z_group_sync_obj);
 	zsb->z_group_sync_obj = NULL;
 	kmem_free(zsb->z_group_map_objs, sizeof(uint64_t)*NASGROUP_MAP_NUM);
-	
 	kmem_free(zsb, sizeof (zfs_sb_t));
 }
 EXPORT_SYMBOL(zfs_sb_free);
@@ -1727,7 +1739,7 @@ out:
 	if(debug_zgroup_dtl_test){
 		zfs_group_dtl_test(osname);
 	}else{
-		if(error == 0){
+		if(error == 0 && ZFS_GROUP_DTL_ENABLE){
 			start_zfs_group_dtl_thread(zsb->z_os);
 		}
 	}
@@ -1766,21 +1778,21 @@ zfs_umount(struct super_block *sb)
 	char fsname[MAX_FSNAME_LEN] = {0};
 	os = zsb->z_os;
 
-	stop_zfs_group_dtl_thread(os);
+	if (ZFS_GROUP_DTL_ENABLE)
+		stop_zfs_group_dtl_thread(os);
 	if (zfs_multiclus_enable()) {
 		dmu_objset_name(os, fsname);
-		zfs_multiclus_stop_sync((char *)os->os_group_name, (char *)fsname, ZFS_MULTICLUS_SYNC_CLUSTER);
+		zfs_multiclus_stop_sync((char *)os->os_group_name, (char *)fsname);
 	}
+
+	arc_remove_prune_callback(zsb->z_arc_prune);
+	VERIFY(zfs_sb_teardown(zsb, B_TRUE) == 0);
+	bdi_destroy(sb->s_bdi);
 
 	if (os != NULL && os->os_is_group && zfs_multiclus_enable()) {
 		zfs_group_dtl_sync_tree134(os);
 		zfs_group_dtl_sync_tree2(os, NULL);
 	}
-
-	arc_remove_prune_callback(zsb->z_arc_prune);
-	VERIFY(zfs_sb_teardown(zsb, B_TRUE) == 0);
-//	os = zsb->z_os;
-	bdi_destroy(sb->s_bdi);
 
 	/*
 	 * z_os will be NULL if there was an error in
@@ -2214,7 +2226,7 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		return (NULL);
 	}
 //	VFS_HOLD(zfsvfs->z_vfs);
-	super_hold(zsb->z_sb);
+	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	mutex_exit(&os->os_user_ptr_lock);
 	wait_sec = 0;
 	/*while (b_check_setting_up && zfsvfs->z_is_setting_up) {*/
@@ -2227,7 +2239,7 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		cmn_err(CE_WARN, "zfsvfs_group_hold: zfsvfs->z_is_setting_up");
 		dmu_objset_rele(os, tag);
 //		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
+		deactivate_super(zsb->z_sb);
 		return (NULL);
 	}
 
@@ -2238,7 +2250,7 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		cmn_err(CE_WARN, "zfsvfs_group_hold: zfsvfs->z_unmounted");
 		rrm_exit(&zsb->z_teardown_lock, tag);
 //		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
+		deactivate_super(zsb->z_sb);
 		return (NULL);
 	}
 	return (zsb);
@@ -2250,7 +2262,7 @@ zfs_sb_group_rele(zfs_sb_t *zsb,  void *tag)
 {
 	rrm_exit(&zsb->z_teardown_lock, tag);
 //	VFS_RELE(zfsvfs->z_vfs);
-	super_rele(zsb->z_sb);
+	deactivate_super(zsb->z_sb);
 }
 
 int zfs_get_dirquota(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirquota_t *dirquota)
@@ -3192,48 +3204,4 @@ end:
 	kmem_free(buf, MAXPATHLEN);
 	return (err);
 }
-
-
-
-bool super_hold(struct super_block *sb)
-{
-	spin_lock(&sb_lock);
-	if (hlist_unhashed(&sb->s_instances)) {
-		spin_unlock(&sb_lock);
-		return false;
-	}
-
-	sb->s_count++;
-	spin_unlock(&sb_lock);
-	return true;
-}
-
-static void super_destroy(struct super_block *s)
-{
-	int i;
-	for (i = 0; i < SB_FREEZE_LEVELS; i++)
-		percpu_counter_destroy(&s->s_writers.counter[i]);
-	security_sb_free(s);
-	WARN_ON(!list_empty(&s->s_mounts));
-	kfree(s->s_subtype);
-	kfree(s->s_options);
-	kfree(s);
-}
-
-static void super_put(struct super_block *sb)
-{
-	if (!--sb->s_count) {
-		list_del_init(&sb->s_list); 
-		super_destroy(sb);
-	}
-}
-
-void super_rele(struct super_block *sb)
-{
-	spin_lock(&sb_lock);
-	super_put(sb);
-	spin_unlock(&sb_lock);
-}
-
-
 

@@ -53,6 +53,7 @@
 #include <sys/zfs_group_dtl.h>
 #include <sys/zpl.h>
 #include <linux/sort.h>
+#include <linux/cred.h>
 
 
 extern kmutex_t	multiclus_mtx;
@@ -72,11 +73,11 @@ int zfs_remote_update_node(struct inode *ip, void *ptr,uint64_t dst_spa,uint64_t
    caller_context_t *ct);
 
 static void zfs_group_build_data_header(objset_t *os,
-   zfs_group_header_t *hdr, uint64_t cmd, share_flag_t wait_flag, 
-   uint64_t op, uint64_t length, uint64_t out_length, uint64_t server_spa, 
-   uint64_t server_os, uint64_t server_object, uint64_t master_object,
-   uint64_t data_spa, uint64_t data_os, uint64_t data_object,
-   msg_op_type_t op_type, msg_orig_type_t orig_type);
+    zfs_group_header_t *hdr, uint64_t cmd, share_flag_t wait_flag, 
+    uint64_t op, uint64_t length, uint64_t out_length, uint64_t server_spa, 
+    uint64_t server_os, uint64_t server_object, uint64_t master_object,
+    uint64_t data_spa, uint64_t data_os, uint64_t data_object,
+    msg_op_type_t op_type, msg_orig_type_t orig_type);
 
 
 
@@ -110,7 +111,7 @@ zfs_group_getcred(zfs_group_cred_t *group_credp)
 	cred_t *cr;
 	if ((unsigned int)(group_credp->cr_ruid) > MAXUID) {
 		group_credp->cr_ruid = UID_NOBODY;
-	} 
+	}
 	if ((unsigned int)(group_credp->cr_uid) > MAXUID) {
 		group_credp->cr_uid = UID_NOBODY;
 	}
@@ -127,7 +128,7 @@ zfs_group_getcred(zfs_group_cred_t *group_credp)
 		group_credp->cr_sgid = GID_NOBODY;
 	}
 //	cr = crget(); 
-	cr = cred_alloc_blank();
+	cr = prepare_creds();
 	crsetresuid(cr, group_credp->cr_ruid, group_credp->cr_uid,
 	    group_credp->cr_suid);
 	crsetresgid(cr, group_credp->cr_rgid, group_credp->cr_gid,
@@ -356,6 +357,7 @@ top:
 			waited = B_TRUE;
 			dmu_tx_wait(tx);
 			dmu_tx_abort(tx);
+            zfs_acl_ids_free(&acl_ids);
 			goto top;
 		}
 		zfs_acl_ids_free(&acl_ids);
@@ -394,6 +396,12 @@ top:
 */
 	*zpp = zp;
 	zfs_acl_ids_free(&acl_ids);
+	if (group_object.data_spa == 0 ||
+		group_object.data_objset == 0 ||
+		group_object.data_object == 0) {
+		cmn_err(CE_WARN, "%s line(%d) spa=%"PRIu64" objset=%"PRIu64" object=%"PRIu64"\n", __func__, __LINE__, 
+			group_object.data_spa, group_object.data_objset, group_object.data_object);
+	}
 	return (error);
 }
 
@@ -401,7 +409,7 @@ top:
 int zfs_group_process_remove_data_file(zfs_sb_t *zsb, znode_t *dzp,
     uint64_t object, uint64_t dirquota)
 {
-	int err; //, err_meta_tx;
+	int err, err_meta_tx;
 	boolean_t b_delete;
 	boolean_t waited = B_FALSE;
 
@@ -485,14 +493,12 @@ int zfs_group_process_remove_data_file(zfs_sb_t *zsb, znode_t *dzp,
 		mutex_exit(&zp->z_lock);
 	}
 //	err_meta_tx = zfs_log_remove(zfsvfs->z_log, tx, TX_REMOVE, dzp, ZIL_LOG_DATA_FILE_NAME, object);
-	(void)zfs_log_remove(zsb->z_log, tx, TX_REMOVE, dzp, ZIL_LOG_DATA_FILE_NAME, object);
+	err_meta_tx = zfs_log_remove(zsb->z_log, tx, TX_REMOVE, dzp, ZIL_LOG_DATA_FILE_NAME, object);
 	dmu_tx_commit(tx);
-/*
 	if ( err_meta_tx ){
-//		txg_wait_synced(dmu_objset_pool(zfsvfs->z_os), 0);
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
-*/
+
 	return (err);
 }
 
@@ -569,6 +575,12 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 		}
 
 		zp = ITOZ(ip);
+		if (zp->z_group_id.data_spa == 0 ||
+			zp->z_group_id.data_objset == 0 || 
+			zp->z_group_id.data_object == 0) {
+			cmn_err(CE_WARN, "%s line(%d) spa=%"PRIu64" objset=%"PRIu64" object=%"PRIu64"\n", __func__, __LINE__, 
+				zp->z_group_id.data_spa, zp->z_group_id.data_objset, zp->z_group_id.data_object);
+		}
 	} else {
 		err = zfs_group_process_create_data_file(dzp, msg_header->master_object,
 				createp->master_gen, &zp, dirlowdata, &xattrp->xva_vattr);
@@ -576,6 +588,12 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 			cmn_err(CE_WARN, "create data file(%s) fails", name);
 		} else {
 			ip = ZTOI(zp);
+			if (zp->z_group_id.data_spa == 0 ||
+				zp->z_group_id.data_objset == 0 || 
+				zp->z_group_id.data_object == 0) {
+				cmn_err(CE_WARN, "%s line(%d) spa=%"PRIu64" objset=%"PRIu64" object=%"PRIu64"\n", __func__, __LINE__, 
+					zp->z_group_id.data_spa, zp->z_group_id.data_objset, zp->z_group_id.data_object);
+			}
 		}
 	}
 	if (err != 0)
@@ -627,81 +645,71 @@ static int update_z_group_id(zfs_group_header_t *msg_header, zfs_msg_t *msg_data
 
 	zsb = zp->z_zsb;
 
-	if(zsb->z_os->bNassync == 0){
-		/* in MasterX, it always takes itself as the master */
-		zp->z_group_id.master_spa = msg_header->server_spa;
-		zp->z_group_id.master_objset = msg_header->server_os;
-		zp->z_group_id.master_object = zp->z_id;
-		zp->z_group_id.master_gen = zp->z_gen;
 
-		/*
-		 * info that always the same among each Master
-		 */
-		zp->z_group_id.data_spa = msg_header->data_spa;
-		zp->z_group_id.data_objset = msg_header->data_os;
-		zp->z_group_id.data_object = msg_header->data_object;
-		zp->z_group_id.data2_spa = msg_header->data2_spa;
-		zp->z_group_id.data2_objset = msg_header->data2_os;
-		zp->z_group_id.data2_object = msg_header->data2_object;
+	/* in MasterX, it always takes itself as the master */
+	zp->z_group_id.master_spa = msg_header->server_spa;
+	zp->z_group_id.master_objset = msg_header->server_os;
+	zp->z_group_id.master_object = zp->z_id;
+	zp->z_group_id.master_gen = zp->z_gen;
 
-		/*
-		 * info that different among each Master
-		 */
-		zp->z_group_id.master2_spa = msg_header->master2_spa;
-		zp->z_group_id.master2_objset = msg_header->master2_os;
-		zp->z_group_id.master2_object = msg_header->master2_object;
-		zp->z_group_id.master2_gen = msg_header->master2_gen;
+	/*
+	 * info that always the same among each Master
+	 */
+	zp->z_group_id.data_spa = msg_header->data_spa;
+	zp->z_group_id.data_objset = msg_header->data_os;
+	zp->z_group_id.data_object = msg_header->data_object;
+	zp->z_group_id.data2_spa = msg_header->data2_spa;
+	zp->z_group_id.data2_objset = msg_header->data2_os;
+	zp->z_group_id.data2_object = msg_header->data2_object;
 
-		zp->z_group_id.master3_spa = msg_header->master3_spa;
-		zp->z_group_id.master3_objset = msg_header->master3_os;
-		zp->z_group_id.master3_object = msg_header->master3_object;
-		zp->z_group_id.master3_gen = msg_header->master3_gen;
+	/*
+	 * info that different among each Master
+	 */
+	zp->z_group_id.master2_spa = msg_header->master2_spa;
+	zp->z_group_id.master2_objset = msg_header->master2_os;
+	zp->z_group_id.master2_object = msg_header->master2_object;
+	zp->z_group_id.master2_gen = msg_header->master2_gen;
 
-		zp->z_group_id.master4_spa = msg_header->master4_spa;
-		zp->z_group_id.master4_objset = msg_header->master4_os;
-		zp->z_group_id.master4_object = msg_header->master4_object;
-		zp->z_group_id.master4_gen = msg_header->master4_gen;
+	zp->z_group_id.master3_spa = msg_header->master3_spa;
+	zp->z_group_id.master3_objset = msg_header->master3_os;
+	zp->z_group_id.master3_object = msg_header->master3_object;
+	zp->z_group_id.master3_gen = msg_header->master3_gen;
 
-		/*
-		 * update masterX info based on the creating master type
-		 */
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				zp->z_group_id.master2_spa = msg_header->client_spa;
-				zp->z_group_id.master2_objset = msg_header->client_os;
-				zp->z_group_id.master2_object = msg_header->client_object;
-				zp->z_group_id.master2_gen = msg_header->master_gen;
-				break;
+	zp->z_group_id.master4_spa = msg_header->master4_spa;
+	zp->z_group_id.master4_objset = msg_header->master4_os;
+	zp->z_group_id.master4_object = msg_header->master4_object;
+	zp->z_group_id.master4_gen = msg_header->master4_gen;
 
-			case ZFS_MULTICLUS_MASTER3:
-				zp->z_group_id.master3_spa = msg_header->client_spa;
-				zp->z_group_id.master3_objset = msg_header->client_os;
-				zp->z_group_id.master3_object = msg_header->client_object;
-				zp->z_group_id.master3_gen = msg_header->master_gen;
-				break;
+	/*
+	 * update masterX info based on the creating master type
+	 */
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			zp->z_group_id.master2_spa = msg_header->client_spa;
+			zp->z_group_id.master2_objset = msg_header->client_os;
+			zp->z_group_id.master2_object = msg_header->client_object;
+			zp->z_group_id.master2_gen = msg_header->master_gen;
+			break;
 
-			case ZFS_MULTICLUS_MASTER4:
-				zp->z_group_id.master4_spa = msg_header->client_spa;
-				zp->z_group_id.master4_objset = msg_header->client_os;
-				zp->z_group_id.master4_object = msg_header->client_object;
-				zp->z_group_id.master4_gen = msg_header->master_gen;
-				break;
+		case ZFS_MULTICLUS_MASTER3:
+			zp->z_group_id.master3_spa = msg_header->client_spa;
+			zp->z_group_id.master3_objset = msg_header->client_os;
+			zp->z_group_id.master3_object = msg_header->client_object;
+			zp->z_group_id.master3_gen = msg_header->master_gen;
+			break;
 
-			default:
-				return EINVAL;
-		}
-	}else{
-		zp->z_group_id.master_spa = spa_guid(dmu_objset_spa(zsb->z_os));
-		zp->z_group_id.master_objset = dmu_objset_id(zsb->z_os);
-		zp->z_group_id.master_object = zp->z_id;
-		zp->z_group_id.master_gen = zp->z_gen;
+		case ZFS_MULTICLUS_MASTER4:
+			zp->z_group_id.master4_spa = msg_header->client_spa;
+			zp->z_group_id.master4_objset = msg_header->client_os;
+			zp->z_group_id.master4_object = msg_header->client_object;
+			zp->z_group_id.master4_gen = msg_header->master_gen;
+			break;
 
-		zp->z_group_id.slave_spa = msg_header->client_spa;
-		zp->z_group_id.slave_objset = msg_header->client_os;
-		zp->z_group_id.slave_object = msg_header->client_object;
-		zp->z_group_id.slave_gen = msg_header->master_gen;	
+		default:
+			return EINVAL;
 	}
+
 	tx = dmu_tx_create(zsb->z_os);
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 	err = dmu_tx_assign(tx, TXG_WAIT);
@@ -715,38 +723,32 @@ static int update_z_group_id(zfs_group_header_t *msg_header, zfs_msg_t *msg_data
 	mutex_exit(&zp->z_lock);
 	mutex_enter(&zsb->z_lock);
 
-	if(zsb->z_os->bNassync == 0){
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.master2_spa, zp->z_group_id.master2_objset, 
-					zp->z_group_id.master2_object, zp->z_group_id.master2_gen & ZFS_GROUP_GEN_MASK);
-				map_obj = zsb->z_group_map_objs[zp->z_group_id.master2_object%NASGROUP_MAP_NUM];
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.master3_spa, zp->z_group_id.master3_objset, 
-					zp->z_group_id.master3_object, zp->z_group_id.master3_gen & ZFS_GROUP_GEN_MASK);
-				map_obj = zsb->z_group_map_objs[zp->z_group_id.master3_object%NASGROUP_MAP_NUM];
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.master4_spa, zp->z_group_id.master4_objset, 
-					zp->z_group_id.master4_object, zp->z_group_id.master4_gen & ZFS_GROUP_GEN_MASK);
-				map_obj = zsb->z_group_map_objs[zp->z_group_id.master4_object%NASGROUP_MAP_NUM];
-				break;
-			default:
-				mutex_exit(&zsb->z_lock);
-				dmu_tx_commit(tx);
-				return EINVAL;
-		}
-	}else{
-		sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.slave_spa, zp->z_group_id.slave_objset, zp->z_group_id.slave_object,
-					zp->z_group_id.slave_gen & ZFS_GROUP_GEN_MASK);
-		map_obj = zsb->z_group_map_objs[zp->z_group_id.slave_object%NASGROUP_MAP_NUM];
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			sprintf(buf, zfs_group_map_key_name_prefix_format, 
+				zp->z_group_id.master2_spa, zp->z_group_id.master2_objset, 
+				zp->z_group_id.master2_object, zp->z_group_id.master2_gen & ZFS_GROUP_GEN_MASK);
+			map_obj = zsb->z_group_map_objs[zp->z_group_id.master2_object%NASGROUP_MAP_NUM];
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			sprintf(buf, zfs_group_map_key_name_prefix_format, 
+				zp->z_group_id.master3_spa, zp->z_group_id.master3_objset, 
+				zp->z_group_id.master3_object, zp->z_group_id.master3_gen & ZFS_GROUP_GEN_MASK);
+			map_obj = zsb->z_group_map_objs[zp->z_group_id.master3_object%NASGROUP_MAP_NUM];
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			sprintf(buf, zfs_group_map_key_name_prefix_format, 
+				zp->z_group_id.master4_spa, zp->z_group_id.master4_objset, 
+				zp->z_group_id.master4_object, zp->z_group_id.master4_gen & ZFS_GROUP_GEN_MASK);
+			map_obj = zsb->z_group_map_objs[zp->z_group_id.master4_object%NASGROUP_MAP_NUM];
+			break;
+		default:
+			mutex_exit(&zsb->z_lock);
+			dmu_tx_commit(tx);
+			return EINVAL;
 	}
+	
 	if(map_obj != 0){
 		err = zap_update(zsb->z_os, map_obj, buf, 8, 1, &zp->z_group_id.master_object, tx);
 		if(err != 0){
@@ -756,39 +758,39 @@ static int update_z_group_id(zfs_group_header_t *msg_header, zfs_msg_t *msg_data
 			return err;
 		}
 	}
+	
 
 	mutex_exit(&zsb->z_lock);
 	dmu_tx_commit(tx);
 
-	if(zsb->z_os->bNassync == 0){
-		/* info returned to Master node */
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				n2p->nrec.object_id.master2_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master2_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master2_object = zp->z_id;
-				n2p->nrec.object_id.master2_gen = zp->z_gen;
-				break;
+	/* info returned to Master node */
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			n2p->nrec.object_id.master2_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master2_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master2_object = zp->z_id;
+			n2p->nrec.object_id.master2_gen = zp->z_gen;
+			break;
 
-			case ZFS_MULTICLUS_MASTER3:
-				n2p->nrec.object_id.master3_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master3_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master3_object = zp->z_id;
-				n2p->nrec.object_id.master3_gen = zp->z_gen;
-				break;
+		case ZFS_MULTICLUS_MASTER3:
+			n2p->nrec.object_id.master3_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master3_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master3_object = zp->z_id;
+			n2p->nrec.object_id.master3_gen = zp->z_gen;
+			break;
 
-			case ZFS_MULTICLUS_MASTER4:
-				n2p->nrec.object_id.master4_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master4_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master4_object = zp->z_id;
-				n2p->nrec.object_id.master4_gen = zp->z_gen;
-				break;
+		case ZFS_MULTICLUS_MASTER4:
+			n2p->nrec.object_id.master4_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master4_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master4_object = zp->z_id;
+			n2p->nrec.object_id.master4_gen = zp->z_gen;
+			break;
 
-			default:
-				return EINVAL;
-		}
-	}	
+		default:
+			return EINVAL;
+	}
+	
 	return (err);
 }
 
@@ -858,9 +860,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		clientosinfo->spa_id = client_spa;
 		clientosinfo->os_id = client_os;
 
-		if(zsb->z_os->bNassync == 0){
-			flag |= FBackupMaster;
-		}
+		flag |= FBackupMaster;
 //		err = VOP_CREATE(ZTOV(dzp), name, &xattrp->xva_vattr,
 //		    createp->ex, createp->mode, &vp, cred, flag, &ct, vsap);
 		err = zfs_create(ZTOI(dzp), name, &xattrp->xva_vattr,
@@ -872,97 +872,78 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		}
 
 		zp = ITOZ(ip);
-		if(zsb->z_os->bNassync == 0){
-			/* in MasterX, it always takes itself as the master */
-			zp->z_group_id.master_spa = msg_header->server_spa;
-			zp->z_group_id.master_objset = msg_header->server_os;
-			zp->z_group_id.master_object = zp->z_id;
-			zp->z_group_id.master_gen = zp->z_gen;
+		/* in MasterX, it always takes itself as the master */
+		zp->z_group_id.master_spa = msg_header->server_spa;
+		zp->z_group_id.master_objset = msg_header->server_os;
+		zp->z_group_id.master_object = zp->z_id;
+		zp->z_group_id.master_gen = zp->z_gen;
 			
-			/*
-			 * info that always the same among each Master
-			 */
-			zp->z_group_id.data_spa = msg_header->data_spa;
-			zp->z_group_id.data_objset = msg_header->data_os;
-			zp->z_group_id.data_object = msg_header->data_object;
-			zp->z_group_id.data2_spa = msg_header->data2_spa;
-			zp->z_group_id.data2_objset = msg_header->data2_os;
-			zp->z_group_id.data2_object = msg_header->data2_object;
+		/*
+		 * info that always the same among each Master
+		 */
+		zp->z_group_id.data_spa = msg_header->data_spa;
+		zp->z_group_id.data_objset = msg_header->data_os;
+		zp->z_group_id.data_object = msg_header->data_object;
+		zp->z_group_id.data2_spa = msg_header->data2_spa;
+		zp->z_group_id.data2_objset = msg_header->data2_os;
+		zp->z_group_id.data2_object = msg_header->data2_object;
 
-			/*
-			 * info that different among each Master
-			 */
-			zp->z_group_id.master2_spa = msg_header->master2_spa;
-			zp->z_group_id.master2_objset = msg_header->master2_os;
-			zp->z_group_id.master2_object = msg_header->master2_object;
-			zp->z_group_id.master2_gen = msg_header->master2_gen;
+		/*
+		 * info that different among each Master
+		 */
+		zp->z_group_id.master2_spa = msg_header->master2_spa;
+		zp->z_group_id.master2_objset = msg_header->master2_os;
+		zp->z_group_id.master2_object = msg_header->master2_object;
+		zp->z_group_id.master2_gen = msg_header->master2_gen;
 
-			zp->z_group_id.master3_spa = msg_header->master3_spa;
-			zp->z_group_id.master3_objset = msg_header->master3_os;
-			zp->z_group_id.master3_object = msg_header->master3_object;
-			zp->z_group_id.master3_gen = msg_header->master3_gen;
+		zp->z_group_id.master3_spa = msg_header->master3_spa;
+		zp->z_group_id.master3_objset = msg_header->master3_os;
+		zp->z_group_id.master3_object = msg_header->master3_object;
+		zp->z_group_id.master3_gen = msg_header->master3_gen;
 
-			zp->z_group_id.master4_spa = msg_header->master4_spa;
-			zp->z_group_id.master4_objset = msg_header->master4_os;
-			zp->z_group_id.master4_object = msg_header->master4_object;
-			zp->z_group_id.master4_gen = msg_header->master4_gen;
+		zp->z_group_id.master4_spa = msg_header->master4_spa;
+		zp->z_group_id.master4_objset = msg_header->master4_os;
+		zp->z_group_id.master4_object = msg_header->master4_object;
+		zp->z_group_id.master4_gen = msg_header->master4_gen;
 
-			/*
-			 * update masterX info based on the creating master type
-			 */
-			switch(msg_header->m_node_type)
-			{
-				case ZFS_MULTICLUS_MASTER2:
+		/*
+		 * update masterX info based on the creating master type
+		 */
+		switch(msg_header->m_node_type)
+		{
+			case ZFS_MULTICLUS_MASTER2:
 
-					zp->z_group_id.master2_spa = msg_header->client_spa;
-					zp->z_group_id.master2_objset = msg_header->client_os;
-					zp->z_group_id.master2_object = msg_header->client_object;
-					zp->z_group_id.master2_gen = msg_header->master_gen;
+				zp->z_group_id.master2_spa = msg_header->client_spa;
+				zp->z_group_id.master2_objset = msg_header->client_os;
+				zp->z_group_id.master2_object = msg_header->client_object;
+				zp->z_group_id.master2_gen = msg_header->master_gen;
 
-					break;
+				break;
 
-				case ZFS_MULTICLUS_MASTER3:
+			case ZFS_MULTICLUS_MASTER3:
 
-					zp->z_group_id.master3_spa = msg_header->client_spa;
-					zp->z_group_id.master3_objset = msg_header->client_os;
-					zp->z_group_id.master3_object = msg_header->client_object;
-					zp->z_group_id.master3_gen = msg_header->master_gen;
+				zp->z_group_id.master3_spa = msg_header->client_spa;
+				zp->z_group_id.master3_objset = msg_header->client_os;
+				zp->z_group_id.master3_object = msg_header->client_object;
+				zp->z_group_id.master3_gen = msg_header->master_gen;
 
-					break;
+				break;
 
-				case ZFS_MULTICLUS_MASTER4:
+			case ZFS_MULTICLUS_MASTER4:
 
-					zp->z_group_id.master4_spa = msg_header->client_spa;
-					zp->z_group_id.master4_objset = msg_header->client_os;
-					zp->z_group_id.master4_object = msg_header->client_object;
-					zp->z_group_id.master4_gen = msg_header->master_gen;
+				zp->z_group_id.master4_spa = msg_header->client_spa;
+				zp->z_group_id.master4_objset = msg_header->client_os;
+				zp->z_group_id.master4_object = msg_header->client_object;
+				zp->z_group_id.master4_gen = msg_header->master_gen;
 
-					break;
+				break;
 
-				default:
-					iput(ip);
-					err = EINVAL;
-					goto error;
-			}
-		}else{
-			/* in MasterX, it always takes itself as the master */
-			zp->z_group_id.master_spa = spa_guid(dmu_objset_spa(zsb->z_os));
-			zp->z_group_id.master_objset = dmu_objset_id(zsb->z_os);
-			zp->z_group_id.master_object = zp->z_id;
-			zp->z_group_id.master_gen = zp->z_gen;
+			default:
+				iput(ip);
+				err = EINVAL;
+				goto error;
+		}	
 
-			if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_SLAVE_ISYNC){
-				zp->z_group_id.slave_spa = msg_header->parent_spa;
-				zp->z_group_id.slave_objset = msg_header->parent_os;
-				zp->z_group_id.slave_object = msg_header->parent_object;
-				zp->z_group_id.slave_gen = msg_header->parent_gen;
-			}else{
-				zp->z_group_id.parent_spa = msg_header->client_spa;
-				zp->z_group_id.parent_objset = msg_header->client_os;
-				zp->z_group_id.parent_object = msg_header->client_object;
-				zp->z_group_id.parent_gen = msg_header->master_gen;
-			}
-		}
 		tx = dmu_tx_create(zsb->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 		err = dmu_tx_assign(tx, TXG_WAIT);
@@ -980,40 +961,35 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 
 		bzero(buf, MAXNAMELEN);
 
-		if(zsb->z_os->bNassync == 0){	
-			switch(msg_header->m_node_type)
-			{
-				case ZFS_MULTICLUS_MASTER2:
-					sprintf(buf, zfs_group_map_key_name_prefix_format, 
-						zp->z_group_id.master2_spa, zp->z_group_id.master2_objset, 
-						zp->z_group_id.master2_object, zp->z_group_id.master2_gen & ZFS_GROUP_GEN_MASK);
-					map_obj = zsb->z_group_map_objs[zp->z_group_id.master2_object%NASGROUP_MAP_NUM];
-					break;
-				case ZFS_MULTICLUS_MASTER3:
-					sprintf(buf, zfs_group_map_key_name_prefix_format, 
-						zp->z_group_id.master3_spa, zp->z_group_id.master3_objset, 
-						zp->z_group_id.master3_object, zp->z_group_id.master3_gen & ZFS_GROUP_GEN_MASK);
-					map_obj = zsb->z_group_map_objs[zp->z_group_id.master3_object%NASGROUP_MAP_NUM];
-					break;
-				case ZFS_MULTICLUS_MASTER4:
-					sprintf(buf, zfs_group_map_key_name_prefix_format, 
-						zp->z_group_id.master4_spa, zp->z_group_id.master4_objset, 
-						zp->z_group_id.master4_object, zp->z_group_id.master4_gen & ZFS_GROUP_GEN_MASK);
-					map_obj = zsb->z_group_map_objs[zp->z_group_id.master4_object%NASGROUP_MAP_NUM];
-					break;
-				default:
-					mutex_exit(&zsb->z_lock);
-					dmu_tx_commit(tx);
-					iput(ip);
-					err = EINVAL;
-					goto error;
-			}
-		}else{
-			sprintf(buf, zfs_group_map_key_name_prefix_format, 
-				zp->z_group_id.slave_spa, zp->z_group_id.slave_objset, zp->z_group_id.slave_object,
-				zp->z_group_id.slave_gen & ZFS_GROUP_GEN_MASK);	
-			map_obj = zsb->z_group_map_objs[zp->z_group_id.slave_object%NASGROUP_MAP_NUM];	
+	
+		switch(msg_header->m_node_type)
+		{
+			case ZFS_MULTICLUS_MASTER2:
+				sprintf(buf, zfs_group_map_key_name_prefix_format, 
+					zp->z_group_id.master2_spa, zp->z_group_id.master2_objset, 
+					zp->z_group_id.master2_object, zp->z_group_id.master2_gen & ZFS_GROUP_GEN_MASK);
+				map_obj = zsb->z_group_map_objs[zp->z_group_id.master2_object%NASGROUP_MAP_NUM];
+				break;
+			case ZFS_MULTICLUS_MASTER3:
+				sprintf(buf, zfs_group_map_key_name_prefix_format, 
+					zp->z_group_id.master3_spa, zp->z_group_id.master3_objset, 
+					zp->z_group_id.master3_object, zp->z_group_id.master3_gen & ZFS_GROUP_GEN_MASK);
+				map_obj = zsb->z_group_map_objs[zp->z_group_id.master3_object%NASGROUP_MAP_NUM];
+				break;
+			case ZFS_MULTICLUS_MASTER4:
+				sprintf(buf, zfs_group_map_key_name_prefix_format, 
+					zp->z_group_id.master4_spa, zp->z_group_id.master4_objset, 
+					zp->z_group_id.master4_object, zp->z_group_id.master4_gen & ZFS_GROUP_GEN_MASK);
+				map_obj = zsb->z_group_map_objs[zp->z_group_id.master4_object%NASGROUP_MAP_NUM];
+				break;
+			default:
+				mutex_exit(&zsb->z_lock);
+				dmu_tx_commit(tx);
+				iput(ip);
+				err = EINVAL;
+				goto error;
 		}
+	
 		if(map_obj != 0){
 			err = zap_update(zsb->z_os, map_obj, buf, 8, 1, &zp->z_group_id.master_object, tx);
 			if(err != 0){
@@ -1039,41 +1015,35 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		goto error;
 	}
 
-	if(zsb->z_os->bNassync == 0){
-		/* info returned to Master node */
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				n2p->nrec.object_id.master2_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master2_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master2_object = zp->z_id;
-				n2p->nrec.object_id.master2_gen = zp->z_gen;
-				break;
 
-			case ZFS_MULTICLUS_MASTER3:
-				n2p->nrec.object_id.master3_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master3_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master3_object = zp->z_id;
-				n2p->nrec.object_id.master3_gen = zp->z_gen;
-				break;
+	/* info returned to Master node */
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			n2p->nrec.object_id.master2_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master2_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master2_object = zp->z_id;
+			n2p->nrec.object_id.master2_gen = zp->z_gen;
+			break;
 
-			case ZFS_MULTICLUS_MASTER4:
-				n2p->nrec.object_id.master4_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master4_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master4_object = zp->z_id;
-				n2p->nrec.object_id.master4_gen = zp->z_gen;
-				break;
+		case ZFS_MULTICLUS_MASTER3:
+			n2p->nrec.object_id.master3_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master3_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master3_object = zp->z_id;
+			n2p->nrec.object_id.master3_gen = zp->z_gen;
+			break;
 
-			default:
-				iput(ip);
-				err = EINVAL;
-				goto error;
-		}
-	}else{
-		n2p->nrec.object_id.slave_spa = zp->z_group_id.master_spa;
-		n2p->nrec.object_id.slave_objset = zp->z_group_id.master_objset;
-		n2p->nrec.object_id.slave_object = zp->z_id;
-		n2p->nrec.object_id.slave_gen = zp->z_gen;		
+		case ZFS_MULTICLUS_MASTER4:
+			n2p->nrec.object_id.master4_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master4_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master4_object = zp->z_id;
+			n2p->nrec.object_id.master4_gen = zp->z_gen;
+			break;
+
+		default:
+			iput(ip);
+			err = EINVAL;
+			goto error;
 	}
 	iput(ip);
 
@@ -1189,10 +1159,7 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 
 	flag = np->flags;
 	flag |= FCLUSTER;
-
-	if(zsb->z_os->bNassync == 0){
-		flag |= FBackupMaster;
-	}
+	flag |= FBackupMaster;
 	mkdirp = &np->arg.p.mkdir;
 	cp = np->component;
 	cp_len = 0;
@@ -1211,86 +1178,68 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 	
 	zp = ITOZ(ip);
 
-	if(zsb->z_os->bNassync == 0){
-		zp->z_group_id.master_spa = msg_header->server_spa;
-		zp->z_group_id.master_objset = msg_header->server_os;
-		zp->z_group_id.master_object = zp->z_id;
-		zp->z_group_id.master_gen = zp->z_gen;
-		
-		zp->z_group_id.data_spa = msg_header->data_spa;
-		zp->z_group_id.data_objset = msg_header->data_os;
-		zp->z_group_id.data_object = msg_header->data_object;
-		zp->z_group_id.data2_spa = msg_header->data2_spa;
-		zp->z_group_id.data2_objset = msg_header->data2_os;
-		zp->z_group_id.data2_object = msg_header->data2_object;
+	zp->z_group_id.master_spa = msg_header->server_spa;
+	zp->z_group_id.master_objset = msg_header->server_os;
+	zp->z_group_id.master_object = zp->z_id;
+	zp->z_group_id.master_gen = zp->z_gen;
 
-		zp->z_group_id.master2_spa = msg_header->master2_spa;
-		zp->z_group_id.master2_objset = msg_header->master2_os;
-		zp->z_group_id.master2_object = msg_header->master2_object;
-		zp->z_group_id.master2_gen = msg_header->master2_gen;
+	zp->z_group_id.data_spa = msg_header->data_spa;
+	zp->z_group_id.data_objset = msg_header->data_os;
+	zp->z_group_id.data_object = msg_header->data_object;
+	zp->z_group_id.data2_spa = msg_header->data2_spa;
+	zp->z_group_id.data2_objset = msg_header->data2_os;
+	zp->z_group_id.data2_object = msg_header->data2_object;
+
+	zp->z_group_id.master2_spa = msg_header->master2_spa;
+	zp->z_group_id.master2_objset = msg_header->master2_os;
+	zp->z_group_id.master2_object = msg_header->master2_object;
+	zp->z_group_id.master2_gen = msg_header->master2_gen;
 	
-		zp->z_group_id.master3_spa = msg_header->master3_spa;
-		zp->z_group_id.master3_objset = msg_header->master3_os;
-		zp->z_group_id.master3_object = msg_header->master3_object;
-		zp->z_group_id.master3_gen = msg_header->master3_gen;
+	zp->z_group_id.master3_spa = msg_header->master3_spa;
+	zp->z_group_id.master3_objset = msg_header->master3_os;
+	zp->z_group_id.master3_object = msg_header->master3_object;
+	zp->z_group_id.master3_gen = msg_header->master3_gen;
 	
-		zp->z_group_id.master4_spa = msg_header->master4_spa;
-		zp->z_group_id.master4_objset = msg_header->master4_os;
-		zp->z_group_id.master4_object = msg_header->master4_object;
-		zp->z_group_id.master4_gen = msg_header->master4_gen;
+	zp->z_group_id.master4_spa = msg_header->master4_spa;
+	zp->z_group_id.master4_objset = msg_header->master4_os;
+	zp->z_group_id.master4_object = msg_header->master4_object;
+	zp->z_group_id.master4_gen = msg_header->master4_gen;
 
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
 
-				zp->z_group_id.master2_spa = msg_header->client_spa;
-				zp->z_group_id.master2_objset = msg_header->client_os;
-				zp->z_group_id.master2_object = msg_header->client_object;
-				zp->z_group_id.master2_gen = msg_header->master_gen;
+			zp->z_group_id.master2_spa = msg_header->client_spa;
+			zp->z_group_id.master2_objset = msg_header->client_os;
+			zp->z_group_id.master2_object = msg_header->client_object;
+			zp->z_group_id.master2_gen = msg_header->master_gen;
 
-				break;
+			break;
 
-			case ZFS_MULTICLUS_MASTER3:
+		case ZFS_MULTICLUS_MASTER3:
 
-				zp->z_group_id.master3_spa = msg_header->client_spa;
-				zp->z_group_id.master3_objset = msg_header->client_os;
-				zp->z_group_id.master3_object = msg_header->client_object;
-				zp->z_group_id.master3_gen = msg_header->master_gen;
+			zp->z_group_id.master3_spa = msg_header->client_spa;
+			zp->z_group_id.master3_objset = msg_header->client_os;
+			zp->z_group_id.master3_object = msg_header->client_object;
+			zp->z_group_id.master3_gen = msg_header->master_gen;
 
-				break;
+			break;
 
-			case ZFS_MULTICLUS_MASTER4:
+		case ZFS_MULTICLUS_MASTER4:
 
-				zp->z_group_id.master4_spa = msg_header->client_spa;
-				zp->z_group_id.master4_objset = msg_header->client_os;
-				zp->z_group_id.master4_object = msg_header->client_object;
-				zp->z_group_id.master4_gen = msg_header->master_gen;
+			zp->z_group_id.master4_spa = msg_header->client_spa;
+			zp->z_group_id.master4_objset = msg_header->client_os;
+			zp->z_group_id.master4_object = msg_header->client_object;
+			zp->z_group_id.master4_gen = msg_header->master_gen;
 
-				break;
+			break;
 
-			default:
-				iput(ip);
-				err = EINVAL;
-				goto error;
-		}
-	}else{
-		zp->z_group_id.master_spa = spa_guid(dmu_objset_spa(zsb->z_os));
-		zp->z_group_id.master_objset = dmu_objset_id(zsb->z_os);
-		zp->z_group_id.master_object = zp->z_id;
-		zp->z_group_id.master_gen = zp->z_gen;
-
-		if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_SLAVE_ISYNC){
-			zp->z_group_id.slave_spa = msg_header->parent_spa;
-			zp->z_group_id.slave_objset = msg_header->parent_os;
-			zp->z_group_id.slave_object = msg_header->parent_object;
-			zp->z_group_id.slave_gen = msg_header->parent_gen;
-		}else{
-			zp->z_group_id.parent_spa = msg_header->client_spa;
-			zp->z_group_id.parent_objset = msg_header->client_os;
-			zp->z_group_id.parent_object = msg_header->client_object;
-			zp->z_group_id.parent_gen = msg_header->master_gen;
-		}
+		default:
+			iput(ip);
+			err = EINVAL;
+			goto error;
 	}
+
 	tx = dmu_tx_create(zsb->z_os);
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 	err = dmu_tx_assign(tx, TXG_WAIT);
@@ -1306,40 +1255,32 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 	mutex_enter(&zsb->z_lock);
 
 	bzero(buf, MAXNAMELEN);
-
-	if(zsb->z_os->bNassync == 0){
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.master2_spa, zp->z_group_id.master2_objset, 
-					zp->z_group_id.master2_object, zp->z_group_id.master2_gen & ZFS_GROUP_GEN_MASK);
-				map_obj = zsb->z_group_map_objs[zp->z_group_id.master2_object%NASGROUP_MAP_NUM];
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.master3_spa, zp->z_group_id.master3_objset, 
-					zp->z_group_id.master3_object, zp->z_group_id.master3_gen & ZFS_GROUP_GEN_MASK);
-				map_obj = zsb->z_group_map_objs[zp->z_group_id.master3_object%NASGROUP_MAP_NUM];
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.master4_spa, zp->z_group_id.master4_objset, 
-					zp->z_group_id.master4_object, zp->z_group_id.master4_gen & ZFS_GROUP_GEN_MASK);
-				map_obj = zsb->z_group_map_objs[zp->z_group_id.master4_object%NASGROUP_MAP_NUM];
-				break;
-			default:
-				mutex_exit(&zsb->z_lock);
-				dmu_tx_commit(tx);
-				iput(ip);
-				err = EINVAL;
-				goto error;
-		}
-	}else{
-		sprintf(buf, zfs_group_map_key_name_prefix_format, 
-					zp->z_group_id.slave_spa, zp->z_group_id.slave_objset, zp->z_group_id.slave_object,
-					zp->z_group_id.slave_gen & ZFS_GROUP_GEN_MASK);	
-		map_obj = zsb->z_group_map_objs[zp->z_group_id.slave_object%NASGROUP_MAP_NUM];	
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			sprintf(buf, zfs_group_map_key_name_prefix_format, 
+				zp->z_group_id.master2_spa, zp->z_group_id.master2_objset, 
+				zp->z_group_id.master2_object, zp->z_group_id.master2_gen & ZFS_GROUP_GEN_MASK);
+			map_obj = zsb->z_group_map_objs[zp->z_group_id.master2_object%NASGROUP_MAP_NUM];
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			sprintf(buf, zfs_group_map_key_name_prefix_format, 
+				zp->z_group_id.master3_spa, zp->z_group_id.master3_objset, 
+				zp->z_group_id.master3_object, zp->z_group_id.master3_gen & ZFS_GROUP_GEN_MASK);
+			map_obj = zsb->z_group_map_objs[zp->z_group_id.master3_object%NASGROUP_MAP_NUM];
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			sprintf(buf, zfs_group_map_key_name_prefix_format, 
+				zp->z_group_id.master4_spa, zp->z_group_id.master4_objset, 
+				zp->z_group_id.master4_object, zp->z_group_id.master4_gen & ZFS_GROUP_GEN_MASK);
+			map_obj = zsb->z_group_map_objs[zp->z_group_id.master4_object%NASGROUP_MAP_NUM];
+			break;
+		default:
+			mutex_exit(&zsb->z_lock);
+			dmu_tx_commit(tx);
+			iput(ip);
+			err = EINVAL;
+			goto error;
 	}
 	if(map_obj != 0){
 		err = zap_update(zsb->z_os, map_obj, buf, 8, 1, &zp->z_group_id.master_object, tx);
@@ -1353,38 +1294,32 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 	bcopy(&zp->z_group_id, &n2p->nrec.object_id, sizeof(zfs_group_object_t));
 	zfs_group_znode_copy_phys(zp, &n2p->nrec.object_phy, B_FALSE);
 
-	if(zsb->z_os->bNassync == 0){
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				n2p->nrec.object_id.master2_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master2_objset = zp->z_group_id.master_objset;;
-				n2p->nrec.object_id.master2_object = zp->z_id;
-				n2p->nrec.object_id.master2_gen = zp->z_gen;
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				n2p->nrec.object_id.master3_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master3_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master3_object = zp->z_id;
-				n2p->nrec.object_id.master3_gen = zp->z_gen;
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				n2p->nrec.object_id.master4_spa = zp->z_group_id.master_spa;
-				n2p->nrec.object_id.master4_objset = zp->z_group_id.master_objset;
-				n2p->nrec.object_id.master4_object = zp->z_id;
-				n2p->nrec.object_id.master4_gen = zp->z_gen;
-				break;
-			default:
-				iput(ip);
-				err = EINVAL;
-				goto error;
-		}
-	}else{
-		n2p->nrec.object_id.slave_spa = zp->z_group_id.master_spa;
-		n2p->nrec.object_id.slave_objset = zp->z_group_id.master_objset;;
-		n2p->nrec.object_id.slave_object = zp->z_id;
-		n2p->nrec.object_id.slave_gen = zp->z_gen;
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			n2p->nrec.object_id.master2_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master2_objset = zp->z_group_id.master_objset;;
+			n2p->nrec.object_id.master2_object = zp->z_id;
+			n2p->nrec.object_id.master2_gen = zp->z_gen;
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			n2p->nrec.object_id.master3_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master3_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master3_object = zp->z_id;
+			n2p->nrec.object_id.master3_gen = zp->z_gen;
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			n2p->nrec.object_id.master4_spa = zp->z_group_id.master_spa;
+			n2p->nrec.object_id.master4_objset = zp->z_group_id.master_objset;
+			n2p->nrec.object_id.master4_object = zp->z_id;
+			n2p->nrec.object_id.master4_gen = zp->z_gen;
+			break;
+		default:
+			iput(ip);
+			err = EINVAL;
+			goto error;
 	}
+
 	iput(ip);
 
 error:
@@ -1433,9 +1368,8 @@ static int zfs_group_process_remove_backup(zfs_msg_t *msg_data, znode_t *dzp, cr
 	zsb = dzp->z_zsb;
 	flag = np->flags |FCLUSTER;
 
-	if(zsb->z_os->bNassync == 0){
-		flag |= FBackupMaster;
-	}
+	flag |= FBackupMaster;
+	
 //	error = VOP_REMOVE(ZTOV(dzp), np->component, cred,
 //	    NULL, flag);
 	error = zfs_remove(ZTOI(dzp), np->component, cred, flag);
@@ -1443,33 +1377,6 @@ static int zfs_group_process_remove_backup(zfs_msg_t *msg_data, znode_t *dzp, cr
 		cmn_err(CE_WARN, "Failed to remove backup file, file = %s, err: %d", np->component, error);
 	}
 	return (error);
-}
-
-/*
- * Allocate contents of pathname structure.  Structure is typically
- * an automatic variable in calling routine for convenience.
- *
- * May sleep in the call to kmem_alloc() and so must not be called
- * from interrupt level.
- */
-void
-pn_alloc(struct pathname *pnp)
-{
-	pnp->pn_path = pnp->pn_buf = kmem_alloc(MAXPATHLEN, KM_SLEEP);
-	pnp->pn_pathlen = 0;
-	pnp->pn_bufsize = MAXPATHLEN;
-}
-
-/*
- * Free pathname resources.
- */
-void
-pn_free(struct pathname *pnp)
-{
-	/* pn_bufsize is usually MAXPATHLEN, but may not be */
-	kmem_free(pnp->pn_buf, pnp->pn_bufsize);
-	pnp->pn_path = pnp->pn_buf = NULL;
-	pnp->pn_pathlen = pnp->pn_bufsize = 0;
 }
 
 static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
@@ -1490,98 +1397,21 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_name_t	*np = &msg_data->call.name;
 	zfs_group_name2_t	*n2p = NULL;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
-	uint64_t gen = 0;
 
 	union {
 		vattr_t vattr;
 		vsecattr_t vsecattr;
 	} v;
 
-	if ( strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0
-		|| msg_header->server_spa == 0 || msg_header->server_os == 0  || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-
-		flg = 1;		
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		super_hold(zsb->z_sb);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
-	}
-
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL)
+		return (EGHOLD);
 	if (msg_header->orig_type == APP_USER) {
-		if(zsb->z_os->bNassync){
-			if(zsb->z_os->os_zfs_nas_type == ZFS_NAS_SLAVE_ISYNC){
-				object = np->parent_object.parent_object;
-				gen = np->parent_object.parent_gen;
-			}else{
-				object = np->parent_object.slave_object;
-				gen = np->parent_object.slave_gen;
-			}
-
-			if(object == 0){
-				object = zsb->z_root;
-				gen = -1;
-				if(1 == debug_nas_group_dtl){
-					cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
-				}
-			}
-			error = zfs_zget(zsb, object, &dzp);
-			if (error) {
-				if (flg == 1){
-					if(1 == debug_nas_group_dtl){
-					cmn_err(CE_WARN, "[Error] %s %d dzp->gen 0x%llx, gen 0x%llx",
-						__func__, __LINE__, (unsigned long long)dzp->z_gen, (unsigned long long)gen);
-					}
-//					VN_RELE(ZTOV(dzp));
-//					rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-//					VFS_RELE(zfsvfs->z_vfs);
-					iput(ZTOI(dzp));
-					rrm_exit(&zsb->z_teardown_lock, FTAG);
-					super_rele(zsb->z_sb);
-					dmu_objset_rele(os, FTAG);
-					return ENOENT;
-				}else{
-					zfs_sb_group_rele(zsb, FTAG);
-					return (error);
-				}
-			}
-		}else if(zsb->z_os->os_is_group){
 			object = np->parent_object.master_object;
-			error = zfs_zget(zsb, object, &dzp);
-		}else{
-			cmn_err(CE_NOTE,"error enter:%s(%d)\n",__func__,__LINE__);
-		}
+			error = zfs_zget(zsb, object, &dzp);				
 		if (error) {
-			if (flg == 1){
-				if(1 == debug_nas_group_dtl){
-				cmn_err(CE_WARN, "[Error] %s %d dzp->gen 0x%llx, gen 0x%llx",
-					__func__, __LINE__, (unsigned long long)dzp->z_gen, (unsigned long long)gen);
-				}
-				iput(ZTOI(dzp));
-				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-				super_rele(zsb->z_sb);
-				dmu_objset_rele(os, FTAG);
-				return ENOENT;
-			}else{
-				zfs_sb_group_rele(zsb, FTAG);
-				return (error);
-			}
+			zfs_sb_group_rele(zsb, FTAG);
+			return (error);
 		}
 
 		if (np->arg.dirlowdata != 0 && dzp->z_dirlowdata == 0) {
@@ -1600,16 +1430,8 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 		object = zsb->z_root;
 		error = zfs_zget(zsb, object, &dzp);
 		if (error) {
-			if (flg == 1){
-//				rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-				super_rele(zsb->z_sb);
-				dmu_objset_rele(os, FTAG);
-			}else{
-				cmn_err(CE_WARN," create data some error");
-				zfs_sb_group_rele(zsb, FTAG);
-			}
+			cmn_err(CE_WARN," create data some error");
+			zfs_sb_group_rele(zsb, FTAG);
 			return (error);
 		}
 	}
@@ -1659,19 +1481,25 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 	case NAME_LOOKUP: {
 //		vnode_t *vp;
 		struct inode *ip;
+#ifdef HAVE_PN_UTILS
 		pathname_t	rpn; // = {0};
 		zfs_group_pathname_t gpn; // = {0};
 		boolean_t get_rpn = np->arg.b_get_rpn;
 		pn_alloc(&rpn);
+#endif /* HAVE_PN_UTILS */
 
-		if(zsb->z_os->bNassync == 0)
 		flags |= FCLUSTER;
 //		error = VOP_LOOKUP(ZTOV(dzp), np->component, &vp, NULL, flags,
 //		    NULL,cred, NULL, NULL, get_rpn ? &rpn : NULL);
+//		error = zfs_lookup(ZTOI(dzp), np->component, &ip, flags,
+//		    cred, NULL, get_rpn ? &rpn : NULL);
 		error = zfs_lookup(ZTOI(dzp), np->component, &ip, flags,
-		    cred, NULL, get_rpn ? &rpn : NULL);
+		    cred, NULL, NULL);
 
 		if (error != 0) {
+#ifdef HAVE_PN_UTILS
+			pn_free(&rpn);
+#endif /* HAVE_PN_UTILS */
 			goto error;
 		}
 
@@ -1689,6 +1517,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 		} else {
 			bcopy(&zp->z_group_id, &n2p->nrec.object_id, sizeof(zfs_group_object_t));
 		}
+#ifdef HAVE_PN_UTILS
 		if (get_rpn) {
 			(void) strlcpy(gpn.pn_buf, rpn.pn_buf, rpn.pn_bufsize);
 			gpn.pn_bufsize = rpn.pn_bufsize;
@@ -1696,6 +1525,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 			bcopy(&gpn, &n2p->nrec.rpn, sizeof(zfs_group_pathname_t));
 		}
 		pn_free(&rpn);
+#endif /* HAVE_PN_UTILS */
 		iput(ip);
 	}
 	break;
@@ -1772,16 +1602,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 	error:
 	crfree(cred);
 	iput(ZTOI(dzp));
-	if (flg == 1){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
-	
+	zfs_sb_group_rele(zsb, FTAG);
 	return (error);
 }
 
@@ -1927,68 +1748,34 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_name_t	*np = &msg_data->call.name;
 	zfs_group_name2_t	*n2p = NULL;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
 
 	union {
 		vattr_t vattr;
 		vsecattr_t vsecattr;
 	} v;
 
-	if(5 == debug_nas_group_dtl)
-	cmn_err(CE_NOTE,"%s: ==> spa:%llx,os:%llx",__func__,(u_longlong_t)msg_header->server_spa,(u_longlong_t)msg_header->server_os);
-	if ( strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0
-		|| msg_header->server_spa == 0 || msg_header->server_os == 0  || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-
-		flg = 1;		
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-		super_hold(zsb->z_sb);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
-	}
-
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL)
+		return (EGHOLD);
 	if (msg_header->orig_type == APP_USER) {
-		if(zsb->z_os->bNassync == 0){
-			switch(msg_header->m_node_type)
-			{
-				case ZFS_MULTICLUS_MASTER2:
-					object = np->parent_object.master2_object;
-					gen = np->parent_object.master2_gen;
-					break;
-				case ZFS_MULTICLUS_MASTER3:
-					object = np->parent_object.master3_object;
-					gen = np->parent_object.master3_gen;
-					break;
-				case ZFS_MULTICLUS_MASTER4:
-					object = np->parent_object.master4_object;
-					gen = np->parent_object.master4_gen;
-					break;
-				default:
-					zfs_sb_group_rele(zsb, FTAG);
-					cmn_err(CE_WARN, "[Error] %s %d", __func__, __LINE__);
-					return (EINVAL);
-			}
-		}else{
-			if(zsb->z_os->os_zfs_nas_type == ZFS_NAS_SLAVE_ISYNC){
-				object = np->parent_object.parent_object;
-				gen = np->parent_object.parent_gen;
-			}else{
-				object = np->parent_object.slave_object;
-				gen = np->parent_object.slave_gen;
-			}
+		switch(msg_header->m_node_type)
+		{
+			case ZFS_MULTICLUS_MASTER2:
+				object = np->parent_object.master2_object;
+				gen = np->parent_object.master2_gen;
+				break;
+			case ZFS_MULTICLUS_MASTER3:
+				object = np->parent_object.master3_object;
+				gen = np->parent_object.master3_gen;
+				break;
+			case ZFS_MULTICLUS_MASTER4:
+				object = np->parent_object.master4_object;
+				gen = np->parent_object.master4_gen;
+				break;
+			default:
+				zfs_sb_group_rele(zsb, FTAG);
+				cmn_err(CE_WARN, "[Error] %s %d", __func__, __LINE__);
+				return (EINVAL);
 		}
 		
 		if(object == 0){
@@ -2000,15 +1787,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 		}
 		error = zfs_zget(zsb, object, &dzp);
 		if (error) {
-			if(flg){
-//				rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-				super_rele(zsb->z_sb);
-				dmu_objset_rele(os, FTAG);
-			}else{
-				zfs_sb_group_rele(zsb, FTAG);
-			}
+			zfs_sb_group_rele(zsb, FTAG);	
 			cmn_err(CE_WARN, "[Error] %s %d", __func__, __LINE__);
 			return (error);
 		} else if (gen != -1 && dzp->z_gen != gen) {
@@ -2017,15 +1796,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 					__func__, __LINE__, (unsigned long long)dzp->z_gen, (unsigned long long)gen);
 			}
 			iput(ZTOI(dzp));
-			if(flg){
-//				rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-				super_rele(zsb->z_sb);
-				dmu_objset_rele(os, FTAG);
-			}else{
-				zfs_sb_group_rele(zsb, FTAG);
-			}
+			zfs_sb_group_rele(zsb, FTAG);
 			return ENOENT;
 		}
 				
@@ -2035,27 +1806,11 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 		error = zfs_zget(zsb, object, &dzp);
 		if (error) {
 			cmn_err(CE_WARN,"[Error] %s %d,", __func__, __LINE__);
-			if(flg){
-//				rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-				super_rele(zsb->z_sb);
-				dmu_objset_rele(os, FTAG);
-			}else{
-				zfs_sb_group_rele(zsb, FTAG);
-			}
+			zfs_sb_group_rele(zsb, FTAG);
 			return (error);
 		}
 	} else {
-		if(flg){
-//			rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//			VFS_RELE(zfsvfs->z_vfs);
-			super_rele(zsb->z_sb);
-			dmu_objset_rele(os, FTAG);
-		}else{
-			zfs_sb_group_rele(zsb, FTAG);
-		}
+		zfs_sb_group_rele(zsb, FTAG);
 		cmn_err(CE_WARN, "[Error] %s %d, msg->hdr.orig_type must be APP_USER. or APP_GROUP", __func__, __LINE__);
 		return (error);
 	}
@@ -2064,38 +1819,32 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 	n2p = (zfs_group_name2_t *)np;
 	flags = np->flags;
 	cred = zfs_group_getcred(&np->cred);
-
-	if( 5 == debug_nas_group_dtl )
-	cmn_err(CE_NOTE,"%s: ==> op:%llx",__func__,(u_longlong_t)msg_header->operation);
 	switch (msg_header->operation) {
-	case NAME_CREATE_DATA:
-		zfs_group_process_create_data(msg_header, msg_data, dzp, cred);
-	break;
-	case NAME_CREATE:
-		error = zfs_group_process_create_backup(msg_header, msg_data, dzp, cred);
-	break;
+		case NAME_CREATE_DATA:
+			zfs_group_process_create_data(msg_header, msg_data, dzp, cred);
+		break;
+		case NAME_CREATE:
+			error = zfs_group_process_create_backup(msg_header, msg_data, dzp, cred);
+		break;
 
-	case NAME_REMOVE:
-	    error = zfs_group_process_remove_backup(msg_data, dzp, cred);
-	break;
+		case NAME_REMOVE:
+		    error = zfs_group_process_remove_backup(msg_data, dzp, cred);
+		break;
 
-	case NAME_RMDIR: {
-		if(zsb->z_os->bNassync == 0){
+		case NAME_RMDIR: {
 			flags |= FCLUSTER;
 			flags |= FBackupMaster;
+	//		error = VOP_RMDIR(ZTOV(dzp), np->component, NULL, cred, NULL, flags);
+			error = zfs_rmdir(ZTOI(dzp), np->component, NULL, cred, flags);
 		}
-//		error = VOP_RMDIR(ZTOV(dzp), np->component, NULL, cred, NULL, flags);
-		error = zfs_rmdir(ZTOI(dzp), np->component, NULL, cred, flags);
-	}
-	break;
+		break;
 
-	case NAME_MKDIR:
-		error = zfs_group_process_mkdir_backup(msg_header, msg_data, dzp, cred);
-	break;
+		case NAME_MKDIR:
+			error = zfs_group_process_mkdir_backup(msg_header, msg_data, dzp, cred);
+		break;
 
-	case NAME_RENAME : {
-		znode_t *tdzp;
-		if(zsb->z_os->bNassync == 0){
+		case NAME_RENAME : {
+			znode_t *tdzp;
 			flags |= FCLUSTER;
 			flags |= FBackupMaster;
 
@@ -2118,38 +1867,34 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 					error = EINVAL;
 					goto error;
 			}
-		}else{
-			object = np->arg.p.rename.new_parent_id.slave_object;
-			gen =  np->arg.p.rename.new_parent_id.slave_gen;		
-		}
-		if(object == 0){
-			object = zsb->z_root;
-			gen = -1;
-		}
 		
-		if ((error = zfs_zget(zsb, object,&tdzp)) != 0) {
-			goto error;
-		}else if(gen != -1 && tdzp->z_gen != gen){
-			if(1 == debug_nas_group_dtl){
-				cmn_err(CE_WARN, "[Error] %s %d tdzp->gen 0x%llx, gen 0x%llx", 
-					__func__, __LINE__, (unsigned long long)tdzp->z_gen, (unsigned long long)gen);
+			if(object == 0){
+				object = zsb->z_root;
+				gen = -1;
 			}
+		
+			if ((error = zfs_zget(zsb, object,&tdzp)) != 0) {
+				goto error;
+			}else if(gen != -1 && tdzp->z_gen != gen){
+				if(1 == debug_nas_group_dtl){
+					cmn_err(CE_WARN, "[Error] %s %d tdzp->gen 0x%llx, gen 0x%llx", 
+						__func__, __LINE__, (unsigned long long)tdzp->z_gen, (unsigned long long)gen);
+				}
+				iput(ZTOI(tdzp));
+				error = ENOENT;
+				goto error;
+			}
+	//		VOP_RENAME(ZTOV(dzp), np->component, ZTOV(tdzp),
+	//		    &np->component[MAXNAMELEN], cred, NULL, flags);
+			zfs_rename(ZTOI(dzp), np->component, ZTOI(tdzp),
+			    &np->component[MAXNAMELEN], cred, flags);
 			iput(ZTOI(tdzp));
-			error = ENOENT;
-			goto error;
 		}
-//		VOP_RENAME(ZTOV(dzp), np->component, ZTOV(tdzp),
-//		    &np->component[MAXNAMELEN], cred, NULL, flags);
-		zfs_rename(ZTOI(dzp), np->component, ZTOI(tdzp),
-		    &np->component[MAXNAMELEN], cred, flags);
-		iput(ZTOI(tdzp));
-	}
-	break;
+		break;
 
 
-	case NAME_LINK: {
-		znode_t *zp;
-		if(zsb->z_os->bNassync == 0){
+		case NAME_LINK: {
+			znode_t *zp;
 			flags |= FCLUSTER;
 			flags |= FBackupMaster;
 			
@@ -2171,93 +1916,78 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 					error = EINVAL;
 					goto error;
 			}
-		}else{
-			object = np->arg.p.link.id.slave_object;
-			gen =  np->arg.p.link.id.slave_gen;
-		}
-		if ((error = zfs_zget(zsb, object, &zp)) != 0) {
-			goto error;
-		}else if(zp->z_gen != gen){
-			if(1 == debug_nas_group_dtl){
-				cmn_err(CE_WARN, "[Error] %s %d zp->gen 0x%llx, gen 0x%llx", 
-					__func__, __LINE__, (unsigned long long)zp->z_gen, (unsigned long long)gen);
+			
+			if ((error = zfs_zget(zsb, object, &zp)) != 0) {
+				goto error;
+			}else if(zp->z_gen != gen){
+				if(1 == debug_nas_group_dtl){
+					cmn_err(CE_WARN, "[Error] %s %d zp->gen 0x%llx, gen 0x%llx", 
+						__func__, __LINE__, (unsigned long long)zp->z_gen, (unsigned long long)gen);
+				}
+				error = ENOENT;
+				iput(ZTOI(zp));
+				goto error;
 			}
-			error = ENOENT;
-			iput(ZTOI(zp));
-			goto error;
-		}
 
-//		error = VOP_LINK(ZTOV(dzp), ZTOV(zp), np->component, cred, NULL, flags);
-		error = zfs_link(ZTOI(dzp), ZTOI(zp), np->component, cred, flags);
-		iput(ZTOI(zp));
-	}
-	break;
+//			error = VOP_LINK(ZTOV(dzp), ZTOV(zp), np->component, cred, NULL, flags);
+			error = zfs_link(ZTOI(dzp), ZTOI(zp), np->component, cred, flags);
+			iput(ZTOI(zp));
+		}
+		break;
 		
-	case NAME_SYMLINK: {
-		struct inode *ip;
-		if(zsb->z_os->bNassync == 0){
+		case NAME_SYMLINK: {
+			struct inode *ip;		
 			flags |= FCLUSTER;
 			flags |= FBackupMaster;
-		}
-		zfs_group_v32_to_v(&np->arg.p.symlink.vattr, &v.vattr);
-//		error = VOP_SYMLINK(ZTOV(dzp), np->component,
-//		    &v.vattr, &np->component[MAXNAMELEN], cred, NULL, flags);
-		error = zfs_symlink(ZTOI(dzp), np->component, &v.vattr, 
-			&np->component[MAXNAMELEN], &ip, cred, flags);
-		iput(ip);
+			zfs_group_v32_to_v(&np->arg.p.symlink.vattr, &v.vattr);
+	//		error = VOP_SYMLINK(ZTOV(dzp), np->component,
+	//		    &v.vattr, &np->component[MAXNAMELEN], cred, NULL, flags);
+			error = zfs_symlink(ZTOI(dzp), np->component, &v.vattr, 
+				&np->component[MAXNAMELEN], &ip, cred, flags);
+			iput(ip);
 
-		error = zfs_dirent_lock(&dl, dzp, np->component, &zp, 0,
-		    NULL, NULL);
-		if(error == 0){
-			update_z_group_id(msg_header, msg_data, zp);
-			zfs_dirent_unlock(dl);
-		}else{
-			cmn_err(CE_WARN, "[ERROR] %s %d", __func__, __LINE__);
-		}
-		
-	}
-	break;
-
-	case NAME_ACL: {
-		uint64_t mask;
-		uint64_t zg_acl_len = 0;
-		zfs_group_name_acl_t *zg_acl = NULL;
-		flags |= FCLUSTER;
-		zg_acl = (zfs_group_name_acl_t *)np->component;
-		mask = zg_acl->mask;
-		if (zg_acl->set) {
-			if(zsb->z_os->bNassync == 0){
-				flags |= FBackupMaster;
+			error = zfs_dirent_lock(&dl, dzp, np->component, &zp, 0,
+			    NULL, NULL);
+			if(error == 0){
+				update_z_group_id(msg_header, msg_data, zp);
+				zfs_dirent_unlock(dl);
+			}else{
+				cmn_err(CE_WARN, "[ERROR] %s %d", __func__, __LINE__);
 			}
-			error = zfs_group_acl(dzp, zg_acl, cred, &zg_acl_len, flags);
-			bcopy(zg_acl, &n2p->component, sizeof(zfs_group_name_acl_t));
-		} else {
-			zg_acl = (zfs_group_name_acl_t *)n2p->component;
-			zg_acl->mask = mask;
-			error = zfs_group_acl(dzp, zg_acl, cred, &zg_acl_len, flags);
+		
 		}
-		msg_header->out_length = 
-			offsetof(zfs_group_name2_t, component) +
-			    zg_acl_len + sizeof(zfs_group_header_t);
-	}
-	break;
+		break;
 
-	default:
-	break;
+		case NAME_ACL: {
+			uint64_t mask;
+			uint64_t zg_acl_len = 0;
+			zfs_group_name_acl_t *zg_acl = NULL;
+			flags |= FCLUSTER;
+			zg_acl = (zfs_group_name_acl_t *)np->component;
+			mask = zg_acl->mask;
+			if (zg_acl->set) {
+				flags |= FBackupMaster;
+				error = zfs_group_acl(dzp, zg_acl, cred, &zg_acl_len, flags);
+				bcopy(zg_acl, &n2p->component, sizeof(zfs_group_name_acl_t));
+			} else {
+				zg_acl = (zfs_group_name_acl_t *)n2p->component;
+				zg_acl->mask = mask;
+				error = zfs_group_acl(dzp, zg_acl, cred, &zg_acl_len, flags);
+			}
+			msg_header->out_length = 
+				offsetof(zfs_group_name2_t, component) +
+				    zg_acl_len + sizeof(zfs_group_header_t);
+		}
+		break;
+
+		default:
+		break;
 	}
 
-	error:
+error:
 	crfree(cred);
 	iput(ZTOI(dzp));
-	if(flg){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
+	zfs_sb_group_rele(zsb, FTAG);
 	return (error);
 }
 
@@ -2290,60 +2020,25 @@ static int zfs_group_process_data_request(zfs_group_server_para_t *server_para)
 	zfs_sb_t  *zsb =NULL;
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_data_msg_t	*data = (zfs_group_data_msg_t *)server_para->msg_data;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
-//	uint64_t gen;
+
 
 	vflg = data->call.data.io_flags;
 	vflg |= FCLUSTER;
 
-	if ( strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0
-		|| msg_header->server_spa == 0 || msg_header->server_os == 0  || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-		flg = 1;
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-		super_hold(zsb->z_sb);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
-	}
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL)
+		return (EGHOLD);
 
-	if(zsb->z_os->bNassync == 0){
-		if (msg_header->operation == DIR_READ || msg_header->operation == LINK_READ)
-			object = data->call.data.id.master_object;
-		else
-			object = data->call.data.id.data_object;
-	}else{
-		if(zsb->z_os->os_zfs_nas_type == ZFS_NAS_SLAVE_ISYNC){
-			object = data->call.data.id.parent_object;
-		}else{
-			object = msg_header->server_object;
-		}
-	}
+	if (msg_header->operation == DIR_READ || msg_header->operation == LINK_READ)
+		object = data->call.data.id.master_object;
+	else
+		object = data->call.data.id.data_object;
+		
 	error = zfs_zget(zsb, object, &zp);
 
 
 	if (error) {
-		if(flg){
-//			rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//			VFS_RELE(zfsvfs->z_vfs);
-			super_rele(zsb->z_sb);
-			dmu_objset_rele(os, FTAG);
-		}else{
-			zfs_sb_group_rele(zsb, FTAG);
-		}
+		zfs_sb_group_rele(zsb, FTAG);
 		return (error);
 	}
 
@@ -2525,15 +2220,7 @@ static int zfs_group_process_data_request(zfs_group_server_para_t *server_para)
 	}
 
 	iput(ZTOI(zp));
-	if(flg){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
+	zfs_sb_group_rele(zsb, FTAG);
 	return (error);
 }
 
@@ -2888,12 +2575,12 @@ zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *of
 //		err = vn_rdwr(UIO_READ, src_vp, buf, nbytes, *offsize,
 //		    UIO_SYSSPACE, vflg, RLIM64_INFINITY, cred, &resid);
 
-	written = zpl_write_common(src_ip, buf, nbytes, offsize,
-	    UIO_SYSSPACE, vflg, cred);
-	if (written < 0)
-		err = -written;
-	else if (written < nbytes)
-		err = SET_ERROR(EIO); /* short write */
+		written = zpl_write_common(src_ip, buf, nbytes, offsize,
+		    UIO_SYSSPACE, vflg, cred);
+		if (written < 0)
+			err = -written;
+		else if (written < nbytes)
+			err = SET_ERROR(EIO); /* short write */
 		
 		if (err != 0) {
 			cmn_err(CE_WARN, "%s: read error %d\n",
@@ -2946,61 +2633,34 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 	zfs_group_znode_t	*znp = NULL;
 	zfs_group_znode2_t	*z2p = NULL;
 	zfs_group_znode_arg_t	*arg = NULL;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
+
 
 	znp= &msg_data->call.znode;
 	arg = &znp->arg;
 	z2p = (zfs_group_znode2_t *)znp;
 	cred = zfs_group_getcred(&znp->cred);
-	if ( strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0
-		|| msg_header->server_spa == 0 || msg_header->server_os == 0  || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-		flg = 1;
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-		super_hold(zsb->z_sb);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
-	}
-	if(zsb->z_os->bNassync == 0){
-		if(msg_header->operation == ZNODE_FREE){
-			object = znp->id.data_object;
-		}else{
-			object = znp->id.master_object;
-		}
 
-		/* 2016 03 08, yzy, here master2 doesn't mean master2 node, if it is not emty, 
-		 * it means that master should be used to look up master obj map table, 
-		 * in case that Nfs session meets Master suddenly corrupted. 
-		 */
-		m_spa = znp->id.master2_spa;
-		m_objset = znp->id.master2_objset;
-		m_object = znp->id.master2_object;
-		m_gen = znp->id.master2_gen;
-	}else{
-		object = znp->id.slave_object;
-		
-		/* 2016 03 08, yzy, here master2 doesn't mean master2 node, if it is not emty, 
-		 * it means that master should be used to look up master obj map table, 
-		 * in case that Nfs session meets Master suddenly corrupted. 
-		 */
-		m_spa = znp->id.slave_spa;
-		m_objset = znp->id.slave_objset;
-		m_object = znp->id.slave_object;
-		m_gen = znp->id.slave_gen;
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL) {
+		crfree(cred);	
+		return (EGHOLD);
 	}
+
+	if(msg_header->operation == ZNODE_FREE){
+		object = znp->id.data_object;
+	}else{
+		object = znp->id.master_object;
+	}
+
+	/* 2016 03 08, yzy, here master2 doesn't mean master2 node, if it is not emty, 
+	 * it means that master should be used to look up master obj map table, 
+	 * in case that Nfs session meets Master suddenly corrupted. 
+	 */
+	m_spa = znp->id.master2_spa;
+	m_objset = znp->id.master2_objset;
+	m_object = znp->id.master2_object;
+	m_gen = znp->id.master2_gen;
+	
 	if((msg_header->operation == ZNODE_GET || msg_header->operation == ZNODE_SEARCH) && 
 		m_spa != 0 && m_objset != 0 && m_object !=0 && m_gen != 0){
 		bzero(buf, MAXNAMELEN);
@@ -3019,15 +2679,7 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 			}
 
 			crfree(cred);
-			if(flg){
-//				rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-				super_rele(zsb->z_sb);
-				dmu_objset_rele(os, FTAG);
-			}else{
-				zfs_sb_group_rele(zsb, FTAG);
-			}
+			zfs_sb_group_rele(zsb, FTAG);
 			return (error);
 		}
 	}
@@ -3035,15 +2687,7 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 	error = zfs_zget(zsb, object, &zp);
 	if (error) {
 		crfree(cred);
-		if(flg){
-//			rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//			VFS_RELE(zfsvfs->z_vfs);
-			super_rele(zsb->z_sb);
-			dmu_objset_rele(os, FTAG);
-		}else{
-			zfs_sb_group_rele(zsb, FTAG);
-		}
+		zfs_sb_group_rele(zsb, FTAG);
 		return (error);
 	}
 	switch (msg_header->operation) {
@@ -3083,12 +2727,11 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 		 * Because  ZNODE_FREE must happen on slave fs not master fs, 
 		 * So, zfs_group_zget() is called instead of zfs_zget().
 		 */
-		if(zsb->z_os->bNassync == 0 && zsb->z_os->os_is_group){
-			iput(ZTOI(zp));
-			error = zfs_group_zget(zsb, znp->id.master_object, &zp, 0, 0, 0, B_TRUE);
-			if (error) {
-				zp = NULL;
-			}
+		iput(ZTOI(zp));
+		error = zfs_group_zget(zsb, znp->id.master_object, &zp, 0, 0, 0, B_TRUE);
+		if (error) {
+			zp = NULL;
+			cmn_err(CE_WARN, "%s %d error=%d\n", __func__, __LINE__, error);
 		}
 	}
 	case ZNODE_SEARCH:
@@ -3108,15 +2751,7 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 	if (zp != NULL) {
 		iput(ZTOI(zp));
 	}
-	if(flg){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
+	zfs_sb_group_rele(zsb, FTAG);
 	return (error);
 }
 
@@ -3134,67 +2769,41 @@ zfs_group_process_znode_request_backup(zfs_group_server_para_t *server_para)
 	zfs_group_znode_t	*znp = NULL;
 	zfs_group_znode2_t	*z2p = NULL;
 	zfs_group_znode_arg_t	*arg = NULL;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
+
 
 	znp= &msg_data->call.znode;
 	arg = &znp->arg;
 	z2p = (zfs_group_znode2_t *)znp;
 	cred = zfs_group_getcred(&znp->cred);
-	if ( strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0
-		|| msg_header->server_spa == 0 || msg_header->server_os == 0  || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-		flg = 1;
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-		super_hold(zsb->z_sb);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL) {
+		crfree(cred);
+		return (EGHOLD);
 	}
 
-	if(zsb->z_os->bNassync == 0){
-		switch(msg_header->m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				object = znp->id.master2_object;
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				object = znp->id.master3_object;
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				object = znp->id.master4_object;
-				break;
-			default:
-				cmn_err(CE_WARN, "[Error] %s %d", __func__, __LINE__);
-				crfree(cred);
-				zfs_sb_group_rele(zsb, FTAG);
-				return (EINVAL);
-		}
-	}else{
-		object = znp->id.slave_object;
+	
+	switch(msg_header->m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			object = znp->id.master2_object;
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			object = znp->id.master3_object;
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			object = znp->id.master4_object;
+			break;
+		default:
+			cmn_err(CE_WARN, "[Error] %s %d", __func__, __LINE__);
+			crfree(cred);
+			zfs_sb_group_rele(zsb, FTAG);
+			return (EINVAL);
 	}
+	
 	error = zfs_zget(zsb, object, &zp);
 	if (error) {
 		crfree(cred);
-		if(flg){
-			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//			VFS_RELE(zfsvfs->z_vfs);
-			super_rele(zsb->z_sb);
-			dmu_objset_rele(os, FTAG);
-		}else{
-			zfs_sb_group_rele(zsb, FTAG);
-		}
+		zfs_sb_group_rele(zsb, FTAG);
 		return (error);
 	}
 	switch (msg_header->operation) {
@@ -3206,14 +2815,11 @@ zfs_group_process_znode_request_backup(zfs_group_server_para_t *server_para)
 			if (zg_setattr->bxattr == 1) {
 				zfs_group_to_xvattr(&zg_setattr->xattr, xvattrp);
 			}
-			if(zsb->z_os->bNassync == 0){
-//				error = VOP_SETATTR(ZTOV(zp), (vattr_t *)xvattrp, FCLUSTER|FBackupMaster, cred, NULL);
-				error = zfs_setattr(ZTOI(zp), (vattr_t *)xvattrp, FCLUSTER|FBackupMaster, cred);
-			}else{
-//				error = VOP_SETATTR(ZTOV(zp), (vattr_t *)xvattrp, FCLUSTER, cred, NULL);
-				error = zfs_setattr(ZTOI(zp), (vattr_t *)xvattrp, FCLUSTER, cred);
-			}
+			
+//			error = VOP_SETATTR(ZTOV(zp), (vattr_t *)xvattrp, FCLUSTER|FBackupMaster, cred, NULL);
+			error = zfs_setattr(ZTOI(zp), (vattr_t *)xvattrp, FCLUSTER|FBackupMaster, cred);
 			kmem_free(xvattrp, sizeof(xvattr_t));
+			
 		}
 		break;
 		default:
@@ -3222,15 +2828,7 @@ zfs_group_process_znode_request_backup(zfs_group_server_para_t *server_para)
 
 	crfree(cred);
 	iput(ZTOI(zp));
-	if(flg){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
+	zfs_sb_group_rele(zsb, FTAG);
 	return (error);
 }
 
@@ -3304,8 +2902,8 @@ void zfs_update_quota_used(zfs_sb_t *zsb, znode_t *zp,
     uint64_t space, uint64_t update_op, dmu_tx_t *tx)
 {
 	zfs_dir_updatequota(zsb, zp, space, update_op, tx);
-	zfs_fuid_updatequota(zsb, B_TRUE, zp->z_gid, space, update_op, tx);
-	zfs_fuid_updatequota(zsb, B_FALSE, zp->z_uid, space, update_op, tx);
+//	zfs_fuid_updatequota(zsb, B_TRUE, zp->z_gid, space, update_op, tx);
+//	zfs_fuid_updatequota(zsb, B_FALSE, zp->z_uid, space, update_op, tx);
 }
 
 int zfs_group_server_update_file_info(zfs_sb_t * zsb, zfs_group_notify_file_info_t* info)
@@ -3446,30 +3044,11 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_notify_msg_t	*nmsg = (zfs_group_notify_msg_t *)server_para->msg_data;
 	zfs_group_notify_t	*notify = &nmsg->call.notify;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
 
-	if ( msg_header->server_spa == 0 || msg_header->server_os == 0 || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-		flg = 1;
 
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-		super_hold(zsb->z_sb);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
-	}
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL)
+		return (EGHOLD);
 
 	switch(msg_header->operation)
 	{
@@ -3477,7 +3056,6 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 		{
 			zfs_group_notify_system_space_t *system_space = &notify->arg.p.system_space;
 			zfs_group_update_system_space(zsb->z_os, system_space);
-
 
 			break;
 		}
@@ -3664,15 +3242,7 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 	}
 
 error:
-	if(flg){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
+	zfs_sb_group_rele(zsb, FTAG);	
 	return (error);
 }
 
@@ -3701,36 +3271,17 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_cmd_msg_t	*cmd_msg = (zfs_group_cmd_msg_t *)server_para->msg_data;
 	zfs_group_cmd_t	*cmd = &cmd_msg->call.cmd;
-	objset_t *os = NULL;
-	int	flg = 0;/* '1' for dmu hold, '0' for group hold */
+
 
 	cmd_arg_size = cmd->arg.arg_size;
 	cmd_return_size = cmd->arg.return_size;
 	cmd_arg = cmd->cmd;
 	cmd_return = cmd->cmd;
 
-	if ( strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0
-		|| msg_header->server_spa == 0 || msg_header->server_os == 0  || msg_header->server_object == 0){
-		error = dmu_objset_hold(msg_header->dst_pool_fsname, FTAG, &os);
-		if (error != 0) {
-			return (error);
-		}
-		flg =1 ;
-
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (zsb == NULL){
-			dmu_objset_rele(os, FTAG);
-			return (EGHOLD);
-		}
-//		VFS_HOLD(zfsvfs->z_vfs);
-		super_hold(zsb->z_sb);
-//		rrw_enter(&zfsvfs->z_teardown_lock, RW_READER, FTAG);
-		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
-	}else{
-		zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
-		if (zsb == NULL)
-			return (EGHOLD);
-	}
+	zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
+	if (zsb == NULL)
+		return (EGHOLD);
+	
 
 	switch (msg_header->operation) {
 	case SC_FS_STAT: {
@@ -3866,15 +3417,7 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 	break;
 	}
 
-	if(flg){
-//		rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		super_rele(zsb->z_sb);
-		dmu_objset_rele(os, FTAG);
-	}else{
-		zfs_sb_group_rele(zsb, FTAG);
-	}
+	zfs_sb_group_rele(zsb, FTAG);
 	return (error);
 }
 
@@ -4196,8 +3739,6 @@ void zfs_group_server_rx(zfs_group_server_para_t *server_para)
 			zfs_group_msg(server_para->msg_header, server_para->msg_data, B_TRUE, B_TRUE, B_TRUE);
 		}
 	}
-	if( 5 == debug_nas_group_dtl )
-	cmn_err(CE_NOTE,"%s: ==> cmd:%d",__func__,cmd);
 	switch(cmd) {
 		case ZFS_GROUP_CMD_NAME:
 			error = zfs_group_process_name_request(server_para);
@@ -4240,6 +3781,7 @@ void zfs_group_server_rx(zfs_group_server_para_t *server_para)
 		break;
 		
 		default:
+			cmn_err(CE_WARN, "%s %d %d", __func__, __LINE__, cmd);
 		break;
 	}
 

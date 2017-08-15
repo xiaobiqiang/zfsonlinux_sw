@@ -43,7 +43,6 @@
 #include <sys/user.h>
 #include <sys/sunldi.h>
 
-
 /*
  * Prior to linux-2.6.33 only O_DSYNC semantics were implemented and
  * they used the O_SYNC flag.  As of linux-2.6.33 the this behavior

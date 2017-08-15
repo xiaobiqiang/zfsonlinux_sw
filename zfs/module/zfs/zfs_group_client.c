@@ -52,11 +52,9 @@
 #include <sys/dsl_dataset.h>
 #include <sys/zfs_group_dtl.h>
 #include <sys/cred.h>
-#include <sys/vnode.h>
 
 
 extern kmutex_t	multiclus_mtx;
-#define REPEAT 3
 
 int debug_print = 0;
 size_t zfs_group_max_dataseg_size = 512 * 1024;
@@ -186,12 +184,7 @@ void zfs_group_msg(zfs_group_header_t *msg_header, zfs_msg_t *msg_data, boolean_
 	char *para_op = NULL;
 	boolean_t binter_print = B_FALSE;
 
-	if(strncmp(msg_header->dst_pool_fsname, "none", strlen(msg_header->dst_pool_fsname)) != 0 ){
-		/* Do not print nasavs cmd */
-		#if 0
-		return;
-		#endif
-	}
+
 	if (bprint || (print_cmd == cmd && print_op == op)){
 		binter_print = B_TRUE;
 	} else {
@@ -336,7 +329,7 @@ uint64_t zfs_group_send_seq(objset_t *os)
 }
 
 
-void zfs_group_build_header(objset_t *os,
+static void zfs_group_build_header(objset_t *os,
     zfs_group_header_t *hdr, uint64_t cmd, share_flag_t wait_flag, 
     uint64_t op, uint64_t length, uint64_t out_length, uint64_t server_spa, 
     uint64_t server_os, uint64_t server_object, uint64_t master_object,
@@ -353,7 +346,6 @@ void zfs_group_build_header(objset_t *os,
 	hdr->out_length = out_length;
 	hdr->error = 0;
 
-	bcopy(os->os_remote_fsname, hdr->dst_pool_fsname, min((size_t)MAXNAMELEN, strlen(os->os_remote_fsname)));
 	hdr->master_object = master_object;
 
 	hdr->client_os = dmu_objset_id(os);
@@ -367,11 +359,6 @@ void zfs_group_build_header(objset_t *os,
 	hdr->data_spa = data_spa;
 	hdr->data_os = data_os;
 	hdr->data_object = data_object;
-
-/* nasavs */	
-	hdr->slave_spa = data_spa;
-	hdr->slave_os = data_os;
-	hdr->slave_object = data_object;
 	hdr->reset_seqno = 0;
 }
 
@@ -393,7 +380,6 @@ static void zfs_group_build_header_backup(objset_t *os,
 	hdr->out_length = out_length;
 	hdr->error = 0;
 
-	bcopy(os->os_remote_fsname, hdr->dst_pool_fsname, min((size_t)MAXNAMELEN, strlen(os->os_remote_fsname)));
 /* Below is Parent znodes's master2 object. */
 	hdr->master_object = master_object;
 
@@ -428,17 +414,6 @@ static void zfs_group_build_header_backup(objset_t *os,
 
 	hdr->m_node_type = m_node_type;
 
-/* nasavs */
-	hdr->slave_spa = z_group_id->slave_spa;
-	hdr->slave_os = z_group_id->slave_objset;
-	hdr->slave_object = z_group_id->slave_object;
-	hdr->slave_gen = z_group_id->slave_gen;
-
-	hdr->parent_spa = z_group_id->master_spa;
-	hdr->parent_os = z_group_id->master_objset;
-	hdr->parent_object = z_group_id->master_object;
-	hdr->parent_gen = z_group_id->master_gen;
-	
 /* Below is child znode's data file (spa, os, obj) */
 	hdr->data_spa = data_spa;
 	hdr->data_os = data_os;
@@ -449,227 +424,11 @@ static void zfs_group_build_header_backup(objset_t *os,
 	hdr->reset_seqno = 0;
 }
 
-// void zfs_client_rx_nasavs(zfs_nasavs_msg_t *omsg, zfs_nasavs_msg_t *nmsg)
-// {
-// 	switch (nmsg->hdr.command) {
-// 		case ZFS_GROUP_CMD_DATA:
-// 			bcopy((void *)nmsg, (void *)omsg, sizeof(zfs_group_data_msg_t));
-// 			/* zfs_client_process_data(omsg, nmsg); */
-// 			break;
 
-// 		case ZFS_GROUP_CMD_CMD:
-// 			/* zfs_client_process_cmd(omsg, nmsg); */
-// 			bcopy((void *)nmsg, (void *)omsg, sizeof(zfs_group_cmd_msg_t));
-// 			break;
-
-// 		default:
-// 			bcopy((void *)nmsg, (void *)omsg, nmsg->hdr.out_length);
-// 			break;
-// 	}
-// }
-
-// int zfs_group_send_to_remote_server_nasavs(objset_t *os, zfs_nasavs_msg_t *msg)
-// {
-	
-// 	int i, j = -1, err = -1, sock_idx = 0;
-// 	zfs_nasavs_socket_t* psk = NULL;
-// 	int rval;
-// 	size_t sent = 0, recv = 0;
-// 	zfs_group_header_t msg_hdr;
-// 	zfs_nasavs_msg_t *nmsg = NULL;
-// 	char* p;
-// 	boolean_t bTryIdleSocket = B_TRUE;
-// 	int count = 0;
-
-// again:
-// 	/* look for an idle connected ksocket */
-// 	for(i=0; i<ZFS_NASAVS_SOCKET_QUEUE_SIZE; i++){
-// 		if(os->socket_queue[i].link_status
-// 			!= ZFS_NASAVS_SOCKET_ONLINE){
-// 			continue;
-// 		}
-
-// 		/* Rember this connected socket, and keep looking for an idle connected ksocket. */
-// 		if(j == -1){
-// 			j = i;
-// 		}
-
-// 		if(bTryIdleSocket == B_TRUE){
-// 			if(mutex_tryenter(&os->socket_queue[(i+sock_idx)%ZFS_NASAVS_SOCKET_QUEUE_SIZE].socket_lock) == 0){
-// 				continue;
-// 			}
-// 		}else{
-// 			mutex_enter(&os->socket_queue[(i+sock_idx)%ZFS_NASAVS_SOCKET_QUEUE_SIZE].socket_lock);
-// 		}
-
-// 		psk = &os->socket_queue[i];
-
-// 		sent = 0;
-// 		count = 0;
-// 		do{
-// 			ksocket_hold(psk->socket);
-// 			err = ksocket_send(psk->socket, msg, msg->hdr.length + sizeof(zfs_group_header_t), 0, &sent, CRED());
-// 			ksocket_rele(psk->socket);
-// 			if(err == EAGAIN)delay(drv_usectohz(1000000));
-// 		}while(err == EAGAIN && count++ < REPEAT);
-
-// 		if (err != 0 || sent != msg->hdr.length  + sizeof(zfs_group_header_t)) {
-// 			if(5 == debug_nas_group_dtl){
-// 				cmn_err(CE_WARN, "[Error] %s %d send failed, err:%d, sent:%d/%d",
-// 					__func__, __LINE__, err, (int)sent, (int)msg->hdr.length + (int)sizeof(zfs_group_header_t));
-// 			}
-// 			psk->link_status = ZFS_NASAVS_SOCKET_OFFLINE;
-// 			mutex_exit(&psk->socket_lock);
-// 			err = ENOTCONN;
-// 			continue;
-// 		}
-
-// 		if(msg->hdr.command == ZFS_GROUP_CMD_NOTIFY){
-// 			mutex_exit(&psk->socket_lock);
-// 			break;
-// 		}
-		
-// 		/* When reach here, msg has been sent to server successfully, now starting to receive reply msg. */
-// 		recv = 0;
-// 		count = 0;
-// 		do{
-// 			ksocket_hold(psk->socket);
-// 			err = ksocket_recv(psk->socket, &msg_hdr, sizeof(zfs_group_header_t),
-// 				MSG_WAITALL, &recv, CRED());
-// 			ksocket_rele(psk->socket);
-// 			if(err == EAGAIN)delay(drv_usectohz(1000000));
-// 		}while(err == EAGAIN && count++ < REPEAT);
-		
-// 		if(err != 0 || recv != sizeof(zfs_group_header_t)){
-// 			if(5 == debug_nas_group_dtl){
-// 				cmn_err(CE_WARN, "[Error] %s %d recv failed, err:%d, recv:%d/%d",
-// 					__func__, __LINE__, err, (int)recv, (int)sizeof(zfs_group_header_t));
-// 			}
-// 			psk->link_status = ZFS_NASAVS_SOCKET_OFFLINE;
-// 			mutex_exit(&psk->socket_lock);
-// 			err = ENOTCONN;
-// 			break;
-// 		}
-
-// 		if(msg_hdr.magic != ZFS_GROUP_MAGIC || msg_hdr.length == 0){
-// 			if(5 == debug_nas_group_dtl){
-// 				cmn_err(CE_WARN, "[Error] %s %d recv failed, msg_hdr.length (%llu) < sizeof(zfs_group_header_t)",
-// 					__func__, __LINE__, (ulonglong_t)msg_hdr.length);
-// 			}
-// 			mutex_exit(&psk->socket_lock);
-// 			err = ENOTCONN;
-// 			break;
-// 		}
-
-// 		nmsg = (zfs_nasavs_msg_t *)kmem_zalloc(msg_hdr.length + sizeof(zfs_group_header_t), KM_SLEEP);
-// 		bcopy(&msg_hdr, nmsg, sizeof(zfs_group_header_t));
-// 		p = (char*)nmsg;
-// 		p = p + sizeof(zfs_group_header_t);
-// 		recv = 0;
-// 		count = 0;
-// 		do{
-// 			ksocket_hold(psk->socket);
-// 			err = ksocket_recv(psk->socket, p, msg_hdr.length,
-// 				MSG_WAITALL, &recv, CRED());
-// 			ksocket_rele(psk->socket);
-// 			if(err == EAGAIN)delay(drv_usectohz(1000000));
-// 		}while(err == EAGAIN && count++ < REPEAT);
-
-// 		if(err != 0 || recv != msg_hdr.length){
-// 			if(5 == debug_nas_group_dtl){
-// 				cmn_err(CE_WARN, "[Error] %s %d recv failed, err:%d, recv:%d/%d",
-// 					__func__, __LINE__, err, (int)recv, (int)(msg_hdr.length));
-// 			}
-// 			psk->link_status = ZFS_NASAVS_SOCKET_OFFLINE;
-// 			kmem_free(nmsg, msg_hdr.length + sizeof(zfs_group_header_t));
-// 			nmsg = NULL;
-// 			mutex_exit(&psk->socket_lock);
-// 			err = ENOTCONN;
-// 			break;
-// 		}
-// 		mutex_exit(&psk->socket_lock);
-// 		break;
-// 	}
-	
-// 	if(j == -1){
-// 		if(5 == debug_nas_group_dtl){
-// 			cmn_err(CE_WARN, "[Error] %s %d Can't find connected socket. ",
-// 				__func__, __LINE__);
-// 		}
-// 		err = ECOMM;
-// 		return  err;
-// 	}
-
-// 	if(err != 0 && bTryIdleSocket == B_TRUE){
-// 		j = -1;
-// 		bTryIdleSocket = B_FALSE;
-// 		if ( nmsg != NULL){
-// 			kmem_free(nmsg, msg_hdr.length + sizeof(zfs_group_header_t));
-// 		}
-// 		goto again;
-// 	}
-
-// 	if (err == 0 && msg->hdr.command != ZFS_GROUP_CMD_NOTIFY && nmsg != NULL){
-// 		zfs_client_rx_nasavs(msg, nmsg);
-// 		err = msg->hdr.error;
-// 	}
-
-// 	if ( nmsg != NULL){
-// 		kmem_free(nmsg, msg_hdr.length + sizeof(zfs_group_header_t));
-// 	}
-
-// 	return (err);
-// }
-
-// zfs_nasavs_msg_t *zfs_nasavs_merge_msg(zfs_group_header_t *msg_header, zfs_msg_t *msg_data, uint64_t *len)
-// {
-// 	zfs_nasavs_msg_t *msg;
-// 	*len = (msg_header->length > msg_header->out_length) ? msg_header->length : msg_header->out_length;
-// 	msg = kmem_zalloc(sizeof(zfs_group_header_t) + (*len), KM_SLEEP);
-// 	bcopy((void *)msg_header, (char *)msg, sizeof(zfs_group_header_t));
-// 	bcopy((void *)msg_data, (char *)msg+sizeof(zfs_group_header_t), msg_header->length);
-// 	return (msg);
-// }
-
-// int zfs_nasavs_printf_clnt_group_id(zfs_group_header_t *msg_header, zfs_msg_t *msg)
-// {
-// 	zfs_group_name_t	*np = &msg->call.name;
-	
-// 	if(5 == debug_nas_group_dtl)
-// 	cmn_err(CE_NOTE,"clnt send msg header server spa:%llx, objset:%llx, object:%llx\n",
-// 		(u_longlong_t)msg_header->server_spa, (u_longlong_t)msg_header->server_os, 
-// 		(u_longlong_t)msg_header->server_object);
-
-// 	if(5 == debug_nas_group_dtl)
-// 	cmn_err(CE_NOTE,"clnt send slave spa:%llx, objset:%llx, object:%llx, gen:%llx\n \
-// 	%llx, objset:%llx, object:%llx, gen:%llx\n \
-// 		srv parent spa:%llx, objset:%llx, object:%llx, gen:%llx\n",
-// 		(u_longlong_t)np->parent_object.master_spa, (u_longlong_t)np->parent_object.master_objset, 
-// 		(u_longlong_t)np->parent_object.master_object, (u_longlong_t)np->parent_object.master_gen,
-// 		(u_longlong_t)np->parent_object.slave_spa, (u_longlong_t)np->parent_object.slave_objset, 
-// 		(u_longlong_t)np->parent_object.slave_object, (u_longlong_t)np->parent_object.slave_gen,
-// 		(u_longlong_t)np->parent_object.parent_spa, (u_longlong_t)np->parent_object.parent_objset, 
-// 		(u_longlong_t)np->parent_object.parent_object, (u_longlong_t)np->parent_object.parent_gen);
-// 	return 0;
-// }
-
-int zfs_group_send_to_remote_server(objset_t *os, zfs_group_header_t *msg_header, zfs_msg_t *msg_data)
+int zfs_group_send_to_remote_server(objset_t *os, 	zfs_group_header_t *msg_header, zfs_msg_t *msg_data)
 {
- 	int err = 0;
-// 	zfs_nasavs_msg_t *nasavs_msg = NULL;
-// 	uint64_t len;
-	
-// 	if(0 == os->bNassync){
- 		err = zfs_multiclus_write_operate_msg(os, msg_header, (void *)msg_data, msg_header->length);
-// 	}
-// 	else{
-// 		nasavs_msg = zfs_nasavs_merge_msg(msg_header, msg_data, &len);
-// 		zfs_nasavs_printf_clnt_group_id(msg_header, msg_data);
-// 		err = zfs_group_send_to_remote_server_nasavs(os, nasavs_msg);
-// 		bcopy(nasavs_msg, (char *)msg_header,sizeof(zfs_group_header_t));
-// 		bcopy((char *)nasavs_msg+sizeof(zfs_group_header_t), (char *)msg_data, len);
-// 		kmem_free(nasavs_msg, sizeof(zfs_group_header_t) + len);
-// 	}
+	int err = 0;
+	err = zfs_multiclus_write_operate_msg(os, msg_header, (void *)msg_data, msg_header->length);
 	return (err);
 }
 
@@ -766,7 +525,6 @@ void zfs_group_znode_copy_phys(znode_t *zp, zfs_group_phys_t *dst_phys, boolean_
 	dst_phys->zp_overquota = zp->z_overquota;
 	dst_phys->zp_old_gen = zp->z_old_gen;
 	dst_phys->zp_bquota = zp->z_bquota;
-	dst_phys->zp_parent = zp->z_parent;
 	bcopy(zp->z_atime, dst_phys->zp_atime, sizeof(uint64_t) *2);
 	bcopy(zp->z_ctime, dst_phys->zp_ctime, sizeof(uint64_t) *2);
 	bcopy(zp->z_mtime, dst_phys->zp_mtime, sizeof(uint64_t) *2);
@@ -972,6 +730,7 @@ static int zfs_group_proc_name_backup(
 	int error = 0;
 //	int r;
 	zfs_multiclus_group_record_t *record = NULL;
+	znode_t new_znode = { 0 };
 	
 	char master_fsname[MAX_FSNAME_LEN+1] = {0};
 	char master2_fsname[MAX_FSNAME_LEN+1] = {0};
@@ -981,30 +740,24 @@ static int zfs_group_proc_name_backup(
 	
 	zsb = zp->z_zsb;
 
-	if(zsb->z_os->bNassync == 0){
-		record = zfs_multiclus_get_group_master(zsb->z_os->os_group_name, m_node_type);
-		if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
-			return EPROTO;
-		}
+	record = zfs_multiclus_get_group_master(zsb->z_os->os_group_name, m_node_type);
+	if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
+		return EPROTO;
 	}
+		
 	if(ncp && strlen(ncp) > MAXNAMELEN){
 		cmn_err(CE_WARN, "[Error] Target Name length is longer than %d.", MAXNAMELEN);
 		return EPROTO;
 	}
 
-	if(5 == debug_nas_group_dtl)
-		cmn_err(CE_NOTE,"%s: ==> op=%d",__func__,op);
-
-	if(zsb->z_os->bNassync == 0){
-		dmu_objset_name(zsb->z_os, master_fsname);
-		strcpy(master2_fsname, (char*)&record->fsname[0]);
-	}	
+	dmu_objset_name(zsb->z_os, master_fsname);
+	strcpy(master2_fsname, (char*)&record->fsname[0]);
+	
 	name_msg = kmem_zalloc(sizeof(zfs_group_name_msg_t), KM_SLEEP);
 	msg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 	np = &name_msg->call.name;
 
 	np->parent_object = zp->z_group_id;
-//	zfs_nasavs_printf_clnt_group_id_dtl(__func__, __LINE__, np->parent_object);
 	if (ptr != NULL) {
 		bcopy(ptr, (char *)&np->arg, argsize);
 	}
@@ -1019,23 +772,20 @@ static int zfs_group_proc_name_backup(
 	case NAME_RMDIR:
 		VERIFY(offsetof(zfs_group_name_t, component) + cplen + 1 <=
 		    ZFS_GROUP_MAX_NAME_LEN);
-		if(zsb->z_os->bNassync == 0){
-			/* Replace the first master_fsname in cp with master2_fsname. */
-			p = strstr(cp, master_fsname);
-			if(p != NULL)lendiff = p - cp;
+		/* Replace the first master_fsname in cp with master2_fsname. */
+		p = strstr(cp, master_fsname);
+		if(p != NULL)lendiff = p - cp;
 		
-			if(p != NULL){
-				strncpy((char *)&np->component, cp, lendiff);
-				strcpy((char *)&np->component[lendiff], master2_fsname);
-				strncpy((char *)&np->component[strlen(master2_fsname) + lendiff], 
-				p + strlen(master_fsname), cplen - strlen(master_fsname) - lendiff);
-				cplen = cplen + strlen(master2_fsname) - strlen(master_fsname);
-			}else{
-				bcopy(cp, np->component, cplen);
-			}
+		if(p != NULL){
+			strncpy((char *)&np->component, cp, lendiff);
+			strcpy((char *)&np->component[lendiff], master2_fsname);
+			strncpy((char *)&np->component[strlen(master2_fsname) + lendiff], 
+			p + strlen(master_fsname), cplen - strlen(master_fsname) - lendiff);
+			cplen = cplen + strlen(master2_fsname) - strlen(master_fsname);
 		}else{
 			bcopy(cp, np->component, cplen);
 		}
+
 		param_len = offsetof(zfs_group_name_t, component) + cplen + 1;
 		param_len = (param_len + NBPW) & ~(NBPW-1);
 		VERIFY(param_len <= ZFS_GROUP_MAX_NAME_LEN);
@@ -1049,35 +799,31 @@ static int zfs_group_proc_name_backup(
 		VERIFY(cplen + 1 <= MAXNAMELEN);
 		VERIFY(offsetof(zfs_group_name_t, component) + MAXNAMELEN +
 		    strlen(ncp) + 1 <= ZFS_GROUP_MAX_NAME_LEN);
-		if(zsb->z_os->bNassync == 0){
-			/* Replace the first master_fsname in cp with master2_fsname. */
-			p = strstr(cp, master_fsname);
-			if(p != NULL)lendiff = p - cp;
-			if(p != NULL){
-				strncpy((char *)&np->component, cp, lendiff);
-				strcpy((char *)&np->component[lendiff], master2_fsname);
-				strncpy((char *)&np->component[strlen(master2_fsname) + lendiff], 
-				p + strlen(master_fsname), cplen - strlen(master_fsname) - lendiff);
-			}else{
-				bcopy(cp, np->component, cplen);
-			}
-
-			p = strstr(ncp, master_fsname);
-			if(p != NULL)lendiff = p -ncp;
-			if(p != NULL){
-				strncpy((char *)&np->component[MAXNAMELEN], ncp, lendiff);
-				strcpy((char *)&np->component[MAXNAMELEN + lendiff], master2_fsname);
-				strncpy((char *)&np->component[MAXNAMELEN + strlen(master2_fsname) + lendiff], 
-				p + strlen(master_fsname), strlen(ncp) - strlen(master_fsname) - lendiff);
-				lendiff = strlen(master2_fsname) - strlen(master_fsname);
-			}else{
-				strcpy((char *)&np->component[MAXNAMELEN], ncp);
-				lendiff = 0;
-			}
+		/* Replace the first master_fsname in cp with master2_fsname. */
+		p = strstr(cp, master_fsname);
+		if(p != NULL)lendiff = p - cp;
+		if(p != NULL){
+			strncpy((char *)&np->component, cp, lendiff);
+			strcpy((char *)&np->component[lendiff], master2_fsname);
+			strncpy((char *)&np->component[strlen(master2_fsname) + lendiff], 
+			p + strlen(master_fsname), cplen - strlen(master_fsname) - lendiff);
 		}else{
 			bcopy(cp, np->component, cplen);
-			strcpy((char *)&np->component[MAXNAMELEN], ncp);
 		}
+
+		p = strstr(ncp, master_fsname);
+		if(p != NULL)lendiff = p -ncp;
+		if(p != NULL){
+			strncpy((char *)&np->component[MAXNAMELEN], ncp, lendiff);
+			strcpy((char *)&np->component[MAXNAMELEN + lendiff], master2_fsname);
+			strncpy((char *)&np->component[MAXNAMELEN + strlen(master2_fsname) + lendiff], 
+			p + strlen(master_fsname), strlen(ncp) - strlen(master_fsname) - lendiff);
+			lendiff = strlen(master2_fsname) - strlen(master_fsname);
+		}else{
+			strcpy((char *)&np->component[MAXNAMELEN], ncp);
+			lendiff = 0;
+		}
+
 		param_len = offsetof(zfs_group_name_t, component) +
 		    MAXNAMELEN + strlen(ncp) + 1 + lendiff;
 		param_len = (param_len + NBPW) & ~(NBPW-1);
@@ -1086,19 +832,17 @@ static int zfs_group_proc_name_backup(
 		break;
 
 	case NAME_ACL:{
-		if(zsb->z_os->bNassync == 0){
-			/* Replace the first master_fsname in cp with master2_fsname. */
-			p = strstr(cp, master_fsname);
-			if(p != NULL)lendiff = p - cp;
-			if(p){
-				bcopy(cp, np->component, lendiff);
-				bcopy(master2_fsname, &np->component[lendiff], strlen(master2_fsname));
-				bcopy(&np->component[strlen(master2_fsname) + lendiff], 
-					p + strlen(master_fsname), cplen - strlen(master_fsname) - lendiff);
-				cplen = cplen + strlen(master2_fsname) - strlen(master_fsname);
-			}else{
-				bcopy(cp, np->component, cplen);
-			}
+		/* Replace the first master_fsname in cp with master2_fsname. */
+		p = strstr(cp, master_fsname);
+		if(p != NULL)lendiff = p - cp;
+		if(p){
+			bcopy(cp, np->component, lendiff);
+			bcopy(master2_fsname, &np->component[lendiff], strlen(master2_fsname));
+			bcopy(&np->component[strlen(master2_fsname) + lendiff], 
+				p + strlen(master_fsname), cplen - strlen(master_fsname) - lendiff);
+			cplen = cplen + strlen(master2_fsname) - strlen(master_fsname);
+		}else{
+			bcopy(cp, np->component, cplen);
 		}
 
 		param_len = cplen + offsetof(zfs_group_name_t, component);
@@ -1113,43 +857,39 @@ static int zfs_group_proc_name_backup(
 		goto out;
 	}
 
-	if(zsb->z_os->bNassync == 0){
-		dst_spa = record->spa_id;
-		dst_os = record->os_id;
-		switch(m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
-				dst_object = zp->z_group_id.master2_object;
-				if(dst_object != -1 && dst_object != 0){
-					dst_spa = zp->z_group_id.master2_spa;
-					dst_os = zp->z_group_id.master2_objset;
-				}
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
-				dst_object = zp->z_group_id.master3_object;
-				if(dst_object != -1 && dst_object != 0){
-					dst_spa = zp->z_group_id.master3_spa;
-					dst_os = zp->z_group_id.master3_objset;
-				}
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
-				dst_object = zp->z_group_id.master4_object;
-				if(dst_object != -1 && dst_object != 0){
-					dst_spa = zp->z_group_id.master4_spa;
-					dst_os = zp->z_group_id.master4_objset;
-				}
-				break;
-			default:
-				cmn_err(CE_WARN, "[Error] %s %d.", __func__, __LINE__);
-				error = EPROTO;
-				goto out;
-		}		
-	}else{
-		dst_spa = zp->z_group_id.slave_spa;
-		dst_os = zp->z_group_id.slave_objset;
+	dst_spa = record->spa_id;
+	dst_os = record->os_id;
+
+	switch(m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
+			dst_object = zp->z_group_id.master2_object;
+			if(dst_object != -1 && dst_object != 0){
+				dst_spa = zp->z_group_id.master2_spa;
+				dst_os = zp->z_group_id.master2_objset;
+			}
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
+			dst_object = zp->z_group_id.master3_object;
+			if(dst_object != -1 && dst_object != 0){
+				dst_spa = zp->z_group_id.master3_spa;
+				dst_os = zp->z_group_id.master3_objset;
+			}
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
+			dst_object = zp->z_group_id.master4_object;
+			if(dst_object != -1 && dst_object != 0){
+				dst_spa = zp->z_group_id.master4_spa;
+				dst_os = zp->z_group_id.master4_objset;
+			}
+			break;
+		default:
+			cmn_err(CE_WARN, "[Error] %s %d.", __func__, __LINE__);
+			error = EPROTO;
+			goto out;
 	}
 
 	if(zp->z_id == zsb->z_root && dst_object == -1){
@@ -1167,7 +907,8 @@ static int zfs_group_proc_name_backup(
 			error = 0;
 			goto out;
 		}else{
-			znode_t new_znode = *zp;
+//			new_znode = *zp;
+			bcopy(zp, &new_znode, sizeof(znode_t));
 			mutex_init(&new_znode.z_lock, NULL, MUTEX_DEFAULT, NULL);
 			if(zfs_group_proc_znode(&new_znode, ZNODE_SEARCH, &m_node_type, credp, B_FALSE) == 0){
 				mutex_destroy(&new_znode.z_lock);
@@ -1233,8 +974,7 @@ static int zfs_group_proc_name_backup(
 
 				
 					/* send masterX info to data node and other Master node */
-					if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0 && 
-							zsb->z_os->bNassync == 0){
+					if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0){
 						cmn_err(CE_WARN, "Failed to update master file node info, file is %s, m_node_type = %d",
 							zp->z_filename, m_node_type);
 					}
@@ -1257,16 +997,15 @@ static int zfs_group_proc_name_backup(
 		
 	}
 
-	if(zsb->z_os->bNassync == 0){
-		record = zfs_multiclus_get_record(dst_spa, dst_os);
-		if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
-			if(1 == debug_nas_group_dtl){
-				cmn_err(CE_WARN, "[Error] %s %d.", __func__, __LINE__);
-			}
-			error = EINVAL;
-			goto out;
+	record = zfs_multiclus_get_record(dst_spa, dst_os);
+	if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
+		if(1 == debug_nas_group_dtl){
+			cmn_err(CE_WARN, "[Error] %s %d.", __func__, __LINE__);
 		}
+		error = EINVAL;
+		goto out;
 	}
+	
 	msg_orig = APP_USER;
 	
 	request_length = param_len;
@@ -1300,99 +1039,6 @@ out:
 	return (error);
 }
 
-// int					/* ERRNO if error, 0 if successful. */
-// zfs_proc_dtl_data(zfs_sb_t *zsb, znode_t *zp,	
-//     data_operation_t op, void *ptr, uint64_t io_flags, 
-//     data_direction_t direction)
-// {
-// //	uint64_t server_spa;
-// //	uint64_t server_os;
-// 	zfs_group_data_msg_t *data_msg = NULL;
-// 	uint64_t msg_len = 0;
-// 	zfs_group_data_t *data = NULL;
-// 	int request_length;
-// 	int reply_lenth;
-// 	uio_t *uiop;
-// 	zfs_group_dtl_carrier_t*	z_carrier = NULL;
-// //	zfs_group_dtl_data_t*	ss_data = NULL;
-// 	int			dtlerr = -1;
-
-// 	switch (op) {
-
-// 		case DATA_WRITE: {
-// 			void *addr;
-// 			size_t cbytes;
-// 			size_t write_len;
-// 			zfs_group_data_write_t *write;
-// 			write = (zfs_group_data_write_t *)ptr;
-// 			uiop = (uio_t *)(uintptr_t)write->addr;
-// 			write_len = (write->len + (8 -1)) & (~(8 -1));
-// 			msg_len = sizeof(zfs_group_data_msg_t) + write_len - 8;
-// 			data_msg = kmem_zalloc(msg_len, KM_SLEEP);
-// 			data = &data_msg->call.data;
-// 			addr = &data_msg->call.data.data;
-// 			data->io_flags = io_flags;
-// 			uiocopy(addr, write->len, UIO_WRITE, uiop, &cbytes);
-// 			data_msg->call.data.arg.p.write = *write;
-// 			request_length = msg_len;
-// 			reply_lenth = sizeof(zfs_group_data_msg_t);
-// 		}
-// 		break;
-
-// 		default:
-// 			return -1;
-// 	}
-// /*
-// 	if (zp->z_id == zp->z_zfsvfs->z_root) {
-// 		zp->z_group_id.master_spa = spa_guid(zp->z_zfsvfs->z_os->os_spa);
-// 		zp->z_group_id.master_objset = dmu_objset_id(zp->z_zfsvfs->z_os);
-// 		zp->z_group_id.master_object = zp->z_zfsvfs->z_root;
-// 		zp->z_group_id.master_gen = 0;
-// 	}
-// */
-// 	if (zp->z_id == zp->z_zsb->z_root) {
-// 		zp->z_group_id.master_spa = spa_guid(zp->z_zsb->z_os->os_spa);
-// 		zp->z_group_id.master_objset = dmu_objset_id(zp->z_zsb->z_os);
-// 		zp->z_group_id.master_object = zp->z_zsb->z_root;
-// 		zp->z_group_id.master_gen = 0;
-// 	}
-	
-// 	z_carrier = zfs_group_dtl_carry_write_data(NAME_WRITEDATA, zp, ptr, data_msg, io_flags, msg_len);
-
-// #if 1
-// 	if(z_carrier){
-// 		dtlerr = -1;
-// 		if ( zsb->z_os->bNassync == ZFS_NASSYNC_SYNC && zsb->z_group_dtl_obj_num == 0 
-// 					&& avl_numnodes(&zsb->z_group_dtl_tree) == 0 && avl_numnodes(&zsb->z_group_dtl_tree2) == 0){
-// 			dtlerr = zfs_group_dtl_resolve(z_carrier,ZFS_MULTICLUS_NODE_TYPE_NUM);
-// 			if ( dtlerr == 0 ){
-// 				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-// 			}else{
-// 				zsb->z_os->bNassync = ZFS_NASSYNC_ASYNC;
-// 			}
-// 		}
-// #if	0
-// 		if(dtlerr != 0){
-// 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-// 			ss_data->obj = zp->z_id;
-// 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
-// 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
-// 			mutex_enter(&zfsvfs->z_group_dtl_tree2_mutex);
-// 			gethrestime(&ss_data->gentime);
-// 			zfs_group_dtl_add(&zfsvfs->z_group_dtl_tree2, ss_data, sizeof(zfs_group_dtl_data_t));
-// 			mutex_exit(&zfsvfs->z_group_dtl_tree2_mutex);
-// 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-// 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
-// 			dtlerr = 0;
-// 		}
-// #endif
-// 	}
-// #else
-// 	zfs_group_dtl_resolve(z_carrier);
-// #endif
-
-// 	return (dtlerr);
-// }
 
 int					/* ERRNO if error, 0 if successful. */
 zfs_proc_data(zfs_sb_t *zsb, znode_t *zp,
@@ -1915,6 +1561,7 @@ void zfs_client_rx(zfs_group_header_t *omsg_header, zfs_msg_t *omsg,
 	}
 }
 
+
 int zfs_client_write_data(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop, 
     uint64_t nbytes, cred_t *credp, uint64_t ioflag)
 {
@@ -1935,13 +1582,9 @@ int zfs_client_write_data(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	write->dir_quota = zp->z_dirquota;
 	zfs_group_set_cred(credp, &write->cred);
 
-//	if(zsb->z_os->bNassync){
-//		error = zfs_proc_dtl_data(zsb, zp, DATA_WRITE,
-//			(void *)write, ioflag, DATA_TO_DATA);
-//	}else{
-		error = zfs_proc_data(zsb, zp,
-		    DATA_WRITE, SHARE_WAIT, (void *)write, ioflag, DATA_TO_DATA);
-//	}
+	error = zfs_proc_data(zsb, zp,
+		DATA_WRITE, SHARE_WAIT, (void *)write, ioflag, DATA_TO_DATA);
+
 	if (error == 0) {
 		uioskip(uiop, nbytes);
 	}
@@ -1949,7 +1592,6 @@ int zfs_client_write_data(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	kmem_free(write, sizeof(zfs_group_data_write_t));
 	return (error);
 }
-
 int 
 zfs_client_write_data2(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop, 
     uint64_t nbytes, cred_t *credp, uint64_t ioflag)
@@ -2012,18 +1654,11 @@ zfs_group_proc_znode(
 	force_sync = TRUE;
 	os = zp->z_zsb->z_os;
 
-	if(zp->z_zsb->z_os->bNassync == 0){
-		if (zp->z_id == zp->z_zsb->z_root) {
-			zp->z_group_id.master_spa = os->os_master_spa;
-			zp->z_group_id.master_objset = os->os_master_os;
-			zp->z_group_id.master_object = os->os_master_root;
-		}
-	}else{
-		if (zp->z_id == zp->z_zsb->z_root) {
-			zp->z_group_id.master_spa = spa_guid(zp->z_zsb->z_os->os_spa);
-			zp->z_group_id.master_objset = dmu_objset_id(zp->z_zsb->z_os);
-			zp->z_group_id.master_object = zp->z_zsb->z_root;
-		}
+
+	if (zp->z_id == zp->z_zsb->z_root) {
+		zp->z_group_id.master_spa = os->os_master_spa;
+		zp->z_group_id.master_objset = os->os_master_os;
+		zp->z_group_id.master_object = os->os_master_root;
 	}
 	znp->id = zp->z_group_id;
 	switch (op) {
@@ -2057,28 +1692,24 @@ zfs_group_proc_znode(
 
 	case ZNODE_SEARCH:
 		znode_op = "Search";
-		if(zp->z_zsb->z_os->bNassync){
-			znp->id.slave_spa= zp->z_group_id.master_spa;
-			znp->id.slave_objset = zp->z_group_id.master_objset;
-			znp->id.slave_object = zp->z_group_id.master_object;
-		}else{
-			m_node_type_p = (zfs_multiclus_node_type_t *)ptr;
-			record = zfs_multiclus_get_group_master(zp->z_zsb->z_os->os_group_name, *m_node_type_p);
-			if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
-				error = ENOENT;
-				goto out;
-			}
-			dst_spa = record->spa_id;
-			dst_os  = record->os_id;
-			znp->id.master2_spa = zp->z_group_id.master_spa;
-			znp->id.master2_objset = zp->z_group_id.master_objset;
-			znp->id.master2_object = zp->z_group_id.master_object;
-			if(1 == debug_nas_group_dtl){
-				cmn_err(CE_WARN, "[yzy] %s %d spa 0x%llx, os 0x%llx, obj 0x%llx", __func__, __LINE__,
-					(unsigned long long)znp->id.master2_spa,(unsigned long long)znp->id.master2_objset,
-					(unsigned long long)znp->id.master2_object);
-			}
+
+		m_node_type_p = (zfs_multiclus_node_type_t *)ptr;
+		record = zfs_multiclus_get_group_master(zp->z_zsb->z_os->os_group_name, *m_node_type_p);
+		if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
+			error = ENOENT;
+			goto out;
 		}
+		dst_spa = record->spa_id;
+		dst_os  = record->os_id;
+		znp->id.master2_spa = zp->z_group_id.master_spa;
+		znp->id.master2_objset = zp->z_group_id.master_objset;
+		znp->id.master2_object = zp->z_group_id.master_object;
+		if(1 == debug_nas_group_dtl){
+			cmn_err(CE_WARN, "[yzy] %s %d spa 0x%llx, os 0x%llx, obj 0x%llx", __func__, __LINE__,
+				(unsigned long long)znp->id.master2_spa,(unsigned long long)znp->id.master2_objset,
+				(unsigned long long)znp->id.master2_object);
+		}
+		
 	break;
 	
 	default:
@@ -2086,51 +1717,41 @@ zfs_group_proc_znode(
 		goto out;
 	}
 
-	if(zp->z_zsb->z_os->bNassync){
-			zfs_group_build_header(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
-			wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
-			znp->id.slave_spa, znp->id.slave_objset,
-			znp->id.slave_object,
-			zp->z_group_id.master_object,
-			zp->z_group_id.slave_spa,
-			zp->z_group_id.slave_objset,
-			zp->z_group_id.slave_object,
-			MSG_REQUEST, APP_USER);
+	if(op == ZNODE_FREE){
+		zfs_group_build_header(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
+		    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
+		    znp->id.data_spa, znp->id.data_objset,
+	    	znp->id.data_object,
+	    	zp->z_group_id.master_object,
+	    	zp->z_group_id.data_spa,
+	    	zp->z_group_id.data_objset,
+	    	zp->z_group_id.data_object,
+	    	MSG_REQUEST, APP_USER);
 	}else{
-		if(op == ZNODE_FREE){
-			zfs_group_build_header(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
-			    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
-			    znp->id.data_spa, znp->id.data_objset,
-		    	znp->id.data_object,
-		    	zp->z_group_id.master_object,
-		    	zp->z_group_id.data_spa,
-		    	zp->z_group_id.data_objset,
-		    	zp->z_group_id.data_object,
-		    	MSG_REQUEST, APP_USER);
-		}else{
-			zfs_group_build_header(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
-			    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
-			    op == ZNODE_SEARCH ? dst_spa : znp->id.master_spa, op == ZNODE_SEARCH ? dst_os: znp->id.master_objset,
-		    	zp->z_group_id.master_object,
-		    	zp->z_group_id.master_object,
-		    	zp->z_group_id.data_spa,
-		    	zp->z_group_id.data_objset,
-		    	zp->z_group_id.data_object,
-		    	MSG_REQUEST, APP_USER);
-		}
+		zfs_group_build_header(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
+		    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
+		    op == ZNODE_SEARCH ? dst_spa : znp->id.master_spa, op == ZNODE_SEARCH ? dst_os: znp->id.master_objset,
+	    	zp->z_group_id.master_object,
+	    	zp->z_group_id.master_object,
+	    	zp->z_group_id.data_spa,
+	    	zp->z_group_id.data_objset,
+	    	zp->z_group_id.data_object,
+	    	MSG_REQUEST, APP_USER);
 	}
 	
+	
 	if ((error = zfs_client_send_to_server(zp->z_zsb->z_os, msg_header, (zfs_msg_t *)znode_msg, watting)) == 0) {
-		if(zp->z_zsb->z_os->bNassync == 0){
-			z2p = (zfs_group_znode2_t *)znp;
-			mutex_enter(&zp->z_lock);
-			zfs_group_znode_reset_phys(zp, &z2p->zrec.object_phy);
-			zp->z_group_id = z2p->inp.id;
-			mutex_exit(&zp->z_lock);
-			sprintf(msg, "%s %s", "Acquire znode", znode_op);
-			zfs_group_acquire_znode_error(&z2p->inp.id, &z2p->zrec.object_phy,
-			    msg);
-		}
+		z2p = (zfs_group_znode2_t *)znp;
+		mutex_enter(&zp->z_lock);
+		zfs_group_znode_reset_phys(zp, &z2p->zrec.object_phy);
+		zp->z_group_id = z2p->inp.id;
+		mutex_exit(&zp->z_lock);
+		sprintf(msg, "%s %s", "Acquire znode", znode_op);
+		zfs_group_acquire_znode_error(&z2p->inp.id, &z2p->zrec.object_phy,
+		    msg);
+
+	} else {
+		cmn_err(CE_WARN, "%s %d error=%d\n", __func__, __LINE__, error);
 	}
 out:
 	kmem_free(msg_header, sizeof(zfs_group_header_t));
@@ -2188,37 +1809,30 @@ zfs_group_proc_znode_backup(
 			goto out;
 	}
 
-	if(zsb->z_os->bNassync == 1){
-		dst_spa = znp->id.slave_spa;
-		dst_os = znp->id.slave_objset;
-		dst_object = znp->id.slave_object;
-	}
-	else{
-		switch(m_node_type)
-		{
-			case ZFS_MULTICLUS_MASTER2:
-				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
-				dst_spa = znp->id.master2_spa;
-				dst_os = znp->id.master2_objset;
-				dst_object = znp->id.master2_object;
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
-				dst_spa = znp->id.master3_spa;
-				dst_os = znp->id.master3_objset;
-				dst_object = znp->id.master3_object;
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
-				dst_spa = znp->id.master4_spa;
-				dst_os = znp->id.master4_objset;
-				dst_object = znp->id.master4_object;
-				break;
-			default:
-				cmn_err(CE_WARN, "[Error] %s %d, m_node_type %d.", __func__, __LINE__, m_node_type);
-				error = EPROTO;
-				goto out;
-		}
+	switch(m_node_type)
+	{
+		case ZFS_MULTICLUS_MASTER2:
+			update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
+			dst_spa = znp->id.master2_spa;
+			dst_os = znp->id.master2_objset;
+			dst_object = znp->id.master2_object;
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
+			dst_spa = znp->id.master3_spa;
+			dst_os = znp->id.master3_objset;
+			dst_object = znp->id.master3_object;
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
+			dst_spa = znp->id.master4_spa;
+			dst_os = znp->id.master4_objset;
+			dst_object = znp->id.master4_object;
+			break;
+		default:
+			cmn_err(CE_WARN, "[Error] %s %d, m_node_type %d.", __func__, __LINE__, m_node_type);
+			error = EPROTO;
+			goto out;
 	}
 
 	if(dst_spa == -1 || dst_os == -1 || dst_object == -1 || 
@@ -2230,10 +1844,6 @@ zfs_group_proc_znode_backup(
 			mutex_init(&new_znode.z_lock, NULL, MUTEX_DEFAULT, NULL);
 			if(zfs_group_proc_znode(&new_znode, ZNODE_SEARCH, &m_node_type, credp, B_FALSE) == 0){
 				mutex_destroy(&new_znode.z_lock);
-				zp->z_group_id.slave_spa = dst_spa = new_znode.z_group_id.slave_spa;
-				zp->z_group_id.slave_objset = dst_os = new_znode.z_group_id.slave_objset;
-				zp->z_group_id.slave_object = dst_object = new_znode.z_group_id.slave_object;
-				zp->z_group_id.slave_gen = new_znode.z_group_id.slave_gen;
 				switch(m_node_type){
 					case ZFS_MULTICLUS_MASTER2:
 						if(zp->z_group_id.master_spa == new_znode.z_group_id.master2_spa 
@@ -2285,9 +1895,7 @@ zfs_group_proc_znode_backup(
 				}
 		
 				/* send masterX info to data node and other Master node */
-				if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0 && 
-						zsb->z_os->bNassync == 0){
-//						zfsvfs->z_os->bNassync == 0){
+				if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0){
 					cmn_err(CE_WARN, "Failed to update master file node info, file is %s, m_node_type = %d",
 						zp->z_filename, m_node_type);
 				}
@@ -2307,37 +1915,24 @@ zfs_group_proc_znode_backup(
 		}
 	}
 
-	if(zsb->z_os->bNassync == 0){
-		record = zfs_multiclus_get_record(dst_spa, dst_os);
-		if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
-			if(1 == debug_nas_group_dtl){
-				cmn_err(CE_WARN, "[Error] %s %d.", __func__, __LINE__);
-			}
-			error = EINVAL;
-			goto out;
+	record = zfs_multiclus_get_record(dst_spa, dst_os);
+	if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
+		if(1 == debug_nas_group_dtl){
+			cmn_err(CE_WARN, "[Error] %s %d.", __func__, __LINE__);
 		}
-		zfs_group_build_header_backup(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE_BACKUP,
-		    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
-		    dst_spa, dst_os,
-		    dst_object,
-		    dst_object,
-		    zp->z_group_id.data_spa,
-		    zp->z_group_id.data_objset,
-		    zp->z_group_id.data_object,
-		    MSG_REQUEST, APP_USER, &zp->z_group_id, m_node_type);		
-	}else{
-		zfs_group_build_header_backup(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE_BACKUP,
-		    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
-		    dst_spa, dst_os,
-		    dst_object,
-		    dst_object,
-		    zp->z_group_id.slave_spa,
-		    zp->z_group_id.slave_objset,
-		    zp->z_group_id.slave_object,
-		    MSG_REQUEST, APP_USER, &zp->z_group_id, m_node_type);	
+		error = EINVAL;
+		goto out;
 	}
 
-
+	zfs_group_build_header_backup(zp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE_BACKUP,
+	    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
+	    dst_spa, dst_os,
+	    dst_object,
+	    dst_object,
+	    zp->z_group_id.data_spa,
+	    zp->z_group_id.data_objset,
+	    zp->z_group_id.data_object,
+	    MSG_REQUEST, APP_USER, &zp->z_group_id, m_node_type);
 
 	if ((error = zfs_client_send_to_server(zp->z_zsb->z_os, msg_header, (zfs_msg_t *)znode_msg, B_FALSE)) != 0) {
 		cmn_err(CE_WARN, "[Error] %s %d zfs_client_send_to_server return %d", __func__, __LINE__, error);
@@ -2441,13 +2036,15 @@ int zfs_group_get_attr_from_data_node(zfs_sb_t *zsb, znode_t *master_znode)
 	}
 	
 	if (err == 0) {
-		if(fs_data_filesize->ret == 0 && master_znode->z_size != fs_data_filesize->data_filesize){
+		if ((fs_data_filesize->ret == 0) && ((master_znode->z_size != fs_data_filesize->data_filesize) || 
+			(master_znode->z_nblks != fs_data_filesize->data_filenblks) || (master_znode->z_blksz != fs_data_filesize->data_fileblksz))){
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
 			    &fs_data_filesize->data_filesize, 8);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_NBLKS(zsb), NULL,
 			    &fs_data_filesize->data_filenblks, 8);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_BLKSZ(zsb), NULL,
 			    &fs_data_filesize->data_fileblksz, 8);
+			
 			mutex_enter(&master_znode->z_lock);
 			master_znode->z_size = fs_data_filesize->data_filesize;
 			master_znode->z_nblks = fs_data_filesize->data_filenblks;
@@ -2541,7 +2138,8 @@ zfs_group_get_attr_from_data2_node(zfs_sb_t *zsb, znode_t *master_znode)
 	}
 	
 	if (err == 0) {
-		if(fs_data_filesize->ret == 0 && master_znode->z_size != fs_data_filesize->data_filesize){
+		if ((fs_data_filesize->ret == 0) && ((master_znode->z_size != fs_data_filesize->data_filesize) || 
+			(master_znode->z_nblks != fs_data_filesize->data_filenblks) || (master_znode->z_blksz != fs_data_filesize->data_fileblksz))){
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
 			    &fs_data_filesize->data_filesize, 8);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_NBLKS(zsb), NULL,
@@ -2554,7 +2152,6 @@ zfs_group_get_attr_from_data2_node(zfs_sb_t *zsb, znode_t *master_znode)
 			master_znode->z_nblks = fs_data_filesize->data_filenblks;
 			master_znode->z_blksz = fs_data_filesize->data_fileblksz;
 			mutex_exit(&master_znode->z_lock);
-
 		top:
 			tx = dmu_tx_create(zsb->z_os);
 			dmu_tx_hold_sa(tx, master_znode->z_sa_hdl, B_FALSE);
@@ -2601,9 +2198,16 @@ int zfs_group_client_space(znode_t *zp, uint64_t off,
 	int err;
 	zfs_group_znode_free_t free;
 	zfs_multiclus_group_record_t* record = NULL;
-
+	int retry_num = 0;
+retry:
 	record = zfs_multiclus_get_record(zp->z_group_id.data_spa, zp->z_group_id.data_objset);
 	if (record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE) {
+		if (retry_num < 3) {
+			retry_num++;
+			cmn_err(CE_WARN, "%s %d wait num=%d\n", __func__, __LINE__, retry_num);
+			zfs_group_wait(1000*1000);
+			goto retry;
+		}
 		return ENOENT;
 	}
 
@@ -2890,7 +2494,7 @@ int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_ty
 // 	return (error);
 // }
 
-//int zfs_client_group_zget(zfsvfs_t* zfsvfs, znode_t* zp, znode_t** zpp)
+
 int zfs_client_group_zget(zfs_sb_t * zsb, znode_t* zp, znode_t** zpp)
 {
 	znode_t* tmp_zp = NULL;
@@ -3242,7 +2846,6 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 
 	znode_t *zp;
 	znode_t *pzp; 
-//	vnode_t *vp;
 	zfs_group_name_create_t create;
 	zfs_group_znode_record_t *nrec;
 	int error = 0;
@@ -3263,7 +2866,6 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 	create.name_len = namesize;
 	create.xattr_len = xvatsize;
 	create.acl_len = aclsize;
-//	*vpp = NULL;
 	*ipp = NULL;
 	create.ex = (int32_t)ex;
 	create.mode = mode;
@@ -3274,7 +2876,6 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 
 	nrec = kmem_alloc(sizeof (zfs_group_znode_record_t), KM_SLEEP);
 
-//	pzp = VTOZ(pvp);
 	pzp = ITOZ(pip);
 	error = zfs_group_proc_name(pzp, NAME_CREATE, &create,
 	    sizeof (create), create_extra->extra_createp,
@@ -3289,7 +2890,6 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 		    &nrec->object_id, &nrec->object_phy);
 		zfs_group_acquire_znode_error(&nrec->object_id, &nrec->object_phy,
 		    "group_create");
-//		*vpp = ZTOV(zp);
 		*ipp = ZTOI(zp);
 	}
 
@@ -3327,43 +2927,30 @@ int update_master_obj_by_mx_group_id(znode_t *zp, zfs_multiclus_node_type_t m_no
 					&zp->z_group_id, sizeof (zp->z_group_id), tx));
 	mutex_exit(&zp->z_lock);
 	mutex_enter(&zsb->z_lock);
-
-	if(zsb->z_os->bNassync == 0){
-		switch (m_node_type) {
-			case ZFS_MULTICLUS_MASTER2:
-				mx_spa = zp->z_group_id.master2_spa;
-				mx_os = zp->z_group_id.master2_objset;
-				mx_obj = zp->z_group_id.master2_object;
-				mx_gen = zp->z_group_id.master2_gen;
-				break;
-			case ZFS_MULTICLUS_MASTER3:
-				mx_spa = zp->z_group_id.master3_spa;
-				mx_os = zp->z_group_id.master3_objset;
-				mx_obj = zp->z_group_id.master3_object;
-				mx_gen = zp->z_group_id.master3_gen;
-				break;
-			case ZFS_MULTICLUS_MASTER4:
-				mx_spa = zp->z_group_id.master4_spa;
-				mx_os = zp->z_group_id.master4_objset;
-				mx_obj = zp->z_group_id.master4_object;
-				mx_gen = zp->z_group_id.master4_gen;
-				break;
-			default:
-				break;
-		}
-	}else{
-		if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_MASTER){
-			mx_spa = zp->z_group_id.slave_spa;
-			mx_os = zp->z_group_id.slave_objset;
-			mx_obj = zp->z_group_id.slave_object;
-			mx_gen = zp->z_group_id.slave_gen;
-		}else{
-			mx_spa = zp->z_group_id.parent_spa;
-			mx_os = zp->z_group_id.parent_objset;
-			mx_obj = zp->z_group_id.parent_object;
-			mx_gen = zp->z_group_id.parent_gen;
-		}
+	
+	switch (m_node_type) {
+		case ZFS_MULTICLUS_MASTER2:
+			mx_spa = zp->z_group_id.master2_spa;
+			mx_os = zp->z_group_id.master2_objset;
+			mx_obj = zp->z_group_id.master2_object;
+			mx_gen = zp->z_group_id.master2_gen;
+			break;
+		case ZFS_MULTICLUS_MASTER3:
+			mx_spa = zp->z_group_id.master3_spa;
+			mx_os = zp->z_group_id.master3_objset;
+			mx_obj = zp->z_group_id.master3_object;
+			mx_gen = zp->z_group_id.master3_gen;
+			break;
+		case ZFS_MULTICLUS_MASTER4:
+			mx_spa = zp->z_group_id.master4_spa;
+			mx_os = zp->z_group_id.master4_objset;
+			mx_obj = zp->z_group_id.master4_object;
+			mx_gen = zp->z_group_id.master4_gen;
+			break;
+		default:
+			break;
 	}
+	
 	if (mx_spa != 0 && mx_os != 0 && mx_obj != 0 && mx_gen != 0) {
 		map_obj = zsb->z_group_map_objs[mx_obj%NASGROUP_MAP_NUM];
 		bzero(buf, MAXNAMELEN);
@@ -3457,9 +3044,6 @@ int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, vcexcl_t ex
 	int error = 0;
 	uint64_t update_node_info = 0;
 
-	if(5 == debug_nas_group_dtl)
-	cmn_err(CE_NOTE,"%s: ==> create %s",__func__,name);
-
 	namesize = 0;
 	aclsize = 0;
 	xvatsize =0;
@@ -3485,116 +3069,72 @@ int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, vcexcl_t ex
 	    create_extra->extra_create_plen, NULL, flag, credp, nrec, &zp->z_group_id, m_node_type);
 	if (error == 0) {
 		mutex_enter(&zp->z_lock);
-		if(zp->z_zsb->z_os->bNassync == 0){
-			switch(m_node_type)
-			{
-				case ZFS_MULTICLUS_MASTER2:
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
-					zp->z_group_id.master2_spa = nrec->object_id.master2_spa;
-					zp->z_group_id.master2_objset = nrec->object_id.master2_objset;
-					zp->z_group_id.master2_object = nrec->object_id.master2_object;
-					zp->z_group_id.master2_gen = nrec->object_id.master2_gen;
-					if(nrec->object_id.master2_spa == 0 || nrec->object_id.master2_spa == 0xffffffffffffffff
-						|| nrec->object_id.master2_objset == 0 || nrec->object_id.master2_objset == 0xffffffffffffffff
-						|| nrec->object_id.master2_object == 0 || nrec->object_id.master2_object == 0xffffffffffffffff){
-						cmn_err(CE_WARN, "[Error] master2 node is invalid master2_spa 0x%llx, master2_os 0x%llx, master2_obj 0x%llx",
-							(unsigned long long)nrec->object_id.master2_spa, 
-							(unsigned long long)nrec->object_id.master2_objset, 
-							(unsigned long long)nrec->object_id.master2_object);
-					}
-					break;
-
-				case ZFS_MULTICLUS_MASTER3:
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
-					zp->z_group_id.master3_spa = nrec->object_id.master3_spa;
-					zp->z_group_id.master3_objset = nrec->object_id.master3_objset;
-					zp->z_group_id.master3_object = nrec->object_id.master3_object;
-					zp->z_group_id.master3_gen = nrec->object_id.master3_gen;
-					if(nrec->object_id.master3_spa == 0 || nrec->object_id.master3_spa == 0xffffffffffffffff
-						|| nrec->object_id.master3_objset == 0 || nrec->object_id.master3_objset == 0xffffffffffffffff
-						|| nrec->object_id.master3_object == 0 || nrec->object_id.master3_object == 0xffffffffffffffff){
-						cmn_err(CE_WARN, "[Error] master3 node is invalid master3_spa 0x%llx, master3_os 0x%llx, master3_obj 0x%llx",
-							(unsigned long long)nrec->object_id.master3_spa, 
-							(unsigned long long)nrec->object_id.master3_objset, 
-							(unsigned long long)nrec->object_id.master3_object);
-					}
-					break;
-
-				case ZFS_MULTICLUS_MASTER4:
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
-					zp->z_group_id.master4_spa = nrec->object_id.master4_spa;
-					zp->z_group_id.master4_objset = nrec->object_id.master4_objset;
-					zp->z_group_id.master4_object = nrec->object_id.master4_object;
-					zp->z_group_id.master4_gen = nrec->object_id.master4_gen;
-					if(nrec->object_id.master4_spa == 0 || nrec->object_id.master4_spa == 0xffffffffffffffff
-						|| nrec->object_id.master4_objset == 0 || nrec->object_id.master4_objset == 0xffffffffffffffff
-						|| nrec->object_id.master4_object == 0 || nrec->object_id.master4_object == 0xffffffffffffffff){
-						cmn_err(CE_WARN, "[Error] master4 node is invalid master4_spa 0x%llx, master4_os 0x%llx, master4_obj 0x%llx",
-							(unsigned long long)nrec->object_id.master4_spa, 
-							(unsigned long long)nrec->object_id.master4_objset, 
-							(unsigned long long)nrec->object_id.master4_object);
-					}
-					break;
-
-				default:
-					break;
-			}
-			mutex_exit(&zp->z_lock);
-			if (update_master_obj_by_mx_group_id(zp, m_node_type) != 0) {
-				cmn_err(CE_WARN, "[Error] %s, update_master_obj_by_mx_group_id failed! m_node_type: %d", 
-					__func__, m_node_type);
-			}
-			
-			/* send masterX info to data node and other Master node */
-			if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0) {
-				cmn_err(CE_WARN, "Failed to update master file node info, file is %s, m_node_type = %d",
-						name, m_node_type);
-			}
-		}else{
-			if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_MASTER){
-				zp->z_group_id.slave_spa = nrec->object_id.slave_spa;
-				zp->z_group_id.slave_objset = nrec->object_id.slave_objset;
-				zp->z_group_id.slave_object = nrec->object_id.slave_object;
-				zp->z_group_id.slave_gen = nrec->object_id.slave_gen;
-			}else{
-				zp->z_group_id.parent_spa = nrec->object_id.slave_spa;
-				zp->z_group_id.parent_objset = nrec->object_id.slave_objset;
-				zp->z_group_id.parent_object = nrec->object_id.slave_object;
-				zp->z_group_id.parent_gen = nrec->object_id.slave_gen;
-			}
-			if(5 == debug_nas_group_dtl){
-				cmn_err(CE_NOTE,"create Client get server spa:%llx,objset:%llx,object:%llx,gen:%llx\n",(u_longlong_t)nrec->object_id.slave_spa,
-					(u_longlong_t)nrec->object_id.slave_objset,(u_longlong_t)nrec->object_id.slave_object,
-					(u_longlong_t)nrec->object_id.slave_gen);
-			}
-			if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_MASTER
-				&& (nrec->object_id.slave_spa == 0 || nrec->object_id.slave_spa == 0xffffffffffffffff
-				|| nrec->object_id.slave_objset == 0 || nrec->object_id.slave_objset == 0xffffffffffffffff
-				|| nrec->object_id.slave_object == 0 || nrec->object_id.slave_object == 0xffffffffffffffff)){
-				if(5 == debug_nas_group_dtl){
-					cmn_err(CE_WARN, "[Error] slave node is invalid slave_spa 0x%llx, slave_os 0x%llx, slave_obj 0x%llx",
-						(unsigned long long)nrec->object_id.slave_spa,
-						(unsigned long long)nrec->object_id.slave_objset,
-						(unsigned long long)nrec->object_id.slave_object);
+		switch(m_node_type)
+		{
+			case ZFS_MULTICLUS_MASTER2:
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
+				zp->z_group_id.master2_spa = nrec->object_id.master2_spa;
+				zp->z_group_id.master2_objset = nrec->object_id.master2_objset;
+				zp->z_group_id.master2_object = nrec->object_id.master2_object;
+				zp->z_group_id.master2_gen = nrec->object_id.master2_gen;
+				if(nrec->object_id.master2_spa == 0 || nrec->object_id.master2_spa == 0xffffffffffffffff
+					|| nrec->object_id.master2_objset == 0 || nrec->object_id.master2_objset == 0xffffffffffffffff
+					|| nrec->object_id.master2_object == 0 || nrec->object_id.master2_object == 0xffffffffffffffff){
+					cmn_err(CE_WARN, "[Error] master2 node is invalid master2_spa 0x%llx, master2_os 0x%llx, master2_obj 0x%llx",
+						(unsigned long long)nrec->object_id.master2_spa, 
+						(unsigned long long)nrec->object_id.master2_objset, 
+						(unsigned long long)nrec->object_id.master2_object);
 				}
-				mutex_exit(&zp->z_lock);
-			}else if(zp->z_zsb->z_os->os_zfs_nas_type != ZFS_NAS_MASTER
-				&& (nrec->object_id.parent_spa == 0 || nrec->object_id.parent_spa == 0xffffffffffffffff
-				|| nrec->object_id.parent_objset == 0 || nrec->object_id.parent_objset == 0xffffffffffffffff
-				|| nrec->object_id.parent_object == 0 || nrec->object_id.parent_object == 0xffffffffffffffff)){
-				if(5 == debug_nas_group_dtl){
-					cmn_err(CE_WARN, "[Error] slave node is invalid slave_spa 0x%llx, slave_os 0x%llx, slave_obj 0x%llx",
-						(unsigned long long)nrec->object_id.parent_spa,
-						(unsigned long long)nrec->object_id.parent_objset,
-						(unsigned long long)nrec->object_id.parent_object);
+				break;
+
+			case ZFS_MULTICLUS_MASTER3:
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
+				zp->z_group_id.master3_spa = nrec->object_id.master3_spa;
+				zp->z_group_id.master3_objset = nrec->object_id.master3_objset;
+				zp->z_group_id.master3_object = nrec->object_id.master3_object;
+				zp->z_group_id.master3_gen = nrec->object_id.master3_gen;
+				if(nrec->object_id.master3_spa == 0 || nrec->object_id.master3_spa == 0xffffffffffffffff
+					|| nrec->object_id.master3_objset == 0 || nrec->object_id.master3_objset == 0xffffffffffffffff
+					|| nrec->object_id.master3_object == 0 || nrec->object_id.master3_object == 0xffffffffffffffff){
+					cmn_err(CE_WARN, "[Error] master3 node is invalid master3_spa 0x%llx, master3_os 0x%llx, master3_obj 0x%llx",
+						(unsigned long long)nrec->object_id.master3_spa, 
+						(unsigned long long)nrec->object_id.master3_objset, 
+						(unsigned long long)nrec->object_id.master3_object);
 				}
-				mutex_exit(&zp->z_lock);
-			}
-			else{
-				mutex_exit(&zp->z_lock);
-			}
+				break;
+
+			case ZFS_MULTICLUS_MASTER4:
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
+				zp->z_group_id.master4_spa = nrec->object_id.master4_spa;
+				zp->z_group_id.master4_objset = nrec->object_id.master4_objset;
+				zp->z_group_id.master4_object = nrec->object_id.master4_object;
+				zp->z_group_id.master4_gen = nrec->object_id.master4_gen;
+				if(nrec->object_id.master4_spa == 0 || nrec->object_id.master4_spa == 0xffffffffffffffff
+					|| nrec->object_id.master4_objset == 0 || nrec->object_id.master4_objset == 0xffffffffffffffff
+					|| nrec->object_id.master4_object == 0 || nrec->object_id.master4_object == 0xffffffffffffffff){
+					cmn_err(CE_WARN, "[Error] master4 node is invalid master4_spa 0x%llx, master4_os 0x%llx, master4_obj 0x%llx",
+						(unsigned long long)nrec->object_id.master4_spa, 
+						(unsigned long long)nrec->object_id.master4_objset, 
+						(unsigned long long)nrec->object_id.master4_object);
+				}
+				break;
+
+			default:
+				break;
+		}
+		mutex_exit(&zp->z_lock);
+		if (update_master_obj_by_mx_group_id(zp, m_node_type) != 0) {
+			cmn_err(CE_WARN, "[Error] %s, update_master_obj_by_mx_group_id failed! m_node_type: %d", 
+				__func__, m_node_type);
+		}
+		
+		/* send masterX info to data node and other Master node */
+		if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0) {
+			cmn_err(CE_WARN, "Failed to update master file node info, file is %s, m_node_type = %d",
+					name, m_node_type);
 		}
 	}
+
 	kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
 	kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 	kmem_free(nrec, sizeof(zfs_group_znode_record_t));
@@ -3862,6 +3402,11 @@ void zfs_group_route_data(zfs_sb_t *zsb, uint64_t orig_spa, uint64_t orig_os,
 	zfs_multiclus_group_t *group = NULL;
 
 	zfs_multiclus_group_record_t *org_grp_recordp = NULL;
+
+	if (!zfs_multiclus_enable()) {
+		cmn_err(CE_WARN, "%s, %d, multiclus is disabled!", __func__, __LINE__);
+		return;
+	}
 
 	zfs_multiclus_get_group(zsb->z_os->os_group_name, &group);
 	VERIFY(group != NULL);
@@ -4166,6 +3711,13 @@ int zfs_group_create_data_file(znode_t *zp, char *name, boolean_t bregual,
 			group_object.data_spa = n2p->nrec.object_id.data_spa;
 			group_object.data_objset = n2p->nrec.object_id.data_objset;
 			group_object.data_object = n2p->nrec.object_id.data_object;
+			if (group_object.data_spa == 0 ||
+				group_object.data_objset == 0 ||
+				group_object.data_object == 0) {
+				cmn_err(CE_WARN, "%s line(%d) spa=%"PRIx64" objset=%"PRIx64" object=%"PRIx64"\n", 
+					__func__, __LINE__, 
+					group_object.data_spa, group_object.data_objset, group_object.data_object);
+			}
 		}
 
 		kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
@@ -4534,123 +4086,79 @@ int zfs_client_mkdir_backup(znode_t *pzp, char *cp, vattr_t *vap, znode_t *zp,
 		sizeof (mkdir), create_extra->extra_createp, create_extra->extra_create_plen,
 		    NULL, flag, credp, nrec, &zp->z_group_id, m_node_type)) == 0) {
 		mutex_enter(&zp->z_lock);
-		if(zp->z_zsb->z_os->bNassync == 0){
-			switch(m_node_type)
-			{
-				case ZFS_MULTICLUS_MASTER2:
+		switch(m_node_type)
+		{
+			case ZFS_MULTICLUS_MASTER2:
 
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
-					zp->z_group_id.master2_spa = nrec->object_id.master2_spa;
-					zp->z_group_id.master2_objset = nrec->object_id.master2_objset;
-					zp->z_group_id.master2_object = nrec->object_id.master2_object;
-					zp->z_group_id.master2_gen = nrec->object_id.master2_gen;
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
+				zp->z_group_id.master2_spa = nrec->object_id.master2_spa;
+				zp->z_group_id.master2_objset = nrec->object_id.master2_objset;
+				zp->z_group_id.master2_object = nrec->object_id.master2_object;
+				zp->z_group_id.master2_gen = nrec->object_id.master2_gen;
 
-					if(nrec->object_id.master2_spa == 0 || nrec->object_id.master2_spa == 0xffffffffffffffff
-						|| nrec->object_id.master2_objset == 0 || nrec->object_id.master2_objset == 0xffffffffffffffff
-						|| nrec->object_id.master2_object == 0 || nrec->object_id.master2_object == 0xffffffffffffffff){
-						cmn_err(CE_WARN, "[Error] master2 node is invalid master2_spa 0x%llx, master2_os 0x%llx, master2_obj 0x%llx",
-							(unsigned long long)nrec->object_id.master2_spa, 
-							(unsigned long long)nrec->object_id.master2_objset, 
-							(unsigned long long)nrec->object_id.master2_object);
-					}
-
-					break;
-
-				case ZFS_MULTICLUS_MASTER3:
-
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
-					zp->z_group_id.master3_spa = nrec->object_id.master3_spa;
-					zp->z_group_id.master3_objset = nrec->object_id.master3_objset;
-					zp->z_group_id.master3_object = nrec->object_id.master3_object;
-					zp->z_group_id.master3_gen = nrec->object_id.master3_gen;
-
-					if(nrec->object_id.master3_spa == 0 || nrec->object_id.master3_spa == 0xffffffffffffffff
-						|| nrec->object_id.master3_objset == 0 || nrec->object_id.master3_objset == 0xffffffffffffffff
-						|| nrec->object_id.master3_object == 0 || nrec->object_id.master3_object == 0xffffffffffffffff){
-						cmn_err(CE_WARN, "[Error] master3 node is invalid master3_spa 0x%llx, master3_os 0x%llx, master3_obj 0x%llx",
-							(unsigned long long)nrec->object_id.master3_spa, 
-							(unsigned long long)nrec->object_id.master3_objset, 
-							(unsigned long long)nrec->object_id.master3_object);
-					}
-
-					break;
-
-				case ZFS_MULTICLUS_MASTER4:
-
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
-					zp->z_group_id.master4_spa = nrec->object_id.master4_spa;
-					zp->z_group_id.master4_objset = nrec->object_id.master4_objset;
-					zp->z_group_id.master4_object = nrec->object_id.master4_object;
-					zp->z_group_id.master4_gen = nrec->object_id.master4_gen;
-
-					if(nrec->object_id.master4_spa == 0 || nrec->object_id.master4_spa == 0xffffffffffffffff
-						|| nrec->object_id.master4_objset == 0 || nrec->object_id.master4_objset == 0xffffffffffffffff
-						|| nrec->object_id.master4_object == 0 || nrec->object_id.master4_object == 0xffffffffffffffff){
-						cmn_err(CE_WARN, "[Error] master4 node is invalid master4_spa 0x%llx, master4_os 0x%llx, master4_obj 0x%llx",
-							(unsigned long long)nrec->object_id.master4_spa, 
-							(unsigned long long)nrec->object_id.master4_objset, 
-							(unsigned long long)nrec->object_id.master4_object);
-					}
-
-					break;
-				default:
-					mutex_exit(&zp->z_lock);
-					error = EINVAL;
-					goto OUT;	
-			}
-			
-			mutex_exit(&zp->z_lock);
-			if (update_master_obj_by_mx_group_id(zp, m_node_type) != 0) {
-				cmn_err(CE_WARN, "[Error] %s, update_master_obj_by_mx_group_id failed! m_node_type: %d", 
-					__func__, m_node_type);
-			}
-			/* send masterX info to data node and other Master node */
-			if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0) {
-				cmn_err(CE_WARN, "[Error] Failed to update master dir node info, dir is %s, m_node_type = %d",
-						cp, m_node_type);
-			}
-		}else{
-			if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_MASTER){
-				zp->z_group_id.slave_spa = nrec->object_id.slave_spa;
-				zp->z_group_id.slave_objset = nrec->object_id.slave_objset;
-				zp->z_group_id.slave_object = nrec->object_id.slave_object;
-				zp->z_group_id.slave_gen = nrec->object_id.slave_gen;
-			}else{
-				zp->z_group_id.parent_spa = nrec->object_id.slave_spa;
-				zp->z_group_id.parent_objset = nrec->object_id.slave_objset;
-				zp->z_group_id.parent_object = nrec->object_id.slave_object;
-				zp->z_group_id.parent_gen = nrec->object_id.slave_gen;
-			}
-			if(5 == debug_nas_group_dtl){
-				cmn_err(CE_NOTE,"mkdir Client get server spa:%llx,objset:%llx,object:%llx,gen:%llx\n",(u_longlong_t)nrec->object_id.slave_spa,
-					(u_longlong_t)nrec->object_id.slave_objset,(u_longlong_t)nrec->object_id.slave_object,
-					(u_longlong_t)nrec->object_id.slave_gen);
-			}
-			if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_MASTER
-				&& (nrec->object_id.slave_spa == 0 || nrec->object_id.slave_spa == 0xffffffffffffffff
-				|| nrec->object_id.slave_objset == 0 || nrec->object_id.slave_objset == 0xffffffffffffffff
-				|| nrec->object_id.slave_object == 0 || nrec->object_id.slave_object == 0xffffffffffffffff)){
-				if(5 == debug_nas_group_dtl){
-					cmn_err(CE_WARN, "[Error] slave node is invalid slave_spa 0x%llx, slave_os 0x%llx, slave_obj 0x%llx",
-						(unsigned long long)nrec->object_id.slave_spa,
-						(unsigned long long)nrec->object_id.slave_objset,
-						(unsigned long long)nrec->object_id.slave_object);
+				if(nrec->object_id.master2_spa == 0 || nrec->object_id.master2_spa == 0xffffffffffffffff
+					|| nrec->object_id.master2_objset == 0 || nrec->object_id.master2_objset == 0xffffffffffffffff
+					|| nrec->object_id.master2_object == 0 || nrec->object_id.master2_object == 0xffffffffffffffff){
+					cmn_err(CE_WARN, "[Error] master2 node is invalid master2_spa 0x%llx, master2_os 0x%llx, master2_obj 0x%llx",
+						(unsigned long long)nrec->object_id.master2_spa, 
+						(unsigned long long)nrec->object_id.master2_objset, 
+						(unsigned long long)nrec->object_id.master2_object);
 				}
-				mutex_exit(&zp->z_lock);
-			}else if(zp->z_zsb->z_os->os_zfs_nas_type != ZFS_NAS_MASTER
-				&& (nrec->object_id.parent_spa == 0 || nrec->object_id.parent_spa == 0xffffffffffffffff
-				|| nrec->object_id.parent_objset == 0 || nrec->object_id.parent_objset == 0xffffffffffffffff
-				|| nrec->object_id.parent_object == 0 || nrec->object_id.parent_object == 0xffffffffffffffff)){
-				if(5 == debug_nas_group_dtl){
-					cmn_err(CE_WARN, "[Error] slave node is invalid slave_spa 0x%llx, slave_os 0x%llx, slave_obj 0x%llx",
-						(unsigned long long)nrec->object_id.parent_spa,
-						(unsigned long long)nrec->object_id.parent_objset,
-						(unsigned long long)nrec->object_id.parent_object);
+
+				break;
+
+			case ZFS_MULTICLUS_MASTER3:
+
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
+				zp->z_group_id.master3_spa = nrec->object_id.master3_spa;
+				zp->z_group_id.master3_objset = nrec->object_id.master3_objset;
+				zp->z_group_id.master3_object = nrec->object_id.master3_object;
+				zp->z_group_id.master3_gen = nrec->object_id.master3_gen;
+
+				if(nrec->object_id.master3_spa == 0 || nrec->object_id.master3_spa == 0xffffffffffffffff
+					|| nrec->object_id.master3_objset == 0 || nrec->object_id.master3_objset == 0xffffffffffffffff
+					|| nrec->object_id.master3_object == 0 || nrec->object_id.master3_object == 0xffffffffffffffff){
+					cmn_err(CE_WARN, "[Error] master3 node is invalid master3_spa 0x%llx, master3_os 0x%llx, master3_obj 0x%llx",
+						(unsigned long long)nrec->object_id.master3_spa, 
+						(unsigned long long)nrec->object_id.master3_objset, 
+						(unsigned long long)nrec->object_id.master3_object);
 				}
+
+				break;
+
+			case ZFS_MULTICLUS_MASTER4:
+
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
+				zp->z_group_id.master4_spa = nrec->object_id.master4_spa;
+				zp->z_group_id.master4_objset = nrec->object_id.master4_objset;
+				zp->z_group_id.master4_object = nrec->object_id.master4_object;
+				zp->z_group_id.master4_gen = nrec->object_id.master4_gen;
+
+				if(nrec->object_id.master4_spa == 0 || nrec->object_id.master4_spa == 0xffffffffffffffff
+					|| nrec->object_id.master4_objset == 0 || nrec->object_id.master4_objset == 0xffffffffffffffff
+					|| nrec->object_id.master4_object == 0 || nrec->object_id.master4_object == 0xffffffffffffffff){
+					cmn_err(CE_WARN, "[Error] master4 node is invalid master4_spa 0x%llx, master4_os 0x%llx, master4_obj 0x%llx",
+						(unsigned long long)nrec->object_id.master4_spa, 
+						(unsigned long long)nrec->object_id.master4_objset, 
+						(unsigned long long)nrec->object_id.master4_object);
+				}
+
+				break;
+			default:
 				mutex_exit(&zp->z_lock);
-			}else{
-				mutex_exit(&zp->z_lock);
-			}
+				error = EINVAL;
+				goto OUT;	
+		}
+		
+		mutex_exit(&zp->z_lock);
+		if (update_master_obj_by_mx_group_id(zp, m_node_type) != 0) {
+			cmn_err(CE_WARN, "[Error] %s, update_master_obj_by_mx_group_id failed! m_node_type: %d", 
+				__func__, m_node_type);
+		}
+		/* send masterX info to data node and other Master node */
+		if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0) {
+			cmn_err(CE_WARN, "[Error] Failed to update master dir node info, dir is %s, m_node_type = %d",
+					cp, m_node_type);
 		}
 	}
 OUT:
@@ -4682,11 +4190,11 @@ int zfs_client_rmdir(struct inode *pip, char *cp, struct inode *cdir, cred_t *cr
 	}
 */
 
-//	error = zfs_group_proc_name(VTOZ(pvp), NAME_RMDIR, NULL, flag, cp, cp_len, NULL,
+
 	error = zfs_group_proc_name(ITOZ(pip), NAME_RMDIR, NULL, flag, cp, cp_len, NULL,
 	    0, credp, nrec);
 
-//	zfs_fid_remove_master_info((VTOZ(pvp))->z_zfsvfs, nrec->object_id.master_spa, nrec->object_phy.zp_gen, NULL);
+
 	zfs_fid_remove_master_info((ITOZ(pip))->z_zsb, nrec->object_id.master_spa, nrec->object_phy.zp_gen, NULL);
 
 	kmem_free(nrec, sizeof(zfs_group_znode_record_t));
@@ -4803,61 +4311,45 @@ int	zfs_client_symlink_backup(
 	    &symlink, sizeof (symlink), cp, cp_len, tnm, flag, credp, nrec, &zp->z_group_id, m_node_type);
 	if (error == 0) {
 		mutex_enter(&zp->z_lock);
-		if(zp->z_zsb->z_os->bNassync == 0){
-			switch(m_node_type)
-			{
-				case ZFS_MULTICLUS_MASTER2:
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
-					zp->z_group_id.master2_spa = nrec->object_id.master2_spa;
-					zp->z_group_id.master2_objset = nrec->object_id.master2_objset;
-					zp->z_group_id.master2_object = nrec->object_id.master2_object;
-					zp->z_group_id.master2_gen = nrec->object_id.master2_gen;
-					break;
-				case ZFS_MULTICLUS_MASTER3:
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
-					zp->z_group_id.master3_spa = nrec->object_id.master3_spa;
-					zp->z_group_id.master3_objset = nrec->object_id.master3_objset;
-					zp->z_group_id.master3_object = nrec->object_id.master3_object;
-					zp->z_group_id.master3_gen = nrec->object_id.master3_gen;
-					break;
-				case ZFS_MULTICLUS_MASTER4:
-					update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
-					zp->z_group_id.master4_spa = nrec->object_id.master4_spa;
-					zp->z_group_id.master4_objset = nrec->object_id.master4_objset;
-					zp->z_group_id.master4_object = nrec->object_id.master4_object;
-					zp->z_group_id.master4_gen = nrec->object_id.master4_gen;
-					break;
-				default:
-					mutex_exit(&zp->z_lock);
-					error = EINVAL;
-					goto OUT;
-					
-			}
-			mutex_exit(&zp->z_lock);
-			
-			if (update_master_obj_by_mx_group_id(zp, m_node_type) != 0) {
-				cmn_err(CE_WARN, "[Error] %s, update_master_obj_by_mx_group_id failed! m_node_type: %d", 
-					__func__, m_node_type);
-			}
-			
-			/* send masterX info to data node and other Master node */
-			if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0){
-				cmn_err(CE_WARN, "[Error] Failed to update master file node info, tnm is %s, m_node_type = %d",
-						tnm, m_node_type);
-			}
-		}else{
-			if(zp->z_zsb->z_os->os_zfs_nas_type == ZFS_NAS_MASTER){
-				zp->z_group_id.slave_spa = nrec->object_id.slave_spa;
-				zp->z_group_id.slave_objset = nrec->object_id.slave_objset;
-				zp->z_group_id.slave_object = nrec->object_id.slave_object;
-				zp->z_group_id.slave_gen = nrec->object_id.slave_gen;
-			}else{
-				zp->z_group_id.parent_spa = nrec->object_id.slave_spa;
-				zp->z_group_id.parent_objset = nrec->object_id.slave_objset;
-				zp->z_group_id.parent_object = nrec->object_id.slave_object;
-				zp->z_group_id.parent_gen = nrec->object_id.slave_gen;
-			}
-			mutex_exit(&zp->z_lock);
+		switch(m_node_type)
+		{
+			case ZFS_MULTICLUS_MASTER2:
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER2;
+				zp->z_group_id.master2_spa = nrec->object_id.master2_spa;
+				zp->z_group_id.master2_objset = nrec->object_id.master2_objset;
+				zp->z_group_id.master2_object = nrec->object_id.master2_object;
+				zp->z_group_id.master2_gen = nrec->object_id.master2_gen;
+				break;
+			case ZFS_MULTICLUS_MASTER3:
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER3;
+				zp->z_group_id.master3_spa = nrec->object_id.master3_spa;
+				zp->z_group_id.master3_objset = nrec->object_id.master3_objset;
+				zp->z_group_id.master3_object = nrec->object_id.master3_object;
+				zp->z_group_id.master3_gen = nrec->object_id.master3_gen;
+				break;
+			case ZFS_MULTICLUS_MASTER4:
+				update_node_info = ZFS_UPDATE_FILE_NODE_MASTER4;
+				zp->z_group_id.master4_spa = nrec->object_id.master4_spa;
+				zp->z_group_id.master4_objset = nrec->object_id.master4_objset;
+				zp->z_group_id.master4_object = nrec->object_id.master4_object;
+				zp->z_group_id.master4_gen = nrec->object_id.master4_gen;
+				break;
+			default:
+				mutex_exit(&zp->z_lock);
+				error = EINVAL;
+				goto OUT;
+		}
+		mutex_exit(&zp->z_lock);
+		
+		if (update_master_obj_by_mx_group_id(zp, m_node_type) != 0) {
+			cmn_err(CE_WARN, "[Error] %s, update_master_obj_by_mx_group_id failed! m_node_type: %d", 
+				__func__, m_node_type);
+		}
+		
+		/* send masterX info to data node and other Master node */
+		if (zfs_client_notify_file_info(zp, m_node_type, update_node_info) != 0){
+			cmn_err(CE_WARN, "[Error] Failed to update master file node info, tnm is %s, m_node_type = %d",
+					tnm, m_node_type);
 		}
 	}
 OUT:
@@ -4905,10 +4397,6 @@ zfs_client_link_backup(znode_t *dzp, znode_t *szp, char *name, cred_t *cr,
 }
 
 
-/*
-int
-zfs_client_readlink(vnode_t *vp, uio_t *uio, cred_t *cr, caller_context_t *ct)
-*/
 int
 zfs_client_readlink(struct inode *ip, uio_t *uio, cred_t *cr, caller_context_t *ct)
 {
@@ -4971,10 +4459,8 @@ zfs_client_rename_backup(znode_t *opzp, char *snm, znode_t *npzp,
 }
 
 
-/*
-int zfs_client_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
-    caller_context_t *ct)
-*/
+
+
 int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr,
     caller_context_t *ct)
 {
@@ -5736,6 +5222,7 @@ static int zfs_client_send_to_local_server(zfs_group_header_t *msg_header, zfs_m
 	zfs_msg_t *nmsg_data = NULL;
 	zfs_group_header_t *nmsg_header = NULL;
 	zfs_group_server_para_t *server_para = NULL;
+	
 
 	server_para = kmem_zalloc(sizeof(zfs_group_server_para_t), KM_SLEEP);
 	nmsg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
@@ -5776,6 +5263,11 @@ void zfs_group_wait(clock_t microsecs)
 boolean_t zfs_server_is_online(uint64_t ser_spa, uint64_t ser_os)
 {
 	zfs_multiclus_group_record_t *record;
+
+	if (!zfs_multiclus_enable()) {
+		cmn_err(CE_WARN, "%s, %d, multiclus is disabled!", __func__, __LINE__);
+		return B_FALSE;
+	}
 	
 	record = zfs_multiclus_get_record(ser_spa, ser_os);
 
@@ -5817,14 +5309,6 @@ int zfs_client_send_to_server(objset_t *os, zfs_group_header_t *msg_header, zfs_
 	zfs_group_header_t	*nmsg_header = NULL;
 //	pool_state_t	pool_state = 0;
 
-	if(os->bNassync){
-		if (strncmp(os->os_remote_ip, "127.0.0.1", strlen("127.0.0.1")) == 0) {
-				error = zfs_client_send_to_local_server(msg_header, msg_data);
-		}else{
-			error = zfs_group_send_to_remote_server(os, msg_header, msg_data);
-		}
-		goto finish;
-	}
 
 	b_enable = zfs_multiclus_enable();
 	if (!b_enable)
@@ -5871,7 +5355,7 @@ resend:
 		mutex_exit(&spa_namespace_lock);
 	} else {
 		mutex_exit(&spa_namespace_lock);
-	
+		
 resend_remote:
 		tx_error = zfs_group_send_to_remote_server(os, msg_header, msg_data);
 		if (tx_error == 0){

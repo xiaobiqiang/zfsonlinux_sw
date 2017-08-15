@@ -73,6 +73,4 @@ gethrtime(void)
 	return (((hrtime_t)now.tv_sec * NSEC_PER_SEC) + now.tv_nsec);
 }
 
-
-
 #endif  /* _SPL_TIME_H */

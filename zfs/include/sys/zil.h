@@ -124,6 +124,7 @@ typedef enum zil_create {
  * Size of ACL in log.  The ACE data is padded out to properly align
  * on 8 byte boundary.
  */
+
 #define	ZIL_ACE_LENGTH(x)	(roundup(x, sizeof (uint64_t)))
 
 #define ZIL_LOG_DATA_FILE_NAME "     "	/* data file dont has a real name */

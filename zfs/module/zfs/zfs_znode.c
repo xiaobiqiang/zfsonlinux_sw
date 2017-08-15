@@ -769,7 +769,7 @@ znode_t *zfs_znode_alloc_by_group(zfs_sb_t *zsb, uint64_t blksz,
 
 	unlock_new_inode(ip);
 
-	super_hold(zsb->z_sb);
+	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	return (zp);
 }
 

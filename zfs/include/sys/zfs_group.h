@@ -18,6 +18,7 @@
 #include <sys/zfs_multiclus.h>
 #include <sys/pathname.h>
 #include <sys/zfs_vnops.h>
+#include <sys/vnode.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -26,46 +27,12 @@ extern "C" {
 #define	SMB_STREAM_PREFIX "SUNWsmb"
 #define	SMB_STREAM_PREFIX_LEN (sizeof (SMB_STREAM_PREFIX) - 1)
 
-#define ZFS_NASAVS_SERVER_SOCKET_QUEUE_SIZE	128
-#define ZFS_NASAVS_SOCKET_QUEUE_SIZE	4
-/* ksocket connect retry times */
-#define ZFS_RNM_KSOCKET_RETRY_TIMES	10
-
-
 typedef struct acl {
 	int		a_type;		/* the type of ACL entry */
 	uid_t		a_id;		/* the entry in -uid or gid */
 	o_mode_t	a_perm;		/* the permission field */
 } aclent_t;
 
-/*
-#ifdef _KERNEL
-typedef enum {
-	ZFS_NASAVS_SOCKET_NONE = 0,
-	ZFS_NASAVS_SOCKET_ONLINE,
-	ZFS_NASAVS_SOCKET_OFFLINE,
-	ZFS_NASAVS_SOCKET_MAX
-}zfs_nasavs_socket_link_status_t;
-
-typedef struct zfs_nasavs_socket_thread {
-	kthread_t		*z_nasavs_socket_thread;
-	boolean_t		z_nasavs_socket_thr_exit;
-	kmutex_t		z_nasavs_socket_lock;
-	kcondvar_t		z_nasavs_socket_cv;
-} zfs_nasavs_socket_thread_t;
-
-typedef struct zfs_nasavs_socket{
-	ksocket_t socket;
-	zfs_nasavs_socket_link_status_t link_status;
-	kmutex_t socket_lock;
-}zfs_nasavs_socket_t;
-
-#endif
-
-typedef struct zfs_nasavs_socket_thread_para{
-	objset_t *os;
-}zfs_nasavs_socket_thread_para_t;
-*/
 #define	ZFS_GROUP_MAGIC	0x0001020304050607ULL
 #define ZFS_GROUP_ROUTE_MIN_IO  1024
 #define ZFS_GROUP_ROUTE_MAX_AVAIL ((uint64_t)1 << 40)
@@ -141,9 +108,6 @@ typedef enum name_operation {
 	NAME_DIRQUOTA,
 	NAME_DIRLOWDATA,
 	NAME_CREATE_DATA,
-	NAME_WRITEDATA,
-	NAME_ZNODE_FREE,
-	NAME_RWRITEDATA,	
 	NAME_MAX_OP
 }name_operation_t;
 
@@ -209,6 +173,8 @@ typedef struct zfs_group_name_create {
 	uint64_t master_gen;
 	char	pad[4];			/* Force pad */
 } zfs_group_name_create_t;
+
+
 
 
 typedef struct zfs_group_name_remove {
@@ -717,22 +683,6 @@ typedef struct zfs_msg {
 	} call;
 } zfs_msg_t;
 
-typedef struct zfs_nasavs_msg {
-	zfs_group_header_t hdr;
-	union {
-		uint64_t	fill;
-		zfs_group_name_t	name;
-		zfs_group_name2_t	name2;
-		zfs_group_znode_t	znode;
-		zfs_group_znode2_t	znode2;
-		zfs_group_data_t	data;
-		zfs_group_cmd_t	cmd;
-		zfs_group_iostat_t	stat;
-		zfs_group_reg_t	regist;
-		char	i[ZFS_GROUP_MAX_NAME_LEN];
-	} call;
-} zfs_nasavs_msg_t;
-
 typedef struct zfs_group_server_para {
 	zfs_group_header_t *msg_header;
 	zfs_msg_t *msg_data;
@@ -983,11 +933,6 @@ extern int zfs_group_broadcast_unflag_overquota(znode_t *zp, uint64_t old_dirquo
 extern const char *zfs_group_map_key_name_prefix_format;
 extern const char *zfs_group_map_zap_obj;
 extern int TO_DOUBLE_DATA_FILE;
-extern void start_zfs_nasavs_server_socket_thread(objset_t *os);
-extern void stop_zfs_nasavs_server_socket_thread(objset_t *os);
-extern void start_zfs_nasavs_client_socket_thread(objset_t *os);
-extern void stop_zfs_nasavs_client_socket_thread(objset_t *os);
-int zfs_nasavs_get_link_status(const char *fs_name, char *clnt_str, char *srv_str);
 
 #ifdef	__cplusplus
 }

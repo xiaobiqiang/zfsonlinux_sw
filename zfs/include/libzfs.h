@@ -68,6 +68,7 @@ extern "C" {
 #define	DEFAULT_IMPORT_PATH_SIZE	7
 extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 
+
 /* solaris stamp write */
 #define STAMP_OFFSET		2
 #define ZPOOL_INIT_PROGRESS	0x0
@@ -933,9 +934,6 @@ void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
  */
 extern void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
     char *fs_name, uint64_t flags, void* param);
-
-extern int get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 
-	char *groupip, uint_t *num );
 
 #ifdef	__cplusplus
 }

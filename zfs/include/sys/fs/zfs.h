@@ -173,19 +173,6 @@ typedef enum {
 } zfs_prop_t;
 
 typedef enum {
-	ZFS_NAS_MASTER = 1,
-	ZFS_NAS_SLAVE,
-	ZFS_NAS_MASTER_ISYNC,
-	ZFS_NAS_SLAVE_ISYNC
-}zfs_nas_type_t;
-
-typedef enum {
-	ZFS_NASSYNC_OFF = 0,
-	ZFS_NASSYNC_ASYNC,
-	ZFS_NASSYNC_SYNC
-}zfs_nas_sync_t;
-
-typedef enum {
 	ZFS_PROP_USERUSED,
 	ZFS_PROP_USERQUOTA,
 	ZFS_PROP_SOFTUSERQUOTA,
@@ -1084,7 +1071,6 @@ typedef  enum {
 #define	ZFS_IMPORT_ANY_HOST	0x2
 #define	ZFS_IMPORT_MISSING_LOG	0x4
 #define	ZFS_IMPORT_ONLY		0x8
-#define	ZFS_IMPORT_IGNORE_CLUSTER	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x10
 #define	ZFS_IMPORT_IGNORE_CLUSTER		0x20
 #define	ZFS_IMPORT_MULTICLUS_UPDATE		0x40

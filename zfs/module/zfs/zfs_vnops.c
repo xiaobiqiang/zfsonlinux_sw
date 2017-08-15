@@ -182,9 +182,9 @@
  *	ZFS_EXIT(zsb);		// finished in zfs
  *	return (error);			// done, report error
  */
-
+extern int ZFS_GROUP_DTL_ENABLE;
 int debug_nas_group = 0;
-int TO_DOUBLE_DATA_FILE = 1;
+int TO_DOUBLE_DATA_FILE = 0;
 int NOTIFY_FILE_SIZE = 0;
 
 static void zfs_set_worm_retention(znode_t *zp, uint64_t n_retent);
@@ -924,12 +924,12 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	iovec_t		*aiov = NULL;
 	xuio_t		*xuio = NULL;
 	int		i_iov = 0;
-//	int		iovcnt = uio->uio_iovcnt;
+	int		iovcnt = uio->uio_iovcnt;
 	iovec_t	*iovp = uio->uio_iov;
 	int		write_eof;
 	int		count = 0;
 	sa_bulk_attr_t	bulk[4];
-//	boolean_t write_direct = B_FALSE;
+	boolean_t write_direct = B_FALSE;
 	char user_id[64];
 //	boolean_t write_meta = B_FALSE;
 	znode_t *nzp = NULL;
@@ -1111,10 +1111,10 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	 * and allows us to do more fine-grained space accounting.
 	 */
 	while (n > 0) {
-//		boolean_t sync;
+		boolean_t sync;
 		abuf = NULL;
 		woff = uio->uio_loffset;
-//		sync = dmu_objset_sync_check(zsb->z_os);
+		sync = dmu_objset_sync_check(zsb->z_os);
 //again:
 
 		if (xuio && abuf == NULL) {
@@ -1194,7 +1194,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		if (abuf == NULL) {
 			tx_bytes = uio->uio_resid;
 			error = dmu_write_uio_dbuf(sa_get_db(zp->z_sa_hdl),
-			    uio, nbytes, tx);
+			    uio, nbytes, tx, sync);
 			tx_bytes -= uio->uio_resid;
 		} else {
 			tx_bytes = nbytes;
@@ -1209,13 +1209,13 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			    aiov->iov_base != abuf->b_data)) {
 				ASSERT(xuio);
 				dmu_write(zsb->z_os, zp->z_id, woff,
-				    aiov->iov_len, aiov->iov_base, tx);
+				    aiov->iov_len, aiov->iov_base, tx, sync);
 				dmu_return_arcbuf(abuf);
 				xuio_stat_wbuf_copied();
 			} else {
 				ASSERT(xuio || tx_bytes == max_blksz);
 				dmu_assign_arcbuf(sa_get_db(zp->z_sa_hdl),
-				    woff, abuf, tx);
+				    woff, abuf, tx, sync);
 			}
 			ASSERT(tx_bytes <= uio->uio_resid);
 			uioskip(uio, tx_bytes);
@@ -1230,7 +1230,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		if (tx_bytes == 0) {
 			(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zsb),
 			    (void *)&zp->z_size, sizeof (uint64_t), tx);
-//			write_direct = dmu_tx_sync_log(tx);
+			write_direct = dmu_tx_sync_log(tx);
 			dmu_tx_commit(tx);
 			ASSERT(error != 0);
 			break;
@@ -1282,7 +1282,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 
 		error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 
-//		write_direct = dmu_tx_sync_log(tx);
+		write_direct = dmu_tx_sync_log(tx);
 
 		used += nbytes;
 
@@ -1310,12 +1310,10 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	}
 
 	if (ioflag & (FSYNC | FDSYNC) ||
-		zsb->z_os->os_sync == ZFS_SYNC_ALWAYS)
-//	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct)
+	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct)
 		zil_commit(zilog, zp->z_id);
 
-	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);
-	zp->z_size = end_size;		
+	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
 	zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE - 1) >> SPA_MINBLOCKSHIFT);
 
 	/*
@@ -1429,7 +1427,8 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	uint64_t	mtime[2], ctime[2];
 	boolean_t write_direct = B_FALSE;
     boolean_t sync;
-	ASSERTV(int	iovcnt = uio->uio_iovcnt);
+	int	iovcnt = uio->uio_iovcnt;
+	ASSERTV(iovcnt);
 	char user_id[64];
 	uio_t uio_data2;
 	iovec_t* iovec = NULL;
@@ -1441,12 +1440,12 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	uint64_t	worm_delta;
     uint64_t    worm_skip_n;
 	boolean_t bover = B_FALSE;
-	uint64_t old_z_size = 0;
 	int suq_err;
 	int sgq_err;
 	uint64_t tx_retry_times = 0;
 	uint64_t retrys = 0;
 	uint64_t used = 0;
+	int64_t update_size = 0;
 
 	ASSERTV(iovcnt);
 
@@ -1650,8 +1649,6 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 
 	end_size = MAX(zp->z_size, woff + n);
 
-	old_z_size = zp->z_size;
-
 	/*
 	 * Write the file in reasonable size chunks.  Each chunk is written
 	 * in a separate transaction; this keeps the intent log records small
@@ -1852,6 +1849,8 @@ tx_again:
 		 * account for possible concurrent updates.
 		 */
 		while ((end_size = zp->z_size) < uio->uio_loffset) {
+			if (end_size == zp->z_size)
+				update_size = (int64_t)(uio->uio_loffset-zp->z_size);
 			(void) atomic_cas_64(&zp->z_size, end_size,
 			    uio->uio_loffset);
 			ASSERT(error == 0);
@@ -1871,8 +1870,8 @@ tx_again:
 		if (n <= nbytes && ((zsb->z_os->os_is_group == 0) || 
 			(zsb->z_os->os_is_group > 0 &&
 			zsb->z_os->os_is_master > 0)) && (zp->z_bquota || zp->z_dirquota > 0)) {
-			if (old_z_size < end_size) {
-				zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE , tx); 
+			if (update_size > 0) {
+				zfs_update_quota_used(zsb, zp, (uint64_t)update_size,  EXPAND_SPACE , tx); 
 			}
 		}
 	
@@ -1915,8 +1914,7 @@ tx_again:
 		error = EDQUOT;
 	}
 
-	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);
-	zp->z_size = end_size;		
+	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
 	zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE -1) >> SPA_MINBLOCKSHIFT);
 
 	/*
@@ -2554,22 +2552,17 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 			if (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
 				(zp->z_group_id.data_spa != zp->z_group_id.master_spa || zp->z_group_id.data_objset != zp->z_group_id.master_objset 
 				  || zp->z_group_id.data_object != zp->z_group_id.master_object) &&
+				(zp->z_group_id.data_spa != 0 && zp->z_group_id.data_objset != 0 && zp->z_group_id.data_object != 0) &&
+				zp->z_group_id.data_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) ){
+				error = zfs_group_get_attr_from_data_node(zsb, zp);
+			}
+			if ((error != 0) && (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
 				(zp->z_group_id.data2_spa != zp->z_group_id.master_spa || zp->z_group_id.data2_objset != zp->z_group_id.master_objset 
 				  || zp->z_group_id.data2_object != zp->z_group_id.master_object) && 
-				zp->z_group_id.master_object == zp->z_id &&
-				((zp->z_group_id.data_spa != 0 && zp->z_group_id.data_objset != 0 && zp->z_group_id.data_object != 0)
-				 || (zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0)) &&
-				S_ISREG(ZTOI(zp)->i_mode)){
-					if(zp->z_group_id.data_spa != 0 && zp->z_group_id.data_objset != 0 
-						&& zp->z_group_id.data_object != 0 && zp->z_group_id.data_status != DATA_NODE_DIRTY){
-						if(zfs_group_get_attr_from_data_node(zsb, zp) != 0){
-							zfs_group_get_attr_from_data2_node(zsb, zp);
-						}
-					}else if(zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 
-						&& zp->z_group_id.data2_object != 0 && zp->z_group_id.data2_status != DATA_NODE_DIRTY){
-						zfs_group_get_attr_from_data2_node(zsb, zp);
-					}
-			}  
+				(zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0) &&
+				zp->z_group_id.data2_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) )){
+				error = zfs_group_get_attr_from_data2_node(zsb, zp);
+			}	
 			zp->nfs_query_data = getdata;
 			if (zsb->z_isworm > 0) {
 				if ((zp->z_pflags & ZFS_IMMUTABLE) != 0) {
@@ -3006,7 +2999,7 @@ out:
 				*oblique_line = '_';
 			}
 			if(strcmp(name, os_name) != 0  && NULL == strstr(name, SMB_STREAM_PREFIX)
-				&& zsb->z_os->os_is_master){
+				&& zsb->z_os->os_is_master&& ZFS_GROUP_DTL_ENABLE){
 				z_carrier = zfs_group_dtl_carry(NAME_CREATE, dzp, name, vap, excl,
 					mode, zp, cr, flag, NULL, vsecp);
 				if(z_carrier){
@@ -3130,8 +3123,7 @@ top:
 		return (error);
 	}
 
-	if (((!strncmp(zp->z_filename, ZIL_LOG_DATA_FILE_NAME, strlen(ZIL_LOG_DATA_FILE_NAME))) || 
-		(strncmp(zp->z_filename, name, strlen(name))))
+	if ((!strncmp(zp->z_filename, ZIL_LOG_DATA_FILE_NAME, strlen(ZIL_LOG_DATA_FILE_NAME)))  
 		&& zsb->z_os->os_is_group) {
 		cmn_err(CE_WARN, "%s, %d, the file: %s(%llx) is a data file, skip it!",
 			__func__, __LINE__, name, (unsigned long long)zp->z_id);

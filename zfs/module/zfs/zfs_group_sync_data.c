@@ -26,6 +26,7 @@
 #include <sys/zap.h>
 #include <sys/zfs_vnops.h>
 #include <sys/fcntl.h>
+#include <linux/cred.h>
 
 #include <sys/zfs_group.h>
 #include <sys/zfs_group_sync.h>
@@ -731,10 +732,8 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 	group = group;
 
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
-//	sync_obj = (zmc_sync_obj_t*)(zfsvfs->z_group_sync_obj);
 
 	error = zfs_zget(zsb, zsb->z_root, &root);
-//	error = zfs_zget(zfsvfs, zfsvfs->z_root, &root);
 	if (error != 0) {
 		zmc_sync_log(sync_obj, "failed to get root directory, error = %d.", error);
 		return 0;
@@ -799,9 +798,6 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 //		if (vp->v_type != VDIR) {
 		if ((ip->i_mode & S_IFMT) != S_IFDIR){
 			zmc_sync_log(sync_obj, "target path is not a directory, dir_path = '%s'.", dir_path);
-//			VN_RELE(ZTOV(root));
-//			VN_RELE(pvp);
-//			VN_RELE(vp);
 			iput(ZTOI(root));
 			iput(ip);
 			iput(pip);
@@ -813,9 +809,6 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 //		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
 		if (dmu_objset_fsid_guid(ITOZ(ip)->z_zsb->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
 			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
-//			VN_RELE(ZTOV(root));
-//			VN_RELE(pvp);
-//			VN_RELE(vp);
 			iput(ZTOI(root));
 			iput(ip);
 			iput(pip);
@@ -826,33 +819,26 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 	}
 
 	root_id = root->z_id;
-//	VN_RELE(ZTOV(root));
 	iput(ZTOI(root));
 
-//	if (VTOZ(vp)->z_id == root_id) {
 	if (ITOZ(ip)->z_id == root_id) {
 		/*
 		 * start checking from root dir:
 		 * no need to check root dir itself, just check each dir entry within root dir
 		 */
-//		error = zfs_foreach_dir_entry(vp, zmc_check_master_dir_entry_data, NULL);
 		error = zfs_foreach_dir_entry(ip, zmc_check_master_dir_entry_data, NULL);
 	} else {
 		/*
 		 * start checking from specified dir:
 		 * check the target dir first, and then check each dir entry within it
 		 */
-//		error = zmc_check_master_dir_data(pvp, vp);
 		error = zmc_check_master_dir_data(pip, ip);
 	}
 
-//	if (pvp != NULL) 
-//		VN_RELE(pvp);
 	if (pip != NULL) {
 		iput(pip);
 	}
 
-//	VN_RELE(vp);
 	iput(ip);
 
 	fput(filp);
@@ -911,12 +897,9 @@ int zmc_sync_group_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, char* dir_
 }
 
 int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, char* dir_path, zmc_sync_thread_arg_t* args)
-//int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfsvfs_t* zfsvfs, char* dir_path, zmc_sync_thread_arg_t* args)
 {
 	zmc_sync_obj_t* sync_obj = NULL;
 	znode_t* root = NULL;
-//	vnode_t* pvp = NULL;
-//	vnode_t* vp = NULL;
 	struct inode *pip = NULL;
 	struct inode *ip = NULL;
 	uint64_t root_id = 0;
@@ -1023,33 +1006,26 @@ int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, cha
 	}
 
 	root_id = root->z_id;
-//	VN_RELE(ZTOV(root));
 	iput(ZTOI(root));
 
-//	if (VTOZ(vp)->z_id == root_id) {
 	if (ITOZ(ip)->z_id == root_id) {
 		/*
 		 * start syncing from root dir:
 		 * no need to sync root dir itself, just sync each dir entry within root dir
 		 */
-//		error = zfs_foreach_dir_entry(vp, zmc_sync_master_dir_entry_data,args);
 		error = zfs_foreach_dir_entry(ip, zmc_sync_master_dir_entry_data,args);
 	} else {
 		/*
 		 * start syncing from specified dir:
 		 * sync the target dir first, and then sync each dir entry within it
 		 */
-//		error = zmc_sync_master_dir_data(pvp, vp, args);
 		error = zmc_sync_master_dir_data(pip, ip, args);
 	}
 
-//	if (pvp != NULL) {
-//		VN_RELE(pvp);
 	if (pip != NULL) {
 		iput(pip);
 	}
 
-//	VN_RELE(vp);
 	iput(ip);
 	fput(filp);
 	fput(dirfilp);
@@ -1395,7 +1371,7 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 	}
 		
 //	credp = crget();
-	credp = cred_alloc_blank();
+	credp = prepare_creds();
 	crsetugid(credp, va.va_uid, va.va_gid);
 
 	if (zsb->z_os->os_is_master) {
@@ -1633,7 +1609,6 @@ zfs_tstamp_update_setup2(znode_t *zp, uint_t flag, boolean_t have_tx)
 	zfs_tstamp_update_setup(zp, flag, zp->z_mtime, zp->z_ctime);
 }
 
-
 int zfs_sync_master_data(struct inode * ip, struct inode * data_ip)
 {
 	znode_t* zp = NULL; 
@@ -1733,6 +1708,7 @@ int zfs_sync_master_data(struct inode * ip, struct inode * data_ip)
 		zmc_sync_log(sync_obj, "syncing master-data file %s %lu (status diff) error = %d",
 			zp->z_filename, zp->z_id, error);
 	}
+	
 	return 0;
 }
 

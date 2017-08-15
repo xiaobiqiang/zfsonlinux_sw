@@ -231,39 +231,6 @@ typedef struct zfs_group_dtl_dirlowdata {
 	int		flag;
 } zfs_group_dtl_dirlowdata_t;
 
-typedef struct zfs_group_dtl_write_data{
-		uint64_t spa_id;
-		uint64_t os_id;
-		uint64_t zid;
-		uint64_t z_gen;
-		uint64_t ioflag;
-		zfs_group_data_write_t	write;
-		zfs_group_data_msg_t*	data_msg;
-		uint64_t	msg_len;
-		uint64_t	data_zid;
-} zfs_group_dtl_write_data_t;
-
-typedef struct zfs_group_dtl_znode_free{
-		uint64_t spa_id;
-		uint64_t os_id;
-		uint64_t zid;
-		uint64_t z_gen;
-		uint64_t off;
-		uint64_t len;
-		uint64_t flag;
-} zfs_group_dtl_znode_free_t;
-
-typedef struct zfs_group_dtl_rwrite_data{
-		uint64_t spa_id;
-		uint64_t os_id;
-		uint64_t zid;
-		uint64_t z_gen;
-		uint64_t ioflag;
-		uint64_t len;
-		uint64_t offset;
-		cred_t cred;
-} zfs_group_dtl_rwrite_data_t;
-
 typedef union zfs_group_dtl{
 	zfs_group_dtl_create_t	create;
 	zfs_group_dtl_mkdir_t	mkdir;
@@ -276,9 +243,6 @@ typedef union zfs_group_dtl{
 	zfs_group_dtl_rename_t	rename;
 	zfs_group_dtl_dirquota_t	dirquota;
 	zfs_group_dtl_dirlowdata_t	dirlowdata;
-	zfs_group_dtl_write_data_t	writedata;
-	zfs_group_dtl_znode_free_t	znodefree;
-	zfs_group_dtl_rwrite_data_t	rwritedata;
 }zfs_group_dtl_t;
 
 typedef struct zfs_group_dtl_thread {
@@ -312,20 +276,6 @@ zfs_group_dtl_carry(name_operation_t z_op, znode_t *pzp,	char *name,
 vattr_t *vap, vcexcl_t ex, int mode, void *multiplex1, cred_t *credp, int flag,
 caller_context_t *ct, void* multiplex2);
 
-extern int
-zfs_group_dtl_async(zfs_group_dtl_carrier_t *z_carrier, znode_t *zp, dmu_tx_t	*tx, int wait);
-
-extern int
-zfs_group_dtl_sync(zfs_group_dtl_carrier_t *z_carrier, znode_t *zp, dmu_tx_t *tx);
-
-zfs_group_dtl_carrier_t *
-zfs_group_dtl_carry_write_data(name_operation_t z_op, znode_t *zp,
-    zfs_group_data_write_t *ptr, zfs_group_data_msg_t* data_msg, uint64_t io_flag, 
-    uint64_t msg_len);
-
-zfs_group_dtl_carrier_t *
-zfs_group_dtl_carry_rwrite_data(name_operation_t z_op, znode_t *zp,
-    uint64_t io_flag, uint64_t offset, uint64_t len,cred_t *cred);
 extern int
 zfs_group_dtl_resolve(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node_type_t m_node_type);
 

@@ -222,8 +222,14 @@ struct objset {
 	zfs_group_dtl_thread_t os_group_dtl_th;
 	zfs_group_dtl_thread_t os_group_dtl3_th;
 	zfs_group_dtl_thread_t os_group_dtl4_th;
+	uint64_t	os_last_master_os;
+	uint64_t	os_last_master_spa;
+	boolean_t	os_will_be_master;
 #endif
 };
+
+
+
 
 #define	DMU_META_OBJSET		0
 #define	DMU_META_DNODE_OBJECT	0

@@ -50,12 +50,6 @@ typedef struct zfs_multiclus_dir_entry
 	umode_t mode;
 } zfs_multiclus_dirent_t;
 
-typedef enum zfs_multiclus_sync_type {
-	ZFS_MULTICLUS_SYNC_CLUSTER = 0x1,
-	ZFS_MULTICLUS_SYNC_NASAVS,
-	ZFS_MULTICLUS_SYNC_NUM
-} zfs_multiclus_sync_type_t;
-
 int zfs_read_local_dir(struct inode * ip, uint64_t* offset, uint64_t count,
 	zfs_multiclus_dirent_t* entry, uint64_t* entry_cnt);
 
@@ -71,8 +65,8 @@ int zfs_multiclus_kfclose(vnode_t* vp);
 extern void* zfs_multiclus_create_group_sync_obj(void);
 void zfs_multiclus_destroy_group_sync_obj(void* sync_obj);
 
-int zfs_multiclus_sync_group(char* group_name, char* fs_name, char* output_file, char* dir_path, boolean_t check_only, zfs_multiclus_sync_type_t sync_type);
-int zfs_multiclus_stop_sync(char* group_name, char* fs_name, zfs_multiclus_sync_type_t sync_type);
+int zfs_multiclus_sync_group(char* group_name, char* fs_name, char* output_file, char* dir_path, boolean_t check_only);
+int zfs_multiclus_stop_sync(char* group_name, char* fs_name);
 
 #ifdef	__cplusplus
 }

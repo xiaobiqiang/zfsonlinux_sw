@@ -18,7 +18,6 @@ extern "C" {
  */
 #define	TASKQ_DEFAULTPRI -1
 
-
 /* MultiCluster Msg Type */
 typedef enum zfs_multiclus_data_type {
 	ZFS_MULTICLUS_GROUP_MSG = 0x1,
@@ -63,8 +62,6 @@ typedef enum zfs_multiclus_node_type {
 	ZFS_MULTICLUS_MASTER2,
 	ZFS_MULTICLUS_MASTER3,
 	ZFS_MULTICLUS_MASTER4,
-	ZFS_MULTICLUS_IMASTER,
-	ZFS_MULTICLUS_ISLAVE,
 	ZFS_MULTICLUS_NODE_TYPE_NUM
 }zfs_multiclus_node_type_t;
 
@@ -122,17 +119,6 @@ typedef struct zfs_group_header {
 	uint64_t	group_name_len;
 	void *work_para;
 	cs_rx_data_t *cs_data;
-	/*nasavs*/
-	char src_pool_fsname[MAXNAMELEN];
-	char dst_pool_fsname[MAXNAMELEN];	
-	uint64_t	slave_spa;
-	uint64_t	slave_os;
-	uint64_t	slave_object;
-	uint64_t	slave_gen;
-	uint64_t	parent_spa;
-	uint64_t	parent_os;
-	uint64_t	parent_object;
-	uint64_t	parent_gen;
 } zfs_group_header_t;
 
 typedef enum status_type {
@@ -144,7 +130,7 @@ typedef enum status_type {
 
 typedef struct node_status{
 	status_type_t status;
-	unsigned int checkcount;
+	uint64_t last_update_time;
 }node_status_t;
 
 typedef enum start_reg_types {
@@ -221,6 +207,7 @@ typedef struct zfs_multiclus_workers {
 	uint64_t	mm_log_index;
 	boolean_t	b_initialized;
 }zfs_multiclus_workers_t;
+
 
 typedef void	*timeout_id_t;	/* opaque handle from timeout(9F) */
 

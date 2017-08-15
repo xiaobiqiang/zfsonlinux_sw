@@ -5334,21 +5334,19 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 
 		case SYNC_MULTICLUS_GROUP:
 			if (zc->zc_multiclus_pad[1] == 0) {
-				error = zfs_multiclus_sync_group(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0, ZFS_MULTICLUS_SYNC_CLUSTER);
+				error = zfs_multiclus_sync_group(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0);
 			} else {
-				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string, ZFS_MULTICLUS_SYNC_CLUSTER);
+				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string);
 			}
 
 			break;
-
 		case SYNC_MULTICLUS_GROUP_DATA:
 			if (zc->zc_multiclus_pad[1] == 0) {
 				error = zfs_multiclus_sync_group_data(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0, zc->zc_multiclus_pad[2] != 0);
 			} else {
-				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string, ZFS_MULTICLUS_SYNC_CLUSTER);
+				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string);
 			}
 			break;
-
 		default:
 			break;
 	}

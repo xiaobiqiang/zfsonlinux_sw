@@ -53,13 +53,13 @@ uint64_t	zfs_multiclus_slave_wait_time = ZFS_MULTICLUS_CVWAIT_TIME;
 uint64_t	zfs_multiclus_master_update_wait_time = ZFS_MULTICLUS_CVWAIT_TIME * 2;
 
 /* task num */
-uint32_t	zfs_multiclus_server_action_max_tasks = 4096;
-uint32_t	zfs_multiclus_mp_post_action_max_tasks = 4096;
+uint32_t	zfs_multiclus_server_action_max_tasks = INT_MAX;
+uint32_t	zfs_multiclus_mp_post_action_max_tasks = INT_MAX;
 
 /* server rx process frames taskq variables */
-volatile int	zfs_multiclus_server_nworkers = 1024;
-volatile int	zfs_multiclus_rx_mp_worker_nworkers = 128;
-volatile int	zfs_multiclus_dispatch_nworkers = 2048;
+volatile int	zfs_multiclus_server_nworkers = 512;
+volatile int	zfs_multiclus_rx_mp_worker_nworkers = 32;
+volatile int	zfs_multiclus_dispatch_nworkers = 32;
 
 /* group table variables */
 kmutex_t	multiclus_mtx;
@@ -80,6 +80,8 @@ uint64_t	zfs_multiclus_node_id = 0;
 int	DOUBLE_MASTER_PANIC = 0;
 int timeout_chk_flag = 1;
 int register_debug_flag = 0;
+
+extern int ZFS_GROUP_DTL_ENABLE;
 
 typedef struct zfs_multiclus_worker_para{
 	list_node_t	worker_para_node;
@@ -180,6 +182,7 @@ zfs_multiclus_post_frame(zfs_multiclus_worker_para_t *work_para)
 //	uint64_t index = 0;
 
 	if (work_para->msg_header->msg_type == ZFS_MULTICLUS_OPERATE_MSG) {
+		key = work_para->msg_header->data_index;
 		action_worker = &zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes[(key) % \
 			(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_running_workers)];
 	}
@@ -188,11 +191,12 @@ zfs_multiclus_post_frame(zfs_multiclus_worker_para_t *work_para)
 	return;
 }
 
+
 static void
 zfs_multiclus_transfer_frame(zfs_multiclus_worker_para_t *para)
 {
 	zfs_multiclus_worker_t *rx_worker = NULL;
-	uint64_t tx_data_index = 0;   
+	uint64_t tx_data_index = 0;
 
 	tx_data_index = para->msg_header->data_index;
 	rx_worker = &zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes[(tx_data_index) % zfs_multiclus_rx_mp_worker_nworkers];
@@ -230,7 +234,6 @@ zfs_multiclus_rx(cs_rx_data_t *cs_data, void *arg)
 	zfs_multiclus_worker_para_t *work_para = NULL;
 
 	if (B_FALSE == zfs_multiclus_global_workers.b_initialized) {
-		csh_rx_data_free(cs_data, B_TRUE);
 		return;
 	}	
 	group_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
@@ -311,9 +314,9 @@ zfs_multiclus_server_worker_frame(void *arg)
 
 			if (work_para->frame_type == ZFS_MULTICLUS_OPERATE_MSG) {
 				work_para->worker = action_worker;
-				if (!taskq_dispatch(zfs_multiclus_global_workers.zfs_multiclus_action_post_tq,
+				if (taskq_dispatch(action_worker->worker_taskq,
 				    (void (*)(void *))zfs_multiclus_server_operate,
-				    work_para, TQ_NOSLEEP)) {
+				    work_para, TQ_NOSLEEP) == 0) {
 					cmn_err(CE_WARN, "dispatch server operate fail,to do directly");
 					zfs_multiclus_server_operate(work_para);
 				}
@@ -429,8 +432,8 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 							{
 								zfs_multiclus_table[i].multiclus_group[j].node_status.status
 								= ZFS_MULTICLUS_NODE_ONLINE;
-								zfs_multiclus_table[i].multiclus_group[j].node_status.checkcount
-								= 0;
+								zfs_multiclus_table[i].multiclus_group[j].node_status.last_update_time
+								= gethrtime();
 							}
 							zfs_unlinked_drain(dmu_objset_get_user(os));
 						} else if (local_spa == old_master_spa && local_os == old_master_os) {
@@ -538,6 +541,9 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 						cv_broadcast(&hash_member->multiclus_hash_cv);
 						mutex_exit(&hash_member->multiclus_hash_mutex);		
 					} else {
+						if (hash_member != NULL) {
+							mutex_exit(&hash_member->multiclus_hash_mutex);
+						}
 						/*can not find tx_hash_member, wo do nothing.*/
 						kmem_free(msg_data, msg_header->length);
 						kmem_free(msg_header, sizeof(zfs_group_header_t));
@@ -662,9 +668,9 @@ zfs_multiclus_rx_mp_worker_frame(void *arg)
 			mutex_exit(&rx_worker->worker_lock);
 
 			work_para->worker = rx_worker;
-			if (!taskq_dispatch(zfs_multiclus_global_workers.zfs_multiclus_rx_post_tq,
+			if (taskq_dispatch(rx_worker->worker_taskq,
 			    (void (*)(void *))zfs_multiclus_post_frame,
-			    work_para, TQ_NOSLEEP)) {
+			    work_para, TQ_NOSLEEP) == NULL) {
 				cmn_err(CE_WARN, "dispatch mp post fail,to do directly");
 				zfs_multiclus_post_frame(work_para);
 			}
@@ -688,15 +694,16 @@ static void
 zfs_multiclus_workers_init(void)
 {
 	uint32_t i;
+	char name[MAXNAMELEN];
 
 	/*initialize post taskq*/
-	zfs_multiclus_global_workers.zfs_multiclus_action_post_tq = 
+/*	zfs_multiclus_global_workers.zfs_multiclus_action_post_tq = 
 		taskq_create("multiclus_server_action", zfs_multiclus_dispatch_nworkers,
 		    minclsyspri, 256, zfs_multiclus_server_action_max_tasks, TASKQ_PREPOPULATE);
 
 	zfs_multiclus_global_workers.zfs_multiclus_rx_post_tq = 
 		taskq_create("multiclus_mp_post_action", zfs_multiclus_dispatch_nworkers,
-		    minclsyspri, 128, zfs_multiclus_mp_post_action_max_tasks, TASKQ_PREPOPULATE);
+		    minclsyspri, 128, zfs_multiclus_mp_post_action_max_tasks, TASKQ_PREPOPULATE);*/
 
 	/*initialize rx workers*/
 	zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes = 
@@ -712,6 +719,9 @@ zfs_multiclus_workers_init(void)
 		mutex_init(&rx_worker->worker_avl_lock, NULL, MUTEX_DRIVER, NULL);
 		cv_init(&rx_worker->worker_cv, NULL, CV_DRIVER, NULL);
 		rx_worker->worker_flags &= ~ZFS_MULTICLUS_WORKER_TERMINATE;
+		sprintf(name,"mulcls_mp_post_%d", i);
+		rx_worker->worker_taskq = taskq_create(name, zfs_multiclus_dispatch_nworkers,
+		    minclsyspri, 1, zfs_multiclus_mp_post_action_max_tasks, TASKQ_PREPOPULATE);
 		list_create(&rx_worker->worker_para_list, sizeof (zfs_multiclus_worker_para_t),
 		    offsetof(zfs_multiclus_worker_para_t, worker_para_node));
 		(void)taskq_dispatch(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_taskq,
@@ -737,6 +747,9 @@ zfs_multiclus_workers_init(void)
 		mutex_init(&action_worker->worker_avl_lock, NULL, MUTEX_DRIVER, NULL);
 		cv_init(&action_worker->worker_cv, NULL, CV_DRIVER, NULL);
 		action_worker->worker_flags &= ~ZFS_MULTICLUS_WORKER_TERMINATE;
+		sprintf(name,"mulcls_srv_%d", i);
+		action_worker->worker_taskq = taskq_create(name, zfs_multiclus_dispatch_nworkers,
+		    minclsyspri, 1, zfs_multiclus_server_action_max_tasks, TASKQ_PREPOPULATE);
 		list_create(&action_worker->worker_para_list, sizeof (zfs_multiclus_worker_para_t),
 		    offsetof(zfs_multiclus_worker_para_t, worker_para_node));
 		(void)taskq_dispatch(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq,
@@ -779,7 +792,8 @@ zfs_multiclus_workers_finit(void)
 	/*finit action cv mutex*/
 	for (i = 0; i < zfs_multiclus_server_nworkers; i++) {
 		zfs_multiclus_worker_t *action_worker = &zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes[i];
-		
+
+		taskq_destroy(action_worker->worker_taskq);
 		mutex_destroy(&action_worker->worker_lock);
 		mutex_destroy(&action_worker->worker_avl_lock);
 		cv_destroy(&action_worker->worker_cv);
@@ -808,6 +822,7 @@ zfs_multiclus_workers_finit(void)
 	/*finit rx cv mutex*/
 	for (i = 0; i < zfs_multiclus_rx_mp_worker_nworkers; i++) {
 		zfs_multiclus_worker_t *rx_worker = &zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes[i];
+		taskq_destroy(rx_worker->worker_taskq);
 		mutex_destroy(&rx_worker->worker_lock);
 		mutex_destroy(&rx_worker->worker_avl_lock);
 		cv_destroy(&rx_worker->worker_cv);
@@ -820,10 +835,10 @@ zfs_multiclus_workers_finit(void)
 	zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes = NULL;
 
 	/*finit action post tq*/
-	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_post_tq);
+/*	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_post_tq);*/
 	
 	/*finit rx post tq*/
-	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_rx_post_tq);
+/*	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_rx_post_tq);*/
 }
 
 static void
@@ -1178,6 +1193,8 @@ zfs_multiclus_record_reg_and_update(zfs_group_header_t *msg_header, zfs_group_re
 				if (zfs_multiclus_table[i].multiclus_group[j].used &&
 				    (zfs_multiclus_table[i].multiclus_group[j].spa_id == reg_msg->spa_id) &&
 				    (zfs_multiclus_table[i].multiclus_group[j].os_id == reg_msg->os_id)){
+				 
+				    zfs_multiclus_table[i].multiclus_group[j].node_status.last_update_time = gethrtime();
 					zfs_multiclus_update_record_by_head(reg_msg, &zfs_multiclus_table[i].multiclus_group[j]);
 					mutex_exit(&zfs_multiclus_table[i].multiclus_group_mutex);
 					mutex_exit(&multiclus_mtx);
@@ -1376,7 +1393,6 @@ zfs_multiclus_write_group_reply_msg(void *group_msg, zfs_group_header_t *msg_hea
 	return (0);
 }
 
-
 static int
 zfs_multiclus_write_operate_reply_msg(zfs_group_header_t *msg_header, zfs_msg_t *msg_data)
 {
@@ -1407,11 +1423,11 @@ zfs_multiclus_write_operate_reply_msg(zfs_group_header_t *msg_header, zfs_msg_t 
 	}
 	zfs_multiclus_test_data_error((void *)msg_header,(void *)msg_data, (uint64_t)data_len);
 	err = cluster_san_host_send(cshi, (void *)msg_data, data_len, (void *)msg_header, 
-		sizeof(zfs_group_header_t), CLUSTER_SAN_MSGTYPE_CLUSTERFS, 0, B_FALSE, 2);
+		sizeof(zfs_group_header_t), CLUSTER_SAN_MSGTYPE_CLUSTERFS, 0, B_TRUE, 2);
 	zfs_multiclus_test_data_error((void *)msg_header,(void *)msg_data, (uint64_t)data_len);
 	cluster_san_hostinfo_rele(cshi);
 	
-	return (0);
+	return (err);
 }
 
 int zfs_multiclus_write_operate_msg(objset_t *os, zfs_group_header_t *msg_header, void *data, uint64_t data_len)
@@ -1496,6 +1512,7 @@ trans_again:
 	tx_hash_member->multiclus_segments = 1;
 	tx_hash_member->omsg_header = (char *)msg_header;
 	zfs_multiclus_insert_hash(modhash_header, tx_hash_member);
+	
 
 	if (hostid == zfs_multiclus_node_id) {
 		bsame_host = B_TRUE;
@@ -2090,9 +2107,7 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 	uint64_t master[4] ={0};
 	uint64_t gnum = 0;
 	int i = 0 ;
-
 	VERIFY(nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) == 0);
-	gs = kmem_zalloc(sizeof(zfs_group_info_t)*ZFS_MULTICLUS_GROUP_NODE_NUM, KM_SLEEP);
 
 	/* ' B_FALSE == *onceflag ' is that mean once start of zfs_start_multiclus's 
 	call and in this case that need to counts number of using group in zfs_multiclus_table*/
@@ -2207,8 +2222,7 @@ int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 	return (0);
 }
 
-int check_count = 2;
-
+//only master can enter this function
 static void
 zfs_multiclus_refresh_nodes_status(char * group_name)
 {
@@ -2258,24 +2272,20 @@ zfs_multiclus_refresh_nodes_status(char * group_name)
 							{
 							 /*
 								Just only switch to ZFS_MULTICLUS_NODE_CHECKING 
-								from ZFS_MULTICLUS_NODE_ONLINE, so checkcount will 
-								be initialized to 0 in case ZFS_MULTICLUS_NODE_ONLINE
+								from ZFS_MULTICLUS_NODE_ONLINE
 							 */
-								node_record->node_status.checkcount++;
-								if(node_record->node_status.checkcount
-									>= ZFS_MULTICLUS_WAITCOUNT)
+							 	if ((gethrtime() - node_record->node_status.last_update_time)/1000 > 60*ZFS_MULTICLUS_SECOND){
 									node_record->node_status.status
 										= ZFS_MULTICLUS_NODE_OFFLINE;
+							 	}
 								break;
 							}
 						case ZFS_MULTICLUS_NODE_ONLINE:
 							{
-								if (node_record->node_status.checkcount
-									 >= check_count) {
+								if ((gethrtime() - node_record->node_status.last_update_time)/1000 > 5*ZFS_MULTICLUS_SECOND){
 									node_record->node_status.status
 										= ZFS_MULTICLUS_NODE_CHECKING;
 								}
-								//node_record->node_status.checkcount= 0;
 								break;
 							}
 						default:
@@ -2630,7 +2640,7 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 	reg_data->used_size = used_size;
 	reg_data->load_ios = load_ios;
 	reg_data->node_status.status = ZFS_MULTICLUS_NODE_ONLINE;
-	reg_data->node_status.checkcount = 0;
+	reg_data->node_status.last_update_time = gethrtime();
 	reg_data->hostid = zfs_multiclus_node_id;
 	reg_data->group_name_len = strlen(group_name);
 	bcopy(group_name, reg_data->group_name, MAXNAMELEN);
@@ -2786,6 +2796,13 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 	if (os->os_phys->os_type == DMU_OST_ZFS) {
 		mutex_enter(&os->os_user_ptr_lock);
 		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
+		if (NULL == zsb){
+			//fs may not be mounted.
+			cmn_err(CE_WARN, "[%s %d]: dmu_objset_get_user error.", __func__, __LINE__);
+			mutex_exit(&os->os_user_ptr_lock);
+			dmu_objset_rele(os, FTAG);
+			return (-1);
+		}
 		root_id = zsb->z_root;
 
 		mutex_exit(&os->os_user_ptr_lock);
@@ -2847,11 +2864,6 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 		if (taskq_dispatch(group->group_reg_timer_tq,
 			(void (*)(void *))zfs_multiclus_register_tq,
 			reg_data,TQ_NOSLEEP) == 0){
-/*
-		if (ddi_taskq_dispatch(group->group_reg_timer_tq,
-			(void (*)(void *))zfs_multiclus_register_tq,
-			reg_data, TQ_NOSLEEP) != DDI_SUCCESS) {
-*/
 			kmem_free(reg_data, sizeof(zfs_group_reg_t));
 			return (-1);
 		}
@@ -2922,6 +2934,13 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	if (os->os_phys->os_type == DMU_OST_ZFS) {
 		mutex_enter(&os->os_user_ptr_lock);
 		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
+		if (NULL == zsb){
+			//fs may not be mounted.
+			cmn_err(CE_WARN, "[%s %d]: dmu_objset_get_user error.", __func__, __LINE__);
+			mutex_exit(&os->os_user_ptr_lock);
+			dmu_objset_rele(os, FTAG);
+			return (-1);
+		}
 		root_id = zsb->z_root;
 		mutex_exit(&os->os_user_ptr_lock);
 	}
@@ -2950,7 +2969,7 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	reg_data->used_size = used_size;
 	reg_data->load_ios = load_ios;
 	reg_data->node_status.status = ZFS_MULTICLUS_NODE_ONLINE;
-	reg_data->node_status.checkcount = 0;
+	reg_data->node_status.last_update_time = gethrtime();
 	reg_data->hostid = zfs_multiclus_node_id;
 	reg_data->group_name_len = strlen(group_name);
 	bcopy(group_name, reg_data->group_name, MAXNAMELEN);
@@ -3008,11 +3027,6 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 		if (taskq_dispatch(group->group_reg_timer_tq,
 			(void (*)(void *))zfs_multiclus_register_tq,
 			reg_data, TQ_NOSLEEP) == 0){
-/*
-		if (ddi_taskq_dispatch(group->group_reg_timer_tq,
-			(void (*)(void *))zfs_multiclus_register_tq,
-			reg_data, TQ_NOSLEEP) != DDI_SUCCESS) {
-*/
 			kmem_free(reg_data, sizeof(zfs_group_reg_t));
 			return (-1);
 		}
@@ -3673,8 +3687,8 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, objset_t* os, zfs
 
 			break;
 	}
-
-	zfs_group_dtl_reset(os, NULL);
+	if (ZFS_GROUP_DTL_ENABLE)
+		zfs_group_dtl_reset(os, NULL);
 	return 0;
 }
 

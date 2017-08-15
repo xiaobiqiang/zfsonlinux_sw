@@ -166,7 +166,8 @@ typedef struct zfs_sb {
 	uint64_t 	z_isworm;
 	uint64_t	z_autoworm;
 	uint64_t	z_wormrent;
-
+	
+	kmutex_t	z_hold_mtx[1024];	/* znode hold locks */
 	taskq_t	  *notify_taskq;
 	taskq_t	  *overquota_taskq;
 	kmutex_t	z_group_dtl_obj_mutex;
@@ -318,9 +319,6 @@ extern int zfs_del_dirlowdata(zfs_sb_t *zsb, uint64_t dir_obj);
 extern boolean_t zfs_overquota(zfs_sb_t *zsb, struct znode *zp, uint64_t dirquota_index);
 
 extern int zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid);
-
-extern bool super_hold(struct super_block *sb);
-extern void super_rele(struct super_block *sb);
 
 
 #ifdef	__cplusplus
