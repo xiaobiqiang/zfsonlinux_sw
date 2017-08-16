@@ -93,6 +93,11 @@ COMMON_H = \
 	$(top_srcdir)/include/sys/zfs_vfsops.h \
 	$(top_srcdir)/include/sys/zfs_vnops.h \
 	$(top_srcdir)/include/sys/zfs_znode.h \
+	$(top_srcdir)/include/sys/zfs_multiclus.h \
+	$(top_srcdir)/include/sys/zfs_group.h \
+	$(top_srcdir)/include/sys/zfs_group_dtl.h \
+	$(top_srcdir)/include/sys/zfs_group_sync.h \
+	$(top_srcdir)/include/sys/zfs_group_sync_data.h \
 	$(top_srcdir)/include/sys/zil.h \
 	$(top_srcdir)/include/sys/zil_impl.h \
 	$(top_srcdir)/include/sys/zio_checksum.h \

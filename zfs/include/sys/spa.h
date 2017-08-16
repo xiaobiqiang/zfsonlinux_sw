@@ -625,6 +625,8 @@ extern int spa_scan_get_stats(spa_t *spa, pool_scan_stat_t *ps);
 #define	SPA_ASYNC_AUTOEXPAND	0x20
 #define	SPA_ASYNC_REMOVE_DONE	0x40
 #define	SPA_ASYNC_REMOVE_STOP	0x80
+#define	SPA_ASYNC_POOL_CLEANUP	0x100
+#define	SPA_ASYNC_SYSTEM_SPACE	0x200
 
 /*
  * Controls the behavior of spa_vdev_remove().
@@ -923,6 +925,12 @@ extern boolean_t spa_debug_enabled(spa_t *spa);
 }
 
 extern int spa_mode_global;			/* mode, e.g. FREAD | FWRITE */
+
+
+
+extern uint64_t spa_get_ios(spa_t *spa);
+extern uint64_t spa_import_flags(spa_t *spa);
+extern boolean_t spa_get_group_flags(spa_t *spa);
 
 #ifdef	__cplusplus
 }

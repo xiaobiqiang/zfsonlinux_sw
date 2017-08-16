@@ -27,6 +27,7 @@
 #include <sys/sa.h>
 #include <sys/zfs_acl.h>
 #include <sys/zfs_sa.h>
+#include <sys/zfs_znode.h>
 
 /*
  * ZPL attribute registration table.
@@ -410,6 +411,67 @@ zfs_sa_upgrade_txholds(dmu_tx_t *tx, znode_t *zp)
 		    DMU_OBJECT_END);
 	}
 }
+
+void
+zfs_sa_set_remote_object(znode_t *zp, zfs_group_object_t *remote_object, 
+   dmu_tx_t *tx)
+{
+//	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	zfs_sb_t *zsb = zp->z_zsb;
+//	xoptattr_t *xoap;
+
+	ASSERT(MUTEX_HELD(&zp->z_lock));
+	zp->z_group_id = *remote_object;
+	if (zp->z_is_sa && zp->z_sa_hdl != NULL){
+		VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zsb),
+		    &zp->z_group_id,
+		    sizeof (zp->z_group_id), tx));
+	}
+}
+
+void
+zfs_sa_get_remote_object(znode_t *zp)
+{
+    int err;
+	zfs_sb_t *zsb = zp->z_zsb;
+
+	ASSERT(MUTEX_HELD(&zp->z_lock));
+	if (zp->z_is_sa && zp->z_sa_hdl != NULL) {
+        err = sa_lookup(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zsb),
+		    &zp->z_group_id,
+		    sizeof (zp->z_group_id));
+	} 
+}
+
+void
+zfs_sa_set_dirquota(znode_t *zp, uint64_t quota, dmu_tx_t *tx)
+{
+//	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	zfs_sb_t *zsb = zp->z_zsb;
+//	xoptattr_t *xoap;
+
+	ASSERT(MUTEX_HELD(&zp->z_lock));
+	zp->z_dirquota = quota;
+	if (zp->z_is_sa && zp->z_sa_hdl != NULL){
+		VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_DIRQUOTA(zsb),
+		    &zp->z_dirquota,
+		    sizeof (zp->z_dirquota), tx));
+	}
+}
+
+void
+zfs_sa_set_dirlowdata(znode_t *zp, uint64_t dir_lowdata, dmu_tx_t *tx)
+{
+	zfs_sb_t *zsb = zp->z_zsb;
+//	xoptattr_t *xoap;
+	ASSERT(MUTEX_HELD(&zp->z_lock));
+	zp->z_dirlowdata = dir_lowdata;
+	if (zp->z_is_sa && zp->z_sa_hdl != NULL)
+		VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_DIRLOWDATA(zsb),
+		    &dir_lowdata,
+		    8, tx));
+}
+
 
 EXPORT_SYMBOL(zfs_attr_table);
 EXPORT_SYMBOL(zfs_sa_readlink);

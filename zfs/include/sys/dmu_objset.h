@@ -40,6 +40,9 @@
 #include <sys/sa.h>
 #include <sys/zfs_rlock.h>
 #include <sys/dbuf.h>
+#ifdef _KERNEL
+#include <sys/zfs_group_dtl.h>
+#endif
 
 #ifdef	__cplusplus
 extern "C" {
@@ -69,6 +72,12 @@ struct dmu_buf_impl;
 #define	OS_WORKER_CACHE_MAX_LEN	((longlong_t)1 << 32)
 #define	OS_WORKER_CACHE_LIST_INSERT 0x1
 #define	OS_WORKER_CACHE_LIST_NOINSERT 0x1
+
+#define OS_NODE_TYPE_SLAVE		0
+#define OS_NODE_TYPE_MASTER		1   /* not used */
+#define OS_NODE_TYPE_MASTER2	2
+#define OS_NODE_TYPE_MASTER3	3
+#define OS_NODE_TYPE_MASTER4	4
 
 typedef struct objset_phys {
 	dnode_phys_t os_meta_dnode;
@@ -176,6 +185,26 @@ struct objset {
 	void *os_user_ptr;
 	sa_os_t *os_sa;
 
+	/* destroying when crypto keys aren't present */
+	boolean_t os_destroy_nokey;	
+	uint64_t	z_aclswitch_obj;
+	uint64_t	z_accesslist_obj;
+    uint64_t    os_group_obj;
+
+    uint64_t   os_is_group;
+    uint64_t   os_is_master;
+	/*
+	 * os_is_master == 0: os_node_type indicates the node type in the cluster group
+	 * os_is_master == 1: os_node_type is ignored
+	 */
+	uint64_t	os_node_type;	/* OS_NODE_TYPE_XXX */
+    uint64_t    os_master_os;
+    uint64_t    os_master_spa;
+    uint64_t    os_master_root;
+    uint64_t    os_self_root;
+    uint64_t    os_group_tx_seq;
+    char        os_group_name[MAXNAMELEN];
+
 #ifdef _KERNEL
     zil_replay_func_t *os_replay;
     os_replay_data_func *os_replay_data;
@@ -190,8 +219,17 @@ struct objset {
     kmutex_t os_mirror_io_mutex[TXG_SIZE];
     uint64_t os_mirror_io_num[TXG_SIZE];
     list_t os_mirror_io_list[TXG_SIZE];
+	zfs_group_dtl_thread_t os_group_dtl_th;
+	zfs_group_dtl_thread_t os_group_dtl3_th;
+	zfs_group_dtl_thread_t os_group_dtl4_th;
+	uint64_t	os_last_master_os;
+	uint64_t	os_last_master_spa;
+	boolean_t	os_will_be_master;
 #endif
 };
+
+
+
 
 #define	DMU_META_OBJSET		0
 #define	DMU_META_DNODE_OBJECT	0
@@ -270,6 +308,8 @@ void dmu_objset_remove_seg_cache(objset_t *os, dmu_buf_impl_t *db);
 
 void dmu_objset_init(void);
 void dmu_objset_fini(void);
+void dmu_objset_set_group(objset_t *os, uint64_t master_spa, uint64_t master_os, uint64_t root);
+uint64_t objset_sec_reftime(objset_t *os);
 
 #ifdef	__cplusplus
 }

@@ -2544,6 +2544,21 @@ FINISH:
 
 #endif
 
+void 
+dmu_objset_set_group(objset_t *os, uint64_t master_spa,
+    uint64_t master_os, uint64_t root)
+{
+    os->os_master_spa = master_spa;
+    os->os_master_os = master_os;
+    os->os_master_root = root; 
+}
+
+uint64_t objset_sec_reftime(objset_t *os)
+{
+	return (spa_syncing_txg(os->os_spa));
+}
+
+
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(dmu_objset_zil);
 EXPORT_SYMBOL(dmu_objset_pool);

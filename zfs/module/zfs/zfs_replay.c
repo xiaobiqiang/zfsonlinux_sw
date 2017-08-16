@@ -356,7 +356,7 @@ zfs_replay_create_acl(zfs_sb_t *zsb, lr_acl_create_t *lracl, boolean_t byteswap)
 		}
 
 		error = zfs_create(ZTOI(dzp), name, &xva.xva_vattr,
-		    0, 0, &ip, kcred, vflg, &vsec);
+		    0, 0, &ip, kcred, vflg, &vsec, NULL);
 		break;
 	case TX_MKDIR_ACL:
 		aclstart = (caddr_t)(lracl + 1);
@@ -485,7 +485,7 @@ zfs_replay_create(zfs_sb_t *zsb, lr_create_t *lr, boolean_t byteswap)
 			name = (char *)start;
 
 		error = zfs_create(ZTOI(dzp), name, &xva.xva_vattr,
-		    0, 0, &ip, kcred, vflg, NULL);
+		    0, 0, &ip, kcred, vflg, NULL, NULL);
 		break;
 	case TX_MKDIR_ATTR:
 		lrattr = (lr_attr_t *)(caddr_t)(lr + 1);
@@ -549,7 +549,7 @@ zfs_replay_remove(zfs_sb_t *zsb, lr_remove_t *lr, boolean_t byteswap)
 
 	switch ((int)lr->lr_common.lrc_txtype) {
 	case TX_REMOVE:
-		error = zfs_remove(ZTOI(dzp), name, kcred);
+		error = zfs_remove(ZTOI(dzp), name, kcred, 0);
 		break;
 	case TX_RMDIR:
 		error = zfs_rmdir(ZTOI(dzp), name, NULL, kcred, vflg);
@@ -585,7 +585,7 @@ zfs_replay_link(zfs_sb_t *zsb, lr_link_t *lr, boolean_t byteswap)
 	if (lr->lr_common.lrc_txtype & TX_CI)
 		vflg |= FIGNORECASE;
 
-	error = zfs_link(ZTOI(dzp), ZTOI(zp), name, kcred);
+	error = zfs_link(ZTOI(dzp), ZTOI(zp), name, kcred, 0);
 
 	iput(ZTOI(zp));
 	iput(ZTOI(dzp));
