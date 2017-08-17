@@ -386,14 +386,14 @@ get_scsi_rpm( disk_info_t *disk ) {
 }
 
 static void
-do_each_vdev( disk_table_t *dtb_p; zpool_handle_t *zhp, nvlist_t *vdev, const char role[] ) {
+do_each_vdev( disk_table_t *dtb_p, zpool_handle_t *zhp, nvlist_t *vdev, const char role[] ) {
 	nvlist_t **children ;
 	uint nchild ;
 	uint i ;
 
 	if( nvlist_lookup_nvlist_array( vdev, "children", &children, &nchild ) ==0 ) {
 		for( i=0; i<nchild; i++ ) {
-			do_each_vdev( zhp, children[i], role ) ;
+			do_each_vdev( dtb_p, zhp, children[i], role ) ;
 		}
 	}else {
 		uint64_t flag ;
@@ -429,13 +429,14 @@ do_each_vdev( disk_table_t *dtb_p; zpool_handle_t *zhp, nvlist_t *vdev, const ch
 RETURN :
 		i=0 ;
 		while( (i++) < dtb_p->total ) {
-			if( strcmp( diskp->dk_name, dev_name ) == 0 ) {
+			assert( strncmp( diskp->dk_name, "/dev/", 5 ) == 0 ) ;
+			if( strcmp( diskp->dk_name+5, dev_name ) == 0 ) {
 				strcpy( diskp->dk_pool, pool_name ) ;
 				diskp->dk_role = disk_role ;
-				fprintf( "Get disk<%s> in pool<%s>, role=%s\n", dev_name, pool_name, disk_role ) ;
 
 				return ;
 			}
+			diskp = diskp->next ;
 		}
 
 	}
@@ -443,7 +444,7 @@ RETURN :
 
 static int
 do_each_pool( zpool_handle_t *zhp, void *data ) {
-	disk_table_t *dtb_p = ( disk_table_t *) date ;
+	disk_table_t *dtb_p = ( disk_table_t *) data ;
 	nvlist_t *config, *vdev_root, **spare, **lowspare, **metaspare, **l2cache ;
 	uint_t nspare, nlowspare, nmetaspare, nl2cache ;
 	nvpair_t *nvp ;
@@ -1663,7 +1664,6 @@ static void  create_lun_node(disk_info_t *di)
 	char buf[256];
 	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node,
 		vendorid_node, enid_node, slotid_node, pool_node ;
-	int ret ;
 
 	node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
 
@@ -1711,8 +1711,8 @@ static void  create_lun_node(disk_info_t *di)
 	memset(buf, 0, 256);
 
 	pool_node = xmlNewChild( node, NULL, (xmlChar *)"pool", NULL ) ;
-	if( (ret=disk_get_poolname( di->dk_name, buf ) ) != 0 ) {
-		xmlNodeSetContent( pool_node, (xmlChar *) buf ) ;
+	if( di->dk_pool[0] != '\0' ) {
+		xmlNodeSetContent( pool_node, (xmlChar *) (di->dk_pool) ) ;
 	}
 }
 
