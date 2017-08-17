@@ -50,6 +50,7 @@ typedef struct disk_info {
 	int		dk_enclosure;
 	int		dk_slot;
 	int		dk_is_sys;
+	int		dk_rpm ;
 	long	dk_gsize;
 	long	dk_blocks;
 	char	dk_vendor[PARAM_LEN];
@@ -106,7 +107,7 @@ get_system_disk(char *name)
 static void
 get_scsi_gsize(uint64_t blocks)
 {
-	double bs = blocks / 1024;
+	double bs = blocks / 1024.0;
 	if (bs >= 1024) {
 		if (bs / 1024 > 1024)
 			printf("%-3.2lf T\n", (bs / 1024) / 1024);
@@ -327,6 +328,50 @@ get_scsi_serial(disk_info_t *di)
 	return (1);
 }
 
+/*
+ * get the disk rpm
+ *
+ * Send a SCSI inquiry command to get VPD 0xB1, which has rpm in Byte[4] and Byte[5]
+ */
+static int
+get_scsi_rpm( disk_info_t *disk ) {
+	char *path = disk.dk_name ;
+	uint8_t output[ INQ_REPLY_LEN ] ;
+	uint8_t cmd[] = {0x12, 1, 0xB1, 0, INQ_REPLY_LEN, 0 } ;
+	int fd ;
+	sg_io_hdr_t io_hdr ;
+
+	if( (fd = open( path, O_RDONLY ) ) == -1 ) {
+		fprintf( stderr, "in %s[%d]: cann't open dev<%s> for reading, error( %s )\n", __func__, __LINE__, path, strerror( errno ) ) ;
+		return B_FALSE ;
+	}
+
+
+	memset( &io_hdr, 0, sizeof( sg_io_hdr_t ) ) ;
+	io_hdr.interface_id = 'S' ;
+	io_hdr.dxfer_direction = SG_DXFER_FROM_DEV ;
+	io_hdr.dxfer_len = INQ_REPLY_LEN ;
+	io_hdr.dxferp = output ;
+	io_hdr.cmdp = cmd ;
+	io_hdr.cmd_len = 6 ;
+	io_hdr.timeout = 1000 ;
+
+	if( ioctl( fd, SG_IO, &io_hdr ) == -1 ) {
+		fprintf( stderr, "in %s[%d]: ioctl failed, error( %s )\n", __func__, __LINE__, strerror( errno ) ) ;
+		return B_FALSE ;
+	}
+
+	if( ( io_hdr.info & SG_INFO_OK_MASK ) != SG_INFO_OK ) {
+		fprintf( stderr, "in %s[%d]: ioctl return not expected\n", __func__, __LINE__ ) ;
+		return B_FALSE ;
+	}
+
+	disk.dk_rpm = output[4] * 256 + output[5] ;
+
+	return B_TRUE ;
+}
+
+
 static char *disk_info_find_value(disk_info_t *di, int type)
 {
 	disk_info_t *cur = di->next;
@@ -401,10 +446,12 @@ static void disk_info_show(disk_table_t *tb, int all)
 
 		if (*(pstr + len - 1) >= '0' && *(pstr + len - 1) <= '9') {
 			if (all == 1) {
+				create_lun_node( di_cur ) ;
 				print_info(di_cur, order);
 				order++;
 			}
 		} else {
+			create_lun_node( di_cur ) ;
 			print_info(di_cur, order);
 			order++;
 		}
@@ -476,6 +523,7 @@ int list_disks(int all)
 		get_scsi_serial(di_cur);
 		get_scsi_status(di_cur);
 		get_scsi_slot(di_cur);
+		get_scsi_rpm( di_cur ) ;
 
 		di_cur = di_cur->next;
 	}
@@ -1471,7 +1519,7 @@ static xmlNodePtr create_xml_file(void)
 static void close_xml_file(void)
 {
 	   xmlChar *xmlbuff;
-	  int buffersize;
+	  int buffersize ;
 	  xmlDocDumpFormatMemory(disk_doc, &xmlbuff, &buffersize, 1);
 
 	  xmlSaveFormatFileEnc(DISK_XML_PATH, disk_doc, "UTF-8", 1);
@@ -1483,8 +1531,9 @@ static void close_xml_file(void)
 static void  create_lun_node(disk_info_t *di)
 {
 	char buf[256];
-	xmlNodePtr node, name_node,  blksize_node, status_node,
-		vendorid_node, enid_node, slotid_node;
+	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node
+		vendorid_node, enid_node, slotid_node, pool_node ;
+	int ret ;
 
 	node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
 
@@ -1495,13 +1544,9 @@ static void  create_lun_node(disk_info_t *di)
 	sprintf(buf, "%llx", luns->sas_wwn);
 	xmlNodeSetContent(saswwid_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
-
-	size_node=xmlNewChild(node, NULL, (xmlChar *)"size", NULL);
-	sprintf(buf, "%lld", luns->blocks);
-	xmlNodeSetContent(size_node, (xmlChar *)buf);
-	memset(buf, 0, 256);
 */
-	blksize_node=xmlNewChild(node, NULL,  (xmlChar *)"blksize", NULL);
+
+	blksize_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
 	sprintf(buf, "%ld", di->dk_blocks);
 	xmlNodeSetContent(blksize_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
@@ -1529,12 +1574,16 @@ static void  create_lun_node(disk_info_t *di)
 	sprintf(buf, "%d", di->dk_minor);
 	xmlNodeSetContent(slotid_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
-/*
+
 	rpm_node=xmlNewChild(node,NULL,  (xmlChar *)"rpm", NULL);
-	sprintf(buf, "%d", luns->rpm);
+	sprintf(buf, "%d", luns->dk_rpm);
 	xmlNodeSetContent(rpm_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
-*/
+
+	pool_node = xmlNewChild( node, NULL, (xmlChar *)"pool", NULL ) ;
+	if( (ret=disk_get_poolname( luns->dk_path, buf ) ) != 0 ) {
+		xmlNodeSetContent( pool_node, (xmlChar *) buf ) ;
+	}
 }
 
 #if 0
