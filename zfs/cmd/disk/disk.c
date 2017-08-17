@@ -1705,6 +1705,16 @@ static void  create_lun_node(disk_info_t *di)
 	xmlNodeSetContent(slotid_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
 
+	enid_node=xmlNewChild(node, NULL, (xmlChar *)"major", NULL);
+	sprintf(buf, "%d", di->dk_enclosure ) ;
+	xmlNodeSetContent(enid_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+
+	slotid_node=xmlNewChild(node,NULL,  (xmlChar *)"minor", NULL);
+	sprintf(buf, "%d", di->dk_slot);
+	xmlNodeSetContent(slotid_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+
 	rpm_node=xmlNewChild(node,NULL,  (xmlChar *)"rpm", NULL);
 	sprintf(buf, "%d", di->dk_rpm);
 	xmlNodeSetContent(rpm_node, (xmlChar *)buf);
