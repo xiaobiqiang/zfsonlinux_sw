@@ -1581,7 +1581,7 @@ static void  create_lun_node(disk_info_t *di)
 	memset(buf, 0, 256);
 
 	pool_node = xmlNewChild( node, NULL, (xmlChar *)"pool", NULL ) ;
-	if( (ret=disk_get_poolname( di->dk_path, buf ) ) != 0 ) {
+	if( (ret=disk_get_poolname( di->name, buf ) ) != 0 ) {
 		xmlNodeSetContent( pool_node, (xmlChar *) buf ) ;
 	}
 }
