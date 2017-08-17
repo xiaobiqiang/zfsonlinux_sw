@@ -1531,7 +1531,7 @@ static void close_xml_file(void)
 static void  create_lun_node(disk_info_t *di)
 {
 	char buf[256];
-	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node
+	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node,
 		vendorid_node, enid_node, slotid_node, pool_node ;
 	int ret ;
 
@@ -1576,12 +1576,12 @@ static void  create_lun_node(disk_info_t *di)
 	memset(buf, 0, 256);
 
 	rpm_node=xmlNewChild(node,NULL,  (xmlChar *)"rpm", NULL);
-	sprintf(buf, "%d", luns->dk_rpm);
+	sprintf(buf, "%d", di->dk_rpm);
 	xmlNodeSetContent(rpm_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
 
 	pool_node = xmlNewChild( node, NULL, (xmlChar *)"pool", NULL ) ;
-	if( (ret=disk_get_poolname( luns->dk_path, buf ) ) != 0 ) {
+	if( (ret=disk_get_poolname( di->dk_path, buf ) ) != 0 ) {
 		xmlNodeSetContent( pool_node, (xmlChar *) buf ) ;
 	}
 }
