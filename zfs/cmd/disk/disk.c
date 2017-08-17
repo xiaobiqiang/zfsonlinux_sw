@@ -335,7 +335,7 @@ get_scsi_serial(disk_info_t *di)
  */
 static int
 get_scsi_rpm( disk_info_t *disk ) {
-	char *path = disk.dk_name ;
+	char *path = disk->dk_name ;
 	uint8_t output[ INQ_REPLY_LEN ] ;
 	uint8_t cmd[] = {0x12, 1, 0xB1, 0, INQ_REPLY_LEN, 0 } ;
 	int fd ;
@@ -366,7 +366,7 @@ get_scsi_rpm( disk_info_t *disk ) {
 		return B_FALSE ;
 	}
 
-	disk.dk_rpm = output[4] * 256 + output[5] ;
+	disk->dk_rpm = output[4] * 256 + output[5] ;
 
 	return B_TRUE ;
 }
