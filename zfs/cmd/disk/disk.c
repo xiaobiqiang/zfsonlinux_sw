@@ -1723,6 +1723,8 @@ static void  create_lun_node(disk_info_t *di)
 	pool_node = xmlNewChild( node, NULL, (xmlChar *)"pool", NULL ) ;
 	if( di->dk_pool[0] != '\0' ) {
 		xmlNodeSetContent( pool_node, (xmlChar *) (di->dk_pool) ) ;
+	}else {
+		xmlNodeSetContent( pool_node, (xmlChar *) "-" ) ;
 	}
 }
 
