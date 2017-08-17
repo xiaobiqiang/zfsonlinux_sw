@@ -43,6 +43,7 @@
 #define PARAM_LEN		10
 #define	INQ_REPLY_LEN	96
 #define	INQ_CMD_LEN		6
+#define POOLLEN			64
 
 typedef struct disk_info {
 	int		dk_major;
@@ -56,6 +57,8 @@ typedef struct disk_info {
 	char	dk_vendor[PARAM_LEN];
 	char	dk_busy[PARAM_LEN];
 	char	dk_name[ARGS_LEN];
+	char	dk_pool[ POOLLEN ] ;
+	char	*dk_role ;
 	char	dk_serial[ARGS_LEN];
 	struct disk_info *next;
 } disk_info_t;
@@ -68,6 +71,17 @@ typedef struct disk_table {
 static xmlNodePtr create_xml_file();
 static void close_xml_file();
 static void create_lun_node(disk_info_t *di);
+
+const char DISK_ROLE_DATA[]="data" ;
+const char DISK_ROLE_CACHE[]="l2cache" ;
+const char DISK_ROLE_LOW[]="lowdata" ;
+const char DISK_ROLE_META[]="metadata" ;
+const char DISK_ROLE_LOG[]="log" ;
+const char DISK_ROLE_SPARE[]="spare" ;
+const char DISK_ROLE_METASPARE[]="metaspare" ;
+const char DISK_ROLE_LOWSPARE[]="lowspare" ;
+
+static libzfs_handle_t *gzfslib_p ;
 
 static void
 get_system_disk(char *name)
@@ -371,6 +385,121 @@ get_scsi_rpm( disk_info_t *disk ) {
 	return B_TRUE ;
 }
 
+static void
+do_each_vdev( disk_table_t *dtb_p; zpool_handle_t *zhp, nvlist_t *vdev, const char role[] ) {
+	nvlist_t **children ;
+	uint nchild ;
+	uint i ;
+
+	if( nvlist_lookup_nvlist_array( vdev, "children", &children, &nchild ) ==0 ) {
+		for( i=0; i<nchild; i++ ) {
+			do_each_vdev( zhp, children[i], role ) ;
+		}
+	}else {
+		uint64_t flag ;
+		const char *dev_name = zpool_vdev_name( gzfslib_p, zhp, vdev, 0 ) ;
+		const char *pool_name = zpool_get_name( zhp ) ;
+		const char *disk_role ;
+		disk_info_t *diskp = dtb_p->next ;
+
+		if( role == NULL ) {
+			disk_role = DISK_ROLE_DATA ;
+
+			flag = 0 ;
+			if( ( nvlist_lookup_uint64( vdev, "is_meta", &flag ) == 0 ) && flag == 1 ) {
+				disk_role = DISK_ROLE_META ;
+				goto RETURN ;
+			}
+
+			flag = 0 ;
+			if( ( nvlist_lookup_uint64( vdev, "is_low", &flag ) == 0 ) && flag == 1 ) {
+				disk_role = DISK_ROLE_LOW ;
+				goto RETURN ;
+			}
+
+			flag = 0 ;
+			if( ( nvlist_lookup_uint64( vdev, "is_log", &flag ) == 0 ) && flag == 1 ) {
+				disk_role = DISK_ROLE_LOG ;
+				goto RETURN ;
+			}
+		}else {
+			disk_role = role ;
+		}
+
+RETURN :
+		i=0 ;
+		while( (i++) < dtb_p->total ) {
+			if( strcmp( diskp->dk_name, dev_name ) == 0 ) {
+				strcpy( diskp->dk_pool, pool_name ) ;
+				diskp->dk_role = disk_role ;
+				fprintf( "Get disk<%s> in pool<%s>, role=%s\n", dev_name, pool_name, disk_role ) ;
+
+				return ;
+			}
+		}
+
+	}
+}
+
+static int
+do_each_pool( zpool_handle_t *zhp, void *data ) {
+	disk_table_t *dtb_p = ( disk_table_t *) date ;
+	nvlist_t *config, *vdev_root, **spare, **lowspare, **metaspare, **l2cache ;
+	uint_t nspare, nlowspare, nmetaspare, nl2cache ;
+	nvpair_t *nvp ;
+	int i ;
+
+	if( (config = zpool_get_config( zhp, NULL ) ) == NULL ) {
+		syslog( LOG_ERR, "in %s[%d]: zpool_get_config return NULL\n", __FILE__, __LINE__ ) ;
+		return -1 ;
+	}
+	nvlist_lookup_nvlist( config, "vdev_tree", &vdev_root ) ;
+
+	do_each_vdev( dtb_p, zhp, vdev_root, NULL ) ;
+
+	if( nvlist_lookup_nvlist_array( vdev_root, "spares", &spare, &nspare ) == 0 ) {
+		for( i=0; i<nspare; i++ ) {
+			do_each_vdev( dtb_p, zhp, spare[i], DISK_ROLE_SPARE ) ;
+		}
+	}
+
+	if( nvlist_lookup_nvlist_array( vdev_root, "metaspares", &metaspare, &nmetaspare ) == 0 ) {
+		for( i=0; i<nmetaspare; i++ ) {
+			do_each_vdev( dtb_p, zhp, metaspare[i], DISK_ROLE_METASPARE ) ;
+		}
+	}
+
+	if( nvlist_lookup_nvlist_array( vdev_root, "lowspares", &lowspare, &nlowspare ) == 0 ) {
+		for( i=0; i<nlowspare; i++ ) {
+			do_each_vdev( dtb_p, zhp, lowspare[i], DISK_ROLE_LOWSPARE ) ;
+		}
+	}
+
+	if( nvlist_lookup_nvlist_array( vdev_root, "l2cache", &l2cache, &nl2cache ) == 0 ) {
+		for( i=0; i<nl2cache; i++ ) {
+			do_each_vdev( dtb_p, zhp, l2cache[i], DISK_ROLE_CACHE ) ;
+		}
+	}
+
+	return 0 ;
+}
+
+static int
+get_disk_poolname( disk_table_t *dtb_p ) {
+	if( ( gzfslib_p = libzfs_init() ) == NULL ) {
+		fprintf( stderr, "in %s[%d]: can not do libzfs_init()\n", __func__, __LINE__ ) ;
+		return -1 ;
+	}
+
+	if( zpool_iter( gzfslib_p, do_each_pool, dtb_p ) != 0 ) {
+		return -1 ;
+	}
+
+	libzfs_fini( gzfslib_p ) ;
+	gzfslib_p = NULL ;
+
+	return 0 ;
+}
 
 static char *disk_info_find_value(disk_info_t *di, int type)
 {
@@ -528,6 +657,7 @@ int list_disks(int all)
 		di_cur = di_cur->next;
 	}
 
+	(void) get_disk_poolname( &di_tb ) ;
 	(void) disk_info_show(&di_tb, all);
 	(void) disk_info_free(&di_tb);
 
