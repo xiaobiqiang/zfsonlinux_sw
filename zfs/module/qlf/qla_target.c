@@ -4879,6 +4879,9 @@ static void
 qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 {
 	stmf_change_status_t		st;
+	stmf_state_change_info_t	*ssci = (stmf_state_change_info_t *)arg;
+	struct scsi_qla_host *vha;
+	fct_status_t			ret;
 
 	ASSERT((cmd == FCT_CMD_PORT_ONLINE) ||
 	    (cmd == FCT_CMD_PORT_OFFLINE) ||
@@ -4886,99 +4889,109 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 	    (cmd == FCT_ACK_PORT_ONLINE_COMPLETE) ||
 	    (cmd == FCT_ACK_PORT_OFFLINE_COMPLETE));
 
-	// qlt = (qlt_state_t *)port->port_fca_private;
+	vha = (struct scsi_qla_host *)port->port_fca_private;
 	st.st_completion_status = FCT_SUCCESS;
 	st.st_additional_info = NULL;
 
-	//EL(qlt, "port (%p) qlt_state (%xh) cmd (%xh) arg (%p)\n",
-	  //  port, qlt->qlt_state, cmd, arg);
+	printk("port (%p) qlt_state (%xh) cmd (%xh) arg (%p)\n",
+	    port, vha->qlt_state, cmd, arg);
 
 	switch (cmd) {
-	case FCT_CMD_PORT_ONLINE:
-#if 0		
-		if (qlt->qlt_state == FCT_STATE_ONLINE)
+	case FCT_CMD_PORT_ONLINE:		
+		if (vha->qlt_state == FCT_STATE_ONLINE)
 			st.st_completion_status = STMF_ALREADY;
-		else if (qlt->qlt_state != FCT_STATE_OFFLINE)
+		else if (vha->qlt_state != FCT_STATE_OFFLINE)
 			st.st_completion_status = FCT_FAILURE;
 		if (st.st_completion_status == FCT_SUCCESS) {
-			qlt->qlt_state = FCT_STATE_ONLINING;
-			qlt->qlt_state_not_acked = 1;
-			//st.st_completion_status = qlt_port_online(qlt);
+			vha->qlt_state = FCT_STATE_ONLINING;
+			vha->qlt_state_not_acked = 1;
+			if (!(test_and_set_bit(ABORT_ISP_ACTIVE,
+			    &vha->dpc_flags))) {
+
+				if (vha->hw->isp_ops->abort_isp(vha)) {
+					/* failed. retry later */
+					set_bit(ISP_ABORT_NEEDED,
+					    &vha->dpc_flags);
+				}
+				clear_bit(ABORT_ISP_ACTIVE,
+						&vha->dpc_flags);
+			}
+			
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
-				EL(qlt, "PORT_ONLINE status=%xh\n",
+				printk("PORT_ONLINE status=%llxh\n",
 				    st.st_completion_status);
-				qlt->qlt_state = FCT_STATE_OFFLINE;
-				qlt->qlt_state_not_acked = 0;
+				vha->qlt_state = FCT_STATE_OFFLINE;
+				vha->qlt_state_not_acked = 0;
 			} else {
-				qlt->qlt_state = FCT_STATE_ONLINE;
+				vha->qlt_state = FCT_STATE_ONLINE;
 			}
 		}
 		fct_ctl(port->port_lport, FCT_CMD_PORT_ONLINE_COMPLETE, &st);
-		qlt->qlt_change_state_flags = 0;
-#endif
+		vha->qlt_change_state_flags = 0;
+
 		fct_ctl(port->port_lport, FCT_CMD_PORT_ONLINE_COMPLETE, &st);
 		break;
 
-	case FCT_CMD_PORT_OFFLINE:
-#if 0		
-		if (qlt->qlt_state == FCT_STATE_OFFLINE) {
+	case FCT_CMD_PORT_OFFLINE:	
+		if (vha->qlt_state == FCT_STATE_OFFLINE) {
 			st.st_completion_status = STMF_ALREADY;
-		} else if (qlt->qlt_state != FCT_STATE_ONLINE) {
+		} else if (vha->qlt_state != FCT_STATE_ONLINE) {
 			st.st_completion_status = FCT_FAILURE;
 		}
 		if (st.st_completion_status == FCT_SUCCESS) {
-			qlt->qlt_state = FCT_STATE_OFFLINING;
-			qlt->qlt_state_not_acked = 1;
+			vha->qlt_state = FCT_STATE_OFFLINING;
+			vha->qlt_state_not_acked = 1;
 
-			if (ssci->st_rflags & STMF_RFLAG_COLLECT_DEBUG_DUMP) {
-				(void) qlt_firmware_dump(port, ssci);
+			//if (ssci->st_rflags & STMF_RFLAG_COLLECT_DEBUG_DUMP) {
+			//	(void) qlt_firmware_dump(port, ssci);
+			//}
+			vha->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
+			if (vha->hw->isp_ops!= NULL) {
+				vha->hw->isp_ops->reset_chip(vha);
 			}
-			qlt->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
-			//st.st_completion_status = qlt_port_offline(qlt);
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
-				EL(qlt, "PORT_OFFLINE status=%xh\n",
+				printk("PORT_OFFLINE status=%llxh\n",
 				    st.st_completion_status);
-				qlt->qlt_state = FCT_STATE_ONLINE;
-				qlt->qlt_state_not_acked = 0;
+				vha->qlt_state = FCT_STATE_ONLINE;
+				vha->qlt_state_not_acked = 0;
 			} else {
-				qlt->qlt_state = FCT_STATE_OFFLINE;
+				vha->qlt_state = FCT_STATE_OFFLINE;
 			}
 		}
-#endif		
+		
 		fct_ctl(port->port_lport, FCT_CMD_PORT_OFFLINE_COMPLETE, &st);
 		break;
-#if 0
 	case FCT_ACK_PORT_ONLINE_COMPLETE:
 
-		qlt->qlt_state_not_acked = 0;
+		vha->qlt_state_not_acked = 0;
 		break;
 
 	case FCT_ACK_PORT_OFFLINE_COMPLETE:
 
-		qlt->qlt_state_not_acked = 0;
-		if ((qlt->qlt_change_state_flags & STMF_RFLAG_RESET) &&
-		    (qlt->qlt_stay_offline == 0)) {
+		vha->qlt_state_not_acked = 0;
+		if ((vha->qlt_change_state_flags & STMF_RFLAG_RESET) &&
+		    (vha->qlt_stay_offline == 0)) {
 			if ((ret = fct_port_initialize(port,
-			    qlt->qlt_change_state_flags,
+			    vha->qlt_change_state_flags,
 			    "qlt_ctl FCT_ACK_PORT_OFFLINE_COMPLETE "
 			    "with RLFLAG_RESET")) != FCT_SUCCESS) {
-				EL(qlt, "fct_port_initialize status=%llxh\n",
+				printk("fct_port_initialize status=%llxh\n",
 				    ret);
-				cmn_err(CE_WARN, "qlt_ctl: "
+				printk("qlt_ctl: "
 				    "fct_port_initialize failed, please use "
 				    "stmfstate to start the port-%s manualy",
-				    qlt->qlt_port_alias);
+				    vha->qla_port_alias);
 			}
 		}
 
 		break;
-
+#if 0
 	case FCT_CMD_FORCE_LIP:
 
-		if (qlt->qlt_fcoe_enabled) {
-			EL(qlt, "force lip is an unsupported command "
+		if (vha->qlt_fcoe_enabled) {
+			printk("force lip is an unsupported command "
 			    "for this adapter type\n");
 		} else {
 			if (qlt->qlt_state == FCT_STATE_ONLINE) {
@@ -4991,11 +5004,12 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 #endif
 
 	default:
-		// EL(qlt, "unsupport cmd - 0x%02X\n", cmd);
+		printk("unsupport cmd - 0x%02X\n", cmd);
 		break;
 	}
 
 	return;
+
 }
 
 static fct_status_t

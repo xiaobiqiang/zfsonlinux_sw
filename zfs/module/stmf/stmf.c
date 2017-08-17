@@ -4742,6 +4742,7 @@ stmf_register_scsi_session(stmf_local_port_t *lport, stmf_scsi_session_t *ss)
 
 	hostid = zone_get_hostid(NULL);
 
+#if 0
 	/*
 	 * Port state has to be online to register a scsi session. It is
 	 * possible that we started an offline operation and a new SCSI
@@ -4757,6 +4758,7 @@ stmf_register_scsi_session(stmf_local_port_t *lport, stmf_scsi_session_t *ss)
 		}
 		return (STMF_FAILURE);
 	}
+#endif
 	bzero(lun, 8);
 	iss = (stmf_i_scsi_session_t *)ss->ss_stmf_private;
 	if ((iss->iss_irport = stmf_irport_register(ss->ss_rport_id)) == NULL) {

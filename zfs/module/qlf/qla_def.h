@@ -3555,6 +3555,10 @@ typedef struct scsi_qla_host {
 
 		/* for fct module */
 	fct_local_port_t	*qlt_port;
+	uint8_t			qlt_state:7,
+				qlt_state_not_acked:1;
+	uint8_t		qlt_stay_offline;
+	uint32_t	qlt_change_state_flags;	/* Cached for ACK handling */
 	char			qla_minor_name[16];
 	char			qla_port_alias[16];
 
