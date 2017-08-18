@@ -3408,7 +3408,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 				ses = NULL;
 			} else {
 				irp->irp_session = ses;
-			irp->irp_session->ss_rport_alias = irp->irp_snn;
+				irp->irp_session->ss_rport_alias = irp->irp_snn;
 
 				/*
 				 * The reason IRP_SCSI_SESSION_STARTED is different
@@ -3416,11 +3416,10 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 				 * inside interrupt context. We dont want to deregister
 				 * the session from an interrupt.
 				 */
-				atomic_or_32(&irp->irp_flags, IRP_PRLI_DONE);
+				atomic_or_32(&irp->irp_flags, IRP_PRLI_DONE | IRP_SCSI_SESSION_STARTED);
 			}
 		}
 		
-		atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
 		printk("end create session!\n");
 	}
 

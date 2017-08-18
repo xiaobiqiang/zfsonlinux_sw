@@ -1279,7 +1279,7 @@ fct_walk_discovery_queue(fct_i_local_port_t *iport)
 
 		irp_deregister_timer = irp->irp_deregister_timer;
 		if (irp_deregister_timer) {
-			if (ddi_get_lbolt() >= irp_deregister_timer) {
+			if (ddi_get_lbolt() >= (uint64_t)irp_deregister_timer) {
 				do_deregister = 1;
 			} else {
 				ret |= DISC_ACTION_DELAY_RESCAN;
@@ -1295,8 +1295,11 @@ fct_walk_discovery_queue(fct_i_local_port_t *iport)
 			if (irp->irp_els_list == NULL) {
 				if (!irp_deregister_timer ||
 				    (do_deregister &&
+				    /* just compatible with qlf */
+				#if 0
 				    !irp->irp_sa_elses_count &&
 				    !irp->irp_nsa_elses_count &&
+				#endif
 				    !irp->irp_fcp_xchg_count &&
 				    !irp->irp_nonfcp_xchg_count)) {
 					/* dequeue irp from discovery queue */
