@@ -6112,7 +6112,7 @@ qlt_enable_vha(struct scsi_qla_host *vha)
 
 	set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
 	qla2xxx_wake_dpc(vha);
-	//qla2x00_wait_for_hba_online(vha);
+	qla2x00_wait_for_hba_online(vha);
 }
 EXPORT_SYMBOL(qlt_enable_vha);
 
