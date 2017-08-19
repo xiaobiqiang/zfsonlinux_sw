@@ -2107,10 +2107,9 @@ fct_cmd_free(fct_cmd_t *cmd)
 		}
 	}
 
-	port->port_free_atio(cmd->cmd_fca_private);
-
 	/* Free the cmd */
 	if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
+		port->port_free_atio(cmd->cmd_fca_private);
 		if (iport->iport_cached_ncmds < max_cached_ncmds) {
 			icmd->icmd_flags = 0;
 			mutex_enter(&iport->iport_cached_cmd_lock);
