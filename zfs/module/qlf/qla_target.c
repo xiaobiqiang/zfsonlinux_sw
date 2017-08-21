@@ -2438,11 +2438,6 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 
 		INIT_WORK(&shutdown_msg->fct_shutdown_work, qlt_do_fct_shutdown);
 		queue_work(qla_tgt_fct_shutdown_wq, &shutdown_msg->fct_shutdown_work);
-		
-		(void) fct_port_shutdown(vha->qlt_port,
-			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
-			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
-			STMF_RFLAG_COLLECT_DEBUG_DUMP, info);
 
 		return;
 	}
