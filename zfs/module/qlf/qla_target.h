@@ -1186,6 +1186,19 @@ struct qla_abort_msg {
 	struct qla_tgt *tgt;	/* to save extra sess dereferences */
 };
 
+struct qla_fct_event_msg {
+	struct work_struct fct_event_work;
+	struct scsi_qla_host *vha;
+	uint8_t event;
+};
+
+struct qla_fct_shutdown_msg {
+	struct work_struct fct_shutdown_work;
+	struct scsi_qla_host *vha;
+	uint32_t rflags;
+	char info[160];
+};
+
 
 struct as
 {
@@ -1290,5 +1303,7 @@ extern struct qla_ctio_msg * qlt_alloc_ctio_data_xfer_msg(fct_cmd_t *cmd,
 extern struct qla_ctio_msg * qlt_alloc_ctio_cmd_response_done_msg(
 	fct_cmd_t *cmd, fct_status_t s, uint32_t ioflags);
 extern void qlt_free_ctio_msg(struct qla_ctio_msg * msg);
+extern void qlt_handle_fct_event(scsi_qla_host_t *vha, uint8_t event);
+
 
 #endif /* __QLA_TARGET_H */
