@@ -63,6 +63,18 @@ struct kmem_cache *atio_cachep;
  */
 struct kmem_cache *abort_msg_cachep;
 
+/*
+ * FCT EVENT msg allocation cache
+ */
+struct kmem_cache *fct_event_msg_cachep;
+
+/*
+ * FCT SHUTDOWN msg allocation cache
+ */
+struct kmem_cache *fct_shutdown_msg_cachep;
+
+
+
 
 static struct stmf_port_provider *qlt_pp;
 static char *qlini_mode = QLA2XXX_INI_MODE_STR_DISABLED;
@@ -138,6 +150,10 @@ void qlt_dmem_dma_sync(stmf_data_buf_t *dbuf, uint_t sync_type);
 static void qlt_do_abort(struct work_struct *abort_work);
 static void qlt_do_ctio(struct work_struct *abort_work);
 static void qlt_do_atio(struct work_struct *abort_work);
+static void qlt_do_fct_event(struct work_struct *fct_event_work);
+static void qlt_do_fct_shutdown(struct work_struct *fct_shutdown_work);
+
+
 
 /*
  * Global Variables
@@ -149,6 +165,9 @@ static struct workqueue_struct *qla_tgt_wq;
 static struct workqueue_struct *qla_tgt_ctio_wq;
 static struct workqueue_struct *qla_tgt_atio_wq;
 static struct workqueue_struct *qla_tgt_abort_wq;
+static struct workqueue_struct *qla_tgt_fct_event_wq;
+static struct workqueue_struct *qla_tgt_fct_shutdown_wq;
+
 
 static DEFINE_MUTEX(qla_tgt_mutex);
 static LIST_HEAD(qla_tgt_glist);
@@ -2379,6 +2398,7 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	char		info[160];
 	uint8_t	*rsp = (uint8_t *)ctio;
 	struct qla_ctio_msg *msg;
+	struct qla_fct_shutdown_msg *shutdown_msg;
 
 	/* write a deadbeef in the last 4 bytes of the IOCB */
 	iowrite32(0xdeadbeef, rsp+0x3c);
@@ -2400,6 +2420,25 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 			"cmd, hndl-%x, status-%x, rsp-%p", hndl, status,
 			(void *)rsp);
 		info[159] = 0;
+
+		shutdown_msg = kmem_cache_zalloc(fct_shutdown_msg_cachep, GFP_ATOMIC);
+			
+		if (!shutdown_msg) {
+			printk("%s alloc cache failed!\n", __func__);
+			return;
+			
+		}	
+		shutdown_msg->vha = vha;
+		shutdown_msg->rflags = 
+			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
+			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
+			STMF_RFLAG_COLLECT_DEBUG_DUMP;
+		memcpy(shutdown_msg->info, info, sizeof(info));
+		
+
+		INIT_WORK(&shutdown_msg->fct_shutdown_work, qlt_do_fct_shutdown);
+		queue_work(qla_tgt_fct_shutdown_wq, &shutdown_msg->fct_shutdown_work);
+		
 		(void) fct_port_shutdown(vha->qlt_port,
 			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
 			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
@@ -3047,6 +3086,51 @@ qlt_do_abort(struct work_struct *abort_work)
 
 	kmem_cache_free(abort_msg_cachep, msg);
 }
+void
+qlt_handle_fct_event(scsi_qla_host_t *vha, uint8_t event)
+{
+	struct qla_fct_event_msg *msg;
+
+	msg = kmem_cache_zalloc(fct_event_msg_cachep, GFP_ATOMIC);
+	if (!msg) {
+		printk("%s alloc fct_event_msg_cachep failed!\n", __func__);
+		return;
+	}
+	msg->vha = vha;
+	msg->event = event;
+
+	INIT_WORK(&msg->fct_event_work, qlt_do_fct_event);
+	queue_work(qla_tgt_fct_event_wq, &msg->fct_event_work);
+}
+
+static void
+qlt_do_fct_event(struct work_struct *fct_event_work)
+{
+	struct qla_fct_event_msg *msg;
+	scsi_qla_host_t *vha;
+
+	msg = (struct qla_fct_event_msg *)fct_event_work;
+	vha = msg->vha;
+
+	fct_handle_event(vha->qlt_port, msg->event, 0, 0);
+
+	kmem_cache_free(fct_event_msg_cachep, msg);
+}
+
+static void
+qlt_do_fct_shutdown(struct work_struct *fct_shutdown_work)
+{
+	struct qla_fct_shutdown_msg *msg;
+	scsi_qla_host_t *vha;
+
+	msg = (struct qla_fct_shutdown_msg *)fct_shutdown_work;
+	vha = msg->vha;
+
+	(void) fct_port_shutdown(vha->qlt_port,
+			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
+			msg->rflags, msg->info);
+}
+
 
 /* ha->hardware_lock supposed to be held on entry */
 static int qlt_handle_cmd_for_atio(struct scsi_qla_host *vha,
@@ -6658,6 +6742,26 @@ int __init qlt_init(void)
 		goto out;
 	}
 
+	fct_event_msg_cachep = kmem_cache_create("fct_event_msg_cachep",
+	    sizeof(struct qla_fct_event_msg), __alignof__(struct
+	    qla_fct_event_msg), 0, NULL);
+	if (!fct_event_msg_cachep) {
+		ql_log(ql_log_fatal, NULL, 0xe06d,
+		    "kmem_cache_create for qla_fct_event_msg failed\n");
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	fct_shutdown_msg_cachep = kmem_cache_create("fct_shutdown_msg_cachep",
+	    sizeof(struct qla_fct_shutdown_msg), __alignof__(struct
+	    qla_fct_shutdown_msg), 0, NULL);
+	if (!fct_shutdown_msg_cachep) {
+		ql_log(ql_log_fatal, NULL, 0xe06d,
+		    "kmem_cache_create for fct_shutdown_msg_cachep failed\n");
+		ret = -ENOMEM;
+		goto out;
+	}
+
 	qla_tgt_mgmt_cmd_mempool = mempool_create(25, mempool_alloc_slab,
 	    mempool_free_slab, qla_tgt_mgmt_cmd_cachep);
 	if (!qla_tgt_mgmt_cmd_mempool) {
@@ -6695,6 +6799,22 @@ int __init qlt_init(void)
 	if (!qla_tgt_abort_wq) {
 		ql_log(ql_log_fatal, NULL, 0xe06f,
 		    "alloc_workqueue for qla_tgt_abort_wq failed\n");
+		ret = -ENOMEM;
+		goto out_cmd_mempool;
+	}
+
+	qla_tgt_fct_event_wq = alloc_workqueue("qla_tgt_fct_event_wq", 0, 0);
+	if (!qla_tgt_fct_event_wq) {
+		ql_log(ql_log_fatal, NULL, 0xe06f,
+		    "alloc_workqueue for qla_tgt_fct_event_wq failed\n");
+		ret = -ENOMEM;
+		goto out_cmd_mempool;
+	}
+
+	qla_tgt_fct_shutdown_wq = alloc_workqueue("qla_tgt_fct_shutdown_wq", 0, 0);
+	if (!qla_tgt_fct_shutdown_wq) {
+		ql_log(ql_log_fatal, NULL, 0xe06f,
+		    "alloc_workqueue for qla_tgt_fct_shutdown_wq failed\n");
 		ret = -ENOMEM;
 		goto out_cmd_mempool;
 	}

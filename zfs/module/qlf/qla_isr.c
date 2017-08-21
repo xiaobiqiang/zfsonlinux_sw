@@ -740,8 +740,7 @@ skip_rio:
 		vha->flags.management_server_logged_in = 0;
 		qla2x00_post_aen_work(vha, FCH_EVT_LIP, mb[1]);
 		if ( atomic_read(&vha->loop_state) == LOOP_UP ) {
-			fct_handle_event(vha->qlt_port,
-				    FCT_EVENT_LINK_RESET, 0, 0);
+			qlt_handle_fct_event(vha, FCT_EVENT_LINK_RESET);
 		}
 		break;
 
@@ -757,8 +756,7 @@ skip_rio:
 
 		vha->flags.management_server_logged_in = 0;
 		qla2x00_post_aen_work(vha, FCH_EVT_LINKUP, ha->link_data_rate);
-		fct_handle_event(vha->qlt_port, FCT_EVENT_LINK_UP,
-			    0, 0);
+		qlt_handle_fct_event(vha, FCT_EVENT_LINK_UP);
 		break;
 
 	case MBA_LOOP_DOWN:		/* Loop Down Event */
@@ -805,8 +803,7 @@ skip_rio:
 		vha->flags.management_server_logged_in = 0;
 		ha->link_data_rate = PORT_SPEED_UNKNOWN;
 		qla2x00_post_aen_work(vha, FCH_EVT_LINKDOWN, 0);
-		fct_handle_event(vha->qlt_port, FCT_EVENT_LINK_DOWN,
-			    0, 0);
+		qlt_handle_fct_event(vha, FCT_EVENT_LINK_DOWN);
 		break;
 
 	case MBA_LIP_RESET:		/* LIP reset occurred */
@@ -830,8 +827,7 @@ skip_rio:
 		vha->flags.management_server_logged_in = 0;
 		qla2x00_post_aen_work(vha, FCH_EVT_LIPRESET, mb[1]);
 		if ( atomic_read(&vha->loop_state) == LOOP_UP ) {
-			fct_handle_event(vha->qlt_port,
-				    FCT_EVENT_LINK_RESET, 0, 0);
+			qlt_handle_fct_event(vha, FCT_EVENT_LINK_RESET);
 		}
 		break;
 
@@ -877,8 +873,7 @@ skip_rio:
 		ha->flags.gpsc_supported = 1;
 		vha->flags.management_server_logged_in = 0;
 		if ( atomic_read(&vha->loop_state) == LOOP_UP ) {
-			fct_handle_event(vha->qlt_port,
-				    FCT_EVENT_LINK_RESET, 0, 0);
+			qlt_handle_fct_event(vha, FCT_EVENT_LINK_RESET);
 		}
 		break;
 
@@ -973,8 +968,7 @@ global_port_update:
 
 			vha->flags.management_server_logged_in = 0;
 			ha->link_data_rate = PORT_SPEED_UNKNOWN;
-			fct_handle_event(vha->qlt_port,
-			    FCT_EVENT_LINK_DOWN, 0, 0);
+			qlt_handle_fct_event(vha, FCT_EVENT_LINK_DOWN);
 			break;
 		}
 
@@ -1014,8 +1008,7 @@ global_port_update:
 		set_bit(VP_CONFIG_OK, &vha->vp_flags);
 
 		qlt_async_event(mb[0], vha, mb);
-		fct_handle_event(vha->qlt_port,
-		    FCT_EVENT_LINK_UP, 0, 0);
+		qlt_handle_fct_event(vha, FCT_EVENT_LINK_UP);
 		break;
 
 	case MBA_RSCN_UPDATE:		/* State Change Registration */
