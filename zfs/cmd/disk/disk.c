@@ -1681,13 +1681,13 @@ static void  create_lun_node(disk_info_t *di)
 	double_size = di->dk_blocks / 1024.0;
 	if (double_size>= 1024.0 ) {
 		if (double_size/ 1024.0  > 1024.0 )
-			sprintf( buf, "%-3.2lf T\n", (double_size/ 1024.0 ) / 1024.0 );
+			sprintf( buf, "%-3.2lfTB", (double_size/ 1024.0 ) / 1024.0 );
 		else
-			sprintf( buf, "%-3.2lfGB\n",double_size/ 1024.0 );
+			sprintf( buf, "%-3.2lfGB",double_size/ 1024.0 );
 	} else {
-		sprintf( buf, "%-3.2lfMB\n",double_size );
+		sprintf( buf, "%-3.2lfMB",double_size );
 	}
-	xmlNodeSetContent(b size_node, (xmlChar *)buf);
+	xmlNodeSetContent( size_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
 
 	size_kb_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
