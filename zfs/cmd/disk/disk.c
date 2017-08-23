@@ -1662,7 +1662,8 @@ static void close_xml_file(void)
 static void  create_lun_node(disk_info_t *di)
 {
 	char buf[256];
-	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node,
+	double double_size ;
+	xmlNodePtr node, name_node,  size_node, size_kb_node, status_node, rpm_node,
 		vendorid_node, enid_node, slotid_node, pool_node ;
 
 	node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
@@ -1676,9 +1677,22 @@ static void  create_lun_node(disk_info_t *di)
 	memset(buf, 0, 256);
 */
 
-	blksize_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
+	size_node=xmlNewChild(node, NULL,  (xmlChar *)"size", NULL);
+	double_size = di->dk_blocks / 1024.0;
+	if (double_size>= 1024.0 ) {
+		if (double_size/ 1024.0  > 1024.0 )
+			sprintf( buf, "%-3.2lf T\n", (double_size/ 1024.0 ) / 1024.0 );
+		else
+			sprintf( buf, "%-3.2lfGB\n",double_size/ 1024.0 );
+	} else {
+		sprintf( buf, "%-3.2lfMB\n",double_size );
+	}
+	xmlNodeSetContent(b size_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+
+	size_kb_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
 	sprintf(buf, "%ld", di->dk_blocks);
-	xmlNodeSetContent(blksize_node, (xmlChar *)buf);
+	xmlNodeSetContent( size_kb_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
 
 	status_node=xmlNewChild(node, NULL, (xmlChar *)"status", NULL);
