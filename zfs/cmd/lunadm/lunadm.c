@@ -204,7 +204,7 @@ boolean_t extractlunalias(char *stringtoextract, char *stringtostore)
 			++countline;
 		}	
 		fileNamep++;
-		if (countline == 4)
+		if (countline == 3)
 		{
 			stringtostore = strcpy(stringtostore,fileNamep);
 			ret = B_TRUE;
@@ -4108,66 +4108,65 @@ static int printlunformat(int operandLen, char *operands[], cmdOptions_t *option
 	}
 	for (n=0; n < hostgrouplist->cnt; n++)
 	{
+		++printflag;
+		if(printflag == 1)
+		{
+			if (firstprint != 0)
+			{
+				(void) printf("\n**********************\n");
+			}
+			(void) printf("host:%s\n", hostgrouplist->name[n]);
+			stmfRet = getgroupmember(&(hostgrouplist->name[n]), &groupProps,HOST_GROUP,PRINTLUNFORMAT);
+			if (stmfRet != 0)
+			{
+				ret = 1;
+				stmfFreeMemory(hostgrouplist);
+				stmfFreeMemory(targetgrouplist);
+				goto lunmapdone;
+			}
+			++firstprint;
+		}
+	
 		for(viewprint = list_head(&view_list); viewprint; viewprint = list_next(&view_list, viewprint))   
 		{
-			/*打印只包含相同主机组的lun*/
 			if ((strcmp(viewprint->view_data._hostGroup, hostgrouplist->name[n])) == 0)  
 			{
-				++printflag;
-				if(printflag == 1)
-				{
-					if (firstprint != 0)
-					{
-						(void) printf("\n**********************\n");
-					}
-					(void) printf("host:%s\n", hostgrouplist->name[n]);
-					stmfRet = getgroupmember(&(hostgrouplist->name[n]), &groupProps,HOST_GROUP,PRINTLUNFORMAT);
-					if (stmfRet != 0)
-					{
-						ret = 1;
-						stmfFreeMemory(hostgrouplist);
-						stmfFreeMemory(targetgrouplist);
-						goto lunmapdone;
-					}
-					++firstprint;
-				}
 				(void) printf(PRINT_FORMAT, viewprint->view_data.LUNIndex,viewprint->view_data._LUName,viewprint->view_data._SerialNum);
 			}
 		}
 		printflag = 0;
 	}
-		/*打印*/
-			for(j=0; j < targetgrouplist->cnt; j++)
+
+	for(j=0; j < targetgrouplist->cnt; j++)
+	{
+		++printflag;
+		if(printflag == 1)
+		{
+			if (firstprint != 0)
 			{
-				for(viewprint = list_head(&view_list); viewprint; viewprint = list_next(&view_list, viewprint))    
-				{
-					if ((strcmp(viewprint->view_data._targetGroup, targetgrouplist->name[j])) == 0)
-					{
-						++printflag;
-						if(printflag == 1)
-						{
-							if (firstprint != 0)
-							{
-								(void) printf("\n**********************\n");
-							}
-							(void) printf("target:%s\n", targetgrouplist->name[j]);
-							stmfRet = getgroupmember(&(targetgrouplist->name[j]), &groupProps,TARGET_GROUP,PRINTLUNFORMAT);
-							if (stmfRet != 0)
-							{
-								ret = 1;
-								stmfFreeMemory(hostgrouplist);
-								stmfFreeMemory(targetgrouplist);
-								goto lunmapdone;
-							}
-							++firstprint;
-						}
-						(void) printf(PRINT_FORMAT,viewprint->view_data.LUNIndex, viewprint->view_data._LUName,viewprint->view_data._SerialNum);
-					}
-				}
-				printflag = 0;
-			}	
+				(void) printf("\n**********************\n");
+			}
+			(void) printf("target:%s\n", targetgrouplist->name[j]);
+			stmfRet = getgroupmember(&(targetgrouplist->name[j]), &groupProps,TARGET_GROUP,PRINTLUNFORMAT);
+			if (stmfRet != 0)
+			{
+				ret = 1;
+				stmfFreeMemory(hostgrouplist);
+				stmfFreeMemory(targetgrouplist);
+				goto lunmapdone;
+			}
+			++firstprint;
+		}
+		for(viewprint = list_head(&view_list); viewprint; viewprint = list_next(&view_list, viewprint))    
+		{
+			if ((strcmp(viewprint->view_data._targetGroup, targetgrouplist->name[j])) == 0)
+			{
+				(void) printf(PRINT_FORMAT,viewprint->view_data.LUNIndex, viewprint->view_data._LUName,viewprint->view_data._SerialNum);
+			}
+		}
 		printflag = 0;
-	
+	}	
+	printflag = 0;
 	
 	/*释放先前分配的内存*/
 	stmfFreeMemory(hostgrouplist);
