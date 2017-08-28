@@ -5002,6 +5002,9 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 		if (st.st_completion_status == FCT_SUCCESS) {
 			vha->qlt_state = FCT_STATE_ONLINING;
 			vha->qlt_state_not_acked = 1;
+			printk("suwei start abort isp!");
+			qlt_enable_vha(vha);
+#if 0
 			if (!(test_and_set_bit(ABORT_ISP_ACTIVE,
 			    &vha->dpc_flags))) {
 
@@ -5013,6 +5016,9 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 				clear_bit(ABORT_ISP_ACTIVE,
 						&vha->dpc_flags);
 			}
+#endif
+
+			printk("suwei end abort isp!\n");
 			
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
