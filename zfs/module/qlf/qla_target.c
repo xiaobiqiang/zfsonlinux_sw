@@ -1798,6 +1798,7 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	struct scsi_qla_host *vha = tgt->vha;
 	struct qla_hw_data *ha = vha->hw;
 	struct se_cmd *se_cmd = &cmd->se_cmd;
+	uint8_t *cdbprt;
 
 	if (unlikely(cmd->aborted)) {
 		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf014,
@@ -1847,6 +1848,20 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	}
 
 	*full_req_cnt = prm->req_cnt;
+
+	cdbprt = cmd->atio->u.isp24.fcp_cmnd.cdb;
+        if (xmit_type == QLA_TGT_XMIT_STATUS && cdbprt[0] != 0x2a) {
+                printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbprt[0], cdbprt[1], cdbprt[2]);
+                prm->rq_result |= SS_RESIDUAL_UNDER;
+                prm->residual = cmd->data_length - cmd->bufflen;
+                printk("suwei %s prm->rq_result = %x, prm->residual= %x, cmd->data_size = 0x%x, cmd->data_length = 0x%x\n",
+                        __func__,
+                        prm->rq_result,
+                        prm->residual,
+                        cmd->bufflen,
+                        cmd->data_length
+                );
+        }
 
 #if 0
 	if (se_cmd->se_cmd_flags & SCF_UNDERFLOW_BIT) {
@@ -2438,11 +2453,6 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 
 		INIT_WORK(&shutdown_msg->fct_shutdown_work, qlt_do_fct_shutdown);
 		queue_work(qla_tgt_fct_shutdown_wq, &shutdown_msg->fct_shutdown_work);
-		
-		(void) fct_port_shutdown(vha->qlt_port,
-			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
-			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
-			STMF_RFLAG_COLLECT_DEBUG_DUMP, info);
 
 		return;
 	}
@@ -4054,6 +4064,8 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	uint32_t data_length;
 	int fcp_task_attr, data_dir, bidi = 0;
 
+	memset(cmd, 0, sizeof(struct qla_tgt_cmd));
+
 	INIT_LIST_HEAD(&cmd->cmd_list);
 	cmd->atio = atio_from;
 	atio = atio_from;
@@ -4084,6 +4096,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	data_length = be32_to_cpu(get_unaligned((uint32_t *)
 		&atio->u.isp24.fcp_cmnd.add_cdb[
 		atio->u.isp24.fcp_cmnd.add_cdb_len]));
+	cmd->data_length = data_length;
 
 	ql_dbg(ql_dbg_tgt, vha, 0xe022,
 		"qla_target: START qla command: %p lun: 0x%04x (tag %d)\n",
@@ -4989,6 +5002,9 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 		if (st.st_completion_status == FCT_SUCCESS) {
 			vha->qlt_state = FCT_STATE_ONLINING;
 			vha->qlt_state_not_acked = 1;
+			printk("suwei start abort isp!");
+			qlt_enable_vha(vha);
+#if 0
 			if (!(test_and_set_bit(ABORT_ISP_ACTIVE,
 			    &vha->dpc_flags))) {
 
@@ -5000,6 +5016,9 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 				clear_bit(ABORT_ISP_ACTIVE,
 						&vha->dpc_flags);
 			}
+#endif
+
+			printk("suwei end abort isp!\n");
 			
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
@@ -5013,8 +5032,6 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 		}
 		fct_ctl(port->port_lport, FCT_CMD_PORT_ONLINE_COMPLETE, &st);
 		vha->qlt_change_state_flags = 0;
-
-		fct_ctl(port->port_lport, FCT_CMD_PORT_ONLINE_COMPLETE, &st);
 		break;
 
 	case FCT_CMD_PORT_OFFLINE:	
