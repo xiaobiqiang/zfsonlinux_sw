@@ -940,6 +940,7 @@ struct qla_tgt_cmd {
 	uint32_t cmd_handle;
 	uint8_t db_handle;
 	uint16_t flags;
+	uint32_t data_length;
 	struct atio_from_isp *atio;
 #if 0
 	stmf_data_buf_t	*dbuf;		/* dbuf with handle 0 for SCSI cmds */

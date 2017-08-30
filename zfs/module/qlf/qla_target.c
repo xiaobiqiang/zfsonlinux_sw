@@ -1850,7 +1850,7 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	*full_req_cnt = prm->req_cnt;
 
 	cdbprt = cmd->atio->u.isp24.fcp_cmnd.cdb;
-        if (xmit_type == QLA_TGT_XMIT_STATUS) {
+        if (xmit_type == QLA_TGT_XMIT_STATUS && cdbprt[0] != 0x2a) {
                 printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbprt[0], cdbprt[1], cdbprt[2]);
                 prm->rq_result |= SS_RESIDUAL_UNDER;
                 prm->residual = cmd->data_length - cmd->bufflen;
