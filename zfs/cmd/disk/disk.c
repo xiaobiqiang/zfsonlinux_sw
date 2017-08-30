@@ -33,7 +33,7 @@
  */
 #define DEFAULT_DISK_INFO_PATH	"/proc/partitions"
 #define DEFAULT_PATH			"/dev/"
-#define SAS2IRCU		"sas2ircu 0 display"
+#define SAS2IRCU		"sas2ircu 0 display 2>/dev/null"
 #define SLOT			"Slot"
 #define ENCLOSURE		"Enclosure"
 #define SERIALNO		"Serial"

@@ -2476,6 +2476,8 @@ zpool_do_import(int argc, char **argv)
 	importargs_t idata = { 0 };
 	char *endptr;
 
+	popen("partprobe 2>/dev/null", "r");
+
 	/* check options */
 	while ((c = getopt(argc, argv, ":abCc:d:DEfFimnNo:qR:s:tT:VX")) != -1) {
 		switch (c) {
