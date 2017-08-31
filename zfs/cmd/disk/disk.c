@@ -568,8 +568,14 @@ static void disk_info_show(disk_table_t *tb, int all)
 
 	di_cur = tb->next;
 	for (i = 0; i < tb->total; i++) {
+
 		if (di_cur == NULL)
 			break;
+
+		if( strncmp( di_cur->dk_vendor, "ATA", 3 ) == 0 ) {
+			di_cur = di_cur->next;
+			continue ;
+		}
 
 		pstr = (char*)di_cur->dk_name;
 		len = strlen(di_cur->dk_name);
@@ -1663,6 +1669,8 @@ static void  create_lun_node(disk_info_t *di)
 {
 	char buf[256];
 	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node,
+	double double_size ;
+	xmlNodePtr node, name_node,  size_node, size_kb_node, status_node, rpm_node,
 		vendorid_node, enid_node, slotid_node, pool_node ;
 
 	node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
@@ -1676,9 +1684,22 @@ static void  create_lun_node(disk_info_t *di)
 	memset(buf, 0, 256);
 */
 
-	blksize_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
+	size_node=xmlNewChild(node, NULL,  (xmlChar *)"size", NULL);
+	double_size = di->dk_blocks / 1024.0;
+	if (double_size>= 1024.0 ) {
+		if (double_size/ 1024.0  > 1024.0 )
+			sprintf( buf, "%-3.2lfTB", (double_size/ 1024.0 ) / 1024.0 );
+		else
+			sprintf( buf, "%-3.2lfGB",double_size/ 1024.0 );
+	} else {
+		sprintf( buf, "%-3.2lfMB",double_size );
+	}
+	xmlNodeSetContent( size_node, (xmlChar *)buf);
+	memset(buf, 0, 256);
+
+	size_kb_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
 	sprintf(buf, "%ld", di->dk_blocks);
-	xmlNodeSetContent(blksize_node, (xmlChar *)buf);
+	xmlNodeSetContent( size_kb_node, (xmlChar *)buf);
 	memset(buf, 0, 256);
 
 	status_node=xmlNewChild(node, NULL, (xmlChar *)"status", NULL);
