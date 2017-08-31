@@ -1850,18 +1850,18 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	*full_req_cnt = prm->req_cnt;
 
 	cdbprt = cmd->atio->u.isp24.fcp_cmnd.cdb;
-        if (xmit_type == QLA_TGT_XMIT_STATUS && cdbprt[0] != 0x2a) {
-                printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbprt[0], cdbprt[1], cdbprt[2]);
-                prm->rq_result |= SS_RESIDUAL_UNDER;
-                prm->residual = cmd->data_length - cmd->bufflen;
-                printk("suwei %s prm->rq_result = %x, prm->residual= %x, cmd->data_size = 0x%x, cmd->data_length = 0x%x\n",
-                        __func__,
-                        prm->rq_result,
-                        prm->residual,
-                        cmd->bufflen,
-                        cmd->data_length
-                );
-        }
+	if ((xmit_type == QLA_TGT_XMIT_STATUS) &&
+		(cmd->dma_data_direction != DMA_FROM_DEVICE)) {
+		prm->residual = cmd->data_length - cmd->bufflen;
+		prm->rq_result |= SS_RESIDUAL_UNDER;
+		printk("%s prm->rq_result = 0x%x, prm->residual = 0x%x, "
+			"cmd->data_length = 0x%x, cmd->bufflen = 0x%x\n",
+			__func__,
+			prm->rq_result,
+			prm->residual,
+			cmd->data_length,
+			cmd->bufflen);
+	}
 
 #if 0
 	if (se_cmd->se_cmd_flags & SCF_UNDERFLOW_BIT) {
