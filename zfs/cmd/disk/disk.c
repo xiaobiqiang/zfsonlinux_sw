@@ -568,7 +568,7 @@ static void disk_info_show(disk_table_t *tb, int all)
 
 	di_cur = tb->next;
 	for (i = 0; i < tb->total; i++) {
-		if( strcmp( di_cur->dk_vendor, "ATA" ) == 0 )
+		if( strncmp( di_cur->dk_vendor, "ATA", 3 ) == 0 )
 			continue ;
 
 		if (di_cur == NULL)
