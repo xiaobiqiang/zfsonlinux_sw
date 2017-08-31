@@ -568,11 +568,12 @@ static void disk_info_show(disk_table_t *tb, int all)
 
 	di_cur = tb->next;
 	for (i = 0; i < tb->total; i++) {
-		if( strncmp( di_cur->dk_vendor, "ATA", 3 ) == 0 )
-			continue ;
 
 		if (di_cur == NULL)
 			break;
+
+		if( strncmp( di_cur->dk_vendor, "ATA", 3 ) == 0 )
+			continue ;
 
 		pstr = (char*)di_cur->dk_name;
 		len = strlen(di_cur->dk_name);
