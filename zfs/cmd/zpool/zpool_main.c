@@ -119,6 +119,9 @@ static void zpool_init_efi(char *path);
 xmlDocPtr pool_doc;
 xmlNodePtr pool_root_node;
 
+static xmlNodePtr create_xml_file(void);
+static void close_xml_file(void);
+
 /*
  * These libumem hooks provide a reasonable set of defaults for the allocator's
  * debugging facilities.
@@ -1267,8 +1270,8 @@ static void
 zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 {
 	nvlist_t *config, *nvroot;
-	uint_t c, children, nspares, ncaches, nmetaspares, nmirrorspare;
-	nvlist_t **child, **spares,**caches, **metaspares, **mirrorspare;
+	uint_t c, children, ncaches, nmirrorspare;
+	nvlist_t **child, **caches, **mirrorspare;
 	zpool_stamp_t *stamp;
 	char *name;
 	char dev_path[1024];
@@ -1631,23 +1634,66 @@ find_spare(zpool_handle_t *zhp, void *data)
 	return (0);
 }
 
+xmlNodePtr create_item_node(xmlNodePtr parent_node, const char *name, char *state,
+    char *read_err, char *write_err,
+    char *sum_err, char *en_id, char *slot_id, char *type)
+{
+	xmlNodePtr node;
+
+	if (strcmp(type, "root") == 0)
+		node = xmlNewChild(parent_node, NULL, (xmlChar *)"data", NULL);
+	else
+		node = xmlNewChild(parent_node, NULL, (xmlChar *)"vdev", NULL);
+
+	xmlSetProp(node, (xmlChar *)"name", (xmlChar *) name);
+	xmlSetProp(node, (xmlChar *)"state", (xmlChar *) state);
+	if (strcmp(type, "root") == 0)
+		return (node);
+
+	if (strcmp(type, "raidz") == 0) {
+		xmlSetProp(node, (xmlChar *)"name", (xmlChar *) name);
+		return (node);
+	} else if (strcmp(type, "mirror") == 0)  {
+		xmlSetProp(node, (xmlChar *)"type", (xmlChar *) "raid1");
+	} else {
+		xmlSetProp(node, (xmlChar *)"type", (xmlChar *) type);
+	}
+
+	xmlSetProp(node, (xmlChar *)"name", (xmlChar *) name);
+	xmlSetProp(node, (xmlChar *)"read", (xmlChar *) read_err);
+	xmlSetProp(node, (xmlChar *)"write", (xmlChar *) write_err);
+	xmlSetProp(node, (xmlChar *)"sum", (xmlChar *) sum_err);
+	if (strcmp(en_id, "--") != 0)
+		xmlSetProp(node, (xmlChar *)"en_id", (xmlChar *) en_id);
+	if (strcmp(slot_id, "--") != 0)
+		xmlSetProp(node, (xmlChar *)"slot_id", (xmlChar *) slot_id);
+	return (node);
+
+}
+
 /*
  * Print out configuration state as requested by status_callback.
  */
 static void
 print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
-    int namewidth, int depth, boolean_t isspare, int name_flags)
+    int namewidth, int depth, boolean_t isspare, int name_flags, xmlNodePtr parent_node)
 {
 	nvlist_t **child;
 	uint_t c, children;
 	pool_scan_stat_t *ps = NULL;
 	vdev_stat_t *vs;
 	char rbuf[6], wbuf[6], cbuf[6], quantum_buf[8];
+	char en_buf[6], slot_buf[6], buf[32];
 	char *vname;
+	char *type;
 	uint64_t notpresent;
 	spare_cbdata_t cb;
 	char *state;
+	const char *raid_type;
 	uint64_t quantum;
+	xmlNodePtr node = NULL;
+
+	nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type);
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) != 0)
@@ -1671,6 +1717,10 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	(void) printf("\t%*s%-*s  %-8s", depth, "", namewidth - depth,
 	    name, state);
 
+	// TODO: cannot support enclosure and slot info in current 
+	sprintf(en_buf, "%s", "--");
+	sprintf(slot_buf, "%s", "--");
+	
 	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &quantum) == 0 &&
 		quantum == 1)
 		strcpy(quantum_buf, "quantum");
@@ -1681,8 +1731,39 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		zfs_nicenum(vs->vs_read_errors, rbuf, sizeof (rbuf));
 		zfs_nicenum(vs->vs_write_errors, wbuf, sizeof (wbuf));
 		zfs_nicenum(vs->vs_checksum_errors, cbuf, sizeof (cbuf));
-		(void) printf(" %5s %5s %5s %-7s", rbuf, wbuf, cbuf, quantum_buf);
+		// TODO: current code cannot support enclosure and slot info
+		(void) printf(" %5s %5s %5s %5s %5s %5s", rbuf, wbuf, cbuf, en_buf, slot_buf, quantum_buf);
+	} else {
+                sprintf(rbuf, "%s", "--");
+                sprintf(wbuf, "%s", "--");
+                sprintf(cbuf, "%s", "--");
+                (void) printf(" %5s %5s %5s %5s %5s", rbuf, wbuf, cbuf, en_buf, slot_buf);
 	}
+	
+	if (strcmp(type, "raidz") == 0) {
+		if (strncmp((char *)name, (const char *)"raidz1", strlen("raidz1")) == 0) {
+			raid_type = "raid5";
+			sprintf(buf, "%s%s", raid_type, (char *) (name + strlen("raidz1")));
+		} else if(strncmp((char *)name, (const char *)"raidz2", strlen("raidz2"))  == 0) {
+			raid_type = "raid6";
+			sprintf(buf, "%s%s", raid_type, (char *) (name + strlen("raidz2")));
+		} else if (strncmp((char *)name, (const char *)"raidz3", strlen("raidz3")) == 0) {
+			raid_type = "raid7";
+			sprintf(buf, "%s%s", raid_type, (char *) (name + strlen("raidz3")));
+		}
+	} else {
+		if (children > 0 && strcmp(type, "mirror") != 0) {
+			sprintf(buf, "%s", "raid0");
+		} else if (strncmp((char *)name, (const char *)"mirror", strlen("mirror")) == 0) {
+			sprintf(buf, "%s%s", "raid1", (char *) (name + strlen("mirror")));
+		}
+		else {
+			sprintf(buf, "%s", name);
+		}
+	}
+
+	if (parent_node != NULL )
+		node = create_item_node(parent_node, buf, state, rbuf, wbuf, cbuf, en_buf, slot_buf, type);
 
 	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NOT_PRESENT,
 	    &notpresent) == 0) {
@@ -1782,7 +1863,7 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		vname = zpool_vdev_name(g_zfs, zhp, child[c],
 		    name_flags | VDEV_NAME_TYPE_ID);
 		print_status_config(zhp, vname, child[c],
-		    namewidth, depth + 2, isspare, name_flags);
+		    namewidth, depth + 2, isspare, name_flags, node);
 		free(vname);
 	}
 }
@@ -1903,14 +1984,18 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth,
  */
 static void
 print_logs(zpool_handle_t *zhp, nvlist_t *nv, int namewidth, boolean_t verbose,
-    int name_flags)
+    int name_flags, xmlNodePtr parent_node)
 {
+	xmlNodePtr log_node = NULL;
 	uint_t c, children;
 	nvlist_t **child;
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN, &child,
 	    &children) != 0)
 		return;
+
+    if (parent_node != NULL)
+		log_node =  xmlNewChild(parent_node, NULL, (xmlChar *)"logs", NULL);
 
 	(void) printf(gettext("\tlogs\n"));
 
@@ -1926,7 +2011,7 @@ print_logs(zpool_handle_t *zhp, nvlist_t *nv, int namewidth, boolean_t verbose,
 		    name_flags | VDEV_NAME_TYPE_ID);
 		if (verbose)
 			print_status_config(zhp, name, child[c], namewidth,
-			    2, B_FALSE, name_flags);
+			    2, B_FALSE, name_flags, log_node);
 		else
 			print_import_config(name, child[c], namewidth, 2,
 			    name_flags);
@@ -2184,7 +2269,7 @@ show_import(nvlist_t *config)
 
 	print_import_config(name, nvroot, namewidth, 0, 0);
 	if (num_logs(nvroot) > 0)
-		print_logs(NULL, nvroot, namewidth, B_FALSE, 0);
+		print_logs(NULL, nvroot, namewidth, B_FALSE, 0, NULL);
 
 	if (reason == ZPOOL_STATUS_BAD_GUID_SUM) {
 		(void) printf(gettext("\n\tAdditional devices are known to "
@@ -4686,40 +4771,48 @@ print_error_log(zpool_handle_t *zhp)
 
 static void
 print_spares(zpool_handle_t *zhp, nvlist_t **spares, uint_t nspares,
-    int namewidth, int name_flags)
+    int namewidth, int name_flags, xmlNodePtr parent_node)
 {
 	uint_t i;
 	char *name;
+	xmlNodePtr spare_node = NULL;
 
 	if (nspares == 0)
 		return;
+
+    if (parent_node != NULL)
+		spare_node =xmlNewChild(parent_node, NULL, (xmlChar *)"spares", NULL);
 
 	(void) printf(gettext("\tspares\n"));
 
 	for (i = 0; i < nspares; i++) {
 		name = zpool_vdev_name(g_zfs, zhp, spares[i], name_flags);
 		print_status_config(zhp, name, spares[i],
-		    namewidth, 2, B_TRUE, name_flags);
+		    namewidth, 2, B_TRUE, name_flags, spare_node);
 		free(name);
 	}
 }
 
 static void
 print_l2cache(zpool_handle_t *zhp, nvlist_t **l2cache, uint_t nl2cache,
-    int namewidth, int name_flags)
+    int namewidth, int name_flags, xmlNodePtr parent_node)
 {
+	xmlNodePtr cache_node = NULL;
 	uint_t i;
 	char *name;
 
 	if (nl2cache == 0)
 		return;
 
+	if (parent_node != NULL)
+		cache_node =  xmlNewChild(parent_node, NULL, (xmlChar *)"l2caches", NULL);
+
 	(void) printf(gettext("\tcache\n"));
 
 	for (i = 0; i < nl2cache; i++) {
 		name = zpool_vdev_name(g_zfs, zhp, l2cache[i], name_flags);
 		print_status_config(zhp, name, l2cache[i],
-		    namewidth, 2, B_FALSE, name_flags);
+		    namewidth, 2, B_FALSE, name_flags, cache_node);
 		free(name);
 	}
 }
@@ -4770,7 +4863,6 @@ xmlNodePtr create_pool_node(zpool_handle_t *zhp, const char *pool_name, nvlist_t
 	char migrated_buf[64],	to_migrate_buf[64], start_time_buf[64], end_time_buf[64];
 	pool_scan_stat_t *ps = NULL;
 	uint_t c;
-	int migrate_percent = 0;
 	time_t start_time, end_time, take_time;
 	uint64_t elapsed, mins_left, hours_left;
 	uint64_t pass_exam, examined, total;
@@ -5236,20 +5328,20 @@ status_callback(zpool_handle_t *zhp, void *data)
 		(void) printf(gettext("\t%-*s  %-8s %5s %5s %5s\n"), namewidth,
 		    "NAME", "STATE", "READ", "WRITE", "CKSUM");
 		print_status_config(zhp, zpool_get_name(zhp), nvroot,
-		    namewidth, 0, B_FALSE, cbp->cb_name_flags);
+		    namewidth, 0, B_FALSE, cbp->cb_name_flags, node);
 
 		if (num_logs(nvroot) > 0)
 			print_logs(zhp, nvroot, namewidth, B_TRUE,
-			    cbp->cb_name_flags);
+			    cbp->cb_name_flags, node);
 		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_L2CACHE,
 		    &l2cache, &nl2cache) == 0)
 			print_l2cache(zhp, l2cache, nl2cache, namewidth,
-				cbp->cb_name_flags);
+				cbp->cb_name_flags, node);
 
 		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_SPARES,
 		    &spares, &nspares) == 0)
 			print_spares(zhp, spares, nspares, namewidth,
-			    cbp->cb_name_flags);
+			    cbp->cb_name_flags, node);
 
 		if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_ERRCOUNT,
 		    &nerr) == 0) {
@@ -5295,6 +5387,8 @@ status_callback(zpool_handle_t *zhp, void *data)
 
 	return (0);
 }
+
+static
 xmlNodePtr create_xml_file()
 {
 	xmlDocPtr doc = xmlNewDoc((xmlChar *)"1.0");
@@ -5306,6 +5400,7 @@ xmlNodePtr create_xml_file()
 
 }
 
+static
 void close_xml_file()
 {
 	xmlChar *xmlbuff;
