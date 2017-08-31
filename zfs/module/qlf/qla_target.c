@@ -4969,7 +4969,7 @@ qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 fct_status_t
 qlt_abort_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 {
-	return (FCT_SUCCESS);
+	return (FCT_ABORT_SUCCESS);
 }
 
 static void
