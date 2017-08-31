@@ -2269,9 +2269,11 @@ sbd_handle_read_capacity(struct scsi_task *task,
 {
 	sbd_lu_t *sl = (sbd_lu_t *)task->task_lu->lu_provider_private;
 	uint32_t cdb_len;
-	uint8_t p[32];
+	uint32_t sz, minsz;
+	uint8_t *p;
 	uint64_t s;
 	uint16_t blksize;
+	stmf_data_buf_t *dbuf;
 
 	s = sl->sl_lu_size >> sl->sl_data_blocksize_shift;
 	s--;
@@ -2279,6 +2281,19 @@ sbd_handle_read_capacity(struct scsi_task *task,
 
 	switch (task->task_cdb[0]) {
 	case SCMD_READ_CAPACITY:
+		sz = minsz = 8;
+		if (initial_dbuf == NULL)
+			dbuf = stmf_alloc_dbuf(task, minsz, &minsz, 0);
+		if ((dbuf == NULL) || (dbuf->db_sglist[0].seg_length < sz)) {
+			cmn_err(CE_WARN, "%s do_stmf_abort 1 task = %p", __func__, task);
+			stmf_abort(STMF_QUEUE_TASK_ABORT, task,
+			    STMF_ALLOC_FAILURE, NULL, STMF_HANDLE_READ_CAPACITY);
+			return;
+		}
+		dbuf->db_lu_private = NULL;
+		p = dbuf->db_sglist[0].seg_addr;
+		bzero(p, dbuf->db_sglist[0].seg_length);
+
 		if (s & 0xffffffff00000000ull) {
 			p[0] = p[1] = p[2] = p[3] = 0xFF;
 		} else {
@@ -2290,12 +2305,27 @@ sbd_handle_read_capacity(struct scsi_task *task,
 		p[4] = 0; p[5] = 0;
 		p[6] = (blksize >> 8) & 0xff;
 		p[7] = blksize & 0xff;
-		sbd_handle_short_read_transfers(task, initial_dbuf, p, 8, 8);
+
+		dbuf->db_data_size = sz;
+		dbuf->db_relative_offset = 0;
+		dbuf->db_flags = DB_DIRECTION_TO_RPORT | DB_SEND_STATUS_GOOD;
+		(void) stmf_xfer_data(task, dbuf, STMF_IOF_LU_DONE);
 		break;
 
 	case SCMD_SVC_ACTION_IN_G4:
+		sz = minsz = 32;
+		if (initial_dbuf == NULL)
+			dbuf = stmf_alloc_dbuf(task, minsz, &minsz, 0);
+		if ((dbuf == NULL) || (dbuf->db_sglist[0].seg_length < sz)) {
+			cmn_err(CE_WARN, "%s do_stmf_abort 2 task = %p", __func__, task);
+			stmf_abort(STMF_QUEUE_TASK_ABORT, task,
+			    STMF_ALLOC_FAILURE, NULL, STMF_HANDLE_READ_CAPACITY);
+			return;
+		}
+		dbuf->db_lu_private = NULL;
 		cdb_len = READ_SCSI32(&task->task_cdb[10], uint32_t);
-		bzero(p, 32);
+		p = dbuf->db_sglist[0].seg_addr;
+		bzero(p, dbuf->db_sglist[0].seg_length);
 		p[0] = (s >> 56) & 0xff;
 		p[1] = (s >> 48) & 0xff;
 		p[2] = (s >> 40) & 0xff;
@@ -2309,8 +2339,11 @@ sbd_handle_read_capacity(struct scsi_task *task,
 		if (sl->sl_flags & SL_UNMAP_ENABLED) {
 			p[14] = 0x80;
 		}
-		sbd_handle_short_read_transfers(task, initial_dbuf, p,
-		    cdb_len, 32);
+
+		dbuf->db_data_size = sz;
+		dbuf->db_relative_offset = 0;
+		dbuf->db_flags = DB_DIRECTION_TO_RPORT | DB_SEND_STATUS_GOOD;
+		(void) stmf_xfer_data(task, dbuf, STMF_IOF_LU_DONE);
 		break;
 	}
 }
