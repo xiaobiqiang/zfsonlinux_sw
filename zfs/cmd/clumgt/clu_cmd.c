@@ -304,7 +304,7 @@ clu_cmd_handle_status_req(boolean_t need_xml)
 	clumgt_response_t **resp= NULL;
 	clumgt_request_t *reqp;
 	clu_status_t *clu_stat_p = NULL;
-	xmlNodePtr node, name_node, child_node;
+	xmlNodePtr node, name_node, sbb_node, child_node;
 	xmlNodePtr stat_root = NULL;
 	xmlDocPtr stat_doc = NULL;
 	char cmd[10] = "status";
@@ -336,7 +336,7 @@ clu_cmd_handle_status_req(boolean_t need_xml)
 			fprintf(stdout, "version:%s\n", clu_stat_p->version);
 			fprintf(stdout, "uptime:%s\n", clu_stat_p->uptime);
 			//fprintf(stdout, "stat:%s\n", clu_stat_p->stat);
-			//fprintf(stdout, "hostid:%s\n", clu_stat_p->hostid);
+			fprintf(stdout, "hostid:%s\n", clu_stat_p->hostid);
 			fprintf(stdout, "systime:%s\n", clu_stat_p->systime);
 			fprintf(stdout, "mem:%s\n", clu_stat_p->mem);
 			fprintf(stdout, "gui_ver:%s\n", clu_stat_p->gui_ver);
@@ -357,8 +357,10 @@ clu_cmd_handle_status_req(boolean_t need_xml)
 		remove(CLU_STAT_PATH);
 		create_xml_file(&stat_doc, &stat_root);
 		for(i=0; i<host_num; i++){
-			
-			node = xmlNewChild(stat_root, NULL, (xmlChar *)"node", NULL);
+			if( i%2 == 0 )
+				sbb_node = xmlNewChild( stat_root, NULL, (xmlChar *) "sbb", NULL ) ;
+
+			node = xmlNewChild(sbb_node, NULL, (xmlChar *)"node", NULL);
 			name_node = xmlNewChild(node, NULL, (xmlChar *)"name", NULL);
 			if(resp[i] != NULL && strncmp(resp[i]->resp, "cmd execute", 11)){
 				clu_stat_p = (clu_status_t *)(resp[i]->resp);
@@ -373,8 +375,8 @@ clu_cmd_handle_status_req(boolean_t need_xml)
 				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->uptime);
 				//child_node = xmlNewChild(node, NULL, (xmlChar *)"stat", NULL);
 				//xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->stat);
-				//child_node = xmlNewChild(node, NULL, (xmlChar *)"hostid", NULL);
-				//xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->hostid);
+				child_node = xmlNewChild(node, NULL, (xmlChar *)"hostid", NULL);
+				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->hostid);
 				child_node = xmlNewChild(node, NULL, (xmlChar *)"systime", NULL);
 				xmlNodeSetContent(child_node, (xmlChar *)clu_stat_p->systime);
 				child_node = xmlNewChild(node, NULL, (xmlChar *)"mem", NULL);

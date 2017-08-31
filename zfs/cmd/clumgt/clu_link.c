@@ -18,7 +18,7 @@ typedef enum status_cmd_type {
 	CLU_IP_CMD,
 	CLU_VER_CMD,
 	CLU_UPTIME_CMD,
-	//CLU_HOSTID_CMD,
+	CLU_HOSTID_CMD,
 	//CLU_STAT_CMD,
 	CLU_SYSTIME_CMD,
 	CLU_MEM_CMD,
@@ -33,12 +33,12 @@ typedef struct status_cmd {
 static status_cmd_t command_table[] = {
 	{CLU_NAME_CMD, "zfs clustersan list-host | head -n 2 | grep hostname | cut -d: -f2 | sed 's/^ *//'"},
 	{CLU_IP_CMD, "head -n 1 /etc/hostname.igb0"},
-	{CLU_VER_CMD, "head -n 1 /lib/release | sed 's/^[ t]*//'|cut -d' ' -f5"},
+	{CLU_VER_CMD, "echo zfsonlinux_v0.2"},
 	{CLU_UPTIME_CMD, "uptime"},
 	//{CLU_STAT_CMD, "clusterinfo|awk '{print $3 }'|sed -n '$p'"},
-	//{CLU_HOSTID_CMD, "clusterinfo|awk '{print $2 }'|sed -n '1p'"},
+	{CLU_HOSTID_CMD, "hostid"},
 	{CLU_SYSTIME_CMD, "date '+%Y-%m-%d %H:%M'"},
-	{CLU_MEM_CMD, "head /proc/meminfo | grep MemTotal| cut -d: -f2|sed 's/^ *//'"},
+	{CLU_MEM_CMD, " echo $( expr $(head /proc/meminfo | grep MemTotal | grep -o [0-9]* ) / 1024 ) Megabytes"},
 	{CLU_GUI_VER_CMD, "head -n 1 /gui/lib/release"}
 };
 
