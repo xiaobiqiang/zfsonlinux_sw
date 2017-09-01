@@ -1668,7 +1668,6 @@ static void close_xml_file(void)
 static void  create_lun_node(disk_info_t *di)
 {
 	char buf[256];
-	xmlNodePtr node, name_node,  blksize_node, status_node, rpm_node,
 	double double_size ;
 	xmlNodePtr node, name_node,  size_node, size_kb_node, status_node, rpm_node,
 		vendorid_node, enid_node, slotid_node, pool_node ;
