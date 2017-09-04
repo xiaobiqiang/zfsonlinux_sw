@@ -2744,6 +2744,13 @@ odf_over_open:
 	 * Get the minor device for direct zvol access
 	 */
 	if (sl->sl_flags & SL_ZFS_META) {
+		ret = zvol_get_dev_by_name(zvol_name, &sl->sl_data_vp->v_rdev);
+		if (ret) {
+			*err_ret = SBD_RET_DATA_FILE_OPEN_FAILED;
+			ret = EINVAL;
+			goto odf_close_data_and_exit;
+		}
+		
 		sl->sl_zvol_minor = MINOR(sl->sl_data_vp->v_rdev);
 		if (sbd_zvol_get_volume_params(sl) == 0)
 			sl->sl_flags |= SL_CALL_ZVOL;		

@@ -2290,6 +2290,32 @@ zvol_rename_minors(spa_t *spa, const char *name1, const char *name2,
 }
 
 /*
+ * Get dev_t from zvol name
+ */
+int
+zvol_get_dev_by_name(const char *name, dev_t *devno)
+{
+	zvol_state_t *zv = NULL;
+
+	ASSERT(devno != NULL);
+	*devno = 0;
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(name);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, name);
+		mutex_exit(&zvol_state_lock);
+		return (ENXIO);
+	}
+
+	*devno = zv->zv_dev;
+	mutex_exit(&zvol_state_lock);
+
+	return (0);
+}
+EXPORT_SYMBOL(zvol_get_dev_by_name);
+
+/*
  * BEGIN entry points to allow external callers access to the volume.
  */
 /*

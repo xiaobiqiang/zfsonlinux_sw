@@ -53,6 +53,7 @@ extern int zvol_set_volblocksize(const char *, uint64_t);
 extern int zvol_get_volblocksize(const char *name, uint64_t *volblocksize);
 extern int zvol_set_snapdev(const char *, zprop_source_t, uint64_t);
 
+extern int zvol_get_dev_by_name(const char *, dev_t *);
 extern int zvol_get_volume_params(minor_t minor, uint64_t *blksize,
 	uint64_t *max_xfer_len, void **minor_hdl, void **objset_hdl, void **zil_hdl,
     void **rl_hdl, void **bonus_hdl);
