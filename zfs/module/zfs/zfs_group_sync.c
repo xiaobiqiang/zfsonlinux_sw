@@ -748,7 +748,7 @@ int zfs_multiclus_stop_sync(char* group_name, char* fs_name)
 	mutex_enter(&(sync_obj->lock));
 
 	if (sync_obj->thread == NULL) {
-		cmn_err(CE_WARN, "group %s, fs %s is not in syncing.", group_name, fs_name);
+		cmn_err(CE_NOTE, "group %s, fs %s is not in syncing.", group_name, fs_name);
 
 		mutex_exit(&(sync_obj->lock));
 		dmu_objset_rele(os, FTAG);
@@ -2000,7 +2000,7 @@ int zmc_remote_create_dir(struct inode * pip, struct inode * ip, zfs_multiclus_n
 	dmu_tx_t* tx = NULL;
 	int ret = 0;
 
-	va.va_mask = AT_ALL;
+	va.va_mask = ATTR_IATTR_MASK;
 //	ret = vp->v_op->vop_getattr(vp, &va, FCLUSTER, kcred, NULL);
 	ret = zfs_getattr(ip, &va, FCLUSTER, kcred); 
 	if (ret != 0) {
@@ -2040,7 +2040,8 @@ int zmc_remote_create_dir(struct inode * pip, struct inode * ip, zfs_multiclus_n
 
 out:
 	if (credp != NULL) {
-		crfree(credp);
+//		crfree(credp);
+		abort_creds(credp);
 	}
 
 	if (vsa.vsa_aclentp != NULL && vsa.vsa_aclentsz != 0) {
@@ -2067,7 +2068,7 @@ int zmc_remote_create_file(struct inode* pip, struct inode * ip, zfs_multiclus_n
 	dmu_tx_t* tx = NULL;
 	int ret = 0;
 
-	va.va_mask = AT_ALL;
+	va.va_mask = ATTR_IATTR_MASK;
 //	ret = vp->v_op->vop_getattr(vp, &va, FCLUSTER, kcred, NULL);
 	ret = zfs_getattr(ip,  &va, FCLUSTER, kcred);
 	if (ret != 0) {
@@ -2107,7 +2108,8 @@ int zmc_remote_create_file(struct inode* pip, struct inode * ip, zfs_multiclus_n
 
 out:
 	if (credp != NULL) {
-		crfree(credp);
+//		crfree(credp);
+		abort_creds(credp);
 	}
 
 	if (vsa.vsa_aclentp != NULL && vsa.vsa_aclentsz != 0) {
@@ -2170,7 +2172,7 @@ int zmc_remote_create_symlink(struct inode *pip, struct inode *ip, zfs_multiclus
 		goto out;
 	}
 
-	va.va_mask = AT_ALL;
+	va.va_mask = ATTR_IATTR_MASK;
 //	ret = vp->v_op->vop_getattr(vp, &va, FCLUSTER, kcred, NULL);
 	ret = zfs_getattr(ip, &va, FCLUSTER, kcred); 
 	if (ret != 0) {
@@ -2202,7 +2204,8 @@ int zmc_remote_create_symlink(struct inode *pip, struct inode *ip, zfs_multiclus
 
 out:
 	if (credp != NULL) {
-		crfree(credp);
+//		crfree(credp);
+		abort_creds(credp);
 	}
 
 	return ret;

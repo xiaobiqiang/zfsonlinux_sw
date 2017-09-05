@@ -122,13 +122,16 @@ zpl_vap_init(vattr_t *vap, struct inode *dir, zpl_umode_t mode, cred_t *cr)
 	vap->va_mask = ATTR_MODE;
 	vap->va_mode = mode;
 	vap->va_uid = crgetfsuid(cr);
+	vap->va_mask |= ATTR_UID;
 
 	if (dir && dir->i_mode & S_ISGID) {
 		vap->va_gid = KGID_TO_SGID(dir->i_gid);
+		vap->va_mask |= ATTR_GID;
 		if (S_ISDIR(mode))
 			vap->va_mode |= S_ISGID;
 	} else {
 		vap->va_gid = crgetfsgid(cr);
+		vap->va_mask |= ATTR_GID;
 	}
 }
 
@@ -155,11 +158,11 @@ zpl_create(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-
+/* deleted temporarily
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error == 0)
 			error = zpl_init_acl(ip, dir);
-
+*/
 		if (error)
 			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
@@ -198,11 +201,11 @@ zpl_mknod(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-
+/* deleted temporarily
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error == 0)
 			error = zpl_init_acl(ip, dir);
-
+*/
 		if (error)
 			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
@@ -258,11 +261,11 @@ zpl_mkdir(struct inode *dir, struct dentry *dentry, zpl_umode_t mode)
 	error = -zfs_mkdir(dir, dname(dentry), vap, &ip, cr, 0, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-
+/* deleted temporarily
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error == 0)
 			error = zpl_init_acl(ip, dir);
-
+*/
 		if (error)
 			(void) zfs_rmdir(dir, dname(dentry), NULL, cr, 0);
 	}
@@ -403,8 +406,9 @@ zpl_symlink(struct inode *dir, struct dentry *dentry, const char *name)
 	error = -zfs_symlink(dir, dname(dentry), vap, (char *)name, &ip, cr, 0);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-
+/* deleted temporarily
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
+*/
 		if (error)
 			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
@@ -620,6 +624,8 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 #endif /* HAVE_D_REVALIDATE_NAMEIDATA */
 	zfs_sb_t *zsb = dentry->d_sb->s_fs_info;
 	int error;
+	cred_t *cr = CRED();
+	vn_op_type_t node_type = VN_OP_CLIENT;
 
 	if (flags & LOOKUP_RCU)
 		return (-ECHILD);
@@ -658,7 +664,14 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 	if (dentry->d_inode && ITOZ(dentry->d_inode)->z_is_stale)
 		return (0);
 
-	return (1);
+	if (dentry->d_inode){
+		node_type = zpl_vn_type(dentry->d_inode);
+		if (node_type == VN_OP_SERVER)
+			return (1);
+		else
+			return (0);
+	}
+	return 0;
 }
 
 const struct inode_operations zpl_inode_operations = {

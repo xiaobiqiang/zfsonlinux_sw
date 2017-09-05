@@ -1993,7 +1993,8 @@ zfs_group_dtl_resolve_create(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 	}
 	
 out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	iput(ZTOI(pzp));
 	iput(ZTOI(zp));
 	zfs_sb_group_rele(zsb, FTAG);
@@ -2032,7 +2033,8 @@ zfs_group_dtl_resolve_remove(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 		credp, NULL, z_carrier->z_dtl.remove.flag, m_node_type);
 	
 //out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
 }
@@ -2137,7 +2139,8 @@ zfs_group_dtl_resolve_mkdir(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_no
 	}
 	
 out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	iput(ZTOI(pzp));
 	iput(ZTOI(zp));
 	zfs_sb_group_rele(zsb, FTAG);
@@ -2177,7 +2180,8 @@ zfs_group_dtl_resolve_rmdir(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_no
 		credp, NULL, z_carrier->z_dtl.rmdir.flag, m_node_type);
 	
 //out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
 }
@@ -2242,7 +2246,8 @@ zfs_group_dtl_resolve_link(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_nod
 		credp, NULL, z_carrier->z_dtl.link.flag, m_node_type);
 	
 //out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	iput(ZTOI(dzp));
 	iput(ZTOI(szp));
 	zfs_sb_group_rele(zsb, FTAG);
@@ -2279,7 +2284,8 @@ zfs_group_dtl_resolve_rename(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 		z_carrier->z_dtl.rename.newname, credp, NULL, z_carrier->z_dtl.rename.flag, m_node_type);
 	
 //out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	zfs_sb_group_rele(zsb, FTAG);
 	kmem_free(ozp, sizeof(znode_t));
 	kmem_free(nzp, sizeof(znode_t));
@@ -2374,7 +2380,8 @@ zfs_group_dtl_resolve_symlink(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_
 	}
 	
 out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	iput(ZTOI(pzp));
 	iput(ZTOI(zp));
 	zfs_sb_group_rele(zsb, FTAG);
@@ -2429,7 +2436,8 @@ zfs_group_dtl_resolve_acl(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node
 		z_carrier->z_dtl.setsecattr.flag, credp, NULL, m_node_type);
 	
 //out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	iput(ZTOI(pzp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
@@ -2484,7 +2492,8 @@ zfs_group_dtl_resolve_znode_setattr(zfs_group_dtl_carrier_t *z_carrier, zfs_mult
 		credp, NULL, m_node_type);
 	
 //out:
-	crfree(credp);
+//	crfree(credp);
+	abort_creds(credp);
 	iput(ZTOI(pzp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
@@ -2545,7 +2554,7 @@ zfs_group_dtl_resolve_dirlowdata(zfs_group_dtl_carrier_t *z_carrier,
 	int err = 0;
 	zfs_sb_t *zsb = NULL;
 	znode_t *zp = NULL;
-	nvpairvalue_t pairvalue; // = {0};
+	nvpairvalue_t *pairvalue = NULL;
 	
 	zsb = zfs_sb_group_hold(z_carrier->z_dtl.dirlowdata.spa_id, 
 		z_carrier->z_dtl.dirlowdata.os_id, FTAG, B_FALSE);
@@ -2569,17 +2578,19 @@ zfs_group_dtl_resolve_dirlowdata(zfs_group_dtl_carrier_t *z_carrier,
 		return 0;
 	}
 
-	pairvalue.value = z_carrier->z_dtl.dirlowdata.value;
-	strncpy(pairvalue.path, z_carrier->z_dtl.dirlowdata.path, 
+	pairvalue = kmem_zalloc(sizeof(nvpairvalue_t), KM_SLEEP);
+	pairvalue->value = z_carrier->z_dtl.dirlowdata.value;
+	strncpy(pairvalue->path, z_carrier->z_dtl.dirlowdata.path, 
 		sizeof(z_carrier->z_dtl.dirlowdata.path));
-	pairvalue.path[sizeof(pairvalue.path)-1] = '\0';
-	strncpy(pairvalue.propname, z_carrier->z_dtl.dirlowdata.propname, 
+	pairvalue->path[sizeof(pairvalue->path)-1] = '\0';
+	strncpy(pairvalue->propname, z_carrier->z_dtl.dirlowdata.propname, 
 		sizeof(z_carrier->z_dtl.dirlowdata.propname));
-	pairvalue.propname[sizeof(pairvalue.propname)-1] = '\0';
+	pairvalue->propname[sizeof(pairvalue->propname)-1] = '\0';
 	
-	err = zfs_client_set_dirlow_backup(zp, &pairvalue, m_node_type);
+	err = zfs_client_set_dirlow_backup(zp, pairvalue, m_node_type);
 	
-//out:
+	if (NULL != pairvalue)
+		kmem_free(pairvalue, sizeof(nvpairvalue_t));
 	iput(ZTOI(zp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
@@ -2694,7 +2705,7 @@ zfs_group_dtl_thread_worker(void* arg)
 	zfs_group_dtl_node_t *dn = NULL;
 	zfs_group_dtl_node_t *old_dn = NULL;
 	uint64_t count = 0;
-	zfs_group_dtl_carrier_t z_carrier = { 0 };
+	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int dtlerror = 0;
 	clock_t time = 0;
 	zfs_multiclus_group_record_t *record = NULL;
@@ -2712,7 +2723,6 @@ zfs_group_dtl_thread_worker(void* arg)
 	if (zsb == NULL)
 		return;
 
-	dtlnode = kmem_alloc(sizeof(zfs_group_dtl_node_t), KM_NOSLEEP);
 //	VFS_HOLD(zfsvfs->z_vfs);
 	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
@@ -2739,6 +2749,9 @@ zfs_group_dtl_thread_worker(void* arg)
 			deactivate_super(zsb->z_sb);
 			return;
 	}
+	
+	dtlnode = kmem_alloc(sizeof(zfs_group_dtl_node_t), KM_NOSLEEP);
+	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
 	
 	rrm_exit(&zsb->z_teardown_lock, FTAG);
 	mutex_enter(&pdtlthread->z_group_dtl_lock);
@@ -2793,9 +2806,9 @@ zfs_group_dtl_thread_worker(void* arg)
 				  */
 //				dtlnode = *dn;
 				bcopy(dn, dtlnode, sizeof(zfs_group_dtl_node_t));
-				bcopy(&dn->data.data[0], &z_carrier, sizeof(zfs_group_dtl_carrier_t));
+				bcopy(&dn->data.data[0], z_carrier, sizeof(zfs_group_dtl_carrier_t));
 				mutex_exit(ptree_mutex);
-				dtlerror = zfs_group_dtl_resolve(&z_carrier, master_type);
+				dtlerror = zfs_group_dtl_resolve(z_carrier, master_type);
 				mutex_enter(ptree_mutex);
 				dn = avl_find(ptree, &dtlnode, &where);
 				if(dn == NULL){
@@ -2831,8 +2844,10 @@ out:
 	mutex_exit(&pdtlthread->z_group_dtl_lock);
 //	VFS_RELE(zfsvfs->z_vfs);
 	deactivate_super(zsb->z_sb);
-	kmem_free(dtlnode, sizeof(zfs_group_dtl_node_t));
-		
+	if (NULL != z_carrier)
+		kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
+	if (NULL != dtlnode)
+		kmem_free(dtlnode, sizeof(zfs_group_dtl_node_t));
 	thread_exit();
 #endif
 }

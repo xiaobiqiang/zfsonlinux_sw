@@ -64,6 +64,13 @@ sa_attr_reg_t zfs_attr_table[ZPL_END+1] = {
 	{"ZPL_SCANSTAMP", 32, SA_UINT8_ARRAY, 0},
 	{"ZPL_DACL_ACES", 0, SA_ACL, 0},
 	{"ZPL_DXATTR", 0, SA_UINT8_ARRAY, 0},
+	{"ZPL_REMOTE_OBJECT", 0, SA_UINT64_ARRAY, 20},
+	{"ZPL_GROUP_NBLKS", sizeof(uint64_t), SA_UINT64_ARRAY, 21},
+	{"ZPL_GROUP_BLKSZ", sizeof(uint64_t), SA_UINT64_ARRAY, 22},
+	{"ZPL_LOW", sizeof (uint64_t), SA_UINT64_ARRAY, 23},
+	{"ZPL_DIRQUOTA", sizeof (uint64_t), SA_UINT64_ARRAY, 24},
+	{"ZPL_DIRLOWDATA", sizeof (uint64_t), SA_UINT64_ARRAY, 25},
+	{"ZPL_FILENAME", 0, SA_UINT8_ARRAY, 26},
 	{NULL, 0, 0, 0}
 };
 
@@ -191,29 +198,35 @@ zfs_sa_get_xattr(znode_t *zp)
 	char *obj;
 	int size;
 	int error;
+	vn_op_type_t optype;
 
-	ASSERT(RW_LOCK_HELD(&zp->z_xattr_lock));
-	ASSERT(!zp->z_xattr_cached);
-	ASSERT(zp->z_is_sa);
+	optype = zfs_sa_op_type(zp);
+	if (optype == VN_OP_CLIENT) {
+		return 0;
+	} else {
+		ASSERT(RW_LOCK_HELD(&zp->z_xattr_lock));
+		ASSERT(!zp->z_xattr_cached);
+		ASSERT(zp->z_is_sa);
 
-	error = sa_size(zp->z_sa_hdl, SA_ZPL_DXATTR(zsb), &size);
-	if (error) {
-		if (error == ENOENT)
-			return nvlist_alloc(&zp->z_xattr_cached,
-			    NV_UNIQUE_NAME, KM_SLEEP);
-		else
-			return (error);
+		error = sa_size(zp->z_sa_hdl, SA_ZPL_DXATTR(zsb), &size);
+		if (error) {
+			if (error == ENOENT)
+				return nvlist_alloc(&zp->z_xattr_cached,
+				    NV_UNIQUE_NAME, KM_SLEEP);
+			else
+				return (error);
+		}
+
+		obj = zio_buf_alloc(size);
+
+		error = sa_lookup(zp->z_sa_hdl, SA_ZPL_DXATTR(zsb), obj, size);
+		if (error == 0)
+			error = nvlist_unpack(obj, size, &zp->z_xattr_cached, KM_SLEEP);
+
+		zio_buf_free(obj, size);
+
+		return (error);
 	}
-
-	obj = zio_buf_alloc(size);
-
-	error = sa_lookup(zp->z_sa_hdl, SA_ZPL_DXATTR(zsb), obj, size);
-	if (error == 0)
-		error = nvlist_unpack(obj, size, &zp->z_xattr_cached, KM_SLEEP);
-
-	zio_buf_free(obj, size);
-
-	return (error);
 }
 
 int
@@ -224,40 +237,46 @@ zfs_sa_set_xattr(znode_t *zp)
 	char *obj;
 	size_t size;
 	int error;
+	vn_op_type_t optype;
 
-	ASSERT(RW_WRITE_HELD(&zp->z_xattr_lock));
-	ASSERT(zp->z_xattr_cached);
-	ASSERT(zp->z_is_sa);
-
-	error = nvlist_size(zp->z_xattr_cached, &size, NV_ENCODE_XDR);
-	if ((error == 0) && (size > SA_ATTR_MAX_LEN))
-		error = EFBIG;
-	if (error)
-		goto out;
-
-	obj = zio_buf_alloc(size);
-
-	error = nvlist_pack(zp->z_xattr_cached, &obj, &size,
-	    NV_ENCODE_XDR, KM_SLEEP);
-	if (error)
-		goto out_free;
-
-	tx = dmu_tx_create(zsb->z_os);
-	dmu_tx_hold_sa_create(tx, size);
-	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_TRUE);
-
-	error = dmu_tx_assign(tx, TXG_WAIT);
-	if (error) {
-		dmu_tx_abort(tx);
+	optype = zfs_sa_op_type(zp);
+	if (optype == VN_OP_CLIENT) {
+		return 0;
 	} else {
-		VERIFY0(sa_update(zp->z_sa_hdl, SA_ZPL_DXATTR(zsb),
-		    obj, size, tx));
-		dmu_tx_commit(tx);
+		ASSERT(RW_WRITE_HELD(&zp->z_xattr_lock));
+		ASSERT(zp->z_xattr_cached);
+		ASSERT(zp->z_is_sa);
+
+		error = nvlist_size(zp->z_xattr_cached, &size, NV_ENCODE_XDR);
+		if ((error == 0) && (size > SA_ATTR_MAX_LEN))
+			error = EFBIG;
+		if (error)
+			goto out;
+
+		obj = zio_buf_alloc(size);
+
+		error = nvlist_pack(zp->z_xattr_cached, &obj, &size,
+		    NV_ENCODE_XDR, KM_SLEEP);
+		if (error)
+			goto out_free;
+
+		tx = dmu_tx_create(zsb->z_os);
+		dmu_tx_hold_sa_create(tx, size);
+		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_TRUE);
+
+		error = dmu_tx_assign(tx, TXG_WAIT);
+		if (error) {
+			dmu_tx_abort(tx);
+		} else {
+			VERIFY0(sa_update(zp->z_sa_hdl, SA_ZPL_DXATTR(zsb),
+			    obj, size, tx));
+			dmu_tx_commit(tx);
+		}
+	out_free:
+		zio_buf_free(obj, size);
+	out:
+		return (error);
 	}
-out_free:
-	zio_buf_free(obj, size);
-out:
-	return (error);
 }
 
 /*
@@ -416,7 +435,6 @@ void
 zfs_sa_set_remote_object(znode_t *zp, zfs_group_object_t *remote_object, 
    dmu_tx_t *tx)
 {
-//	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	zfs_sb_t *zsb = zp->z_zsb;
 //	xoptattr_t *xoap;
 
@@ -446,7 +464,6 @@ zfs_sa_get_remote_object(znode_t *zp)
 void
 zfs_sa_set_dirquota(znode_t *zp, uint64_t quota, dmu_tx_t *tx)
 {
-//	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	zfs_sb_t *zsb = zp->z_zsb;
 //	xoptattr_t *xoap;
 
@@ -457,6 +474,21 @@ zfs_sa_set_dirquota(znode_t *zp, uint64_t quota, dmu_tx_t *tx)
 		    &zp->z_dirquota,
 		    sizeof (zp->z_dirquota), tx));
 	}
+}
+
+void
+zfs_sa_get_dirquota(znode_t *zp)
+{
+    int err = 0;
+	zfs_sb_t *zsb = zp->z_zsb;
+	if (zp->z_is_sa && zp->z_sa_hdl != NULL) {
+        err = sa_lookup(zp->z_sa_hdl, SA_ZPL_DIRQUOTA(zsb),
+		    &zp->z_dirquota,
+		    sizeof (zp->z_dirquota));
+	}
+
+    if (err != 0)
+        zp->z_dirquota = 0;
 }
 
 void
@@ -472,6 +504,22 @@ zfs_sa_set_dirlowdata(znode_t *zp, uint64_t dir_lowdata, dmu_tx_t *tx)
 		    8, tx));
 }
 
+void
+zfs_sa_get_dirlowdata(znode_t *zp)
+{
+    int err = 0;
+	zfs_sb_t *zsb = zp->z_zsb;
+
+	if (zp->z_is_sa && zp->z_sa_hdl != NULL) {
+        err = sa_lookup(zp->z_sa_hdl, SA_ZPL_DIRLOWDATA(zsb),
+		    &zp->z_dirlowdata,
+		    sizeof (zp->z_dirlowdata));
+	}
+
+    if (err != 0)
+        zp->z_dirlowdata = 0;
+}
+
 
 EXPORT_SYMBOL(zfs_attr_table);
 EXPORT_SYMBOL(zfs_sa_readlink);
@@ -482,5 +530,11 @@ EXPORT_SYMBOL(zfs_sa_get_xattr);
 EXPORT_SYMBOL(zfs_sa_set_xattr);
 EXPORT_SYMBOL(zfs_sa_upgrade);
 EXPORT_SYMBOL(zfs_sa_upgrade_txholds);
+EXPORT_SYMBOL(zfs_sa_set_remote_object);
+EXPORT_SYMBOL(zfs_sa_get_remote_object);
+EXPORT_SYMBOL(zfs_sa_set_dirquota);
+EXPORT_SYMBOL(zfs_sa_get_dirquota);
+EXPORT_SYMBOL(zfs_sa_set_dirlowdata);
+EXPORT_SYMBOL(zfs_sa_get_dirlowdata);
 
 #endif

@@ -834,6 +834,7 @@ __zpl_xattr_security_get(struct inode *ip, const char *name,
 	if (strcmp(name, "") == 0)
 		return (-EINVAL);
 #endif
+	return 0;   //deleted temporarily
 	xattr_name = kmem_asprintf("%s%s", XATTR_SECURITY_PREFIX, name);
 	error = zpl_xattr_get(ip, xattr_name, value, size);
 	strfree(xattr_name);
@@ -853,6 +854,7 @@ __zpl_xattr_security_set(struct inode *ip, const char *name,
 	if (strcmp(name, "") == 0)
 		return (-EINVAL);
 #endif
+	return 0;   //deleted temporarily
 	xattr_name = kmem_asprintf("%s%s", XATTR_SECURITY_PREFIX, name);
 	error = zpl_xattr_set(ip, xattr_name, value, size, flags);
 	strfree(xattr_name);

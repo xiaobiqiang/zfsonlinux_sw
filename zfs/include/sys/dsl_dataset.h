@@ -189,6 +189,11 @@ typedef struct dsl_dataset {
 	char ds_snapname[MAXNAMELEN];
 } dsl_dataset_t;
 
+typedef struct system_space_os {
+	list_node_t ds_space_link;
+	uint64_t	ds_os_id;
+}system_space_os_t;
+
 static inline dsl_dataset_phys_t *
 dsl_dataset_phys(dsl_dataset_t *ds)
 {

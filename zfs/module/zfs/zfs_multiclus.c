@@ -110,7 +110,7 @@ static void zfs_multiclus_worker_wakeup(zfs_multiclus_worker_t *w, zfs_multiclus
 static void zfs_multiclus_rx_operate_check(void *arg);
 static void zfs_multiclus_load_config(void);
 int zmc_set_node_type(char* group_name, char* fs_name, zfs_multiclus_node_type_t node_type);
-int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, objset_t* os, zfs_multiclus_node_type_t node_type);
+int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, objset_t* os, zfs_multiclus_node_type_t node_type);
 zfs_multiclus_group_record_t* zmc_find_record(zfs_multiclus_group_t* group, zfs_multiclus_node_type_t node_type);
 zfs_multiclus_node_type_t zmc_get_node_type(objset_t* os);
 uint64_t zmc_node_type_to_os_type(zfs_multiclus_node_type_t node_type);
@@ -120,7 +120,7 @@ int zfs_multiclus_set_node_type_to_os(char *group_name, char *fs_name, zfs_multi
  	uint64_t master_spa, uint64_t master_os, uint64_t master_root);
 void zfs_multiclus_clear_group(char *group_name);
 // void zfs_multiclus_set_node_status(char* group_name, uint64_t spa_id, uint64_t os_id, status_type_t status);
-int zmc_change_objset_node_type(char* group_name, objset_t* os, zfs_multiclus_node_type_t new_type);
+int zmc_change_objset_node_type(char* group_name, char *fsname, objset_t* os, zfs_multiclus_node_type_t new_type);
 
 
 
@@ -237,7 +237,7 @@ zfs_multiclus_rx(cs_rx_data_t *cs_data, void *arg)
 		return;
 	}	
 	group_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
-	group_data = kmem_zalloc(cs_data->data_len, KM_SLEEP);
+	group_data = vmem_zalloc(cs_data->data_len, KM_SLEEP);
 	work_para = kmem_zalloc(sizeof(zfs_multiclus_worker_para_t), KM_SLEEP);
 	bcopy(cs_data->ex_head, group_header, sizeof(zfs_group_header_t));
 	bcopy(cs_data->data, group_data, cs_data->data_len);
@@ -278,7 +278,7 @@ static void zfs_multiclus_server_operate(zfs_multiclus_worker_para_t *multiclus_
 	zfs_group_free_data(nmsg_header, (void *)nmsg_data, rx_length);
 	csh_rx_data_free(multiclus_para->msg_header->cs_data, B_TRUE);
 	kmem_free(multiclus_para->msg_header, sizeof(zfs_group_header_t));
-	kmem_free(multiclus_para->msg_data, data_len);
+	vmem_free(multiclus_para->msg_data, data_len);
 	kmem_free(multiclus_para, sizeof(zfs_multiclus_worker_para_t));
 	kmem_free(nmsg_header, sizeof(zfs_group_header_t));
 	kmem_free(server_para, sizeof(zfs_group_server_para_t));
@@ -391,6 +391,9 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 	uint64_t local_os = 0;
 	objset_t *os = NULL;
 
+	uint64_t os_is_master = 0;
+	uint64_t os_node_type = 0; 
+	spa_t * os_spa = NULL;
 	
 	count = zfs_multiclus_check_group_master_count((const char *)groupname);
 	if (count >= 2){
@@ -425,8 +428,10 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 						local_spa = spa_guid(dmu_objset_spa(os));
 						local_os = dmu_objset_id(os);
 						if (local_spa == new_master_spa && local_os == new_master_os) {
-							os->os_is_master = B_TRUE;
-							os->os_node_type = OS_NODE_TYPE_SLAVE;
+							os_is_master = B_TRUE;
+							os->os_is_master = os_is_master;
+							os_node_type = OS_NODE_TYPE_SLAVE;
+							os->os_node_type = os_node_type;
 							if(zfs_multiclus_table[i].multiclus_group[j].node_status.status
 								!= ZFS_MULTICLUS_NODE_ONLINE)
 							{
@@ -437,8 +442,10 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 							}
 							zfs_unlinked_drain(dmu_objset_get_user(os));
 						} else if (local_spa == old_master_spa && local_os == old_master_os) {
-							os->os_is_master = B_FALSE;
-							os->os_node_type = zmc_node_type_to_os_type(old_node_type);
+							os_is_master = B_FALSE;
+							os->os_is_master = os_is_master;
+							os_node_type = zmc_node_type_to_os_type(old_node_type);
+							os->os_node_type = os_node_type;
 						}
 
 						os->os_last_master_spa = os->os_master_spa;
@@ -451,19 +458,21 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 								(unsigned long long) os->os_last_master_spa,(unsigned long long)os->os_last_master_os,
 								(unsigned long long) os->os_master_spa, (unsigned long long)os->os_master_os);
 						}
-						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, os->os_is_master);
-						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_NODE_TYPE),ZPROP_SRC_LOCAL, os->os_node_type);
-						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER_SPA),ZPROP_SRC_LOCAL, os->os_master_spa);
-						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, os->os_master_os);
-						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, os->os_master_root);
 
-						spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
+						os_spa = dmu_objset_spa(os);
 						dmu_objset_rele(os, FTAG);
+						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
+							zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, os_is_master);       //os->os_is_master
+						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
+							zfs_prop_to_name(ZFS_PROP_NODE_TYPE),ZPROP_SRC_LOCAL, os_node_type);	 //os->os_node_type
+						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
+							zfs_prop_to_name(ZFS_PROP_MASTER_SPA),ZPROP_SRC_LOCAL, new_master_spa);   //os->os_master_spa
+						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
+							zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, new_master_os);    //os->os_master_os
+						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
+							zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, new_master_root);  //os->os_master_root
+						if (os_spa != NULL)
+							spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
 					}
 				}
 			}
@@ -528,6 +537,8 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 					 *	after localhost up, client receive server's operation reply. 
 					 *	in this scene, will be step to here.
 					 */
+					vmem_free(msg_data, msg_header->length);
+					kmem_free(msg_header, sizeof(zfs_group_header_t));
 					cmn_err(CE_WARN, "%s, %d, There is no hash header for this reply!", __func__, __LINE__);
 				} else {
 					hash_member = zfs_multiclus_find_hash_member(modhash_tmp, key);
@@ -545,7 +556,7 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 							mutex_exit(&hash_member->multiclus_hash_mutex);
 						}
 						/*can not find tx_hash_member, wo do nothing.*/
-						kmem_free(msg_data, msg_header->length);
+						vmem_free(msg_data, msg_header->length);
 						kmem_free(msg_header, sizeof(zfs_group_header_t));
 						//cmn_err(CE_WARN, "%s, %d, Can not find tx_hash_member, this msg mybe timeout already!", __func__, __LINE__);
 					}
@@ -594,7 +605,7 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 		csh_rx_data_free(msg_header->cs_data, B_TRUE);
 		tmp_para = (zfs_multiclus_worker_para_t *)msg_header->work_para;
 		kmem_free(msg_header, sizeof(zfs_group_header_t));
-		kmem_free(msg_data, data_len);
+		vmem_free(msg_data, data_len);
 		kmem_free(tmp_para, sizeof(zfs_multiclus_worker_para_t));
 	} else if (msg_header->msg_type == ZFS_MULTICLUS_GROUP_REPLY) {
 		bcopy(msg_header->group_name, group_name, msg_header->group_name_len);
@@ -625,7 +636,7 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 		csh_rx_data_free(msg_header->cs_data, B_TRUE);
 		tmp_para = (zfs_multiclus_worker_para_t *)msg_header->work_para;
 		kmem_free(msg_header, sizeof(zfs_group_header_t));
-		kmem_free(msg_data, data_len);
+		vmem_free(msg_data, data_len);
 		kmem_free(tmp_para, sizeof(zfs_multiclus_worker_para_t));
 	}  else if (msg_header->msg_type == ZFS_MULTICLUS_GROUP_CHANGE) {
 		uint64_t master_hid = 0;
@@ -646,7 +657,7 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 		csh_rx_data_free(msg_header->cs_data, B_TRUE);
 		tmp_para = (zfs_multiclus_worker_para_t *)msg_header->work_para;
 		kmem_free(msg_header, sizeof(zfs_group_header_t));
-		kmem_free(msg_data, data_len);
+		vmem_free(msg_data, data_len);
 		kmem_free(tmp_para, sizeof(zfs_multiclus_worker_para_t));
 	} 
 }
@@ -735,7 +746,7 @@ zfs_multiclus_workers_init(void)
 
 	/*initialize action workers*/
 	zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes = 
-		kmem_zalloc(sizeof(zfs_multiclus_worker_t) * zfs_multiclus_server_nworkers, KM_SLEEP);
+		vmem_zalloc(sizeof(zfs_multiclus_worker_t) * zfs_multiclus_server_nworkers, KM_SLEEP);
 	zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq =
 		taskq_create("ZFS_MULTICLUS_SERVER_WORKER_TASKQ", zfs_multiclus_server_nworkers,TASKQ_DEFAULTPRI,
 		1, zfs_multiclus_server_nworkers, 0);
@@ -801,7 +812,7 @@ zfs_multiclus_workers_finit(void)
 	/*finit action taskq*/
 	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq);
 //	ddi_taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq);
-	kmem_free(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes,
+	vmem_free(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes,
 	    sizeof (zfs_multiclus_worker_t) * zfs_multiclus_server_nworkers);
 	zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes = NULL;
 
@@ -1143,9 +1154,7 @@ zfs_multiclus_update_reg_record(char *groupname, uint64_t spa_id, uint64_t os_id
 			zfs_multiclus_table[i].multiclus_reg[reg_index].used = B_TRUE;
 			zfs_multiclus_table[i].multiclus_reg[reg_index].spa_id = spa_id;
 			zfs_multiclus_table[i].multiclus_reg[reg_index].os_id = os_id;
-			mutex_destroy(&zfs_multiclus_table[i].multiclus_reg[reg_index].reg_timer_lock);
 			mutex_init(&zfs_multiclus_table[i].multiclus_reg[reg_index].reg_timer_lock, NULL, MUTEX_DRIVER, NULL);
-			cv_destroy(&zfs_multiclus_table[i].multiclus_reg[reg_index].reg_timer_cv);
 			cv_init(&zfs_multiclus_table[i].multiclus_reg[reg_index].reg_timer_cv, NULL, CV_DRIVER, NULL);
 
 			mutex_exit(&zfs_multiclus_table[i].multiclus_group_mutex);
@@ -1243,6 +1252,9 @@ record_add:
 // 	objset_t *os = NULL;
 // 	zfs_multiclus_group_record_t *new_master = NULL;
 // 	zfs_multiclus_group_record_t *old_master = NULL;
+//	spa_t *os_spa = NULL;
+//	uint64_t os_is_master = 0;
+//	uint64_t os_node_type = 0;
 
 // 	for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
 // 		if (new_group_table[i].node_type == ZFS_MULTICLUS_MASTER) {
@@ -1264,11 +1276,14 @@ record_add:
 // 				if (err == 0) {
 // 					if (spa_guid(dmu_objset_spa(os)) == new_master->spa_id && 
 // 						dmu_objset_id(os) == new_master->os_id) {
-// 						os->os_is_master = B_TRUE;
+//						os_is_master = B_TRUE;
+// 						os->os_is_master = os_is_master;
 // 					} else {
-// 						os->os_is_master = B_FALSE;
+//						os_is_master = B_FALSE;
+// 						os->os_is_master = os_is_master;
 // 					}
-// 					os->os_node_type = zmc_node_type_to_os_type(new_group_table[i].node_type);
+//					os_node_type = zmc_node_type_to_os_type(new_group_table[i].node_type);
+// 					os->os_node_type = os_node_type;
 // 					os->os_last_master_spa = os->os_master_spa;
 // 					os->os_last_master_os = os->os_master_os;
 // 					os->os_master_spa = new_master->spa_id;
@@ -1286,38 +1301,23 @@ record_add:
 // 								(unsigned long long) os->os_master_spa, (unsigned long long)os->os_master_os);
 // 						}
 // 					}
+//					os_spa = dmu_objset_spa(os);
+//					dmu_objset_rele(os, FTAG);
+// 					dsl_prop_set_int((const char*)(new_group_table[i].fsname),  
+// 						zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, os_is_master);     //os->os_is_master
 // 					dsl_prop_set_int((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, os->os_is_master);
+// 						zfs_prop_to_name(ZFS_PROP_NODE_TYPE), ZPROP_SRC_LOCAL, os_node_type);  //os->os_node_type
 // 					dsl_prop_set_int((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_NODE_TYPE), ZPROP_SRC_LOCAL, os->os_node_type);
+// 						zfs_prop_to_name(ZFS_PROP_MASTER_SPA), ZPROP_SRC_LOCAL, new_master->spa_id);   //os->os_master_spa
 // 					dsl_prop_set_int((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER_SPA), ZPROP_SRC_LOCAL, os->os_master_spa);
+// 						zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, new_master->os_id);     //os->os_master_os
 // 					dsl_prop_set_int((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, os->os_master_os);
-// 					dsl_prop_set_int((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, os->os_master_root);
-// /*
-// 					dsl_prop_set((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, sizeof(uint64_t), 1, 
-// 						&(os->os_is_master), 0);
-// 					dsl_prop_set((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_NODE_TYPE), ZPROP_SRC_LOCAL, sizeof(uint64_t), 1, 
-// 						&(os->os_node_type), 0);
-// 					dsl_prop_set((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER_SPA), ZPROP_SRC_LOCAL, sizeof(uint64_t), 1, 
-// 						&(os->os_master_spa), 0);
-// 					dsl_prop_set((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, sizeof(uint64_t), 1, 
-// 						&(os->os_master_os), 0);
-// 					dsl_prop_set((const char*)(new_group_table[i].fsname), 
-// 						zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, sizeof(uint64_t), 1, 
-// 						&(os->os_master_root), 0);
-// */
-// 					spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
-// 					dmu_objset_rele(os, FTAG);
+// 						zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, new_master->root);    //os->os_master_root
+//					if (os_spa != NULL)
+// 						spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 // 				}
+// 			}
 // 		}
-// 	}
 // }
 
 static void
@@ -1387,7 +1387,6 @@ zfs_multiclus_write_group_reply_msg(void *group_msg, zfs_group_header_t *msg_hea
 
 	bcopy(msg_head, head, sizeof(zfs_group_header_t));
 	head->msg_type = reply_type;
-	
 	cluster_san_broadcast_send(data, data_len, (void *)head, sizeof(zfs_group_header_t), CLUSTER_SAN_MSGTYPE_CLUSTERFS, 0);
 	kmem_free(head, sizeof(zfs_group_header_t));
 	return (0);
@@ -1692,9 +1691,8 @@ zfs_multiclus_table_init(void)
 {
 	mutex_init(&multiclus_mtx, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&multiclus_mtx_update_record, NULL, MUTEX_DEFAULT, NULL);
-	zfs_multiclus_table = kmem_zalloc(sizeof(zfs_multiclus_group_t)*ZFS_MULTICLUS_GROUP_TABLE_SIZE,
+	zfs_multiclus_table = vmem_zalloc(sizeof(zfs_multiclus_group_t)*ZFS_MULTICLUS_GROUP_TABLE_SIZE,
 	    KM_SLEEP);
-
 }
 
 // static void
@@ -1713,7 +1711,7 @@ zfs_multiclus_table_init(void)
 // 	mutex_destroy(&multiclus_mtx_update_record);
 // 	mutex_destroy(&multiclus_mtx);
 // 	bzero(zfs_multiclus_table, sizeof(zfs_multiclus_group_t) * ZFS_MULTICLUS_GROUP_TABLE_SIZE);
-// 	kmem_free(zfs_multiclus_table, sizeof(zfs_multiclus_group_t)*ZFS_MULTICLUS_GROUP_TABLE_SIZE);
+// 	vmem_free(zfs_multiclus_table, sizeof(zfs_multiclus_group_t)*ZFS_MULTICLUS_GROUP_TABLE_SIZE);
 // }
 
 /* use to mark tx's frame for every spa&os in multi cluster */
@@ -1722,7 +1720,7 @@ zfs_multiclus_tx_hash_init(void)
 {
 	mutex_init(&zfs_multiclus_tx_hash_mtx, NULL, MUTEX_DEFAULT, NULL);
 	zfs_multiclus_tx_hash =
-	    kmem_zalloc(sizeof(zfs_multiclus_hash_header_t)*ZFS_MULTICLUS_MAX_OS_NUMS, KM_SLEEP);
+	    vmem_zalloc(sizeof(zfs_multiclus_hash_header_t)*ZFS_MULTICLUS_MAX_OS_NUMS, KM_SLEEP);
 
 	bzero(zfs_multiclus_tx_hash,
 	    sizeof(zfs_multiclus_hash_header_t) * ZFS_MULTICLUS_MAX_OS_NUMS);
@@ -1739,7 +1737,7 @@ zfs_multiclus_tx_hash_init(void)
 // 			mod_hash_destroy_idhash(zfs_multiclus_tx_hash[i].zfs_multiclus_modhash);
 // 		}
 // 	}
-// 	kmem_free(zfs_multiclus_tx_hash,
+// 	vmem_free(zfs_multiclus_tx_hash,
 // 	    sizeof(zfs_multiclus_hash_header_t) * ZFS_MULTICLUS_MAX_OS_NUMS);
 // 	mutex_destroy(&zfs_multiclus_tx_hash_mtx);
 // }
@@ -1749,7 +1747,7 @@ static void
 zfs_multiclus_rx_hash_init(void)
 {
 	mutex_init(&zfs_multiclus_rx_hash_mtx, NULL, MUTEX_DEFAULT, NULL);
-	zfs_multiclus_rx_hash = kmem_zalloc(sizeof(zfs_multiclus_hash_header_t)
+	zfs_multiclus_rx_hash = vmem_zalloc(sizeof(zfs_multiclus_hash_header_t)
 	    * ZFS_MULTICLUS_MAX_OS_NUMS, KM_SLEEP);
 	bzero(zfs_multiclus_rx_hash, sizeof(zfs_multiclus_hash_header_t)
 	    *ZFS_MULTICLUS_MAX_OS_NUMS);
@@ -1774,7 +1772,7 @@ zfs_multiclus_rx_hash_init(void)
 // 			mod_hash_destroy_idhash(zfs_multiclus_rx_hash[i].zfs_multiclus_modhash);
 // 		}
 // 	}
-// 	kmem_free(zfs_multiclus_rx_hash,
+// 	vmem_free(zfs_multiclus_rx_hash,
 // 	    sizeof(zfs_multiclus_hash_header_t) * ZFS_MULTICLUS_MAX_OS_NUMS);
 // 	mutex_destroy(&zfs_multiclus_rx_hash_mtx);
 // }
@@ -2109,6 +2107,8 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 	int i = 0 ;
 	VERIFY(nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) == 0);
 
+	gs = vmem_zalloc(sizeof(zfs_group_info_t)*ZFS_MULTICLUS_GROUP_NODE_NUM, KM_SLEEP);
+
 	/* ' B_FALSE == *onceflag ' is that mean once start of zfs_start_multiclus's 
 	call and in this case that need to counts number of using group in zfs_multiclus_table*/
 	if(B_FALSE == *onceflag){
@@ -2137,7 +2137,7 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 	    (uint64_t *)gs, ((sizeof (zfs_group_info_t))*gnum) / sizeof (uint64_t)) == 0);
 	*config = nv;
 
-	kmem_free(gs, sizeof(zfs_group_info_t)*ZFS_MULTICLUS_GROUP_NODE_NUM);
+	vmem_free(gs, sizeof(zfs_group_info_t)*ZFS_MULTICLUS_GROUP_NODE_NUM);
 	return (0);
 }
 
@@ -2213,10 +2213,10 @@ int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 
 	if (os == NULL ) {
 		cmn_err(CE_WARN, "zfs_group_hold: os == NULL");
-		dsl_dataset_rele(dsl_dataset, FTAG);
+//		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (-1);
 	}
-	dsl_dataset_rele(dsl_dataset, FTAG);
+//	dsl_dataset_rele(dsl_dataset, FTAG);
 	dmu_objset_name(os, fsname);
 
 	return (0);
@@ -2349,11 +2349,13 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 			record_reinit = TRUE;
 			cmn_err(CE_WARN, "%s, %d, Cannot get the record! will reinit!", __func__, __LINE__);
 		}
-		
-		if(dmu_objset_hold((char *)reg_data->fsname, FTAG, &os) && record != NULL){
-			record->node_status.status = ZFS_MULTICLUS_NODE_OFFLINE;
-			zfs_multiclus_destroy_reg_record((char*)(reg_data->group_name),
-				record->spa_id, record->os_id);
+	
+		if(dmu_objset_hold((char *)reg_data->fsname, FTAG, &os) != 0){
+			if (record != NULL){
+				record->node_status.status = ZFS_MULTICLUS_NODE_OFFLINE;
+				zfs_multiclus_destroy_reg_record((char*)(reg_data->group_name),
+					record->spa_id, record->os_id);
+			}
 			cmn_err(CE_WARN, "zfs_multiclus_register_tq exit:can't hold %s",
 					(char *)reg_data->fsname);
 			mutex_exit(&multiclus_mtx_update_record);
@@ -2375,10 +2377,12 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 						if (tmp_type == ZFS_MULTICLUS_NODE_TYPE_NUM) {
 							tmp_type = ZFS_MULTICLUS_SLAVE;
 						}
-						(void)zmc_change_objset_node_type((char*)(reg_data->group_name), os, tmp_type);
+						zmc_change_objset_node_type((char*)(reg_data->group_name), (char *)reg_data->fsname, os, tmp_type);
 						node_type = tmp_type;
 						reg_data->node_type = node_type;
-					}
+					}else {
+						dmu_objset_rele(os, FTAG);
+					}	
 				}
 				zfs_multiclus_group_record_init((char*)reg_data->group_name,
 					(char*)reg_data->fsname, reg_data->spa_id, 
@@ -2390,7 +2394,8 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 				cmn_err(CE_WARN, "zfs_multiclus_register_tq reinit record: %s, node_type:%d, cache_head->node_type: %d",
 					(char *)reg_data->fsname, node_type, reg_data->node_type);
 				mutex_exit(&multiclus_mtx_update_record);
-				dmu_objset_rele(os, FTAG);
+				if (node_type == ZFS_MULTICLUS_SLAVE)
+					dmu_objset_rele(os, FTAG);
 				continue;
 			} else if (os->os_will_be_master) {
 					waitcount = 20;
@@ -2417,8 +2422,10 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 				msg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 				bcopy(reg_data->group_name, msg_header->group_name, reg_data->group_name_len);
 				msg_header->group_name_len = reg_data->group_name_len;
+				cmn_err(CE_WARN, "[%s %d] group name=%s", __func__, __LINE__, msg_header->group_name);
 				(void)zfs_multiclus_write_group_reply_msg((void *)(&(group->multiclus_group)), msg_header,
 				    ZFS_MULTICLUS_GROUP_REPLY);
+				cmn_err(CE_WARN, "[%s %d] group name=%s", __func__, __LINE__, msg_header->group_name);
 				kmem_free(msg_header, sizeof(zfs_group_header_t));
 				mutex_exit(&group->multiclus_group_mutex);
 				mutex_exit(&multiclus_mtx);
@@ -2545,6 +2552,8 @@ break_out:
 		if (reg_record->used == B_FALSE) {
 			reg_record->spa_id = 0;
 			reg_record->os_id = 0;
+			mutex_destroy(&reg_record->reg_timer_lock);
+			cv_destroy(&reg_record->reg_timer_cv);
 			cmn_err(CE_WARN, "zfs_multiclus_register_tq exit.line:%d",__LINE__);
 		}
 		mutex_exit(&group->multiclus_group_mutex);
@@ -2555,10 +2564,16 @@ break_out:
 	return;
 }
 
-int zmc_change_objset_node_type(char* group_name, objset_t* os, zfs_multiclus_node_type_t new_type)
+int zmc_change_objset_node_type(char* group_name, char *fsname, objset_t* os, zfs_multiclus_node_type_t new_type)
 {
 	char fs_name[MAX_FSNAME_LEN] = { 0 };
 	zfs_multiclus_group_record_t* master = NULL;
+	uint64_t os_is_master = 0;
+	uint64_t os_node_type = 0;
+	uint64_t os_master_spa = 0;
+	uint64_t os_master_os = 0;
+	uint64_t os_master_root = 0;
+	spa_t *os_spa = NULL;
 
 	master = zfs_multiclus_get_group_master(group_name, ZFS_MULTICLUS_MASTER);
 	if (master != NULL && (master->spa_id != spa_guid(dmu_objset_spa(os))
@@ -2575,24 +2590,31 @@ int zmc_change_objset_node_type(char* group_name, objset_t* os, zfs_multiclus_no
 		os->os_master_os = dmu_objset_id(os);
 		os->os_master_root = os->os_self_root;
 	}
-
-	os->os_node_type = zmc_node_type_to_os_type(new_type);
+	
+	os_is_master = os->os_is_master;
+	os_master_spa = os->os_master_spa;
+	os_master_os = os->os_master_os;
+	os_master_root = os->os_master_root;
+	os_node_type = zmc_node_type_to_os_type(new_type);
+	os->os_node_type = os_node_type;
 
 	dmu_objset_name(os, fs_name);
 
+	os_spa = dmu_objset_spa(os);
+	if (fsname != NULL)
+		dmu_objset_rele(os, FTAG);	
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
-		ZPROP_SRC_LOCAL, os->os_is_master);
+		ZPROP_SRC_LOCAL, os_is_master);      //os->os_is_master
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
-		ZPROP_SRC_LOCAL, os->os_master_spa);
+		ZPROP_SRC_LOCAL, os_master_spa);     //os->os_master_spa
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
-		ZPROP_SRC_LOCAL, os->os_master_os);
+		ZPROP_SRC_LOCAL, os_master_os);      //os->os_master_os
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
-		ZPROP_SRC_LOCAL, os->os_master_root);
+		ZPROP_SRC_LOCAL, os_master_root);    //os->os_master_root
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-		ZPROP_SRC_LOCAL, os->os_node_type);
+		ZPROP_SRC_LOCAL, os_node_type);      //os->os_node_type
 
-	spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
-
+	spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
 	return 0;
 }
 
@@ -2663,7 +2685,7 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 	 */
 	record = zfs_multiclus_get_record(spa_id, os_id);
 	if (record != NULL) {
-		zmc_change_objset_node_type(group_name, os, record->node_type);
+		zmc_change_objset_node_type(group_name, NULL, os, record->node_type);
 	} else {
 		/*
 		 * add the objset into a cluster group, then it can receive the
@@ -2689,13 +2711,13 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 			 * this objset; however, we do not know what the actual node type this
 			 * objset is in this cluster, so just set it as Slave
 			 */
-			zmc_change_objset_node_type(group_name, os,
+			zmc_change_objset_node_type(group_name, NULL, os,
 				(cur_type == ZFS_MULTICLUS_MASTER) ? ZFS_MULTICLUS_SLAVE : cur_type);
 		} else {
 			if (zfs_multiclus_get_group_master(group_name, ZFS_MULTICLUS_MASTER) != NULL) {
-				zmc_change_objset_node_type(group_name, os, record->node_type);
+				zmc_change_objset_node_type(group_name, NULL, os, record->node_type);
 			} else {
-				zmc_change_objset_node_type(group_name, os, cur_type);
+				zmc_change_objset_node_type(group_name, NULL, os, cur_type);
 			}
 		}
 	}
@@ -2759,6 +2781,9 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 	uint64_t usedobjs = 0;
 	uint64_t availobjs = 0;
 	uint64_t load_ios = 0;
+
+	uint64_t master_spa = 0;
+	uint64_t master_os = 0;
 		
 	if (zfs_multiclus_enable() == B_FALSE)
 		return (-1);
@@ -2777,20 +2802,26 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 		os->os_is_group = 1;
 		os->os_is_master = 1;
 		os->os_node_type = OS_NODE_TYPE_SLAVE; /* os_is_master == 1, OS_NODE_TYPE_SLAVE is ignored */
-		os->os_master_spa = spa_guid(dmu_objset_spa(os));
-		os->os_master_os = dmu_objset_id(os);
+		master_spa = spa_guid(dmu_objset_spa(os));
+		os->os_master_spa = master_spa;
+		master_os = dmu_objset_id(os);
+		os->os_master_os = master_os;
 		strcpy(os->os_group_name, group_name);
-
+		
+		dmu_objset_rele(os, FTAG);
 		dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
 			ZPROP_SRC_LOCAL, group_name);
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
-			ZPROP_SRC_LOCAL, os->os_is_group);
+			ZPROP_SRC_LOCAL, 1);   //1: os->os_is_group
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
-		    ZPROP_SRC_LOCAL, os->os_is_master);
+		    ZPROP_SRC_LOCAL, 1);   //1: os->os_is_master
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
-		    ZPROP_SRC_LOCAL, os->os_master_spa);
+		    ZPROP_SRC_LOCAL, master_spa);
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
-		    ZPROP_SRC_LOCAL, os->os_master_os);
+		    ZPROP_SRC_LOCAL, master_os);
+		if ((error = dmu_objset_hold(fs_name, FTAG, &os))){
+			return (error);
+		}
 	}
 
 	if (os->os_phys->os_type == DMU_OST_ZFS) {
@@ -2809,10 +2840,14 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 		os->os_master_root = root_id;
 		os->os_self_root = root_id;
 
+		dmu_objset_rele(os, FTAG);
 		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
-		    ZPROP_SRC_LOCAL, os->os_master_root);
+		    ZPROP_SRC_LOCAL, root_id);    //os->os_master_root
 		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
-		    ZPROP_SRC_LOCAL, os->os_self_root);
+		    ZPROP_SRC_LOCAL, root_id);    //os->os_self_root
+		if ((error = dmu_objset_hold(fs_name, FTAG, &os))){
+			return (error);
+		}
 	}
 
 	spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
@@ -2860,6 +2895,8 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 	group_num = zfs_multiclus_get_group(group_name, &group);
 	VERIFY(group != NULL);
 
+	dmu_objset_rele(os, FTAG);
+	
 	if (group->group_reg_timer_tq) {
 		if (taskq_dispatch(group->group_reg_timer_tq,
 			(void (*)(void *))zfs_multiclus_register_tq,
@@ -2873,8 +2910,6 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 		kmem_free(reg_data, sizeof(zfs_group_reg_t));
 		return (-1);
 	}
-	
-	dmu_objset_rele(os, FTAG);
 	return (error);
 }
 
@@ -2896,6 +2931,11 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	zfs_group_reg_t *reg_data = NULL;
 	objset_t *os = NULL;
 	zfs_sb_t *zsb = NULL;
+
+	spa_t *os_spa = NULL;
+	uint64_t os_master_spa = 0;
+	uint64_t os_master_os = 0;
+	uint64_t os_master_root = 0;
 
 
 	if (zfs_multiclus_enable() == B_FALSE)
@@ -2923,12 +2963,16 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 		os->os_node_type = OS_NODE_TYPE_SLAVE;
 		strcpy(os->os_group_name, group_name);
 
+		dmu_objset_rele(os, FTAG);
 		dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
 		    ZPROP_SRC_LOCAL, group_name);
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
-		    ZPROP_SRC_LOCAL, os->os_is_group);
+		    ZPROP_SRC_LOCAL, 1);   //os->os_is_group
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
-		    ZPROP_SRC_LOCAL, os->os_is_master);
+		    ZPROP_SRC_LOCAL, 0);   //os->os_is_master
+		if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
+			return (error);
+		}
 	}
 
 	if (os->os_phys->os_type == DMU_OST_ZFS) {
@@ -2995,16 +3039,23 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	if (record != NULL) {
 		dmu_objset_set_group(os, record->spa_id, record->os_id, record->root);
 		os->os_self_root = root_id;
+		os_spa = dmu_objset_spa(os);
+		os_master_spa = os->os_master_spa;
+		os_master_os = os->os_master_os;
+		os_master_root = os->os_master_root;
+		dmu_objset_rele(os, FTAG);
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
-		    ZPROP_SRC_LOCAL, os->os_master_spa);
+		    ZPROP_SRC_LOCAL, os_master_spa);    //os->os_master_spa
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
-		    ZPROP_SRC_LOCAL, os->os_master_os);
+		    ZPROP_SRC_LOCAL, os_master_os);     //os->os_master_os
 		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
-		    ZPROP_SRC_LOCAL, os->os_master_root);
+		    ZPROP_SRC_LOCAL, os_master_root);   //os->os_master_root
 		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
-		    ZPROP_SRC_LOCAL, os->os_self_root);
-		
-		spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
+		    ZPROP_SRC_LOCAL, root_id);          //os->os_self_root
+		spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
+		if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
+			return (error);
+		}	
 	} else {
 		record = zfs_multiclus_get_record(spa_id, dsl_id);
 		if (record) {
@@ -3023,6 +3074,8 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	group_num = zfs_multiclus_get_group(group_name, &group);
 	VERIFY(group != NULL);
 
+	dmu_objset_rele(os, FTAG);
+
 	if (group->group_reg_timer_tq) {
 		if (taskq_dispatch(group->group_reg_timer_tq,
 			(void (*)(void *))zfs_multiclus_register_tq,
@@ -3036,8 +3089,6 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 			__func__, __LINE__, group_name, fs_name);
 			return (-1);
 	}
-	
-	dmu_objset_rele(os, FTAG);
 	return (error);
 }
 
@@ -3453,6 +3504,9 @@ int zfs_multiclus_set_node_type_to_os(char *group_name, char *fs_name, zfs_multi
 	int err = 0;
 	objset_t *os = NULL;
 	char fsname[MAX_FSNAME_LEN] = { 0 };
+	uint64_t os_is_master = 0;
+	uint64_t os_node_type = 0;
+	spa_t *os_spa = NULL;
 	
 
 	if (!fs_name || !group_name) {
@@ -3471,11 +3525,14 @@ int zfs_multiclus_set_node_type_to_os(char *group_name, char *fs_name, zfs_multi
 					if (err == 0) {
 						if (!strncmp((char*)zfs_multiclus_table[i].multiclus_group[j].fsname, fs_name, strlen(fs_name))) {
 							if (node_type == ZFS_MULTICLUS_MASTER) {
-								os->os_is_master = 1;
+								os_is_master = 1;
+								os->os_is_master = os_is_master;
 							} else {
-								os->os_is_master = 0;
+								os_is_master = 0;
+								os->os_is_master = os_is_master;
 							}
-							os->os_node_type = zmc_node_type_to_os_type(node_type);
+							os_node_type = zmc_node_type_to_os_type(node_type);
+							os->os_node_type = os_node_type;
 						}
 						os->os_last_master_spa = os->os_master_spa;
 						os->os_last_master_os = os->os_master_os;
@@ -3483,19 +3540,21 @@ int zfs_multiclus_set_node_type_to_os(char *group_name, char *fs_name, zfs_multi
 						os->os_master_os = master_os;
 						os->os_master_root = master_root;
 						dmu_objset_name(os, fsname);
-						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER), 
-							ZPROP_SRC_LOCAL, os->os_is_master);
-						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_NODE_TYPE), 
-							ZPROP_SRC_LOCAL, os->os_node_type);
-						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER_SPA), 
-							ZPROP_SRC_LOCAL, os->os_master_spa);
-						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER_OS), 
-							ZPROP_SRC_LOCAL, os->os_master_os);
-						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), 
-							ZPROP_SRC_LOCAL, os->os_master_root);
+						os_spa = dmu_objset_spa(os);
 						
-						spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 						dmu_objset_rele(os, FTAG);
+						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER), 
+							ZPROP_SRC_LOCAL, os_is_master);    //os->os_is_master
+						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_NODE_TYPE), 
+							ZPROP_SRC_LOCAL, os_node_type);    //os->os_node_type
+						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER_SPA), 
+							ZPROP_SRC_LOCAL, master_spa);      //os->os_master_spa
+						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER_OS), 
+							ZPROP_SRC_LOCAL, master_os);       //os->os_master_os
+						dsl_prop_set_int((const char*)fsname, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), 
+							ZPROP_SRC_LOCAL, master_root);	   //os->os_master_root	
+						if (os_spa != NULL)
+							spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
 					}				
 				}
 			}
@@ -3587,18 +3646,18 @@ int zmc_set_node_type(char* group_name, char* fs_name, zfs_multiclus_node_type_t
 		return -1;
 	}
 
-	ret = zmc_do_set_node_type(record, os, node_type);
-
-	dmu_objset_rele(os, FTAG);
-
+	ret = zmc_do_set_node_type(record, fs_name, os, node_type);
+	if (ret == 0)	
+		dmu_objset_rele(os, FTAG);
 	return ret;
 }
 
-int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, objset_t* os, zfs_multiclus_node_type_t node_type)
+int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, objset_t* os, zfs_multiclus_node_type_t node_type)
 {
 	zfs_sb_t *zsb = NULL;
 	zfs_multiclus_group_record_t *old_master = NULL;
 	zfs_multiclus_node_type_t old_nodetype = record->node_type;
+	int err = 0;
 
 	if (node_type != ZFS_MULTICLUS_MASTER && zfs_multiclus_set_node_type(record->spa_id, record->os_id, node_type)) {
 		cmn_err(CE_WARN, "%s, %d, Set node type %d failed!", __func__, __LINE__, node_type);
@@ -3611,13 +3670,14 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, objset_t* os, zfs
 		case ZFS_MULTICLUS_SLAVE:
 			os->os_is_master = 0;
 			os->os_node_type = OS_NODE_TYPE_SLAVE;
+			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, os->os_is_master);
+				ZPROP_SRC_LOCAL, 0);  					//os->os_is_master
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL,os->os_node_type);
-
-			spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
-
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_SLAVE);   //os->os_node_type
+			err = dmu_objset_hold(fs_name, FTAG, &os);
+			if (err == 0)
+				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 			break;
 
 		case ZFS_MULTICLUS_MASTER:
@@ -3647,49 +3707,59 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, objset_t* os, zfs
 		case ZFS_MULTICLUS_MASTER2:
 			os->os_is_master = 0;
 			os->os_node_type = OS_NODE_TYPE_MASTER2;
+			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, os->os_is_master);
+				ZPROP_SRC_LOCAL, 0);    					//os->os_is_master
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, os->os_node_type);
-			
-			spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER2);     //os->os_node_type
+			err = dmu_objset_hold(fs_name, FTAG, &os);
+			if (err == 0)
+				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 			break;
 
 		case ZFS_MULTICLUS_MASTER3:
 			os->os_is_master = 0;
 			os->os_node_type = OS_NODE_TYPE_MASTER3;
+			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, os->os_is_master);
+				ZPROP_SRC_LOCAL, 0);                       //os->os_is_master
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, os->os_node_type);
-			spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER3);    //os->os_node_type
+			err = dmu_objset_hold(fs_name, FTAG, &os);
+			if (err == 0)
+				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 			break;
 
 		case ZFS_MULTICLUS_MASTER4:
 			os->os_is_master = 0;
 			os->os_node_type = OS_NODE_TYPE_MASTER4;
+			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, os->os_is_master);
+				ZPROP_SRC_LOCAL, 0);                       //os->os_is_master
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, os->os_node_type);
-			spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER4);    //os->os_node_type
+			err = dmu_objset_hold(fs_name, FTAG, &os);
+			if (err == 0)
+				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 			break;
 
 		default:
 			cmn_err(CE_WARN, "invalid node type: %d.", node_type);
 			os->os_is_master = 0;
 			os->os_node_type = OS_NODE_TYPE_SLAVE;
+			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, os->os_is_master);
+				ZPROP_SRC_LOCAL, 0);                     //os->os_is_master
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, os->os_node_type);
-			spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
-
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_SLAVE);    //os->os_node_type
+			err = dmu_objset_hold(fs_name, FTAG, &os);
+			if (err == 0)
+				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 			break;
 	}
 	if (ZFS_GROUP_DTL_ENABLE)
 		zfs_group_dtl_reset(os, NULL);
-	return 0;
+	return err;
 }
 
 zfs_multiclus_group_record_t*

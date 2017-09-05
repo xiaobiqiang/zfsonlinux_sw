@@ -712,6 +712,82 @@ dmu_objset_rewrite_worker_fini(objset_t *os)
 }
 #endif
 
+
+static int dmu_objset_get_group_parameters(dsl_dataset_t *ds, objset_t *os)
+{
+    int err;
+    dsl_dir_t *dd = ds->ds_dir;
+	dsl_pool_t *dp = dd->dd_pool;
+	uint64_t value;
+	int need_rwlock;
+
+	need_rwlock = !RRW_WRITE_HELD(&dp->dp_config_rwlock);
+	if (need_rwlock)
+		rrw_enter(&dp->dp_config_rwlock, RW_READER, FTAG);
+    
+ 
+    err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
+        1, sizeof(os->os_group_name), os->os_group_name, NULL);
+
+    if (err == 0) {
+        dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_GROUP),
+            sizeof(uint64_t), 1, &os->os_is_group, NULL);
+    }
+
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER),
+            sizeof(uint64_t), 1, &os->os_is_master, NULL);
+    }
+
+	if (err == 0)
+	{
+		err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
+			sizeof(uint64_t), 1, &(os->os_node_type), NULL);
+		if (err != 0)
+		{
+			os->os_node_type = OS_NODE_TYPE_SLAVE;
+		}
+
+		err = 0;
+	}
+	
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
+            sizeof(uint64_t), 1, &os->os_master_spa, NULL);
+		#if 0
+        cmn_err(CE_WARN, "get master spa = %llx", (longlong_t)os->os_master_spa);
+		#endif
+    }
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
+            sizeof(uint64_t), 1, &os->os_master_os, NULL);
+		#if 0
+        cmn_err(CE_WARN, "ZFS_PROP_MASTER_OS = %lld", (longlong_t)os->os_master_os);
+		#endif
+    }
+
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
+            sizeof(uint64_t), 1, &os->os_master_root, NULL);
+		#if 0
+        cmn_err(CE_WARN, "ZFS_PROP_MASTER_ROOT = %lld", (longlong_t)os->os_master_root);
+		#endif
+    }
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
+            sizeof(uint64_t), 1, &os->os_self_root, NULL);
+		#if 0
+        cmn_err(CE_WARN, "ZFS_PROP_SELF_ROOT = %lld", (longlong_t)os->os_master_root);
+		#endif
+    }
+
+    if (need_rwlock)
+        rrw_exit(&dp->dp_config_rwlock, FTAG);
+
+    return (0);
+}
+
+
 int
 dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
     objset_t **osp)
@@ -830,6 +906,7 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 				    zfs_prop_to_name(ZFS_PROP_RECORDSIZE),
 				    recordsize_changed_cb, os);
 			}
+			dmu_objset_get_group_parameters(ds, os);
 		}
 		if (err != 0) {
 			VERIFY(arc_buf_remove_ref(os->os_phys_buf,

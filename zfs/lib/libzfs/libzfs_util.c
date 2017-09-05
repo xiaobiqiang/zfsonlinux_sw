@@ -3300,23 +3300,23 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 				printf("| Multiclus status | up %*s |\r\n", space_num, "");
 				space_num = 20 - strlen(gname) ;
 				printf("| Group name       | %s%*s |\r\n", gname, space_num, "" );
-				sprintf(gmas, "%llu", gmaster[0]);
+				sprintf(gmas, "%"PRIu64"", gmaster[0]);
 				space_num = 20 - strlen(gmas);
 				printf("| Master node id   | %s%*s |\r\n", gmas, space_num, "");
 				memset(gmas, 0, 16);
-				sprintf(gmas, "%llu", gmaster[1]);
+				sprintf(gmas, "%"PRIu64"", gmaster[1]);
 				space_num = 20 - strlen(gmas);
 				printf("| Master2 node id  | %s%*s |\r\n", gmas, space_num, "");
 				memset(gmas, 0, 16);
-				sprintf(gmas, "%llu", gmaster[2]);
+				sprintf(gmas, "%"PRIu64"", gmaster[2]);
 				space_num = 20 - strlen(gmas);
 				printf("| Master3 node id  | %s%*s |\r\n", gmas, space_num, "");
 				memset(gmas, 0, 16);
-				sprintf(gmas, "%llu", gmaster[3]);
+				sprintf(gmas, "%"PRIu64"", gmaster[3]);
 				space_num = 20 - strlen(gmas);
 				printf("| Master4 node id  | %s%*s |\r\n", gmas, space_num, "");
 				memset(gmas, 0, 16);
-				sprintf(gnums, "%lld", gnum);
+				sprintf(gnums, "%"PRIu64"", gnum);
 				space_num = 20 - strlen(gnums);
 				printf("| Group number     | %s%*s |\r\n", gnums, space_num, "");
 				zfs_print_separator('=', 43);
@@ -3330,10 +3330,10 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 					ptr->node_type[MAX_FSNAME_LEN - 1] = 0;
 					space_num = 20 - strlen(ptr->node_type);
 					printf("| Node type        | %s%*s |\r\n", ptr->node_type, space_num, "");
-					sprintf(spa_id, "%llx", ptr->spa_id);
+					sprintf(spa_id, "%"PRIx64"", ptr->spa_id);
 					space_num = 20 - strlen(spa_id);
 					printf("| Spa id           | %s%*s |\r\n", spa_id, space_num, "");
-					sprintf(gnode_id, "%lld", ptr->gnode_id);
+					sprintf(gnode_id, "%"PRIu64"", ptr->gnode_id);
 					space_num = 20 - strlen(gnode_id);
 					printf("| Node id          | %s%*s |\r\n", gnode_id, space_num, "");
 					nicenum(ptr->avail_size, avail_size);
@@ -3344,7 +3344,7 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 					/* sprintf(used_size, "%llx", ptr->used_size); */
 					space_num = 20 - strlen(used_size);
 					printf("| Used size        | %s%*s |\r\n", used_size, space_num, "");
-					sprintf(load_ios, "%lld", ptr->load_ios);
+					sprintf(load_ios, "%"PRIu64"", ptr->load_ios);
 					space_num = 20 - strlen(load_ios);
 					printf("| Load ios         | %s%*s |\r\n", load_ios, space_num, "");
 					index = ptr->node_status;
@@ -3371,17 +3371,17 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 				group_node = xmlNewChild(root_node, NULL, (xmlChar *)"group", NULL);
 				xmlSetProp(group_node, (xmlChar *)"mcstate", (xmlChar *)"up");
 				xmlSetProp(group_node, (xmlChar *)"gname", (xmlChar *)gname);
-				sprintf(gmas, "%llu", gmaster[0]);
+				sprintf(gmas, "%"PRIu64"", gmaster[0]);
 				xmlSetProp(group_node, (xmlChar *)"mhostid", (xmlChar *)gmas);
-				sprintf(gmas, "%llu", gmaster[1]);
+				sprintf(gmas, "%"PRIu64"", gmaster[1]);
 				xmlSetProp(group_node, (xmlChar *)"m2_hostid", (xmlChar *)gmas);
-				sprintf(gmas, "%llu", gmaster[2]);
+				sprintf(gmas, "%"PRIu64"", gmaster[2]);
 				xmlSetProp(group_node, (xmlChar *)"m3_hostid", 
 					(xmlChar *)gmas);
-				sprintf(gmas, "%llu", gmaster[3]);
+				sprintf(gmas, "%"PRIu64"", gmaster[3]);
 				xmlSetProp(group_node, (xmlChar *)"m4_hostid", 
 					(xmlChar *)gmas);
-				sprintf(gnums, "%llu", gnum);
+				sprintf(gnums, "%"PRIu64"", gnum);
 				xmlSetProp(group_node, (xmlChar *)"gnum", (xmlChar *)gnums);
 				
 				ptr = gs[0];
@@ -3391,7 +3391,7 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 					xmlSetProp(fs_node, (xmlChar *)"fsname", (xmlChar *)ptr->gi_fsname);
 					ptr->node_type[MAX_FSNAME_LEN - 1] = 0;
 					xmlSetProp(fs_node, (xmlChar *)"desc", (xmlChar *)ptr->node_type);
-					sprintf(gnode_id, "%lld", ptr->gnode_id);
+					sprintf(gnode_id, "%"PRIu64"", ptr->gnode_id);
 					xmlSetProp(fs_node, (xmlChar *)"fshostid", (xmlChar *)gnode_id);
 					nicenum(ptr->avail_size, avail_size);
 					/* sprintf(avail_size, "%llx", ptr->avail_size); */
@@ -3399,7 +3399,7 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 					nicenum(ptr->used_size, used_size);
 					/* sprintf(used_size, "%llx", ptr->used_size); */
 					xmlSetProp(fs_node, (xmlChar *)"fsusedsize", (xmlChar *)used_size);
-					sprintf(load_ios, "%lld", ptr->load_ios);
+					sprintf(load_ios, "%"PRIu64"", ptr->load_ios);
 					xmlSetProp(fs_node, (xmlChar *)"fsloadios", (xmlChar *)load_ios);
 					index = ptr->node_status;
 					xmlSetProp(fs_node, (xmlChar *)"fsstatus", (xmlChar *)node_status[index]);
@@ -3568,12 +3568,12 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 				memset(dtl_buf[3], 0, 32);
 				memset(dtl_buf[4], 0, 32);
 				memset(dtl_buf[5], 0, 32);
-				sprintf(dtl_buf[0], "%llu", zc.zc_nvlist_conf_size);
-				sprintf(dtl_buf[1], "%llu", zc.zc_nvlist_dst_size);
-				sprintf(dtl_buf[2], "%llu", zc.zc_nvlist_src_size);
-				sprintf(dtl_buf[3], "%llu", zc.zc_nvlist_conf);
-				sprintf(dtl_buf[4], "%llu", zc.zc_nvlist_dst);
-				sprintf(dtl_buf[5], "%llu", zc.zc_nvlist_src);
+				sprintf(dtl_buf[0], "%"PRIu64"", zc.zc_nvlist_conf_size);
+				sprintf(dtl_buf[1], "%"PRIu64"", zc.zc_nvlist_dst_size);
+				sprintf(dtl_buf[2], "%"PRIu64"", zc.zc_nvlist_src_size);
+				sprintf(dtl_buf[3], "%"PRIu64"", zc.zc_nvlist_conf);
+				sprintf(dtl_buf[4], "%"PRIu64"", zc.zc_nvlist_dst);
+				sprintf(dtl_buf[5], "%"PRIu64"", zc.zc_nvlist_src);
 				printf("===================================================================\n");
 				printf("|-------master2-------------master3-------------master4-----------|\n");
 				printf("|      %s/%s %*s%s/%s %*s%s/%s%*s|\n", dtl_buf[0], dtl_buf[3],19-strlen(dtl_buf[0])-1-strlen(dtl_buf[3]), "", 

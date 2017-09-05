@@ -154,6 +154,8 @@ extern void zfs_sa_set_dirquota(struct znode *zp, uint64_t quota, dmu_tx_t *tx);
 extern void zfs_sa_set_dirlowdata(struct znode *zp, uint64_t dir_lowdata, dmu_tx_t *tx);
 extern void zfs_sa_set_remote_object(struct znode *zp, struct zfs_group_object *remote_object, dmu_tx_t *tx);
 extern void zfs_sa_get_remote_object(struct znode *zp);
+extern void zfs_sa_get_dirquota(struct znode *zp);
+extern void zfs_sa_get_dirlowdata(struct znode *zp); 
 #endif
 
 #ifdef	__cplusplus

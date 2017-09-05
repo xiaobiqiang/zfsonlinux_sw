@@ -266,30 +266,28 @@ int	ngroups_max = 16;
 int
 crsetgroups(cred_t *cr, int n, gid_t *grp)
 {
-	int i;
+	int i, ret=0;
+	struct group_info *gi = NULL;
 	
 	ASSERT(cr->usage <= 2);
 
 	if (n > ngroups_max || n < 0)
 		return (-1);
 
-	if (cr->group_info != NULL)
-		groups_free(cr->group_info);
-
-	if (n > 0){
-		cr->group_info = groups_alloc(n);
-		if (cr->group_info)
-			return -ENOMEM;
-		for (i = 0 ; i < n ; i++) {
-			GROUP_AT(cr->group_info, i) = SGID_TO_KGID(*grp);
-			grp++;
-		}
-	}else{
-		cr->group_info = NULL;
+	gi = groups_alloc(n);
+	if (!gi)
+		return (ENOMEM);
+	
+	for (i = 0 ; i < n ; i++) {
+		GROUP_AT(gi, i) = SGID_TO_KGID(*grp);
+		grp++;
 	}
-	return (0);
-}
 
+	ret = set_groups(cr, gi);
+	put_group_info(gi);
+
+	return (ret);
+}
 
 EXPORT_SYMBOL(crhold);
 EXPORT_SYMBOL(crfree);

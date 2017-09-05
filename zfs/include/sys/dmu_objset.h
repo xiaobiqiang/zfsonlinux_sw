@@ -284,6 +284,8 @@ int dmu_fsname(const char *snapname, char *buf);
 void dmu_objset_evict_done(objset_t *os);
 
 #ifdef _KERNEL
+int objset_notify_system_space(objset_t *os);
+
 void dmu_objset_replay_all_cache(objset_t *os);
 void dmu_objset_insert_data(objset_t *os, dmu_buf_impl_t *db,
     struct dbuf_segs_data *seg_data);

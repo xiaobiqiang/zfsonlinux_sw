@@ -5654,12 +5654,21 @@ static void
 spa_async_thread(spa_t *spa)
 {
 	int tasks, i;
+	dsl_pool_t	*dp = NULL;
+	dsl_dataset_t *ds = NULL;
+	objset_t *os = NULL;
+	uint64_t txg = 0;
+	system_space_os_t *spos = NULL;
+	int err = 0;
 
 	ASSERT(spa->spa_sync_on);
 
 	mutex_enter(&spa->spa_async_lock);
 	tasks = spa->spa_async_tasks;
 	spa->spa_async_tasks = 0;
+	if (tasks & SPA_ASYNC_SYSTEM_SPACE) {
+		spa->spa_async_tasks |= SPA_ASYNC_SYSTEM_SPACE;
+	}
 	mutex_exit(&spa->spa_async_lock);
 
 	/*
@@ -5724,6 +5733,43 @@ spa_async_thread(spa_t *spa)
 	 */
 	if (tasks & SPA_ASYNC_RESILVER)
 		dsl_resilver_restart(spa->spa_dsl_pool, 0);
+
+	/*
+	 * sync system space in clusterfs mode
+	 */
+#ifdef _KERNEL
+	if (tasks & SPA_ASYNC_SYSTEM_SPACE){
+		dp = spa_get_dsl(spa);
+		txg = spa_last_synced_txg(spa);
+		while (spos = list_head(&dp->dp_sync_system_space[txg & TXG_MASK])) {
+			list_remove(&dp->dp_sync_system_space[txg & TXG_MASK], spos);
+			rrw_enter(&dp->dp_config_rwlock, RW_READER, FTAG);
+			ds = NULL;
+			err = dsl_dataset_hold_obj(dp, spos->ds_os_id, FTAG, &ds);
+			rrw_exit(&dp->dp_config_rwlock, FTAG);
+			/*  spa_namespace_lock ?? */
+			if (err != 0)
+				cmn_err(CE_WARN, "dsl_dataset_hold_obj errno:%d", err);
+
+			if (ds == NULL || err == ENOENT)
+				continue;
+
+			os = NULL;
+			err = dmu_objset_from_ds(ds, &os);
+			if (err != 0)
+				cmn_err(CE_WARN, "dmu_objset_from_ds errno:%d", err);	
+
+			if (os == NULL || err == ENOENT) {
+				cmn_err(CE_WARN, "hold for sync group system space: os == NULL");
+				dsl_dataset_rele(ds, FTAG);
+				continue;
+			}
+			objset_notify_system_space(os);
+			kmem_free(spos, sizeof(system_space_os_t));
+			spos = NULL;
+		}
+	}
+#endif
 
 	/*
 	 * Let the world know that we're done.
@@ -6139,7 +6185,6 @@ spa_sync_upgrades(spa_t *spa, dmu_tx_t *tx)
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
 	ASSERT(spa->spa_sync_pass == 1);
-
 	rrw_enter(&dp->dp_config_rwlock, RW_WRITER, FTAG);
 
 	if (spa->spa_ubsync.ub_version < SPA_VERSION_ORIGIN &&

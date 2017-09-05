@@ -924,7 +924,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	iovec_t		*aiov = NULL;
 	xuio_t		*xuio = NULL;
 	int		i_iov = 0;
-	int		iovcnt = uio->uio_iovcnt;
+//	int		iovcnt = uio->uio_iovcnt;
 	iovec_t	*iovp = uio->uio_iov;
 	int		write_eof;
 	int		count = 0;
@@ -1309,8 +1309,8 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		goto out;
 	}
 
-	if (ioflag & (FSYNC | FDSYNC) ||
-	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct)
+	if ((ioflag & (FSYNC | FDSYNC)) ||
+	    (zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct))
 		zil_commit(zilog, zp->z_id);
 
 	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
@@ -1903,8 +1903,8 @@ tx_again:
 		return (error);
 	}
 
-	if (ioflag & (FSYNC | FDSYNC) ||
-	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct)
+	if ((ioflag & (FSYNC | FDSYNC)) ||
+	    (zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct))
 		zil_commit(zilog, zp->z_id);
 
 	if (error == 0 && (zp->z_bquota || zp->z_dirquota > 0) && (zp->z_overquota == B_TRUE)) {
@@ -2358,21 +2358,25 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 	vn_op_type_t optype;
 	znode_t *zp = NULL;
 
-
-	nm_len = strlen(nm);
-	bzero(real_nm, MAXNAMELEN);
-	if(nm_len > strlen(nfs_query_data)){
-		p = nm + nm_len - strlen(nfs_query_data);
-		if(strcmp(p,nfs_query_data) == 0){
-			getdata = 1;
-			strncpy(real_nm, nm, nm_len - strlen(nfs_query_data));
+	nm_len = (nm != NULL) ? strlen(nm) : 0;
+	if (nm_len > 0){
+		bzero(real_nm, MAXNAMELEN);
+		if(nm_len > strlen(nfs_query_data)){
+			p = nm + nm_len - strlen(nfs_query_data);
+			if(strcmp(p,nfs_query_data) == 0){
+				getdata = 1;
+				strncpy(real_nm, nm, nm_len - strlen(nfs_query_data));
+			}else{
+				getdata = 0;
+				strncpy(real_nm, nm, nm_len);
+			}
 		}else{
 			getdata = 0;
 			strncpy(real_nm, nm, nm_len);
 		}
-	}else{
+	}else {
 		getdata = 0;
-		strncpy(real_nm, nm, nm_len);
+		real_nm[0] = '\0';
 	}
 
 	optype = zfs_vn_lookup_type(zdp, real_nm, flags);
@@ -2868,7 +2872,7 @@ top:
 			zfs_sa_set_dirlowdata(zp, zp->z_dirlowdata, tx);
 		}
 		mutex_exit(&zp->z_lock);
-		
+	
 		dmu_tx_commit(tx);
 	} else {
 		int aflags = (flag & FAPPEND) ? V_APPEND : 0;
@@ -3270,7 +3274,7 @@ top:
 	zfs_log_remove(zilog, tx, txtype, dzp, name, obj);
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2 &&
-		(flags & FBackupMaster) == 0 && error == 0 && NULL == strstr(name, SMB_STREAM_PREFIX)){
+		(flags & FBackupMaster) == 0 && error == 0 && NULL == strstr(name, SMB_STREAM_PREFIX) && ZFS_GROUP_DTL_ENABLE){
 		dmu_objset_name(zsb->z_os, os_name);
 		oblique_line = strstr(os_name, "/");
 		if (oblique_line) {
@@ -3548,7 +3552,7 @@ top:
 	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
 
-	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0){
+	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && ZFS_GROUP_DTL_ENABLE){
 		/* Backup directory Master node. */
 		z_carrier = zfs_group_dtl_carry(NAME_MKDIR, dzp, dirname, vap, 0,
 			0, zp, cr, flags, NULL, vsecp);
@@ -3719,7 +3723,7 @@ top:
 		zfs_log_remove(zilog, tx, txtype, dzp, name, ZFS_NO_OBJECT);
 	}
 
-	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && error == 0){
+	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_RMDIR, dzp, name, NULL, 0,
 				0, cwd, cr, flags, NULL, NULL);
 		if(z_carrier){
@@ -3915,6 +3919,7 @@ zfs_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flags)
 		} else {
 			offset += 1;
 		}
+		ctx->pos = offset;
 	}
 	zp->z_zn_prefetch = B_FALSE; /* a lookup will re-enable pre-fetching */
 
@@ -4007,8 +4012,9 @@ zfs_readdir_server(struct inode *ip, uio_t *uio, cred_t *cr, int *eofp, int flag
 	/*
 	 * Quit if directory has been removed (posix)
 	 */
-	if ((*eofp = zp->z_unlinked) != 0)
+	if ((*eofp = zp->z_unlinked) != 0){
 		goto out;
+	}
 
 	error = 0;
 	os = zsb->z_os;
@@ -4037,7 +4043,7 @@ zfs_readdir_server(struct inode *ip, uio_t *uio, cred_t *cr, int *eofp, int flag
 	bytes_wanted = iovp->iov_len;
 	if (uio->uio_segflg != UIO_SYSSPACE || uio->uio_iovcnt != 1) {
 		bufsize = bytes_wanted;
-		outbuf = kmem_alloc(bufsize, KM_SLEEP);
+		outbuf = vmem_zalloc(bufsize, KM_SLEEP);
 		odp = (struct linux_dirent64 *)outbuf;
 	} else {
 		bufsize = bytes_wanted;
@@ -4057,6 +4063,8 @@ zfs_readdir_server(struct inode *ip, uio_t *uio, cred_t *cr, int *eofp, int flag
 
 		if (maxentrynum <= 0)
 			break;
+
+		bzero(&zap, sizeof(zap_attribute_t));
 		/*
 		 * Special case `.', `..', and `.zfs'.
 		 */
@@ -4080,9 +4088,9 @@ zfs_readdir_server(struct inode *ip, uio_t *uio, cred_t *cr, int *eofp, int flag
 			 * Grab next entry.
 			 */
 			if ((error = zap_cursor_retrieve(&zc, &zap))) {
-				if ((*eofp = (error == ENOENT)) != 0)
+				if ((*eofp = (error == ENOENT)) != 0){
 					break;
-				else
+				}else
 					goto update;
 			}
 
@@ -4209,7 +4217,7 @@ update:
 	zap_cursor_fini(&zc);
 	
 	if (uio->uio_segflg != UIO_SYSSPACE || uio->uio_iovcnt != 1)
-		kmem_free(outbuf, bufsize);
+		vmem_free(outbuf, bufsize);
 
 	uio->uio_loffset = offset;
 	
@@ -4296,7 +4304,7 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 #endif
 		}
 	}	
-//	ZFS_VERIFY_ZP(zp);
+
 	if (zp->z_group_role != GROUP_VIRTUAL) {
 			ZFS_VERIFY_ZP(zp);
 			zfs_fuid_map_ids(zp, cr, &vap->va_uid, &vap->va_gid);
@@ -4546,17 +4554,58 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 	zfs_sb_t *zsb = ITOZSB(ip);
 	uint32_t blksize;
 	u_longlong_t nblocks;
+	uint64_t size;
+	znode_t *tmp_zp = NULL;
+	int error = 0;
 
 	ZFS_ENTER(zsb);
-	ZFS_VERIFY_ZP(zp);
+	if (zp->z_id == zsb->z_root && zsb->z_os->os_is_group &&
+		!spa_get_group_flags(dmu_objset_spa(zsb->z_os)) &&
+		!zsb->z_os->os_is_master) {
+		error = zfs_get_masterroot_attr(ip, &tmp_zp);
+		if (error == 0) {
+			zp = tmp_zp;
+		} else {
+#if 0
+			ZFS_EXIT(zfsvfs);
+			return (error);
+#endif
+		}
+	}
 
+	if (zp->z_group_role != GROUP_VIRTUAL) {
+		ZFS_VERIFY_ZP(zp);
+	} 
+	sp->size = zp->z_size;
 	mutex_enter(&zp->z_lock);
-
 	generic_fillattr(ip, sp);
-
-	sa_object_size(zp->z_sa_hdl, &blksize, &nblocks);
-	sp->blksize = blksize;
-	sp->blocks = nblocks;
+	if (zsb->z_os->os_is_group) {
+		if (zp->z_group_role != GROUP_VIRTUAL) {
+			if (zp->z_group_id.data_spa == spa_guid(dmu_objset_spa(zsb->z_os))) {
+				sa_object_size(zp->z_sa_hdl, (uint32_t *)&blksize, (u_longlong_t *)&nblocks);
+				sp->blksize = blksize;
+				sp->blocks = nblocks;
+			} else {
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(zp->z_zsb),
+				    &blksize, sizeof (uint64_t));
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(zp->z_zsb),
+				    &nblocks, sizeof (uint64_t));
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_SIZE(zp->z_zsb),
+				    &size, sizeof (uint64_t));
+				sp->blksize = blksize;
+				sp->blocks = nblocks;
+				sp->size = size;
+			}
+		
+		} else {
+			sp->blksize = zp->z_blksz;
+			sp->blocks = zp->z_nblks;
+		}
+	} else {
+		sa_object_size(zp->z_sa_hdl, (uint32_t *)&blksize, (u_longlong_t *)&nblocks);
+		sp->blksize = blksize;
+		sp->blocks = nblocks;
+	}
 
 	if (unlikely(zp->z_blksz == 0)) {
 		/*
@@ -4578,7 +4627,9 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 	}
 
 	ZFS_EXIT(zsb);
-
+	if (tmp_zp != NULL){
+		iput(ZTOI(tmp_zp));
+	}
 	return (0);
 }
 EXPORT_SYMBOL(zfs_getattr_fast);
@@ -5255,7 +5306,7 @@ top:
 		mutex_exit(&attrzp->z_lock);
 	}
 
-	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && err == 0){
+	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && err == 0 && ZFS_GROUP_DTL_ENABLE){
 		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
 			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
 			z_carrier = zfs_group_dtl_carry(NAME_ZNODE_SETATTR, zp, NULL, vap, 0,
@@ -5783,7 +5834,7 @@ top:
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2
 		&& (flags & FBackupMaster) == 0 && error == 0 && NULL == strstr(snm, SMB_STREAM_PREFIX)
-		&& NULL == strstr(tnm, SMB_STREAM_PREFIX)){
+		&& NULL == strstr(tnm, SMB_STREAM_PREFIX) && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_RENAME, sdzp, snm, NULL, 0,
 				0, tdzp, cr, flags, NULL, tnm);
 		if(z_carrier){
@@ -5874,7 +5925,7 @@ zfs_symlink(struct inode *dip, char *name, vattr_t *vap, char *link,
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT){
 		ZFS_ENTER(zsb);
-		error = zfs_client_symlink(dip, name, vap, link, cr, flags);
+		error = zfs_client_symlink(dip, name, vap, link, ipp, cr, flags);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -6022,7 +6073,7 @@ top:
 	zfs_acl_ids_free(&acl_ids);
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0
-		&& error == 0){
+		&& error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_SYMLINK, dzp, name, vap, 0,
 				0, zp, cr, flags, NULL, link);
 		if(z_carrier){
@@ -6263,7 +6314,7 @@ top:
 		zil_commit(zilog, 0);
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2
-		&& (flags & FBackupMaster) == 0 && error == 0){
+		&& (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_LINK, dzp, name, NULL, 0,
 				0, szp, cr, flags, NULL, NULL);
 		if(z_carrier){
@@ -7138,7 +7189,7 @@ zfs_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 		zil_commit(zilog, 0);
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flag & FBackupMaster) == 0
-		&& error == 0){ 
+		&& error == 0 && ZFS_GROUP_DTL_ENABLE){ 
 		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
 			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
 	    	z_carrier = zfs_group_dtl_carry(NAME_ACL, zp, NULL, NULL, 0, 0,

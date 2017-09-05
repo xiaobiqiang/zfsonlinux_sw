@@ -563,6 +563,8 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	mutex_init(&spa->spa_suspend_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_vdev_top_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_feat_stats_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_iokstat_lock, NULL, MUTEX_DEFAULT, NULL);
+
 
 	cv_init(&spa->spa_async_cv, NULL, CV_DEFAULT, NULL);
 	cv_init(&spa->spa_evicting_os_cv, NULL, CV_DEFAULT, NULL);
@@ -710,6 +712,8 @@ spa_remove(spa_t *spa)
 	mutex_destroy(&spa->spa_suspend_lock);
 	mutex_destroy(&spa->spa_vdev_top_lock);
 	mutex_destroy(&spa->spa_feat_stats_lock);
+
+	mutex_destroy(&spa->spa_iokstat_lock);
 
     cv_destroy(&spa->spa_do_zvol_cv);
     mutex_destroy(&spa->spa_do_zvol_lock);

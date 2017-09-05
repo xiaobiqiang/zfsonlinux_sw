@@ -1356,7 +1356,7 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 
 	zsb = zp->z_zsb;
 	 
-	va.va_mask = AT_ALL;
+	va.va_mask = ATTR_IATTR_MASK;
 //	error = vp->v_op->vop_getattr(vp, &va, FCLUSTER, kcred, NULL);
 	error = zfs_getattr(ip, &va, FCLUSTER, kcred);
 	if (error != 0) {
@@ -1413,7 +1413,8 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 
 out:
 	if (credp != NULL) {
-		crfree(credp);
+//		crfree(credp);
+		abort_creds(credp);
 	}
 	
 	if (vsa.vsa_aclentp != NULL && vsa.vsa_aclentsz != 0) {

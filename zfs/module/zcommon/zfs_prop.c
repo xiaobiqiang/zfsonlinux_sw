@@ -475,6 +475,27 @@ zfs_prop_init(void)
 	zprop_register_impl(ZFS_PROP_CREATION, "creation", PROP_TYPE_NUMBER, 0,
 	    NULL, PROP_READONLY, ZFS_TYPE_DATASET | ZFS_TYPE_BOOKMARK,
 	    "<date>", "CREATION", B_FALSE, B_TRUE, NULL);
+
+
+	zprop_register_index(ZFS_PROP_GROUP, "group", 0,
+	    PROP_ONETIME, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "on | off", "GROUP", boolean_table);
+	zprop_register_index(ZFS_PROP_MASTER, "master", 0,
+	    PROP_ONETIME, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "on | off", "MASTER", boolean_table);
+	zprop_register_string(ZFS_PROP_GROUP_NAME, "groupname", "none",
+	    PROP_ONETIME, ZFS_TYPE_FILESYSTEM| ZFS_TYPE_VOLUME, "group name",
+	    "SHARENFS");
+	zprop_register_number(ZFS_PROP_MASTER_SPA, "master_spa", 0, PROP_ONETIME,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "spa");
+	zprop_register_number(ZFS_PROP_MASTER_OS, "master_os", 0, PROP_ONETIME,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "os");
+	zprop_register_number(ZFS_PROP_MASTER_ROOT, "master_root", 0, PROP_ONETIME,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "master_root");
+	zprop_register_number(ZFS_PROP_SELF_ROOT, "self_root", 0, PROP_ONETIME,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "self_root");
+	zprop_register_number(ZFS_PROP_NODE_TYPE, "node_type", 0, PROP_ONETIME,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "node_type");
 }
 
 boolean_t

@@ -2307,8 +2307,13 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	zfs_sb_t *zsb = NULL;
 //	zfsvfs_t *zfsvfs = NULL;
 	int err;
-	zfs_dirlowdata_t dir_lowdata = {"",ZFS_LOWDATA_OFF,7,0,ZFS_LOWDATA_PERIOD_DAY,ZFS_LOWDATA_CRITERIA_ATIME};
+	zfs_dirlowdata_t *dir_lowdata = kmem_zalloc(sizeof(zfs_dirlowdata_t), KM_SLEEP);
 
+	dir_lowdata->lowdata = ZFS_LOWDATA_OFF;
+	dir_lowdata->lowdata_period = 7;
+	dir_lowdata->lowdata_delete_period = 0;
+	dir_lowdata->lowdata_period_unit = ZFS_LOWDATA_PERIOD_DAY;
+	dir_lowdata->lowdata_criteria = ZFS_LOWDATA_CRITERIA_ATIME;
 
 	/*
 	 * A correctly constructed propname is encoded as
@@ -2321,30 +2326,32 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
 	if (err == 0) {
 		
-		zfs_get_dir_low(zsb, pairvalue->object, &dir_lowdata);
+		zfs_get_dir_low(zsb, pairvalue->object, dir_lowdata);
 
 		if (strncmp(propname, zfs_dirlowdata_prefixex, strlen(zfs_dirlowdata_prefixex)) == 0) {
-			dir_lowdata.lowdata = value;
+			dir_lowdata->lowdata = value;
 		} else if (strncmp(propname, zfs_dirlowdata_period_prefixex,
 		    strlen(zfs_dirlowdata_period_prefixex)) == 0) {
-			dir_lowdata.lowdata_period = value;
+			dir_lowdata->lowdata_period = value;
 		} else if (strncmp(propname, zfs_dirlowdata_delete_period_prefixex,
 		    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0) {
-			dir_lowdata.lowdata_delete_period = value;
+			dir_lowdata->lowdata_delete_period = value;
 		} else if (strncmp(propname, zfs_dirlowdata_period_unit_prefixex,
 		    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) {
-			dir_lowdata.lowdata_period_unit = value;
+			dir_lowdata->lowdata_period_unit = value;
 		} else if (strncmp(propname, zfs_dirlowdata_criteria_prefixex,
 		    strlen(zfs_dirlowdata_criteria_prefixex)) == 0) {
-			dir_lowdata.lowdata_criteria = value;
+			dir_lowdata->lowdata_criteria = value;
 		}
-		err = zfs_set_dir_low(zsb, object, path, propname, value, &dir_lowdata);
+		err = zfs_set_dir_low(zsb, object, path, propname, value, dir_lowdata);
 		if(err)
 		{
 			cmn_err(CE_WARN, "err=%d: master set dirlowdata Fail!!!",err);
 		}
 		zfs_sb_rele(zsb, FTAG);
 	}
+	if (NULL != dir_lowdata)
+		kmem_free(dir_lowdata, sizeof(zfs_dirlowdata_t));
 	return (err);
 }
 
@@ -5323,7 +5330,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string, 
 				ZFS_MULTICLUS_MASTER);
 			break;
-
+/*
 		case GET_MULTICLUS_DTLSTATUS:
 			error = zfs_multiclus_get_dtlstatus(zc);
 			break;
@@ -5347,6 +5354,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string);
 			}
 			break;
+*/
 		default:
 			break;
 	}

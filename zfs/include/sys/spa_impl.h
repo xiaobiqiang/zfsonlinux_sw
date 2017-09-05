@@ -42,6 +42,7 @@
 #include <sys/bpobj.h>
 #include <sys/zfeature.h>
 #include <zfeature_common.h>
+#include <sys/kstat.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -297,7 +298,7 @@ struct spa {
 	 * spa_queue_stats[].
 	 */
 	kmutex_t	spa_iokstat_lock;
-	struct kstat	*spa_iokstat;		/* kstat of io to this pool */
+	kstat_t		*spa_iokstat;		/* kstat of io to this pool */
 	struct {
 		int spa_active;
 		int spa_queued;

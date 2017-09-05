@@ -31,7 +31,7 @@
 //#define	ESTALE		151	/* Stale NFS file handle */
 //#define	ETOOSMALL	152	/* Spare is smaller than data disk */
 /* Prodigy ClusterFS */
-#define	EGHOLD		153	/* Can't not group hold */
-#define	EOFFLINE	154	/* Node offline */
+#define	EGHOLD		1001	/* Can't not group hold */
+#define	EOFFLINE	1002	/* Node offline */
 
 #endif /* SPL_ERRNO_H */
