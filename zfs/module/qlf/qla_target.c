@@ -2414,17 +2414,10 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	uint8_t	*rsp = (uint8_t *)ctio;
 	struct qla_ctio_msg *msg;
 	struct qla_fct_shutdown_msg *shutdown_msg;
-
-	if (handle & CTIO_INTERMEDIATE_HANDLE_MARK) {
-		/* That could happen only in case of an error/reset/abort */
-		if (status != CTIO_SUCCESS) {
-			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf01d,
-			    "Intermediate CTIO received"
-			    " (handle %x, status %x)\n",
-			    handle, status);
-		}
+	uint32_t skip_handle = QLA_TGT_SKIP_HANDLE | CTIO_COMPLETION_HANDLE_MARK;
+	
+	if (handle == skip_handle)
 		return;
-	}
 	
 	/* write a deadbeef in the last 4 bytes of the IOCB */
 	iowrite32(0xdeadbeef, rsp+0x3c);
