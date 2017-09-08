@@ -2420,7 +2420,8 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 		if (status != CTIO_SUCCESS) {
 			ql_dbg(ql_dbg_tgt_mgt, vha, 0xf01d,
 			    "Intermediate CTIO received"
-			    " (handle %x, status %x)\n", status);
+			    " (handle %x, status %x)\n",
+			    handle, status);
 		}
 		return;
 	}
