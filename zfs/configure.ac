@@ -157,6 +157,7 @@ AC_CONFIG_FILES([
 	cmd/stmfsvc/Makefile
 	cmd/lunadm/Makefile
 	cmd/sethostid/Makefile
+	cmd/scripts/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
