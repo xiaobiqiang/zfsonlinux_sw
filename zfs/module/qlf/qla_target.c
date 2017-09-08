@@ -1640,7 +1640,7 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	pkt->initiator_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
 	pkt->initiator_id[2] = atio->u.isp24.fcp_hdr.s_id[0];
 	pkt->exchange_addr = atio->u.isp24.exchange_addr;
-	pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	//pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
 	pkt->u.status0.ox_id = swab16(atio->u.isp24.fcp_hdr.ox_id);
 
 	pkt->u.status0.relative_offset = cpu_to_le32(prm->cmd->offset);
