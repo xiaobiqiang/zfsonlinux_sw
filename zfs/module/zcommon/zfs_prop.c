@@ -251,7 +251,7 @@ zfs_prop_init(void)
 	zprop_register_index(ZFS_PROP_SNAPDEV, "snapdev", ZFS_SNAPDEV_HIDDEN,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "hidden | visible", "SNAPDEV", snapdev_table);
-	zprop_register_index(ZFS_PROP_ACLTYPE, "acltype", ZFS_ACLTYPE_OFF,
+	zprop_register_index(ZFS_PROP_ACLTYPE, "acltype", ZFS_ACLTYPE_POSIXACL,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT,
 	    "noacl | posixacl", "ACLTYPE", acltype_table);
 	zprop_register_index(ZFS_PROP_ACLINHERIT, "aclinherit",
