@@ -175,6 +175,7 @@ AC_CONFIG_FILES([
 	module/fct/Makefile
 	module/qlt/Makefile
 	module/qlf/Makefile
+	module/qlf_hengwei/Makefile
 	module/stmf/Makefile
 	module/stmf_sbd/Makefile
 	module/pppt/Makefile
