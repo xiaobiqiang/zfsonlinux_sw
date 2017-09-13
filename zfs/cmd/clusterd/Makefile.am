@@ -48,5 +48,5 @@ clusterd_LDADD = \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
 	$(top_builddir)/lib/libstmf/libstmf.la
 
-clusterd_LDADD += $(ZLIB)
+clusterd_LDADD += $(ZLIB) -lrt
 clusterd_LDFLAGS = -pthread

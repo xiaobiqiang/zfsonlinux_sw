@@ -305,8 +305,10 @@ tgt_sm_event_locked(pppt_tgt_t *tgt, pppt_tgt_event_t event)
 	tgt_event_ctx_t *ctx;
 
 	event = (event < TE_MAX_EVENT) ? event : TE_UNDEFINED;
+	/*
 	DTRACE_PROBE2(pppt__tgt__event, pppt_tgt_t *, tgt,
 	    pppt_tgt_event_t, event);
+	*/
 	stmf_trace("pppt", "pppt_tgt_event: tgt %p event %s(%d)",
 	    (void *)tgt, pppt_te_name[event], event);
 
@@ -859,9 +861,11 @@ tgt_sm_new_state(pppt_tgt_t *tgt, tgt_event_ctx_t *ctx,
 	    "tgt %p, %s(%d) --> %s(%d)\n",
 	    (void *) tgt, pppt_ts_name[tgt->target_state], tgt->target_state,
 	    pppt_ts_name[new_state], new_state);
+	/* 
 	DTRACE_PROBE3(pppt__target__state__change,
 	    pppt_tgt_t *, tgt, tgt_event_ctx_t *, ctx,
 	    pppt_tgt_state_t, new_state);
+	*/
 
 	mutex_enter(&tgt->target_mutex);
 	tgt->target_last_state = tgt->target_state;

@@ -14,6 +14,7 @@ configd_SOURCES = \
 
 configd_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la \
-	$(top_builddir)/lib/libcomm/libcomm.la
+	$(top_builddir)/lib/libcomm/libcomm.la \
+	$(top_builddir)/lib/libspl/libspl.la
 
 configd_LDADD += -lsqlite3

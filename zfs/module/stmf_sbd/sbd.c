@@ -450,11 +450,7 @@ stmf_sbd_fini(void)
 	}
 	if (stmf_deregister_lu_provider(sbd_lp) != STMF_SUCCESS)
 		return;
-	ret = misc_deregister(&stmf_sbd_misc);
-	if (ret != 0) {
-		(void) stmf_register_lu_provider(sbd_lp);
-		return;
-	}
+	misc_deregister(&stmf_sbd_misc);
 	stmf_free(sbd_lp);
 	mutex_destroy(&sbd_lock);
 	rw_destroy(&sbd_global_prop_lock);
@@ -4628,10 +4624,11 @@ sbd_data_read(sbd_lu_t *sl, struct scsi_task *task,
 
 	xfer_start = gethrtime();
 	stmf_lu_xfer_start(task);
+	/*
 	DTRACE_PROBE5(backing__store__read__start, sbd_lu_t *, sl,
 	    uint8_t *, buf, uint64_t, size, uint64_t, offset,
 	    scsi_task_t *, task);
-
+	*/
 	/*
 	 * Don't proceed if the device has been closed
 	 * This can occur on an access state change to standby or
@@ -4650,10 +4647,11 @@ sbd_data_read(sbd_lu_t *sl, struct scsi_task *task,
 
 	xfer_done = gethrtime() - xfer_start;
 	stmf_lu_xfer_done(task, B_TRUE /* read */, size, xfer_done);
+	/*
 	DTRACE_PROBE6(backing__store__read__end, sbd_lu_t *, sl,
 	    uint8_t *, buf, uint64_t, size, uint64_t, offset,
 	    int, ret, scsi_task_t *, task);
-
+	*/
 	if (ret || resid) {
 		stmf_trace(0, "UIO_READ failed, ret = %d, resid = %d", ret,
 		    resid);
@@ -4693,10 +4691,11 @@ sbd_data_write(sbd_lu_t *sl, struct scsi_task *task,
 
 	xfer_start = gethrtime();
 	stmf_lu_xfer_start(task);
+	/*
 	DTRACE_PROBE5(backing__store__write__start, sbd_lu_t *, sl,
 	    uint8_t *, buf, uint64_t, size, uint64_t, offset,
 	    scsi_task_t *, task);
-
+	*/
 	/*
 	 * Don't proceed if the device has been closed
 	 * This can occur on an access state change to standby or
@@ -4715,10 +4714,11 @@ sbd_data_write(sbd_lu_t *sl, struct scsi_task *task,
 
 	xfer_done = gethrtime() - xfer_start;
 	stmf_lu_xfer_done(task, B_FALSE /* write */, size, xfer_done);
+	/*
 	DTRACE_PROBE6(backing__store__write__end, sbd_lu_t *, sl,
 	    uint8_t *, buf, uint64_t, size, uint64_t, offset,
 	    int, ret, scsi_task_t *, task);
-
+	*/
 	if ((ret == 0) && (resid == 0) &&
 	    (sl->sl_flags & SL_WRITEBACK_CACHE_DISABLE) &&
 	    (sl->sl_flags & SL_FLUSH_ON_DISABLED_WRITECACHE)) {

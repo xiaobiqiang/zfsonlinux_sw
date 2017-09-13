@@ -59,7 +59,8 @@ fmd_LDADD = \
         $(top_builddir)/lib/libfmd/libfmd.la				\
         $(top_builddir)/lib/libipmi/libipmi.la				\
         $(top_builddir)/lib/fm/topo/libtopo/common/libtopo.la 		\
-        $(top_builddir)/lib/libstmf/libstmf.la 
+        $(top_builddir)/lib/libstmf/libstmf.la				\
+		$(top_builddir)/lib/libspl/libspl.la
 
 
 fmd_LDFLAGS = -lpthread -ldl -lxml2					\
