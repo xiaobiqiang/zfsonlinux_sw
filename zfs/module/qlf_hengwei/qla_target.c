@@ -5855,6 +5855,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	cmd->state = QLA_TGT_STATE_NEW;
 	cmd->tgt = vha->vha_tgt.qla_tgt;
 	cmd->vha = vha;
+	cmd->reset_count = vha->hw->chip_reset;
 
 	/* TODO: */
 	cmd->loop_id = 0;
