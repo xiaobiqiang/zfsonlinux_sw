@@ -833,8 +833,6 @@ znode_t *zfs_znode_alloc_by_group(zfs_sb_t *zsb, uint64_t blksz,
 	 */
 	zp->z_zsb = zsb;
 	mutex_exit(&zsb->z_znodes_lock);
-
-	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	return (zp);
 }
 

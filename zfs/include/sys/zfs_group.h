@@ -302,7 +302,6 @@ typedef struct zfs_group_data_read {
 	uint64_t	len;		/* Block size */
 	uint64_t	eof;
 	zfs_group_cred_t	cred;
-	uint16_t	maxentrynum;   /*only used for zfs_readdir*/
 } zfs_group_data_read_t;
 
 typedef struct zfs_group_data_write {
@@ -772,7 +771,7 @@ int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *
     caller_context_t *ct, int flag, zfs_multiclus_node_type_t m_node_type);
 
 int		
-zfs_client_readdir(struct inode *ip, struct dir_context *ctx, int maxentrynum, cred_t *cr, int flag);
+zfs_client_readdir(struct inode *ip, struct dir_context *ctx, int maxbytes, cred_t *cr, int flag);
 int	zfs_client_symlink(struct inode *pip, char *cp, vattr_t *vap, char *tnm, struct inode **ipp,		
     cred_t *credp, int flag);
 int	zfs_client_symlink_backup(

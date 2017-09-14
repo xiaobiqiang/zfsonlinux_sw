@@ -2383,6 +2383,8 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 					}else {
 						dmu_objset_rele(os, FTAG);
 					}	
+				}else {
+					dmu_objset_rele(os, FTAG);
 				}
 				zfs_multiclus_group_record_init((char*)reg_data->group_name,
 					(char*)reg_data->fsname, reg_data->spa_id, 
@@ -2394,8 +2396,6 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 				cmn_err(CE_WARN, "zfs_multiclus_register_tq reinit record: %s, node_type:%d, cache_head->node_type: %d",
 					(char *)reg_data->fsname, node_type, reg_data->node_type);
 				mutex_exit(&multiclus_mtx_update_record);
-				if (node_type == ZFS_MULTICLUS_SLAVE)
-					dmu_objset_rele(os, FTAG);
 				continue;
 			} else if (os->os_will_be_master) {
 					waitcount = 20;
@@ -2422,10 +2422,8 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 				msg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 				bcopy(reg_data->group_name, msg_header->group_name, reg_data->group_name_len);
 				msg_header->group_name_len = reg_data->group_name_len;
-				cmn_err(CE_WARN, "[%s %d] group name=%s", __func__, __LINE__, msg_header->group_name);
 				(void)zfs_multiclus_write_group_reply_msg((void *)(&(group->multiclus_group)), msg_header,
 				    ZFS_MULTICLUS_GROUP_REPLY);
-				cmn_err(CE_WARN, "[%s %d] group name=%s", __func__, __LINE__, msg_header->group_name);
 				kmem_free(msg_header, sizeof(zfs_group_header_t));
 				mutex_exit(&group->multiclus_group_mutex);
 				mutex_exit(&multiclus_mtx);

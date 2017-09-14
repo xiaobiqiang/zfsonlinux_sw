@@ -5743,6 +5743,7 @@ spa_async_thread(spa_t *spa)
 		txg = spa_last_synced_txg(spa);
 		while (spos = list_head(&dp->dp_sync_system_space[txg & TXG_MASK])) {
 			list_remove(&dp->dp_sync_system_space[txg & TXG_MASK], spos);
+
 			rrw_enter(&dp->dp_config_rwlock, RW_READER, FTAG);
 			ds = NULL;
 			err = dsl_dataset_hold_obj(dp, spos->ds_os_id, FTAG, &ds);
@@ -5765,6 +5766,7 @@ spa_async_thread(spa_t *spa)
 				continue;
 			}
 			objset_notify_system_space(os);
+			dsl_dataset_rele(ds, FTAG);
 			kmem_free(spos, sizeof(system_space_os_t));
 			spos = NULL;
 		}

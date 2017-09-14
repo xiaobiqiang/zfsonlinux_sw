@@ -2141,7 +2141,7 @@ static int zfs_group_process_data_request(zfs_group_server_para_t *server_para)
 			auio.uio_loffset = read->offset;
 			auio.uio_segflg = UIO_SYSSPACE;
 			auio.uio_resid = read->len;
-			auio.uio_fmode = read->maxentrynum;
+			auio.uio_fmode = 0;
 			auio.uio_extflg = UIO_COPY_CACHED;
 
 //			(void) VOP_RWLOCK(ZTOV(zp), V_WRITELOCK_FALSE, NULL); 

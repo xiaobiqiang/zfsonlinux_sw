@@ -135,14 +135,15 @@ int	zfs_group_proc_znode(znode_t *zp, znode_operation_t op, void *ptr,
 boolean_t zfs_server_is_online(uint64_t ser_spa, uint64_t ser_os);
 // extern int zfs_nasavs_printf_clnt_group_id_dtl(const char *func, int line, zfs_group_object_t group_id);
 
-void zfs_group_acquire_znode_error(zfs_group_object_t *group_object, 
+void zfs_group_acquire_znode_error(znode_t *zp, zfs_group_object_t *group_object, 
     zfs_group_phys_t *object_phy, const char *label)
 {
 	int type;
 	boolean_t lookup_error = B_FALSE;
+	zfs_sb_t *zsb = zp->z_zsb;
 
-	if (group_object->master_spa == 0 || group_object->master_objset ==0 ||
-		group_object->master_object == 0){
+	if (zp->z_id != zsb->z_root &&  (group_object->master_spa == 0 || group_object->master_objset ==0 ||
+		group_object->master_object == 0)){
 		lookup_error = B_TRUE;
 	} else {
 		type = IFTOVT(object_phy->zp_mode);
@@ -516,6 +517,12 @@ void zfs_group_znode_copy_phys(znode_t *zp, zfs_group_phys_t *dst_phys, boolean_
 	bcopy(zp->z_ctime, dst_phys->zp_ctime, sizeof(uint64_t) *2);
 	bcopy(zp->z_mtime, dst_phys->zp_mtime, sizeof(uint64_t) *2);
 
+	dst_phys->ino = ip->i_ino;
+	dst_phys->nlink = (unsigned int)zp->z_links;
+	dst_phys->atime = ip->i_atime;
+	dst_phys->mtime = ip->i_mtime;
+	dst_phys->ctime = ip->i_ctime;
+
 	if (!nosa && zp->z_sa_hdl != NULL) {
 		if ((zp->z_id == zp->z_zsb->z_root) ||
 		    ((zp->z_group_id.data_spa == spa_guid(dmu_objset_spa(zp->z_zsb->z_os)))
@@ -540,12 +547,6 @@ void zfs_group_znode_copy_phys(znode_t *zp, zfs_group_phys_t *dst_phys, boolean_
 		sa_lookup(zp->z_sa_hdl, SA_ZPL_SCANSTAMP(zp->z_zsb),
 		    &dst_phys->zp_scan,
 		    sizeof (uint64_t) * 4);
-		
-		dst_phys->ino = ip->i_ino;
-		dst_phys->nlink = ip->i_nlink;
-		dst_phys->atime = ip->i_atime;
-		dst_phys->mtime = ip->i_mtime;
-		dst_phys->ctime = ip->i_ctime;
 	} else {
 		dst_phys->zp_nblocks = zp->z_nblks;
 		dst_phys->zp_blksz = zp->z_blksz;
@@ -1380,8 +1381,6 @@ int zfs_client_read_data(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	}
 	read->offset = off;
 	read->len = bytes;
-	if (op == DIR_READ)
-		read->maxentrynum = uiop->uio_fmode;
 
 	zfs_group_set_cred(credp, &read->cred);
 	error = zfs_proc_data(zsb, zp,
@@ -1740,7 +1739,7 @@ zfs_group_proc_znode(
 		zp->z_group_id = z2p->inp.id;
 		mutex_exit(&zp->z_lock);
 		sprintf(msg, "%s %s", "Acquire znode", znode_op);
-		zfs_group_acquire_znode_error(&z2p->inp.id, &z2p->zrec.object_phy,
+		zfs_group_acquire_znode_error(zp, &z2p->inp.id, &z2p->zrec.object_phy,
 		    msg);
 
 	} else {
@@ -1946,7 +1945,9 @@ int zfs_group_zget(zfs_sb_t *zsb, uint64_t object, znode_t **zpp,
 	zfs_group_phys_t tmp_phy;
 	znode_t *tmp_zp = NULL;
 
+	bzero(&group_object, sizeof(zfs_group_object_t));
 	bzero(&tmp_phy, sizeof(zfs_group_phys_t));
+	tmp_phy.nlink = 1;
 	group_object.master_spa = zsb->z_os->os_master_spa;
 	group_object.master_objset = zsb->z_os->os_master_os;
 	group_object.master_object = object;
@@ -1963,8 +1964,7 @@ int zfs_group_zget(zfs_sb_t *zsb, uint64_t object, znode_t **zpp,
 		group_object.master2_gen = 0;
 	}
 	
-	tmp_zp = zfs_znode_alloc_by_group(zsb, 0,
-	    &group_object, &tmp_phy);
+	tmp_zp = zfs_znode_alloc_by_group(zsb, 0,  &group_object, &tmp_phy);
 	if (NULL == tmp_zp){
 		return -1;
 	}
@@ -2883,7 +2883,7 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 		zp = zfs_znode_alloc_by_group(pzp->z_zsb, nrec->object_blksz,
 		    &nrec->object_id, &nrec->object_phy);
 
-		zfs_group_acquire_znode_error(&nrec->object_id, &nrec->object_phy,
+		zfs_group_acquire_znode_error(zp, &nrec->object_id, &nrec->object_phy,
 		    "group_create");
 		*ipp = ZTOI(zp);
 	}
@@ -3182,7 +3182,7 @@ zfs_client_lookup(struct inode *pip, char *cp, struct inode **ipp,
 			(void) strlcpy(rpnp->pn_buf, rpn->pn_buf, rpnp->pn_bufsize);
 		}
 
-		zfs_group_acquire_znode_error(&nrec->object_id,
+		zfs_group_acquire_znode_error(zp, &nrec->object_id,
 		    &nrec->object_phy, "Group Lookup");
 	} 
 	kmem_free(nrec, sizeof (zfs_group_znode_record_t));
@@ -4207,7 +4207,7 @@ int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *
 
 
 int		
-zfs_client_readdir(struct inode *ip, struct dir_context *ctx, int maxentrynum, cred_t *cr, int flag)
+zfs_client_readdir(struct inode *ip, struct dir_context *ctx, int maxbytes, cred_t *cr, int flag)
 {
 	int error;
 	size_t nbytes; 
@@ -4221,23 +4221,21 @@ zfs_client_readdir(struct inode *ip, struct dir_context *ctx, int maxentrynum, c
 	size_t dbuflen;
 	struct linux_dirent64 *dp = NULL;
 	int		done = 0;
-	int remainentrynum = maxentrynum;
 
-GET_DATA:
 	bzero(&auio, sizeof(struct uio));
 	bzero(&aiov, sizeof(struct iovec));
-	aiov.iov_base = vmem_zalloc(zfs_group_max_dataseg_size, KM_NOSLEEP);
-	aiov.iov_len = zfs_group_max_dataseg_size;
+	aiov.iov_base = vmem_zalloc(maxbytes, KM_NOSLEEP);
+	aiov.iov_len = maxbytes;
 	auio.uio_iov = &aiov;
 	auio.uio_iovcnt = 1;
 	auio.uio_skip = 0;
 	auio.uio_loffset = ctx->pos;
 	auio.uio_segflg = UIO_SYSSPACE;
-	auio.uio_resid = zfs_group_max_dataseg_size;
-	auio.uio_fmode = (uint16_t)remainentrynum; 
+	auio.uio_resid = maxbytes;
+	auio.uio_fmode = 0; 
 	auio.uio_extflg = UIO_COPY_CACHED;
 	
-	nbytes = zfs_group_max_dataseg_size;
+	nbytes = maxbytes;
 
 	error = zfs_client_read_data(zp->z_zsb, zp, &auio, nbytes, DIR_READ,
 		   cr, flag, DATA_TO_MASTER, &eof);
@@ -4251,20 +4249,14 @@ GET_DATA:
 		done = !dir_emit(ctx, dp->d_name, strlen(dp->d_name), dp->d_ino, dp->d_type);
 		if (done)
 			break;
+		ctx->pos = (loff_t)dp->d_off;
 	}
-	ctx->pos = auio.uio_loffset;
-	if ((eof != 1) && (ctx->pos < maxentrynum) && !done){
-		remainentrynum = maxentrynum - ctx->pos;
-		vmem_free(aiov.iov_base, zfs_group_max_dataseg_size);
-		goto GET_DATA;
-	}
-
 #if 0
 	error = zfs_client_read_data(zp->z_zfsvfs, zp, uiop, DIR_READ,
 	    credp, flag, DATA_TO_MASTER, eofp);
 #endif
 out:
-	vmem_free(aiov.iov_base, zfs_group_max_dataseg_size);
+	vmem_free(aiov.iov_base, maxbytes);
 	return (error);
 }
 
@@ -4521,7 +4513,7 @@ int zfs_get_masterroot_attr(struct inode *ip, znode_t **tmp_root_zp)
 	int err;
 	uint64_t object;
 	znode_t *zp = NULL;
-	zfs_sb_t *zsb;
+	zfs_sb_t *zsb = NULL;
 
 	zp = ITOZ(ip);
 	zsb = zp->z_zsb;

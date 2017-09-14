@@ -1278,7 +1278,7 @@ void zfs_group_dtl_test(char *fsname)
 	}
 
 //	VFS_HOLD(zfsvfs->z_vfs);
-	deactivate_super(zsb->z_sb);
+	atomic_inc_not_zero(&zsb->z_sb->s_active);
 
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 	ptree = &zsb->z_group_dtl_tree2;

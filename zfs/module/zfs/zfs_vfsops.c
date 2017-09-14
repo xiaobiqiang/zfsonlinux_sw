@@ -2328,6 +2328,7 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 	if (zsb == NULL) {
 		cmn_err(CE_WARN, "zfsvfs_group_hold: zfsvfs->z_mounted = false!");
 		mutex_exit(&os->os_user_ptr_lock);
+		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (NULL);
 	}
 //	VFS_HOLD(zfsvfs->z_vfs);
@@ -2344,6 +2345,7 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		cmn_err(CE_WARN, "zfsvfs_group_hold: zfsvfs->z_is_setting_up");
 //		VFS_RELE(zfsvfs->z_vfs);
 		deactivate_super(zsb->z_sb);
+		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (NULL);
 	}
 
@@ -2353,8 +2355,10 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		rrm_exit(&zsb->z_teardown_lock, tag);
 //		VFS_RELE(zfsvfs->z_vfs);
 		deactivate_super(zsb->z_sb);
+		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (NULL);
 	}
+	dsl_dataset_rele(dsl_dataset, FTAG);
 	return (zsb);
 }
 
