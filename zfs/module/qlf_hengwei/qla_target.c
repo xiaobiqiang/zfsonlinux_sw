@@ -2671,6 +2671,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 
 	pkt2 = NULL;
 
+#if 0
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 	if (cmd->sess && cmd->sess->deleted == QLA_SESS_DELETION_IN_PROGRESS) {
 		cmd->state = QLA_TGT_STATE_PROCESSED;
@@ -2683,6 +2684,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		return 0;
 	}
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
+#endif
 
 	memset(&prm, 0, sizeof(prm));
 	qlt_check_srr_debug(cmd, &xmit_type);
@@ -3246,7 +3248,7 @@ done:
 	    !cmd->cmd_sent_to_fw)) {
 		if (cmd->sg_mapped)
 			qlt_unmap_sg(vha, cmd);
-		vha->hw->tgt.tgt_ops->free_cmd(cmd);
+		/* vha->hw->tgt.tgt_ops->free_cmd(cmd); */
 	}
 
 	if (!ha_locked)
@@ -3531,7 +3533,7 @@ qlt_abort_cmd_on_host_reset(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 		ql_dbg(ql_dbg_io, vha, 0xff01,
 		    "HOST-ABORT: handle=%d, state=DATA_IN.\n", handle);
 
-		ha->tgt.tgt_ops->handle_data(cmd);
+		/* ha->tgt.tgt_ops->handle_data(cmd); */
 		return;
 	} else if (cmd->state == QLA_TGT_STATE_ABORTED) {
 		ql_dbg(ql_dbg_io, vha, 0xff02,
@@ -3544,7 +3546,7 @@ qlt_abort_cmd_on_host_reset(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 	}
 
 	cmd->cmd_flags |= BIT_17;
-	ha->tgt.tgt_ops->free_cmd(cmd);
+	/* ha->tgt.tgt_ops->free_cmd(cmd); */
 }
 
 void
@@ -7053,12 +7055,12 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 
 /*********************************************************************************/
 
-#define	BUF_COUNT_2K		2	
-#define	BUF_COUNT_8K		2	
-#define	BUF_COUNT_64K		2	
-#define	BUF_COUNT_128K		16	
+#define	BUF_COUNT_2K		16	
+#define	BUF_COUNT_8K		16	
+#define	BUF_COUNT_64K		16	
+#define	BUF_COUNT_128K		2
 /* merge alua_2w code to stable modified by zywang begin */
-#define	BUF_COUNT_256K		16	
+#define	BUF_COUNT_256K		2
 /* merge alua_2w code to stable modified by zywang end */
 
 #define	QLT_DMEM_MAX_BUF_SIZE	(4 * 65536)

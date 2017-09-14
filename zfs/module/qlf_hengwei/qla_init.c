@@ -3297,12 +3297,6 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	struct fc_rport_identifiers rport_ids;
 	struct fc_rport *rport;
 	unsigned long flags;
-	fct_remote_port_t	*rp;
-	fct_i_remote_port_t	*irp;
-	fct_local_port_t	*port = vha->qlt_port;
-	fct_i_local_port_t *iport =
-	    (fct_i_local_port_t *)port->port_fct_private;
-	stmf_scsi_session_t	*ses   = NULL;
 
 	rport_ids.node_name = wwn_to_u64(fcport->node_name);
 	rport_ids.port_name = wwn_to_u64(fcport->port_name);
@@ -3321,25 +3315,48 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	 */
 
 	qlt_fc_port_added(vha, fcport);
-	
-	if (!fct_portid_to_portptr(iport, rport_ids.port_id)) {
-		printk("start registe remote port\n");
-		rp = fct_alloc(FCT_STRUCT_REMOTE_PORT,
-			port->port_fca_rp_private_size, 0);
-		if (rp == NULL) {
-			//fct_queue_cmd_for_termination(cmd,
-			//    FCT_ALLOC_FAILURE);
-			return;
-		}
 
-		printk("zjn %s alloc rp=%p\n", __func__, rp);
+	spin_lock_irqsave(fcport->vha->host->host_lock, flags);
+	*((fc_port_t **)rport->dd_data) = fcport;
+	spin_unlock_irqrestore(fcport->vha->host->host_lock, flags);
+
+	rport->supported_classes = fcport->supported_classes;
+
+	rport_ids.roles = FC_RPORT_ROLE_UNKNOWN;
+	if (fcport->port_type == FCT_INITIATOR)
+		rport_ids.roles |= FC_RPORT_ROLE_FCP_INITIATOR;
+	if (fcport->port_type == FCT_TARGET)
+		rport_ids.roles |= FC_RPORT_ROLE_FCP_TARGET;
+	fc_remote_port_rolechg(rport, rport_ids.roles);
+}
+
+void
+qla_register_scsi_session(scsi_qla_host_t *vha, fc_port_t *fcport)
+{
+	fct_remote_port_t	*rp;
+	fct_i_remote_port_t	*irp;
+	fct_local_port_t	*port = vha->qlt_port;
+	fct_i_local_port_t *iport =
+	    (fct_i_local_port_t *)port->port_fct_private;
+	stmf_scsi_session_t	*ses = NULL;
+	uint32_t rportid = 0;
+	
+	rportid = fcport->d_id.b.domain << 16 |
+	    fcport->d_id.b.area << 8 | fcport->d_id.b.al_pa;
+	if (!fct_portid_to_portptr(iport, rportid)) {
+		ql_dbg(ql_dbg_tgt, vha, 0xe01e, 
+			"start register remote port 0x%x\n", rportid);
+		rp = fct_alloc(FCT_STRUCT_REMOTE_PORT, 
+			port->port_fca_rp_private_size, 0);
+		if (rp == NULL)
+			return;
+
 		irp = (fct_i_remote_port_t *)rp->rp_fct_private;
 		rw_init(&irp->irp_lock, 0, RW_DRIVER, 0);
 		irp->irp_rp = rp;
-		irp->irp_portid =  rport_ids.port_id;
-		printk("zjn %s rport_ids.port_id = %x\n", __func__, rport_ids.port_id);
+		irp->irp_portid = rportid;
 		rp->rp_port = port;
-		rp->rp_id =  rport_ids.port_id;
+		rp->rp_id = rportid;
 		rp->rp_handle = FCT_HANDLE_NONE;
 	
 		rw_enter(&iport->iport_lock, RW_WRITER);
@@ -3347,7 +3364,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 		
 		fct_queue_rp(iport, irp);
 		stmf_wwn_to_devid_desc((scsi_devid_desc_t *)irp->irp_id,
-			    fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
+			fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
 		atomic_or_32(&irp->irp_flags, IRP_PLOGI_DONE);
 		atomic_add_32(&iport->iport_nrps_login, 1);
 		if (irp->irp_deregister_timer) {
@@ -3366,19 +3383,15 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 		/* A PLOGI also invalidates any RSCNs related to this rp */
 		atomic_add_32(&irp->irp_rscn_counter, 1);
 		rw_exit(&iport->iport_lock);
-		printk("end registe remote port!\n");
-
-		printk("start create session\n");
 		ses = (stmf_scsi_session_t *)stmf_alloc(STMF_STRUCT_SCSI_SESSION, 0, 0);
+
 		if (ses) {
 			ses->ss_port_private = irp;
 			ses->ss_rport_id = (scsi_devid_desc_t *)irp->irp_id;
 			ses->ss_lport = port->port_lport;
-
-			printk("%s invoke register_scsi_session", __func__);
-		
+			
 			if (stmf_register_scsi_session(port->port_lport, ses) !=
-			    STMF_SUCCESS) {
+				STMF_SUCCESS) {
 				stmf_free(ses);
 				ses = NULL;
 			} else {
@@ -3394,22 +3407,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 				atomic_or_32(&irp->irp_flags, IRP_PRLI_DONE | IRP_SCSI_SESSION_STARTED);
 			}
 		}
-		
-		printk("end create session!\n");
 	}
-
-	spin_lock_irqsave(fcport->vha->host->host_lock, flags);
-	*((fc_port_t **)rport->dd_data) = fcport;
-	spin_unlock_irqrestore(fcport->vha->host->host_lock, flags);
-
-	rport->supported_classes = fcport->supported_classes;
-
-	rport_ids.roles = FC_RPORT_ROLE_UNKNOWN;
-	if (fcport->port_type == FCT_INITIATOR)
-		rport_ids.roles |= FC_RPORT_ROLE_FCP_INITIATOR;
-	if (fcport->port_type == FCT_TARGET)
-		rport_ids.roles |= FC_RPORT_ROLE_FCP_TARGET;
-	fc_remote_port_rolechg(rport, rport_ids.roles);
 }
 
 /*
@@ -3451,6 +3449,7 @@ reg_port:
 		 * Create target mode FC NEXUS in qla_target.c
 		 */
 		qlt_fc_port_added(vha, fcport);
+		qla_register_scsi_session(vha, fcport);
 	}
 }
 
