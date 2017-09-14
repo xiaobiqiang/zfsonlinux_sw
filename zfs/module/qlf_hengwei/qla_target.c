@@ -6842,7 +6842,7 @@ fatal_panic:
 }
 
 fct_status_t
-qlt_abort_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
+qlt_abort_scsi_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 {
 	struct scsi_qla_host * vha;
 	vha = (struct scsi_qla_host *)port->port_fca_private;
@@ -7867,7 +7867,7 @@ qlt_port_start(void* arg)
 	port->port_send_cmd = qlt_send_cmd;
 	port->port_xfer_scsi_data = qlt_xfer_scsi_data;
 	port->port_send_cmd_response = qlt_send_cmd_response;
-	port->port_abort_cmd = qlt_abort_cmd;
+	port->port_abort_cmd = qlt_abort_scsi_cmd;
 	port->port_ctl = qlt_ctl;
 	printk("prot_ctl : %p", qlt_ctl);
 	port->port_flogi_xchg = qlt_do_flogi;
