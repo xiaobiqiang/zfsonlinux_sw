@@ -2894,11 +2894,7 @@ skip_dpc:
 	qlt_port_start(base_vha);
 	ql_log(ql_log_info, base_vha, 0x00fb,
             "end to add target\n");
-	ql_log(ql_log_info, base_vha, 0x00fb,
-            "ready to enbale vha!");
-	qlt_enable_vha(base_vha);
-	ql_log(ql_log_info, base_vha, 0x00fb,
-            "end enbale vha!");
+	//qlt_enable_vha(base_vha);
 
 	clear_bit(PFLG_DRIVER_PROBING, &base_vha->pci_flags);
 	return 0;

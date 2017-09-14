@@ -3168,6 +3168,13 @@ static int qlt_handle_cmd_for_atio(struct scsi_qla_host *vha,
 		return -ENOMEM;
 	}
 
+	cmd->atio = kmem_cache_zalloc(atio_cachep, GFP_ATOMIC);
+	if(!cmd->atio) {
+		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf05e,
+		    "qla_target(%d): Allocation of cmd atio failed\n", vha->vp_idx);
+		return -ENOMEM;
+	}
+
 	INIT_LIST_HEAD(&cmd->cmd_list);
 
 	memcpy(&cmd->atio, atio, sizeof(*atio));
@@ -4202,7 +4209,6 @@ static void qlt_24xx_retry_term_exchange(struct scsi_qla_host *vha,
 	struct abts_resp_from_24xx_fw *entry)
 {
 	struct ctio7_to_24xx *ctio;
-	uint32_t handle_tmp1, handle_tmp2;
 
 	ql_dbg(ql_dbg_tgt, vha, 0xe007,
 	    "Sending retry TERM EXCH CTIO7 (ha=%p)\n", vha->hw);
@@ -4237,10 +4243,6 @@ static void qlt_24xx_retry_term_exchange(struct scsi_qla_host *vha,
 					    CTIO7_FLAGS_TERMINATE);
 	ctio->u.status1.ox_id = cpu_to_le16(entry->fcp_hdr_le.ox_id);
 
-	handle_tmp1 = QLA_TGT_SKIP_HANDLE;
-	handle_tmp2 = CTIO_COMPLETION_HANDLE_MARK;
-	printk("zjn %s handle=0x%x, handle_tmp1=0x%x, handle_tmp2=0x%x\n",
-		__func__, ctio->handle, handle_tmp1, handle_tmp2);
 	qla2x00_start_iocbs(vha, vha->req);
 
 	qlt_24xx_send_abts_resp(vha, (struct abts_recv_from_24xx *)entry,

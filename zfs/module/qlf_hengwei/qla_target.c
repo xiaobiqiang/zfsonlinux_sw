@@ -1840,7 +1840,6 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 {
 	/* uint32_t h; */
 	struct ctio7_to_24xx *pkt;
-	//struct qla_hw_data *ha = vha->hw;
 	struct atio_from_isp *atio = prm->cmd->atio;
 	uint16_t temp;
 
@@ -1879,7 +1878,7 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	pkt->initiator_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
 	pkt->initiator_id[2] = atio->u.isp24.fcp_hdr.s_id[0];
 	pkt->exchange_addr = atio->u.isp24.exchange_addr;
-	pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	// pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
 	temp = be16_to_cpu(atio->u.isp24.fcp_hdr.ox_id);
 	pkt->u.status0.ox_id = cpu_to_le16(temp);
 	pkt->u.status0.relative_offset = cpu_to_le32(prm->cmd->offset);
@@ -2075,53 +2074,18 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 	*full_req_cnt = prm->req_cnt;
 
 	cdbprt = cmd->atio->u.isp24.fcp_cmnd.cdb;
-	if (xmit_type == QLA_TGT_XMIT_STATUS) {
-		printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbprt[0], cdbprt[1], cdbprt[2]);
-                prm->rq_result |= SS_RESIDUAL_UNDER;
-                prm->residual = cmd->data_length - cmd->bufflen;
-                printk("suwei %s prm->rq_result = %x, prm->residual= %x, cmd->data_size = 0x%x, cmd->data_length = 0x%x\n",
-                        __func__,
-                        prm->rq_result,
-                        prm->residual,
-                        cmd->bufflen,
-			cmd->data_length
-                );
-	}
-	
-
-
-#if 0 
-	cdbprt = cmd->atio->u.isp24.fcp_cmnd.cdb;
-	if ((xmit_type == QLA_TGT_XMIT_STATUS && (cmd->db_flags & DB_SHORT_DATA)) ||
-		(cdbprt[0] == 0xa3 && cdbprt[1] == 0x0a) ||
-                (cdbprt[0] == 0xa0 && cdbprt[1] == 0x00) ) {
-		printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbprt[0], cdbprt[1], cdbprt[2]);
+	if ((xmit_type == QLA_TGT_XMIT_STATUS) &&
+		(cmd->dma_data_direction != DMA_FROM_DEVICE)) {
+		prm->residual = cmd->data_length - cmd->bufflen;
 		prm->rq_result |= SS_RESIDUAL_UNDER;
-		prm->residual = cmd->data_length - cmd->bufflen; 
-                printk("suwei %s prm->rq_result = %x, prm->residual= %x, cmd->data_size = %x\n", 
-			__func__, 
-			prm->rq_result, 
+		printk("%s prm->rq_result = 0x%x, prm->residual = 0x%x, "
+			"cmd->data_length = 0x%x, cmd->bufflen = 0x%x\n",
+			__func__,
+			prm->rq_result,
 			prm->residual,
-			cmd->bufflen
-		);
-        }
-#endif
-	
-
-#if 0
-	if (xmit_type == QLA_TGT_XMIT_STATUS && (cmd->db_flags & DB_SHORT_DATA)) {
-                prm->rq_result |= SS_RESIDUAL_UNDER;
-                prm->residual = cmd->data_length - cmd->bufflen;
-                printk("suwei %s prm->rq_result = %x, prm->residual= %x, cmd->data_size = %x\n",
-                        __func__,
-                        prm->rq_result,
-                        prm->residual,
-                        cmd->bufflen
-                );
-        }
-
-#endif
-	printk("suwei test!\n");
+			cmd->data_length,
+			cmd->bufflen);
+	}
 
 #if 0
 	if (se_cmd->se_cmd_flags & SCF_UNDERFLOW_BIT) {
@@ -2722,10 +2686,14 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	if (unlikely(res))
 		goto out_unmap_unlock;
 
+	/*
 	if (cmd->se_cmd.prot_op && (xmit_type & QLA_TGT_XMIT_DATA))
 		res = qlt_build_ctio_crc2_pkt(&prm, vha);
 	else
 		res = qlt_24xx_build_ctio_pkt(&prm, vha, xmit_type);
+	*/
+	res = qlt_24xx_build_ctio_pkt(&prm, vha, xmit_type);
+	
 	if (unlikely(res != 0)) {
 		vha->req->cnt += full_req_cnt;
 		goto out_unmap_unlock;
@@ -2739,11 +2707,18 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 			CTIO7_FLAGS_STATUS_MODE_0);
 		pkt->u.status0.flags |= cmd->flags;
 
-		if (cmd->se_cmd.prot_op == TARGET_PROT_NORMAL && 
-			sgl_mode == TRUE ) {
+		if (sgl_mode) {
 			qlt_load_data_segments(&prm, vha);
+		} else {
+			pkt->dseg_count = 1;
+			pkt->u.status0.transfer_length = cmd->dbuf.db_data_size;
+			pkt->u.status0.dseg_0_address[0] = 
+				cpu_to_le32(LSD(cmd->dbuf.bctl_dev_addr));
+			pkt->u.status0.dseg_0_address[1] = 
+				cpu_to_le32(MSD(cmd->dbuf.bctl_dev_addr));
+			pkt->u.status0.dseg_0_length = cmd->dbuf.db_data_size;
 		}
-
+		
 		if (prm.add_status_pkt == 0) {
 			if (xmit_type & QLA_TGT_XMIT_STATUS) {
 				pkt->u.status0.scsi_status =
@@ -2772,6 +2747,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 			ql_dbg(ql_dbg_io, vha, 0x305e,
 			    "Building additional status packet 0x%p.\n",
 			    ctio);
+			pkt2 = ctio;
 
 			/*
 			 * T10Dif: ctio_crc2_to_fw overlay ontop of
@@ -2809,24 +2785,21 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	    "Xmitting CTIO7 response pkt for 24xx: %p scsi_status: 0x%02x\n",
 	    pkt, scsi_status);
 	cdbptr = cmd->atio->u.isp24.fcp_cmnd.cdb;
-        printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbptr[0], cdbptr[1], cdbptr[2]);
-        //if (xmit_type == QLA_TGT_XMIT_STATUS) {
-                ptr =  (uint8_t *)pkt;
-                for (i = 0; i < sizeof(struct ctio7_to_24xx); i++) {
-                        printk("zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
-                                xmit_type, i, ptr[i]);
-                }
+    printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbptr[0], cdbptr[1], cdbptr[2]);
+	ptr = (uint8_t *)pkt;
+	for (i = 0; i < sizeof(struct ctio7_to_24xx); i++) {
+		printk("zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
+			xmit_type, i, ptr[i]);
+	}
 
-        if (pkt2) {
-                ptr =  (uint8_t *)pkt2;
-                for (i = 0; i < sizeof(struct ctio7_to_24xx); i++) {
-                        printk("zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
-                                xmit_type, i, ptr[i]);
-                }
-        }
-
-        //}
-
+	if (pkt2) {
+		ptr =  (uint8_t *)pkt2;
+		for (i = 0; i < sizeof(struct ctio7_to_24xx); i++) {
+			printk("zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
+				xmit_type, i, ptr[i]);
+		}
+	}
+	
 	/* Memory Barrier */
 	wmb();
 	qla2x00_start_iocbs(vha, vha->req);
@@ -3608,6 +3581,10 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	uint8_t	*rsp = (uint8_t *)ctio;
 	struct qla_ctio_msg *msg;
 	struct qla_fct_shutdown_msg *shutdown_msg;
+	uint32_t skip_handle = QLA_TGT_SKIP_HANDLE | CTIO_COMPLETION_HANDLE_MARK;
+
+	if (handle == skip_handle)
+		return;
 
 	/* write a deadbeef in the last 4 bytes of the IOCB */
 	iowrite32(0xdeadbeef, rsp+0x3c);
@@ -3647,11 +3624,6 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 
 		INIT_WORK(&shutdown_msg->fct_shutdown_work, qlt_do_fct_shutdown);
 		queue_work(qla_tgt_fct_shutdown_wq, &shutdown_msg->fct_shutdown_work);
-		
-		(void) fct_port_shutdown(vha->qlt_port,
-			/* STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info); */
-			STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET |
-			STMF_RFLAG_COLLECT_DEBUG_DUMP, info);
 
 		return;
 	}
@@ -4042,9 +4014,6 @@ static void __qlt_do_work(struct qla_tgt_cmd *cmd)
 	    &atio->u.isp24.fcp_cmnd.add_cdb[
 	    atio->u.isp24.fcp_cmnd.add_cdb_len]));
 
-	//ql_dbg(ql_dbg_tgt, vha, 0xe022,
-	//    "qla_target: START qla command: %p lun: 0x%04x (tag %d)\n",
-	//    cmd, cmd->unpacked_lun, cmd->tag);
 
 	ret = vha->hw->tgt.tgt_ops->handle_cmd(vha, cmd, cdb, data_length,
 	    fcp_task_attr, data_dir, bidi);
@@ -4304,7 +4273,8 @@ qlt_do_abort(struct work_struct *abort_work)
 	bcopy(resp, qcmd->buf, IOCB_SIZE);
 	cmd->cmd_port = vha->qlt_port;
 	cmd->cmd_rp_handle = ioread16(resp+0xA);
-	if (cmd->cmd_rp_handle == 0xFFFF)
+	if (cmd->cmd_rp_handle == 0xFFFF ||
+		cmd->cmd_rp_handle == 0)
 		cmd->cmd_rp_handle = FCT_HANDLE_NONE;
 
 	cmd->cmd_rportid = remote_portid;
@@ -6157,6 +6127,50 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 
 	case ABTS_RESP_24XX:
 		if (tgt->abts_resp_expected > 0) {
+			struct abts_resp_from_24xx_fw *entry =
+				(struct abts_resp_from_24xx_fw *)pkt;
+			ql_dbg(ql_dbg_tgt, vha, 0xe038,
+				"ABTS_RESP_24XX: compl_status %x\n",
+				entry->compl_status);
+			tgt->abts_resp_expected--;
+			if (le16_to_cpu(entry->compl_status) !=
+				ABTS_RESP_COMPL_SUCCESS) {
+				if ((entry->error_subcode1 == 0x1E) &&
+					(entry->error_subcode2 == 0)) {
+					/*
+					 * We've got a race here: aborted
+					 * exchange not terminated, i.e.
+					 * response for the aborted command was
+					 * sent between the abort request was
+					 * received and processed.
+					 * Unfortunately, the firmware has a
+					 * silly requirement that all aborted
+					 * exchanges must be explicitely
+					 * terminated, otherwise it refuses to
+					 * send responses for the abort
+					 * requests. So, we have to
+					 * (re)terminate the exchange and retry
+					 * the abort response.
+					 */
+					qlt_24xx_retry_term_exchange(vha,
+						entry);
+				} else
+					ql_dbg(ql_dbg_tgt, vha, 0xe063,
+						"qla_target(%d): ABTS_RESP_24XX "
+						"failed %x (subcode %x:%x)",
+						vha->vp_idx, entry->compl_status,
+						entry->error_subcode1,
+						entry->error_subcode2);
+			}
+		} else {
+			ql_dbg(ql_dbg_tgt, vha, 0xe064,
+				"qla_target(%d): Unexpected ABTS_RESP_24XX "
+				"received\n", vha->vp_idx);
+		}
+		break;
+
+#if 0
+		if (tgt->abts_resp_expected > 0) {
 			uint16_t status;
 			char	info[80];
 			uint8_t *resp = (uint8_t *)pkt;
@@ -6224,6 +6238,7 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 			    "received\n", vha->vp_idx);
 		}
 		break;
+#endif
 
 	default:
 		ql_dbg(ql_dbg_tgt, vha, 0xe065,
@@ -6771,43 +6786,86 @@ fct_status_t
 qlt_send_cmd_response(fct_cmd_t *cmd, uint32_t ioflags)
 {
 	scsi_qla_host_t *vha;
-	struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
-	scsi_task_t *task	= (scsi_task_t *)cmd->cmd_specific;
+	scsi_task_t *task = (scsi_task_t *)cmd->cmd_specific;
 	uint8_t scsi_status;
 	int xmit_type = QLA_TGT_XMIT_STATUS;
+	char info[160] = {0};
+	vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
+	
+	if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
+		if (ioflags & FCT_IOF_FORCE_FCA_DONE) {
+			EL(qlt, "ioflags = %xh\n", ioflags);
+			goto fatal_panic;
+		} else {
+			struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
+			scsi_status = task->task_scsi_status;
+			qcmd->cmd_handle = cmd->cmd_handle;
+			
+			if(task->task_mgmt_function) {
+				/* no sense length, 4 bytes of resp info */
+				qcmd->offset = 4;
+			}
 
-	if (cmd->cmd_port) {
-		vha = (scsi_qla_host_t *)cmd->cmd_port->port_fca_private;
-	} else {
-		vha = NULL;
+			bcopy(task->task_sense_data, qcmd->sense_buffer, task->task_sense_length);
+#if 0
+			qcmd->dbuf_rsp_iu = NULL;
+#endif
+			qlt_xmit_response(qcmd, xmit_type, task->task_scsi_status, FALSE);
+			return (FCT_SUCCESS);	
+		}
 	}
 	
-	scsi_status = task->task_scsi_status;
-	qcmd->cmd_handle = cmd->cmd_handle;
-
+	if (ioflags & FCT_IOF_FORCE_FCA_DONE) {
+		cmd->cmd_handle = 0;
+	}
+	
 	if (cmd->cmd_type == FCT_CMD_RCVD_ABTS) {
-		qcmd->aborted = cmd->cmd_type;
+		qlt_abts_cmd_t *qcmd = (qlt_abts_cmd_t *)cmd->cmd_fca_private;;
+		qlt_24xx_send_abts_resp(vha, (struct abts_recv_from_24xx *)qcmd->buf,
+			FC_TM_SUCCESS, false);
+		return (FCT_SUCCESS);
+	} else {
+		printk("%s cmd_type=%xh unknown\n", __func__, cmd->cmd_type);
+		ASSERT(0);
+		return (FCT_FAILURE);
 	}
-
-	if(task->task_mgmt_function) {
-		/* no sense length, 4 bytes of resp info */
-		qcmd->offset = 4;
-	}
-
-	bcopy(task->task_sense_data, qcmd->sense_buffer, task->task_sense_length);
-#if 0
-	qcmd->dbuf_rsp_iu = NULL;
-#endif
-
-	qlt_xmit_response(qcmd, xmit_type, task->task_scsi_status, FALSE);
-	return (FCT_SUCCESS);
+	
+fatal_panic:
+	(void) snprintf(info, 160, "qlt_send_cmd_response: can not handle "
+	    "FCT_IOF_FORCE_FCA_DONE for cmd %p, ioflags-%x", (void *)cmd,
+	    ioflags);
+	info[159] = 0;
+	(void) fct_port_shutdown(vha->qlt_port,
+	    STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info);
+	return (FCT_FAILURE);
+	
 }
 
-/*fct_status_t
+fct_status_t
 qlt_abort_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 {
-	return (FCT_SUCCESS);
-}*/
+	struct scsi_qla_host * vha;
+	vha = (struct scsi_qla_host *)port->port_fca_private;
+
+	if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
+		struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
+		qcmd->aborted = 1;
+		qlt_send_term_exchange(vha, qcmd, qcmd->atio, 0);
+	}
+
+	if (flags & FCT_IOF_FORCE_FCA_DONE) {
+		cmd->cmd_handle = 0;
+	}
+
+	if (cmd->cmd_type == FCT_CMD_RCVD_ABTS) {
+		/* this is retried ABTS, terminate it now */
+		qlt_abts_cmd_t *qcmd = (qlt_abts_cmd_t *)cmd->cmd_fca_private;
+		qlt_24xx_send_abts_resp(vha, (struct abts_recv_from_24xx *)qcmd->buf,
+			FC_TM_SUCCESS, false);
+	}
+	
+	return (FCT_ABORT_SUCCESS);
+}
 
 static void
 qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
@@ -8552,16 +8610,7 @@ int __init qlt_init(void)
 
 	if (!QLA_TGT_MODE_ENABLED())
 		return 0;
-/*
-	qla_tgt_cmd_cachep = kmem_cache_create("qla_tgt_cmd_cachep",
-	    sizeof(struct qla_tgt_cmd), __alignof__(struct qla_tgt_cmd), 0,
-	    NULL);
-	if (!qla_tgt_cmd_cachep) {
-		ql_log(ql_log_fatal, NULL, 0xe06c,
-		    "kmem_cache_create for qla_tgt_cmd_cachep failed\n");
-		return -ENOMEM;
-	}
-*/
+
 	qla_tgt_mgmt_cmd_cachep = kmem_cache_create("qla_tgt_mgmt_cmd_cachep",
 	    sizeof(struct qla_tgt_mgmt_cmd), __alignof__(struct
 	    qla_tgt_mgmt_cmd), 0, NULL);
