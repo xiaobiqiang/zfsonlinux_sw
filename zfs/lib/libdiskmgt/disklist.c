@@ -14,6 +14,9 @@
 #include <sys/stat.h>
 #include <sys/dkio.h>
 #include <libsysenv.h>
+#include <scsi/sg.h>
+#include <linux/ioctl.h>
+#include <linux/hdreg.h>
 
 #if 0
 #include <thread_pool.h>
@@ -1176,3 +1179,346 @@ dmg_slice_compare(const void *p1, const void *p2) {
 		return (-1);
 	return (0);
 }
+
+/*
+ ***************************************************************************
+ * linux disk list interface
+ ***************************************************************************
+ */
+void disk_table_insert(disk_table_t *dt, disk_info_t *di)
+{
+	int slot = di->dk_slot;
+	disk_info_t *search = dt->next;
+
+	if (search == NULL) {
+		dt->next = di;
+		di->prev = NULL;
+		di->next = NULL;
+		dt->total++;
+		return;
+	}
+
+	while (search->next != NULL && search->dk_slot < slot)
+		search = search->next;
+
+	if (search->dk_slot > slot) {
+		di->prev = search->prev;
+		di->next = search;
+		if (search->prev == NULL) {
+			dt->next = di;
+		} else {
+			search->prev->next = di;
+		}
+		search->prev = di;
+	} else {
+		search->next = di;
+		di->prev = search;
+		di->next = NULL;
+	}
+
+	dt->total++;
+	return;
+}
+
+int disk_get_info(disk_table_t *dt)
+{
+	FILE *fd = -1;
+	int i = 0;
+	int sec = 0;
+	int len = 0;
+	char *ptr = NULL;
+	disk_info_t *di_cur = NULL;
+	disk_info_t *di_ptr = NULL;
+	char buf_scsi[ARGS_LEN] = {0};
+	char buf_dev[ARGS_LEN] = {0};
+	char buf_other[ARGS_LEN] = {0};
+	char sysdisk[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	fd = popen(DISK_BY_ID, "r");
+	if (fd == NULL)
+		return (-1);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		sscanf(tmp, "%*[^:]:%d %s %s %s",&sec, buf_scsi, buf_other, buf_dev);
+		len = strlen(buf_dev);
+		if (buf_dev[len - 1] >= '0' && buf_dev[len - 1] <= '9') {
+			continue;
+		}
+		
+		if (strncasecmp(buf_scsi, "scsi", 4) == 0) {
+			di_cur = (disk_info_t*)malloc(sizeof(disk_info_t));
+			bzero(di_cur, sizeof(disk_info_t));
+			snprintf(di_cur->dk_scsid, strlen(buf_scsi) + strlen(DEFAULT_SCSI) + 1, "%s%s",
+					DEFAULT_SCSI, buf_scsi);
+
+			if ((ptr = strstr(buf_dev, "sd")) != NULL) {
+				snprintf(di_cur->dk_name, strlen(ptr) + strlen(DEFAULT_PATH) + 1,"%s%s",
+						DEFAULT_PATH, ptr);	
+			}
+
+			disk_get_vendor(di_cur);
+			disk_get_serial(di_cur);
+			disk_get_status(di_cur);
+			disk_get_slotid(di_cur);
+			disk_get_gsize(di_cur);
+
+			disk_table_insert(dt, di_cur);
+		}
+	}
+
+	(void) disk_get_system(sysdisk);	
+
+	di_cur = dt->next;
+	for (i = 0; i < dt->total; i++) {
+		if (strncmp(di_cur->dk_name, sysdisk, 8) == 0) {
+			di_cur->dk_is_sys = 1;
+			break;
+		}
+
+		di_cur = di_cur->next;
+	}
+
+	(void) fclose(fd);
+	return (0);
+}
+
+void disk_get_system(char *disk_name)
+{
+	int ret = -1;
+	FILE *fp = -1;
+	char args[ARGS_LEN] = {0};
+	char dev[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	fp = fopen("/etc/mtab", "r");
+	if (fp == NULL) {
+		return; 
+	}
+	
+	while (fgets(tmp, sizeof(tmp), fp)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r') 
+			continue;
+		
+		sscanf(tmp, "%s", dev);
+		if (strncmp(dev, "/dev/sd", 7) == 0) {
+			sscanf(tmp, "%*s %s", args);
+			if (strcasecmp(args, "/") == 0 || strcasecmp(args, "/boot") == 0
+				|| strcasecmp(args, "/home") == 0) {
+				memcpy(disk_name, dev, 8);
+				break;
+			}
+		} else {
+			continue;
+		}
+	}
+
+	(void) fclose(fp);
+}
+
+int disk_get_gsize(disk_info_t *di)
+{
+	FILE *fd = -1;
+	char *ptr = NULL;
+	char args[ARGS_LEN] = {0};
+	char major[ARGS_LEN] = {0};
+	char rm[ARGS_LEN] = {0};
+	char gsize[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	fd = popen(LSBLK, "r");
+	if (fd == NULL)
+		return (0);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		sscanf(tmp, "%s%s%s%s", args,major,rm,gsize);
+		ptr = strstr(di->dk_name, "sd");
+		if (ptr != NULL && strcasecmp(args, ptr) == 0) {
+			memcpy(di->dk_gsize, gsize, strlen(gsize)); 
+			break;
+		}
+	}
+}
+
+int disk_get_slotid(disk_info_t *di)
+{
+	FILE *fd = -1;
+	int len = -1;
+	int slot = -1;
+	int enclosure = -1;
+	char value_sn[ARGS_LEN] = {0};
+	char args[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	fd = popen(SAS2IRCU, "r");
+	if (fd == NULL)
+		return (0);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
+			continue;
+
+		sscanf(tmp, "%s", args);	
+		if (strcasecmp(args, ENCLOSURE) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &enclosure);
+		} else if (strcasecmp(args, SLOT) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &slot);
+		} else if (strcasecmp(args, SERIALNO) == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_sn);
+			if (di->dk_serial != NULL && value_sn != -1
+				&& strcasestr(di->dk_serial, value_sn) != NULL) {
+				di->dk_enclosure = enclosure;
+				di->dk_slot = slot;
+			} else {
+				slot = -1;
+				enclosure = -1;
+			}
+		}
+	}
+
+	pclose(fd);
+}
+
+void disk_get_status(disk_info_t *di)
+{
+	int i = 0;
+	int fd = -1;
+	int err = -1;
+	int count = 0;
+	struct dk_gpt *vtoc = NULL;
+
+	if (di->dk_is_sys == 1) {
+		memcpy(di->dk_busy, "busy", 4);
+		return; 
+	}
+
+	fd = open(di->dk_name, O_RDWR|O_DIRECT);
+	if (fd > 0) {
+		err = efi_alloc_and_read(fd, &vtoc);
+		if (err >= 0) {
+			for (i = 0; i < vtoc->efi_nparts; i++) {
+				if (vtoc->efi_parts[i].p_size != 0) {
+					count = i;
+					break;
+				}
+			}
+		}
+	}
+
+	if (count == 8)
+		memcpy(di->dk_busy, "free", 4);
+	else
+		memcpy(di->dk_busy, "busy", 4);
+
+	efi_free(vtoc);
+	(void) close(fd);
+}
+
+int disk_get_vendor(disk_info_t *di)
+{
+	unsigned char inq_buff[INQ_REPLY_LEN];
+	unsigned char sense_buffer[32];
+	unsigned char inq_cmd_blk[INQ_CMD_LEN] =
+	    {0x12, 0, 0, 0, INQ_REPLY_LEN, 0};
+	sg_io_hdr_t io_hdr;
+	int error;
+	int fd;
+
+	/* Prepare INQUIRY command */
+	memset(&io_hdr, 0, sizeof (sg_io_hdr_t));
+	io_hdr.interface_id = 'S';
+	io_hdr.cmd_len = sizeof (inq_cmd_blk);
+	io_hdr.mx_sb_len = sizeof (sense_buffer);
+	io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+	io_hdr.dxfer_len = INQ_REPLY_LEN;
+	io_hdr.dxferp = inq_buff;
+	io_hdr.cmdp = inq_cmd_blk;
+	io_hdr.sbp = sense_buffer;
+	io_hdr.timeout = 10;		/* 10 milliseconds is ample time */
+
+	if ((fd = open(di->dk_name, O_RDONLY|O_DIRECT)) < 0)
+		return (0);
+
+	error = ioctl(fd, SG_IO, (unsigned long) &io_hdr);
+
+	(void) close(fd);
+
+	if (error < 0)
+		return (0);
+
+	if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK)
+		return (0);
+
+	memcpy(di->dk_vendor, inq_buff + 8, 8);
+	
+	return (1);
+}
+
+int disk_get_serial(disk_info_t *di)
+{
+	int len = 0;
+	int rsp_len = 0;
+	char *src = NULL;
+	char *dest = NULL;
+	char *rsp_buf = NULL;
+	char *path = di->dk_name;
+	unsigned char inq_buff[INQ_REPLY_LEN];
+	unsigned char sense_buffer[32];
+	unsigned char inq_cmd_blk[INQ_CMD_LEN] =
+	    {0x12, 1, 0x80, 0, INQ_REPLY_LEN, 0};
+	sg_io_hdr_t io_hdr;
+	int error;
+	int fd;
+	int i;
+
+	/* Prepare INQUIRY command */
+	memset(&io_hdr, 0, sizeof (sg_io_hdr_t));
+	io_hdr.interface_id = 'S';
+	io_hdr.cmd_len = sizeof (inq_cmd_blk);
+	io_hdr.mx_sb_len = sizeof (sense_buffer);
+	io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+	io_hdr.dxfer_len = INQ_REPLY_LEN;
+	io_hdr.dxferp = inq_buff;
+	io_hdr.cmdp = inq_cmd_blk;
+	io_hdr.sbp = sense_buffer;
+	io_hdr.timeout = 10;		/* 10 milliseconds is ample time */
+
+	if ((fd = open(path, O_RDONLY|O_DIRECT)) < 0)
+		return (B_FALSE);
+
+	error = ioctl(fd, SG_IO, (unsigned long) &io_hdr);
+
+	(void) close(fd);
+
+	if (error < 0) {
+		return (B_FALSE);
+	}
+
+	if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK)
+		return (B_FALSE);
+
+	rsp_len = inq_buff[3];
+	rsp_buf = (char*)&inq_buff[4];
+	for (i = 0, dest = rsp_buf; i < rsp_len; i++) {
+		src = &rsp_buf[i];
+		if (*src > 0x20) {
+			if (*src == ':')
+				*dest++ = ';';
+			else
+				*dest++ = *src;
+		}
+	}
+	
+	len = dest - rsp_buf;
+	dest = rsp_buf;
+
+	if (len > INQ_REPLY_LEN) {
+		dest += len - INQ_REPLY_LEN;
+		len = INQ_REPLY_LEN;
+	}
+
+	memcpy(di->dk_serial, dest, len);
+
+	return (1);
+}
+

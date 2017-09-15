@@ -49,6 +49,7 @@
 #include <zone.h>
 #include <syslog.h>
 #include <zfs_prop.h>
+#include <disklist.h>
 #include <sys/fs/zfs.h>
 #include <sys/stat.h>
 #include <sys/fm/util.h>
@@ -1307,14 +1308,13 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 		}
 		if ((name = zpool_vdev_name(g_zfs, zhp, child[c], B_FALSE)) == NULL )
 			continue;
-#if 0
-		if (strncmp(name, "/dev/dsk/", 9) == 0)
-			name += 9;
-		sprintf(dev_path, "/dev/rdsk/%s", name);
-		zpool_init_dev_labels(dev_path);
-#else
-		sprintf(dev_path, "/dev/%s", name);
-#endif
+
+		if (strstr(name, "scsi") != NULL) {
+			sprintf(dev_path, "/dev/disk/by-id/%s", name);
+		} else {
+			sprintf(dev_path, "/dev/%s", name);
+		}
+
 		zpool_init_efi(dev_path);
 		zpool_write_dev_stamp(dev_path, stamp);
 		zpool_write_dev_stamp_mark(dev_path, stamp);
@@ -1327,14 +1327,12 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 		for (c = 0; c < nmirrorspare; c++) {
 			if ((name = zpool_vdev_name(g_zfs, zhp, mirrorspare[c], B_FALSE)) == NULL )
 				continue;
-#if 0
-			if (strncmp(name, "/dev/dsk/", 9) == 0)
-				name += 9;
-			sprintf(dev_path, "/dev/rdsk/%s", name);
-			zpool_init_dev_labels(dev_path);
-#else
-			sprintf(dev_path, "/dev/%s", name);
-#endif
+
+			if (strstr(name, "scsi") != NULL) {
+				sprintf(dev_path, "/dev/disk/by-id/%s", name);
+			} else {
+				sprintf(dev_path, "/dev/%s", name);
+			}
 			
 			zpool_init_efi(dev_path);
 			zpool_write_dev_stamp(dev_path, stamp);
@@ -1349,14 +1347,13 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 		for (c = 0; c < ncaches; c++) {
 			if ((name = zpool_vdev_name(g_zfs, zhp, caches[c], B_FALSE)) == NULL )
 				continue;
-#if 0
-			if (strncmp(name, "/dev/dsk/", 9) == 0)
-				name += 9;
-			sprintf(dev_path, "/dev/rdsk/%s", name);
-			zpool_init_dev_labels(dev_path);
-#else
-			sprintf(dev_path, "/dev/%s", name);
-#endif
+
+			if (strstr(name, "scsi") != NULL) {
+				sprintf(dev_path, "/dev/disk/by-id/%s", name);
+			} else {
+				sprintf(dev_path, "/dev/%s", name);
+			}
+
 			zpool_init_efi(dev_path);
 			zpool_write_dev_stamp(dev_path, stamp);
 			zpool_write_dev_stamp_mark(dev_path, stamp);
@@ -1682,6 +1679,7 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	uint_t c, children;
 	pool_scan_stat_t *ps = NULL;
 	vdev_stat_t *vs;
+	disk_info_t di = {0};
 	char rbuf[6], wbuf[6], cbuf[6], quantum_buf[8];
 	char en_buf[6], slot_buf[6], buf[32];
 	char *vname;
@@ -1718,8 +1716,20 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	    name, state);
 
 	// TODO: cannot support enclosure and slot info in current 
-	sprintf(en_buf, "%s", "--");
-	sprintf(slot_buf, "%s", "--");
+	if (children == 0) {
+		if (strstr(name, "scsi") != NULL) {
+			sprintf(di.dk_name, "/dev/disk/by-id/%s", name);
+		} else {
+			sprintf(di.dk_name, "/dev/%s", name);
+		}
+		disk_get_serial(&di);
+		disk_get_slotid(&di);
+		sprintf(en_buf, "%d", di.dk_enclosure);
+		sprintf(slot_buf, "%d", di.dk_slot);
+	} else {
+		sprintf(en_buf, "%s", "--");
+		sprintf(slot_buf, "%s", "--");
+	}
 	
 	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, &quantum) == 0 &&
 		quantum == 1)

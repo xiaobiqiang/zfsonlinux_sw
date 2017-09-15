@@ -31,43 +31,6 @@
  * linux disk info interface
  *************************************************************************
  */
-#define DEFAULT_DISK_INFO_PATH	"/proc/partitions"
-#define DEFAULT_PATH			"/dev/"
-#define SAS2IRCU		"sas2ircu 0 display 2>/dev/null"
-#define SLOT			"Slot"
-#define ENCLOSURE		"Enclosure"
-#define SERIALNO		"Serial"
-#define CMD_TMP_LEN		1024
-#define ARGS_LEN		100
-#define DEV_LEN			50
-#define PARAM_LEN		10
-#define	INQ_REPLY_LEN	96
-#define	INQ_CMD_LEN		6
-#define POOLLEN			64
-
-typedef struct disk_info {
-	int		dk_major;
-	int		dk_minor;
-	int		dk_enclosure;
-	int		dk_slot;
-	int		dk_is_sys;
-	int		dk_rpm ;
-	long	dk_gsize;
-	long	dk_blocks;
-	char	dk_vendor[PARAM_LEN];
-	char	dk_busy[PARAM_LEN];
-	char	dk_name[ARGS_LEN];
-	char	dk_pool[ POOLLEN ] ;
-	char	*dk_role ;
-	char	dk_serial[ARGS_LEN];
-	struct disk_info *next;
-} disk_info_t;
-
-typedef struct disk_table {
-	disk_info_t *next;
-	int			total;
-} disk_table_t;
-
 static xmlNodePtr create_xml_file();
 static void close_xml_file();
 static void create_lun_node(disk_info_t *di);
@@ -83,263 +46,17 @@ const char DISK_ROLE_LOWSPARE[]="lowspare" ;
 
 static libzfs_handle_t *gzfslib_p ;
 
-static void
-get_system_disk(char *name)
-{
-	int ret = -1;
-	FILE *fp = -1;
-	char args[ARGS_LEN] = {0};
-	char dev[ARGS_LEN] = {0};
-	char tmp[CMD_TMP_LEN] = {0};
-
-	fp = fopen("/etc/mtab", "r");
-	if (fp == NULL) {
-		return; 
-	}
-	
-	while (fgets(tmp, sizeof(tmp), fp)) {
-		if (tmp[0] == '\n' || tmp[0] == '\r') 
-			continue;
-		
-		sscanf(tmp, "%s", dev);
-		if (strncmp(dev, "/dev/sd", 7) == 0) {
-			sscanf(tmp, "%*s %s", args);
-			if (strcasecmp(args, "/") == 0 || strcasecmp(args, "/boot") == 0
-				|| strcasecmp(args, "/home") == 0) {
-				memcpy(name, dev, 8);
-				break;
-			}
-		} else {
-			continue;
-		}
-	}
-
-	(void) fclose(fp);
-	return;
-}
-	
-static void
-get_scsi_gsize(uint64_t blocks)
-{
-	double bs = blocks / 1024.0;
-	if (bs >= 1024) {
-		if (bs / 1024 > 1024)
-			printf("%-3.2lf T\n", (bs / 1024) / 1024);
-		else
-			printf("%-3.2lfGB\n",bs / 1024);
-	} else {
-		printf("%-3.2lfMB\n",bs);
-	}
-
-	return;
-}
-
 void print_info(disk_info_t *di, int count)
 {
 	if (di->dk_is_sys == 1) {
-		strcat(di->dk_name, " [system]");
+		strcat(di->dk_scsid, " [system]");
 	}
 
-	(void) printf("%3d. %-20s %-5s %20s %8s %3d %3d ", count,
-			di->dk_name,di->dk_vendor,di->dk_serial,di->dk_busy,
-			di->dk_enclosure, di->dk_slot);
-
-	(void) get_scsi_gsize(di->dk_blocks);
+	(void) printf("%3d. %-50s %-8s %-20s %-8s %-3d %-3d %-5s\n", count,
+			di->dk_scsid,di->dk_vendor,di->dk_serial,di->dk_busy,
+			di->dk_enclosure, di->dk_slot, di->dk_gsize);
 
 	return;
-}
-
-static int
-get_scsi_slot(disk_info_t *di)
-{
-	FILE *fd = -1;
-	int len = -1;
-	int slot = -1;
-	int enclosure = -1;
-	char value_sn[ARGS_LEN] = {0};
-	char args[ARGS_LEN] = {0};
-	char tmp[CMD_TMP_LEN] = {0};
-
-	len = strlen(di->dk_name);
-	if (di->dk_name[len -1] >= '0' &&
-		di->dk_name[len - 1] <= '9')
-		return (0);
-
-	fd = popen(SAS2IRCU, "r");
-	if (fd == NULL)
-		return (0);
-
-	while (fgets(tmp, sizeof(tmp), fd)) {
-		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
-			continue;
-
-		sscanf(tmp, "%s", args);	
-		if (strcasecmp(args, ENCLOSURE) == 0) {
-			sscanf(tmp, "%*[^:]:%d", &enclosure);
-		} else if (strcasecmp(args, SLOT) == 0) {
-			sscanf(tmp, "%*[^:]:%d", &slot);
-		} else if (strcasecmp(args, SERIALNO) == 0) {
-			sscanf(tmp, "%*[^:]:%s", value_sn);
-			if (di->dk_serial != NULL && slot != -1 && value_sn != -1
-				&& strcasestr(di->dk_serial, value_sn) != NULL) {
-				di->dk_enclosure = enclosure;
-				di->dk_slot = slot;
-			} else {
-				slot = -1;
-				enclosure = -1;
-			}
-		}
-	}
-
-	pclose(fd);
-	return (1);
-}
-
-static void
-get_scsi_status(disk_info_t *di)
-{
-	int i = 0;
-	int fd = -1;
-	int err = -1;
-	int count = 0;
-	struct dk_gpt *vtoc = NULL;
-
-	if (di->dk_is_sys == 1) {
-		memcpy(di->dk_busy, "busy", 4);
-		return; 
-	}
-
-	fd = open(di->dk_name, O_RDWR|O_DIRECT);
-	if (fd > 0) {
-		err = efi_alloc_and_read(fd, &vtoc);
-		if (err >= 0) {
-			for (i = 0; i < vtoc->efi_nparts; i++) {
-				if (vtoc->efi_parts[i].p_size != 0) {
-					count = i;
-					break;
-				}
-			}
-		}
-	}
-
-	if (count == 8)
-		memcpy(di->dk_busy, "free", 4);
-	else
-		memcpy(di->dk_busy, "busy", 4);
-
-	efi_free(vtoc);
-	(void) close(fd);
-	return;
-}
-
-static int 
-get_scsi_vendor(disk_info_t *di)
-{
-	unsigned char inq_buff[INQ_REPLY_LEN];
-	unsigned char sense_buffer[32];
-	unsigned char inq_cmd_blk[INQ_CMD_LEN] =
-	    {0x12, 0, 0, 0, INQ_REPLY_LEN, 0};
-	sg_io_hdr_t io_hdr;
-	int error;
-	int fd;
-
-	/* Prepare INQUIRY command */
-	memset(&io_hdr, 0, sizeof (sg_io_hdr_t));
-	io_hdr.interface_id = 'S';
-	io_hdr.cmd_len = sizeof (inq_cmd_blk);
-	io_hdr.mx_sb_len = sizeof (sense_buffer);
-	io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
-	io_hdr.dxfer_len = INQ_REPLY_LEN;
-	io_hdr.dxferp = inq_buff;
-	io_hdr.cmdp = inq_cmd_blk;
-	io_hdr.sbp = sense_buffer;
-	io_hdr.timeout = 10;		/* 10 milliseconds is ample time */
-
-	if ((fd = open(di->dk_name, O_RDONLY|O_DIRECT)) < 0)
-		return (0);
-
-	error = ioctl(fd, SG_IO, (unsigned long) &io_hdr);
-
-	(void) close(fd);
-
-	if (error < 0)
-		return (0);
-
-	if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK)
-		return (0);
-
-	memcpy(di->dk_vendor, inq_buff + 8, 8);
-
-	return (1);
-}
-
-static int
-get_scsi_serial(disk_info_t *di)
-{
-	int len = 0;
-	int rsp_len = 0;
-	char *src = NULL;
-	char *dest = NULL;
-	char *rsp_buf = NULL;
-	char *path = di->dk_name;
-	unsigned char inq_buff[INQ_REPLY_LEN];
-	unsigned char sense_buffer[32];
-	unsigned char inq_cmd_blk[INQ_CMD_LEN] =
-	    {0x12, 1, 0x80, 0, INQ_REPLY_LEN, 0};
-	sg_io_hdr_t io_hdr;
-	int error;
-	int fd;
-	int i;
-
-	/* Prepare INQUIRY command */
-	memset(&io_hdr, 0, sizeof (sg_io_hdr_t));
-	io_hdr.interface_id = 'S';
-	io_hdr.cmd_len = sizeof (inq_cmd_blk);
-	io_hdr.mx_sb_len = sizeof (sense_buffer);
-	io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
-	io_hdr.dxfer_len = INQ_REPLY_LEN;
-	io_hdr.dxferp = inq_buff;
-	io_hdr.cmdp = inq_cmd_blk;
-	io_hdr.sbp = sense_buffer;
-	io_hdr.timeout = 10;		/* 10 milliseconds is ample time */
-
-	if ((fd = open(path, O_RDONLY|O_DIRECT)) < 0)
-		return (B_FALSE);
-
-	error = ioctl(fd, SG_IO, (unsigned long) &io_hdr);
-
-	(void) close(fd);
-
-	if (error < 0) {
-		return (B_FALSE);
-	}
-
-	if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK)
-		return (B_FALSE);
-
-	rsp_len = inq_buff[3];
-	rsp_buf = (char*)&inq_buff[4];
-	for (i = 0, dest = rsp_buf; i < rsp_len; i++) {
-		src = &rsp_buf[i];
-		if (*src > 0x20) {
-			if (*src == ':')
-				*dest++ = ';';
-			else
-				*dest++ = *src;
-		}
-	}
-	
-	len = dest - rsp_buf;
-	dest = rsp_buf;
-
-	if (len > INQ_REPLY_LEN) {
-		dest += len - INQ_REPLY_LEN;
-		len = INQ_REPLY_LEN;
-	}
-
-	memcpy(di->dk_serial, dest, len);
-
-	return (1);
 }
 
 /*
@@ -529,7 +246,7 @@ static void disk_info_free(disk_table_t *tb)
 	disk_info_t *temp = NULL;
 	disk_info_t *cur = tb->next;
 
-	for (i = 0; i < tb->total; i++) {
+	for (cur = tb->next; cur != NULL; cur = cur->next) {
 		if (cur == NULL)
 			break;
 
@@ -567,15 +284,9 @@ static void disk_info_show(disk_table_t *tb, int all)
 	}
 
 	di_cur = tb->next;
-	for (i = 0; i < tb->total; i++) {
-
+	for (di_cur = tb->next; di_cur != NULL; di_cur = di_cur->next) {
 		if (di_cur == NULL)
 			break;
-
-		if( strncmp( di_cur->dk_vendor, "ATA", 3 ) == 0 ) {
-			di_cur = di_cur->next;
-			continue ;
-		}
 
 		pstr = (char*)di_cur->dk_name;
 		len = strlen(di_cur->dk_name);
@@ -591,8 +302,6 @@ static void disk_info_show(disk_table_t *tb, int all)
 			print_info(di_cur, order);
 			order++;
 		}
-
-		di_cur = di_cur->next;
 	}
 
 	return;
@@ -600,77 +309,26 @@ static void disk_info_show(disk_table_t *tb, int all)
 
 int list_disks(int all)
 {
-	int len = 0;
+	int error = 0;
 	int count = 0;
-	char line[ARGS_LEN] = {0};
-	char name[DEV_LEN] = {0};
-	char sysdisk[ARGS_LEN] = {0};
-	disk_info_t di;
-
-	FILE *fd = fopen(DEFAULT_DISK_INFO_PATH, "r");
-	if (fd < 0)
-		return (0);
-
-	int i = 0;
-	int di_total = 0;
-	disk_table_t di_tb = {0};
-	disk_info_t di_head;
-	disk_info_t *di_cur;
-	disk_info_t *di_mark;
+	disk_table_t dt = {0};
+	disk_info_t *current = NULL;
 
 	create_xml_file();
-	di_tb.next = NULL;
-	while (fgets(line, sizeof(line), fd)) {
-		if (line[0] == '\n' || line[0] == '\r')
-			continue;
 
-		di_cur = (disk_info_t*)malloc(sizeof(disk_info_t));
-		bzero(di_cur, sizeof(disk_info_t));
-		sscanf(line, "%u %u %lu %s %[^\n]", &di_cur->dk_major,
-				&di_cur->dk_minor,&di_cur->dk_blocks, name);
+	error = disk_get_info(&dt);
+	if (error != 0)
+		(void) printf("disk list failed\n");
 
-		if (strncmp(name, "sd", 2) != 0 &&
-				strncmp(name, "hd", 2) != 0)
-			continue;
-
-		len = strlen(name) + strlen(DEFAULT_PATH);
-		snprintf(di_cur->dk_name, len + 2, "%s%s", DEFAULT_PATH, name);
-
-		if (di_tb.next == NULL) {
-			di_tb.next = di_cur;
-			di_mark = di_cur;
-		} else {
-			di_mark->next = di_cur;
-			di_mark = di_cur;
-		}
-
-		di_tb.total++;
+	for (current = dt.next; current != NULL; current = current->next) {
+		get_scsi_rpm( current ) ;
 	}
 
-	(void) get_system_disk(sysdisk);
-
-	di_cur = di_tb.next;
-	for (i = 0; i < di_tb.total; i++)
-	{
-		if (strncmp(di_cur->dk_name, sysdisk, 8) == 0)
-			di_cur->dk_is_sys = 1;
-
-		get_scsi_vendor(di_cur);
-		get_scsi_serial(di_cur);
-		get_scsi_status(di_cur);
-		get_scsi_slot(di_cur);
-		get_scsi_rpm( di_cur ) ;
-
-		di_cur = di_cur->next;
-	}
-
-	(void) get_disk_poolname( &di_tb ) ;
-	(void) disk_info_show(&di_tb, all);
-	(void) disk_info_free(&di_tb);
+	(void) get_disk_poolname( &dt ) ;
+	(void) disk_info_show(&dt, all);
+	(void) disk_info_free(&dt);
 
 	close_xml_file();
-	(void) fclose(fd);
-
 	return (0);
 }
 
@@ -1684,6 +1342,7 @@ static void  create_lun_node(disk_info_t *di)
 */
 
 	size_node=xmlNewChild(node, NULL,  (xmlChar *)"size", NULL);
+#if 0
 	double_size = di->dk_blocks / 1024.0;
 	if (double_size>= 1024.0 ) {
 		if (double_size/ 1024.0  > 1024.0 )
@@ -1693,7 +1352,8 @@ static void  create_lun_node(disk_info_t *di)
 	} else {
 		sprintf( buf, "%-3.2lfMB",double_size );
 	}
-	xmlNodeSetContent( size_node, (xmlChar *)buf);
+#endif
+	xmlNodeSetContent( size_node, (xmlChar *)di->dk_gsize);
 	memset(buf, 0, 256);
 
 	size_kb_node=xmlNewChild(node, NULL,  (xmlChar *)"size_kb", NULL);
@@ -1747,106 +1407,6 @@ static void  create_lun_node(disk_info_t *di)
 		xmlNodeSetContent( pool_node, (xmlChar *) "-" ) ;
 	}
 }
-
-#if 0
-/*
- * List all the disks/luns attached to the system
- */
-int
-list_disks() {
-	int ii, jj, tot_luns = 0;
-	int i = 0;
-	dmg_lun_t *luns;
-	dmg_lun_t *trans_lun;
-	dmg_lun_t *final_lun;
-	char buffer[20];
-	FILE *fp;
-	dmg_lun_t **tmp_luns;
-	dmg_map_t map;
-	char dim;
-	char set_ssd_cmd[128];
-	const char *status;
-	int ret;
-	uint64_t slotid, enid;
-	int total_lun = 0;
-
-	dmg_lun_t *cur_lun;
-
-	struct hd_driveid hd_info;
-	get_hd_info("/dev/sda", &hd_info);
-#if 0
-	create_xml_file();
-#endif
-	ret = dmg_get_disk(&luns, &tot_luns);
-	if (ret != 1) {
-			printf(ERROR_INTERNAL_ERROR, SUBC_LIST_DISKS);
-			return (EXIT_INTERNAL_ERROR);
-	}
-
-	for (cur_lun = luns; cur_lun; cur_lun = cur_lun->lun_next){
-#if 0
-		if (cur_lun->gsize >= -0.00001 && cur_lun->gsize <= 0.00001) {
-			continue;
-		}
-#endif
-
-		total_lun++;
-	}
-	final_lun = trans_lun = (dmg_lun_t *)malloc(sizeof (dmg_lun_t)*total_lun);
-	for (cur_lun = luns; cur_lun; cur_lun = cur_lun->lun_next){
-#if 0
-		if (cur_lun->gsize >= -0.00001 && cur_lun->gsize <= 0.00001) {
-			continue;
-		}
-#endif
-
-		trans_lun->name = cur_lun->name;
-
-		trans_lun->vendor = cur_lun->vendor;
-		trans_lun->model = cur_lun->model;
-
-		trans_lun->rpm = cur_lun->rpm;
-		trans_lun->en_no = cur_lun->en_no;
-		trans_lun->lun_no = cur_lun->lun_no;
-		trans_lun->sas_wwn = cur_lun->sas_wwn;
-
-		trans_lun->lu_flag = cur_lun->lu_flag;
-		trans_lun->blocks = cur_lun->blocks;
-		trans_lun->bytes_per_block = cur_lun->bytes_per_block;
-		trans_lun->gsize = cur_lun->gsize;
-		trans_lun->lu_num = cur_lun->lu_num;
-		trans_lun->slice_count= cur_lun->slice_count;
-		if (cur_lun->slice_count == 8){
-			trans_lun->status = strdup("free");
-		}else {
-			trans_lun->status = strdup("busy");
-			
-		}
-
-		if(cur_lun->dim != NULL)
-			strncpy(trans_lun->dim, cur_lun->dim, 24);
-		trans_lun->lu_info = cur_lun->lu_info;
-
-		trans_lun++;
-	}
-	
-	sort_list_disks_new(final_lun, total_lun);
-
-	for (ii = 0; ii < total_lun; ii++) {
-		create_lun_node(&final_lun[ii]);
-		printf("%3d. %-35s %-18s %-10s %-3.2lf%-5s	%-3lld   %-3lld  %-s\n", ii, final_lun[ii].name, final_lun[ii].vendor,
-			final_lun[ii].model, final_lun[ii].gsize, final_lun[ii].dim, final_lun[ii].en_no,
-			final_lun[ii].lun_no, final_lun[ii].status);
-		printf("\n");
-	}
-
-	dmg_free_luns(final_lun, total_lun);
-	dmg_free_lunlink(luns);
-
-	//close_xml_file();
-	return (0);
-}
-#endif
 
 /*
  *  List slices on a disk
@@ -1921,7 +1481,7 @@ disk_init(slice_req_t *req)
 	if (status = get_disk_name(req, SUBC_INIT))
 		return (status);
 	
-	(void) get_system_disk(args);
+	(void) disk_get_system(args);
 	if (strncmp(args, req->disk_name, 8) == 0) {
 		printf("sorry, this is system disk!\n");
 		return (-1); 

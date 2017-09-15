@@ -23,6 +23,57 @@ extern "C" {
 #define	MAX_SLICES_PER_LUN 9
 
 /*
+ * linux disk list info
+ */
+#define CMD_TMP_LEN		1024
+#define ARGS_LEN		100
+#define PARAM_LEN		10
+#define	INQ_REPLY_LEN	96
+#define	INQ_CMD_LEN		6
+#define POOLLEN			64
+#define SLOT			"Slot"
+#define ENCLOSURE		"Enclosure"
+#define SERIALNO		"Serial"
+#define DEFAULT_PATH	"/dev/"
+#define DEFAULT_SCSI	"/dev/disk/by-id/"
+#define SAS2IRCU		"sas2ircu 0 display 2>/dev/null"
+#define DISK_BY_ID		"ls -l /dev/disk/by-id"
+#define LSBLK			"lsblk"
+
+typedef struct disk_info {
+	int		dk_major;
+	int		dk_minor;
+	int		dk_enclosure;
+	int		dk_slot;
+	int		dk_is_sys;
+	int		dk_rpm ;
+	long	dk_blocks;
+	char	dk_vendor[PARAM_LEN];
+	char	dk_busy[PARAM_LEN];
+	char	dk_name[ARGS_LEN];
+	char	dk_scsid[ARGS_LEN];
+	char	dk_gsize[PARAM_LEN];
+	char	dk_pool[ POOLLEN ] ;
+	char	*dk_role ;
+	char	dk_serial[ARGS_LEN];
+	struct disk_info *prev;
+	struct disk_info *next;
+} disk_info_t;
+
+typedef struct disk_table {
+	int	total;
+	disk_info_t *next;
+} disk_table_t;
+
+extern int disk_get_info(disk_table_t *di);
+extern void disk_get_system(char* name);
+extern int disk_get_slotid(disk_info_t *di);
+extern void disk_get_status(disk_info_t *di);
+extern int disk_get_vendor(disk_info_t *di);
+extern int disk_get_serial(disk_info_t *di);
+extern int disk_get_gsize(disk_info_t *di);
+
+/*
  * Disk Functions
  */
 typedef struct dmg_slice {
