@@ -566,6 +566,22 @@ zfs_inode_update(znode_t *zp)
 	zfs_inode_update_impl(zp, B_FALSE);
 }
 
+
+void zfs_inquota(zfs_sb_t *zsb, znode_t *zp)
+{
+	int err;
+
+	if (zp->z_dirquota > 0) {
+		zp->z_bquota = B_TRUE; 
+	} else {
+		err = zfs_fuid_inquota(zsb, B_TRUE, zp->z_gid);
+		if (err != 0){
+			err = zfs_fuid_inquota(zsb, B_FALSE, zp->z_uid);
+		}
+		zp->z_bquota = (err == 0) ? B_TRUE : B_FALSE;
+  	}
+}
+
 /*
  * Construct a znode+inode and initialize.
  *
@@ -609,6 +625,8 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 	zp->z_range_lock.zr_size = &zp->z_size;
 	zp->z_range_lock.zr_blksz = &zp->z_blksz;
 	zp->z_range_lock.zr_max_blksz = &ZTOZSB(zp)->z_max_blksz;
+	bzero(zp->z_filename, MAXNAMELEN);
+    bzero(&zp->z_group_id, sizeof(zfs_group_object_t));
 
 	zfs_znode_sa_init(zsb, zp, db, obj_type, hdl);
 
@@ -618,8 +636,7 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_LINKS(zsb), NULL, &zp->z_links, 8);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_FLAGS(zsb), NULL,
 	    &zp->z_pflags, 8);
-	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_PARENT(zsb), NULL,
-	    &parent, 8);
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_PARENT(zsb), NULL, &parent, 8);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_UID(zsb), NULL, &zp->z_uid, 8);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_GID(zsb), NULL, &zp->z_gid, 8);
 
@@ -630,9 +647,19 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 		goto error;
 	}
 
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_FILENAME(zsb),zp->z_filename, MAXNAMELEN);
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_LOW(zsb),&zp->z_low, sizeof (zp->z_low));
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zsb),&zp->z_parent, sizeof (zp->z_parent));
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_SIZE(zsb),&zp->z_size, sizeof(zp->z_size));
+
+    zfs_inquota(zsb, zp);
+
 	zp->z_mode = mode;
+	zp->z_group_role = GROUP_MASTER;
 
 	ip->i_ino = obj;
+	ip->i_mode = (umode_t)mode;
+	ip->i_size = zp->z_size;
 	zfs_inode_update_new(zp);
 	zfs_inode_set_ops(zsb, ip);
 
@@ -650,6 +677,23 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 	list_insert_tail(&zsb->z_all_znodes, zp);
 	zsb->z_nr_znodes++;
 	membar_producer();
+
+	zp->z_zsb = zsb;
+	if ((ip->i_mode & S_IFMT) == S_IFDIR) {
+        zfs_sa_get_dirquota(zp);
+	}
+
+	zfs_sa_get_dirlowdata(zp);
+	
+    if (zsb->z_os->os_is_group && ZFS_GROUP_OBJECT_ZERO(zp)) {
+        if (zp->z_id != zsb->z_root) {
+            zfs_sa_get_remote_object(zp);
+        } else {
+            zp->z_group_id.master_spa = zsb->z_os->os_master_spa;
+            zp->z_group_id.master_objset = zsb->z_os->os_master_os;
+            zp->z_group_id.master_object = zsb->z_os->os_master_root;
+        }
+    } 
 	mutex_exit(&zsb->z_znodes_lock);
 
 	unlock_new_inode(ip);
@@ -659,6 +703,140 @@ error:
 	iput(ip);
 	return (NULL);
 }
+
+znode_t *zfs_znode_alloc_by_group(zfs_sb_t *zsb, uint64_t blksz,
+    zfs_group_object_t *group_object, zfs_group_phys_t *zphy)
+{
+//  uint64_t object;
+    znode_t	*zp;
+	struct inode *ip = NULL;
+//	uint64_t mode;
+	uint64_t parent;
+//	int count = 0;
+
+    
+	ASSERT(zsb != NULL);
+
+	ip = new_inode(zsb->z_sb);
+	if (ip == NULL)
+		return (NULL);
+
+	zp = ITOZ(ip);
+	zp->z_parent = 0;
+	ASSERT(zp->z_dirlocks == NULL);
+	ASSERT3P(zp->z_acl_cached, ==, NULL);
+	ASSERT3P(zp->z_xattr_cached, ==, NULL);
+	
+	zp->z_moved = 0;
+
+	/*
+	 * Defer setting z_zfsvfs until the znode is ready to be a candidate for
+	 * the zfs_znode_move() callback.
+	 */
+	zp->z_sa_hdl = NULL;
+	zp->z_unlinked = 0;
+	zp->z_atime_dirty = 0;
+	zp->z_mapcnt = 0;
+	zp->z_blksz = blksz;
+    
+	zp->z_seq = 0x7A4653;
+	zp->z_sync_cnt = 0;
+    zp->z_is_group = B_TRUE;
+    zp->z_group_id = *group_object;
+    zp->z_group_role = GROUP_VIRTUAL;
+    zp->z_nblks = zphy->zp_nblocks;
+	
+	zp->z_mode = zphy->zp_mode;
+	ip->i_sb = zsb->z_parent->z_sb;
+    zp->z_gid = zphy->zp_gid;
+    zp->z_uid = zphy->zp_uid;
+    zp->z_gen = zphy->zp_gen;
+    zp->z_size = zphy->zp_size;
+    zp->z_links = zphy->zp_links;
+    zp->z_pflags = zphy->zp_flags;
+    zp->z_nblks = zphy->zp_nblocks;
+    zp->z_blksz = zphy->zp_blksz;
+	zp->z_low = zphy->zp_low;
+	zp->z_overquota = zphy->zp_overquota;
+	zp->z_old_gen = zphy->zp_old_gen;
+	zp->z_parent = zphy->zp_parent;
+    parent = zp->z_parent;
+    bcopy( zphy->zp_atime, zp->z_atime,sizeof(uint64_t) *2);
+    bcopy(zphy->zp_ctime, zp->z_ctime, sizeof(uint64_t) *2);
+    bcopy(zphy->zp_mtime, zp->z_mtime, sizeof(uint64_t) *2);
+
+	ip->i_ino = zphy->ino;
+	bcopy(&zphy->nlink, &ip->i_nlink, sizeof(unsigned int));
+	ip->i_atime = zphy->atime;
+	ip->i_mtime = zphy->mtime;
+	ip->i_ctime = zphy->ctime;
+	ip->i_uid = SUID_TO_KUID(zp->z_uid);
+	ip->i_gid = SGID_TO_KGID(zp->z_gid);
+	ip->i_size = zphy->zp_size;
+    
+//	zp->z_sdp = NULL;
+//	zp->z_state = 0;
+    
+    zp->z_dirquota = zphy->zp_dirquota;
+	zp->z_dirlowdata = zphy->zp_dirlowdata;
+	zp->z_bquota = zphy->zp_bquota;
+
+   	ip->i_mode = (umode_t)zp->z_mode;
+
+	switch (ip->i_mode & S_IFMT) {
+		case S_IFDIR:
+			ip->i_op = &zpl_dir_inode_operations;
+			ip->i_fop = &zpl_dir_file_operations;
+			zp->z_id = group_object->master_object;
+			break;
+		/*
+		 * rdev is only stored in a SA only for device files.
+		 */
+		case S_IFCHR:
+		case S_IFBLK:
+			ip->i_rdev = zphy->zp_rdev;
+			/*FALLTHROUGH*/
+		case S_IFIFO:
+		case S_IFSOCK:
+			init_special_inode(ip, ip->i_mode, ip->i_rdev);
+			ip->i_op = &zpl_special_inode_operations;
+			break;
+		case S_IFREG:
+			ip->i_op = &zpl_inode_operations;
+			ip->i_fop = &zpl_file_operations;
+			ip->i_mapping->a_ops = &zpl_address_space_operations;
+			zp->z_id = group_object->master_object;
+			break;
+		case S_IFLNK:
+			ip->i_op = &zpl_symlink_inode_operations;
+			zp->z_id = group_object->master_object;
+			break;
+		default:
+//			zfs_panic_recover("inode %llu has invalid mode: 0x%x\n",
+//			    (u_longlong_t)ip->i_ino, ip->i_mode);
+
+			/* Assume the inode is a file and attempt to continue */
+			ip->i_mode = S_IFREG | 0644;
+			ip->i_op = &zpl_inode_operations;
+			ip->i_fop = &zpl_file_operations;
+			ip->i_mapping->a_ops = &zpl_address_space_operations;
+			break;
+	}
+
+	mutex_enter(&zsb->z_znodes_lock);
+	list_insert_tail(&zsb->z_all_znodes, zp);
+	zsb->z_nr_znodes++;
+	membar_producer();
+	/*
+	 * Everything else must be valid before assigning z_zfsvfs makes the
+	 * znode eligible for zfs_znode_move().
+	 */
+	zp->z_zsb = zsb;
+	mutex_exit(&zsb->z_znodes_lock);
+	return (zp);
+}
+
+
 
 /*
  * Safely mark an inode dirty.  Inodes which are part of a read-only
@@ -908,7 +1086,6 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, dmu_tx_t *tx, cred_t *cr,
 		mode = zfs_mode_compute(mode, acl_ids->z_aclp, &pflags,
 		    acl_ids->z_fuid, acl_ids->z_fgid);
 	}
-
 	VERIFY(sa_replace_all_by_template(sa_hdl, sa_attrs, cnt, tx) == 0);
 
 	if (!(flag & IS_ROOT_NODE)) {
@@ -921,7 +1098,6 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, dmu_tx_t *tx, cred_t *cr,
 		 * passed in is the znode for the root.
 		 */
 		*zpp = dzp;
-
 		(*zpp)->z_sa_hdl = sa_hdl;
 	}
 
@@ -1309,8 +1485,7 @@ zfs_compare_timespec(struct timespec *t1, struct timespec *t2)
  *	atime updating.
  */
 void
-zfs_tstamp_update_setup(znode_t *zp, uint_t flag, uint64_t mtime[2],
-    uint64_t ctime[2])
+zfs_tstamp_update_setup(znode_t *zp, uint_t flag, uint64_t mtime[2], uint64_t ctime[2])
 {
 	timestruc_t	now;
 
@@ -1715,7 +1890,7 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 {
 	struct super_block *sb;
 	zfs_sb_t	*zsb;
-	uint64_t	moid, obj, sa_obj, version;
+	uint64_t	moid, obj, sa_obj, version, nas_group_obj;
 	uint64_t	sense = ZFS_CASE_SENSITIVE;
 	uint64_t	norm = 0;
 	nvpair_t	*elem;
@@ -1779,6 +1954,16 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 	} else {
 		sa_obj = 0;
 	}
+
+	/*
+	 * Create zap object used for nas group 
+	 */
+
+	nas_group_obj = zap_create(os, DMU_OT_NAS_GROUP_MASTER_NODE,
+				DMU_OT_NONE, 0, tx);
+	error = zap_add(os, moid, ZFS_NAS_GROUP, 8, 1, &nas_group_obj, tx);
+	ASSERT(error == 0);
+	
 	/*
 	 * Create a delete queue.
 	 */
@@ -1802,7 +1987,7 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 	rootzp->z_atime_dirty = 0;
 	rootzp->z_is_sa = USE_SA(version, os);
 
-	zsb = kmem_zalloc(sizeof (zfs_sb_t), KM_SLEEP);
+	zsb = vmem_zalloc(sizeof (zfs_sb_t), KM_SLEEP);
 	zsb->z_os = os;
 	zsb->z_parent = zsb;
 	zsb->z_version = version;
@@ -1810,7 +1995,7 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 	zsb->z_use_sa = USE_SA(version, os);
 	zsb->z_norm = norm;
 
-	sb = kmem_zalloc(sizeof (struct super_block), KM_SLEEP);
+	sb = vmem_zalloc(sizeof (struct super_block), KM_SLEEP);
 	sb->s_fs_info = zsb;
 
 	ZTOI(rootzp)->i_sb = sb;
@@ -1866,8 +2051,8 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 
 	vmem_free(zsb->z_hold_trees, sizeof (avl_tree_t) * size);
 	vmem_free(zsb->z_hold_locks, sizeof (kmutex_t) * size);
-	kmem_free(sb, sizeof (struct super_block));
-	kmem_free(zsb, sizeof (zfs_sb_t));
+	vmem_free(sb, sizeof (struct super_block));
+	vmem_free(zsb, sizeof (zfs_sb_t));
 }
 #endif /* _KERNEL */
 
@@ -2180,7 +2365,193 @@ zfs_seg_data_unlock(rl_t *rl)
     zfs_range_unlock(rl);
 }
 
-#endif
+
+vn_op_type_t zfs_vn_lookup_type(znode_t *zp, char *name, uint64_t flag)
+{
+	vn_op_type_t type;
+	struct inode *ip;
+	zfs_sb_t *zsb = zp->z_zsb;
+	ip = ZTOI(zp);
+
+	if (strcmp(name, ZFS_CTLDIR_NAME) == 0) {
+			type = VN_OP_SERVER;
+	} else {
+		if (zsb->z_os->os_is_group &&
+			!zsb->z_os->os_is_master && ((flag & FCLUSTER) == 0)) {
+				if (zp->z_group_role == GROUP_VIRTUAL)
+					type = VN_OP_CLIENT;
+				else {
+					if (zp->z_group_role == GROUP_MASTER &&
+						zp->z_id == zp->z_zsb->z_root) {
+						type = VN_OP_CLIENT;
+						zp->z_group_id.master_spa = zp->z_zsb->z_os->os_master_spa;
+						zp->z_group_id.master_objset = zp->z_zsb->z_os->os_master_os;
+						zp->z_group_id.master_object = zp->z_zsb->z_os->os_master_root;
+					}
+					else
+						type = VN_OP_SERVER;
+				}
+			} else {
+				type = VN_OP_SERVER;
+			}
+	}
+
+	return (type);
+}
+
+vn_op_type_t zfs_vn_dir_type(znode_t *zp, uint64_t flag)
+{
+	vn_op_type_t type;
+	struct inode *ip;
+	zfs_sb_t *zsb = zp->z_zsb;
+
+	ip = ZTOI(zp);
+	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master 
+	    && (flag & FCLUSTER) == 0) {
+		if (zp->z_group_role == GROUP_VIRTUAL) {
+			type = VN_OP_CLIENT;
+		} else if (zp->z_group_role == GROUP_MASTER &&
+			zp->z_id == zp->z_zsb->z_root) {
+			type = VN_OP_CLIENT;
+		} else {
+			type = VN_OP_SERVER;
+		}
+	} else {
+		type = VN_OP_SERVER;
+	}
+	return (type);
+}
+
+vn_op_type_t zfs_vn_op_type(znode_t *zp, uint64_t flag)
+{
+	vn_op_type_t type;
+
+	zfs_sb_t *zsb = zp->z_zsb;
+
+	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master &&
+	    ((flag & FCLUSTER) == 0)) {
+		if (zp->z_group_role == GROUP_VIRTUAL)
+			type = VN_OP_CLIENT;
+		else
+			type = VN_OP_SERVER;
+	} else {
+		type = VN_OP_SERVER;
+	}
+
+	return (type);
+
+}
+
+vn_op_type_t zfs_rw_type(znode_t *zp, uint64_t flags, znode_t **nzp)
+{
+	int error;
+	uint64_t spa;
+	uint64_t os;
+	vn_op_type_t type;
+	zfs_sb_t *zsb = zp->z_zsb;
+	
+	spa = spa_guid(dmu_objset_spa(zsb->z_os));
+	os = dmu_objset_id(zsb->z_os);
+	if (zsb->z_os->os_is_group && (flags & FCLUSTER) == 0) {
+		if ((spa == zp->z_group_id.data_spa && 
+		zp->z_group_id.data_objset == os)) {
+			if (zp->z_group_role == GROUP_VIRTUAL){
+				type = VN_OP_SERVER;
+				error = zfs_zget(zsb, zp->z_group_id.data_object, nzp);
+				if (error != 0)
+					type = VN_OP_CLIENT;
+			} else if (zp->z_group_id.data_object != zp->z_id && zp->z_group_id.data_object != 0) {
+				error = zfs_zget(zsb, zp->z_group_id.data_object, nzp);
+				if (error != 0)
+					type = VN_OP_CLIENT;
+				else
+					type = VN_OP_SERVER;
+			} else {
+				type = VN_OP_SERVER;
+			}
+		}else {
+			type = VN_OP_CLIENT;
+		} 
+	} else {
+		type = VN_OP_SERVER;
+	}
+
+	return (type);
+}
+
+vn_op_type_t zfs_rw_type_data2(znode_t *zp, uint64_t flags, znode_t **nzp)
+{
+	int error;
+	uint64_t spa;
+	uint64_t os;
+	vn_op_type_t type;
+	zfs_sb_t *zsb = zp->z_zsb;
+	
+	spa = spa_guid(dmu_objset_spa(zsb->z_os));
+	os = dmu_objset_id(zsb->z_os);
+	if (zsb->z_os->os_is_group && (flags & FCLUSTER) == 0) {
+		if ((spa == zp->z_group_id.data2_spa && zp->z_group_id.data2_objset == os)) {
+			if (zp->z_group_role == GROUP_VIRTUAL){
+				type = VN_OP_SERVER;
+				error = zfs_zget(zsb, zp->z_group_id.data2_object, nzp);
+				if (error != 0)
+					type = VN_OP_CLIENT;
+			} else if (zp->z_group_id.data2_object != zp->z_id) {
+				error = zfs_zget(zsb, zp->z_group_id.data2_object, nzp);
+				if (error != 0)
+					type = VN_OP_CLIENT;
+				else
+					type = VN_OP_SERVER;
+			} else {
+				type = VN_OP_SERVER;
+			}
+		}else {
+			type = VN_OP_CLIENT;
+		} 
+	} else {
+		type = VN_OP_SERVER;
+	}
+
+	return (type);
+}
+
+
+vn_op_type_t zpl_vn_type(struct inode *ip)
+{
+	vn_op_type_t type;
+	znode_t *zp = ITOZ(ip);
+	zfs_sb_t *zsb = zp->z_zsb;
+
+	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master && zp->z_id != zsb->z_root) {
+		type = VN_OP_CLIENT;
+	} else {
+		type = VN_OP_SERVER;
+	}
+
+	return (type);
+}
+
+
+vn_op_type_t zfs_sa_op_type(znode_t *zp)
+{
+	vn_op_type_t type;
+
+	zfs_sb_t *zsb = zp->z_zsb;
+
+	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master) {
+		if (zp->z_group_role == GROUP_VIRTUAL)
+			type = VN_OP_CLIENT;
+		else
+			type = VN_OP_SERVER;
+	} else {
+		type = VN_OP_SERVER;
+	}
+
+	return (type);
+}
+
+
+#endif /* _KERNEL */
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(zfs_create_fs);

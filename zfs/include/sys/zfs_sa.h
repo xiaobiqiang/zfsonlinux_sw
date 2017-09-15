@@ -30,17 +30,18 @@
 #include <sys/types32.h>
 #include <sys/list.h>
 #include <sys/dmu.h>
-#include <sys/zfs_acl.h>
-#include <sys/zfs_znode.h>
 #include <sys/sa.h>
 #include <sys/zil.h>
-
-
 #endif
+#include <sys/zfs_acl.h>
+#include <sys/zfs_znode.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
+
+struct zfs_acl_phys;
+struct zfs_group_object;
 
 /*
  * This is the list of known attributes
@@ -74,6 +75,13 @@ typedef enum zpl_attr {
 	ZPL_SCANSTAMP,
 	ZPL_DACL_ACES,
 	ZPL_DXATTR,
+	ZPL_REMOTE_OBJECT,
+	ZPL_NBLKS,
+	ZPL_BLKSZ,
+	ZPL_LOW,
+	ZPL_DIRQUOTA,
+	ZPL_DIRLOWDATA,
+	ZPL_FILENAME,
 	ZPL_END
 } zpl_attr_t;
 
@@ -141,6 +149,13 @@ void zfs_sa_upgrade(struct sa_handle  *, dmu_tx_t *);
 void zfs_sa_upgrade_txholds(dmu_tx_t *, struct znode *);
 void zfs_sa_init(void);
 void zfs_sa_fini(void);
+
+extern void zfs_sa_set_dirquota(struct znode *zp, uint64_t quota, dmu_tx_t *tx);
+extern void zfs_sa_set_dirlowdata(struct znode *zp, uint64_t dir_lowdata, dmu_tx_t *tx);
+extern void zfs_sa_set_remote_object(struct znode *zp, struct zfs_group_object *remote_object, dmu_tx_t *tx);
+extern void zfs_sa_get_remote_object(struct znode *zp);
+extern void zfs_sa_get_dirquota(struct znode *zp);
+extern void zfs_sa_get_dirlowdata(struct znode *zp); 
 #endif
 
 #ifdef	__cplusplus

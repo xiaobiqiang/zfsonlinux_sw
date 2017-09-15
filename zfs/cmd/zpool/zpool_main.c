@@ -2547,7 +2547,7 @@ zpool_do_import(int argc, char **argv)
 	nvlist_t *policy = NULL;
 	nvlist_t *props = NULL;
 	boolean_t first;
-	int flags = ZFS_IMPORT_NORMAL;
+	int flags = ZFS_IMPORT_NORMAL | ZFS_IMPORT_MULTICLUS_UPDATE;
 	uint32_t rewind_policy = ZPOOL_NO_REWIND;
 	boolean_t dryrun = B_FALSE;
 	boolean_t do_rewind = B_FALSE;

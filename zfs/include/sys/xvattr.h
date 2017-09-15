@@ -294,6 +294,14 @@ xva_getxoptattr(xvattr_t *xvap)
 	return (xoap);
 }
 
+/*
+ * Permissions.
+ */
+#define	VREAD		00400
+#define	VWRITE		00200
+#define	VEXEC		00100
+
+
 #define	MODEMASK	07777		/* mode bits plus permission bits */
 #define	PERMMASK	00777		/* permission bits */
 

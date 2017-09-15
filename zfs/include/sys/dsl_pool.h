@@ -94,6 +94,7 @@ typedef struct dsl_pool {
 
 	/* No lock needed - sync context only */
 	blkptr_t dp_meta_rootbp;
+	list_t dp_sync_system_space[TXG_SIZE];
 	uint64_t dp_tmp_userrefs_obj;
 	bpobj_t dp_free_bpobj;
 	uint64_t dp_bptree_obj;

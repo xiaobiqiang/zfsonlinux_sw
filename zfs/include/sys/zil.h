@@ -127,6 +127,8 @@ typedef enum zil_create {
 
 #define	ZIL_ACE_LENGTH(x)	(roundup(x, sizeof (uint64_t)))
 
+#define ZIL_LOG_DATA_FILE_NAME "     "	/* data file dont has a real name */
+
 /*
  * Intent log transaction types and record structures
  */
