@@ -632,7 +632,9 @@ ipsGetGroupList(int type, stmfGroupList **groupList)
 	(*groupList)->cnt = memberCnt;
 	group = list_head(&s_group_list);
 	while (group) {
-		if (group->type == type) {
+		if (group->type == type &&
+			strncmp(group->name, STMF_PS_DEFAULT_HG, sizeof(group->name)) != 0 &&
+			strncmp(group->name, STMF_PS_DEFAULT_TG, sizeof(group->name)) != 0) {
 			strncpy((*groupList)->name[i++], group->name, sizeof(group->name));
 		}
 		group = list_next(&s_group_list, group);
@@ -691,7 +693,8 @@ ipsGetMemberList(char *groupName, int type, stmfGroupProperties **groupMemberLis
 		ret = STMF_PS_ERROR_NOMEM;
 		goto done;
 	}
-	
+
+	(*groupMemberList)->cnt = memberCnt;
 	elem = list_head(&group->elem_list);
 	while (elem) {
 		(*groupMemberList)->name[i].identLength = strlen(elem->name);
