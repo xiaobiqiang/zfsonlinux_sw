@@ -3517,7 +3517,10 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 		} else {
 			zc.zc_top_ds[0] = 0; /* root dir of the zfs filesystem */
 		}
-	} 
+	} else if (flags == ZNODE_INFO) {
+		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
+		strncpy(zc.zc_top_ds, sync_param->target_dir, MAXPATHLEN);
+	}
 	else {
 		if (group_name) {
 			//printf("group_name:%s\r\n", group_name);

@@ -663,7 +663,7 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 	 */
 	if (dentry->d_inode && ITOZ(dentry->d_inode)->z_is_stale)
 		return (0);
-
+/*
 	if (dentry->d_inode){
 		node_type = zpl_vn_type(dentry->d_inode);
 		if (node_type == VN_OP_SERVER)
@@ -671,6 +671,7 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 		else
 			return (0);
 	}
+*/
 	return 0;
 }
 

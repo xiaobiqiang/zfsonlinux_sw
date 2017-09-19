@@ -1085,11 +1085,11 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			old_zp->z_overquota = B_TRUE;
 			bover = B_TRUE;
 		} else {
-//			bover = zfs_write_overquota(zsb, zp);
+			bover = zfs_write_overquota(zsb, zp);
 		}
 		
 		if (bover) {
-//			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
+			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
 			zfs_range_unlock(rl);
 
 			error = EDQUOT;
@@ -1629,12 +1629,12 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			old_zp->z_overquota = B_TRUE;
 			bover = B_TRUE;
 		} else {
-//			bover = zfs_write_overquota(zsb, zp);
+			bover = zfs_write_overquota(zsb, zp);
 		}
 		
 		if (bover) {
 			zp->z_overquota = B_TRUE;
-//			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
+			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
 			zfs_range_unlock(rl);
 			error = EDQUOT;
 			goto out;
@@ -1871,7 +1871,7 @@ tx_again:
 			(zsb->z_os->os_is_group > 0 &&
 			zsb->z_os->os_is_master > 0)) && (zp->z_bquota || zp->z_dirquota > 0)) {
 			if (update_size > 0) {
-//				zfs_update_quota_used(zsb, zp, (uint64_t)update_size,  EXPAND_SPACE , tx); 
+				zfs_update_quota_used(zsb, zp, (uint64_t)update_size,  EXPAND_SPACE , tx); 
 			}
 		}
 	
@@ -1909,7 +1909,7 @@ tx_again:
 
 	if (error == 0 && (zp->z_bquota || zp->z_dirquota > 0) && (zp->z_overquota == B_TRUE)) {
 		if (zp->z_dirquota > 0) {
-//			zfs_set_overquota(zsb, zp->z_dirquota, B_TRUE, B_FALSE, NULL);
+			zfs_set_overquota(zsb, zp->z_dirquota, B_TRUE, B_FALSE, NULL);
 		}
 		error = EDQUOT;
 	}
@@ -3236,13 +3236,13 @@ top:
 		ZFS_EXIT(zsb);
 		return (error);
 	}
-/*
+
 	if (zp->z_dirquota > 0 || zp->z_bquota > 0) {
 		zfs_update_quota_used(zsb, zp, zp->z_size, REDUCE_SPACE, tx); 
 		bover = zfs_write_overquota(zsb, zp);
 		zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
 	}
-*/
+
 	/*
 	 * Remove the directory entry.
 	 */
@@ -3716,11 +3716,11 @@ top:
 
 	if (zp->z_dirquota != 0 && zp->z_dirquota == zp->z_id) {
 		error = zfs_del_dirquota(zsb, zp->z_dirquota);
-//		error = zfs_set_overquota(zsb, zp->z_dirquota, B_FALSE, B_TRUE, tx);
+		error = zfs_set_overquota(zsb, zp->z_dirquota, B_FALSE, B_TRUE, tx);
 	}
 
 	if (zp->z_dirlowdata != 0 && zp->z_dirlowdata == zp->z_id) {
-//		error = zfs_del_dirlowdata(zsb, zp->z_dirlowdata);
+		error = zfs_del_dirlowdata(zsb, zp->z_dirlowdata);
 	}
 
 	if (zsb->z_os->os_is_group) {
@@ -5821,10 +5821,10 @@ top:
 				if (S_ISREG(ZTOI(szp)->i_mode) || S_ISLNK(ZTOI(szp)->i_mode)) {
 					szp->z_dirquota = tdzp->z_dirquota;
 					if (tdzp->z_dirquota) {
-//						zfs_update_quota_used(zsb, tdzp, szp->z_size, EXPAND_SPACE, tx);
+						zfs_update_quota_used(zsb, tdzp, szp->z_size, EXPAND_SPACE, tx);
 					}
 					if (sdzp->z_dirquota) {
-//						zfs_update_quota_used(zsb, sdzp, szp->z_size, REDUCE_SPACE, tx);
+						zfs_update_quota_used(zsb, sdzp, szp->z_size, REDUCE_SPACE, tx);
 					}
 					zfs_inquota(zsb, szp);
 				}
@@ -7396,6 +7396,35 @@ zfs_retzcbuf(struct inode *ip, xuio_t *xuio, cred_t *cr)
 	return (0);
 }
 #endif /* HAVE_UIO_ZEROCOPY */
+
+int zfs_print_znode_info(char *path)
+{
+	int error = 0;
+	struct file *filp = NULL;
+	struct inode *ip = NULL;
+	znode_t *zp;
+	if (path == NULL) {
+		return EINVAL;
+	}
+
+	filp = filp_open(path, O_DIRECTORY, 0);
+	if (IS_ERR(filp)){
+		filp = filp_open(path, O_RDONLY, 0444);
+		if (IS_ERR(filp)){
+			cmn_err(CE_WARN, "[%s %d], the path %s is error", __func__, __LINE__, path);
+			return (EINVAL);
+		}
+	}
+
+	ip = filp->f_dentry->d_inode;
+	zp = ITOZ(ip);
+	cmn_err(CE_WARN, "%s line(%d) znode(%s) id(%"PRIx64") m_spa(%"PRIx64") m_objset(%"PRIx64") m_object(%"PRIx64") d1_spa(%"PRIx64") d1_objset(%"PRIx64") d1_object(%"PRIx64") d2_spa(%"PRIx64") d2_objset(%"PRIx64") d2_object(%"PRIx64")",
+		__func__, __LINE__, path, zp->z_id,  zp->z_group_id.master_spa, zp->z_group_id.master_objset, zp->z_group_id.master_object,
+		zp->z_group_id.data_spa, zp->z_group_id.data_objset, zp->z_group_id.data_object, zp->z_group_id.data2_spa, zp->z_group_id.data2_objset, zp->z_group_id.data2_object);
+	filp_close(filp, NULL);
+	return error;
+}
+
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 module_param(zfs_read_chunk_size, long, 0644);
