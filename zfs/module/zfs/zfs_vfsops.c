@@ -2500,8 +2500,7 @@ int zfs_set_overquota(zfs_sb_t *zsb, uint64_t dir_obj, boolean_t overquota, bool
 	int err;
 	uint64_t *objp;
 	dmu_tx_t *tx;
-	boolean_t waited;
-
+	boolean_t waited = B_FALSE;
 
 	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	objp = &zsb->z_dirquota_obj;
@@ -2524,6 +2523,7 @@ if (!tx_para) {
 } else {
 	tx = tx_para;
 }
+
 	dmu_tx_hold_zap(tx, *objp ? *objp : DMU_NEW_OBJECT, B_TRUE, NULL);
 	if (*objp == 0) {
 		dmu_tx_hold_zap(tx, MASTER_NODE_OBJ, B_TRUE, zfs_dirquota_prefixex);
@@ -2543,7 +2543,7 @@ if (!tx_para) {
 		if (remove) {
 			err = zap_remove(zsb->z_os, *objp, buf, tx);	
 		} else {
-			err = zap_update(zsb->z_os, *objp, buf, 8, 1, &overquota, tx);
+			err = zap_update(zsb->z_os, *objp, buf, sizeof(boolean_t), 1, &overquota, tx);
 		}
 	}
 	if (!tx_para)
@@ -2561,7 +2561,7 @@ boolean_t zfs_get_overquota(zfs_sb_t *zsb, uint64_t dir_obj)
 	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 
 	sprintf(buf, DIR_OVERQUOTQ_FORMAT, zfs_overquota_prefixex, (longlong_t)dir_obj);
-	err = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, 8, 1, &overquota);
+	err = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, sizeof(boolean_t), 1, &overquota);
 
 	kmem_free(buf, MAXPATHLEN);
 	return overquota;

@@ -6821,6 +6821,11 @@ zfs_do_multiclus(int argc, char **argv)
 			group_name = argv[1];
 			fs_name = argv[2];
 		}
+		else if(!strcmp(argv[0], "z_info")) {
+			flags = ZNODE_INFO;
+			sync_param.target_dir = argv[1];
+			param = (void*)(&sync_param);
+		}
 		else if(!strcmp(argv[0], "add")){
 			flags = ADD_MULTICLUS;
 			group_name = argv[1];

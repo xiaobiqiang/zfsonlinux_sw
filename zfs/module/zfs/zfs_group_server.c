@@ -1488,7 +1488,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 		bzero(&rpn, sizeof(pathname_t));
 		bzero(&gpn, sizeof(zfs_group_pathname_t));
 //		pn_alloc(&rpn);
-		rpn.pn_path = rpn.pn_buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+		rpn.pn_path = rpn.pn_buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 		rpn.pn_pathlen = 0;
 		rpn.pn_bufsize = MAXPATHLEN;
 
@@ -1501,7 +1501,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 
 		if (error != 0) {
 //			pn_free(&rpn);
-			kmem_free(rpn.pn_buf, rpn.pn_bufsize);
+			vmem_free(rpn.pn_buf, rpn.pn_bufsize);
 			rpn.pn_path = rpn.pn_buf = NULL;
 			rpn.pn_pathlen = rpn.pn_bufsize = 0;
 			goto error;
@@ -1529,7 +1529,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 			bcopy(&gpn, &n2p->nrec.rpn, sizeof(zfs_group_pathname_t));
 		}
 //		pn_free(&rpn);
-		kmem_free(rpn.pn_buf, rpn.pn_bufsize);
+		vmem_free(rpn.pn_buf, rpn.pn_bufsize);
 		rpn.pn_path = rpn.pn_buf = NULL;
 		rpn.pn_pathlen = rpn.pn_bufsize = 0;
 		iput(ip);
@@ -2429,7 +2429,7 @@ int zfs_migrate_dataA_to_dataB(znode_t *zp,zfs_group_data_msg_t *data,uint64_t v
 static int zmc_remote_write_node(struct inode * src_ip,zfs_group_object_t *dst, char* data,ssize_t data_len,
 	ssize_t offset, uint64_t ioflag, cred_t* cr, caller_context_t* ct)
 {
-	int error;
+	int error = 0;
 	uint64_t dst_spa = 0 ; 
 	uint64_t dst_os = 0;
 	uint64_t dst_object = 0;
@@ -2577,7 +2577,7 @@ int zfs_remote_write_node(struct inode * src_ip,uint64_t dst_spa,uint64_t dst_os
 int
 zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *offsize, uint64_t vflg,cred_t *cred, ssize_t *readen)
 {
-	int 	err;
+	int 	err = 0;
 	ssize_t readbytes = 0;
 //	ssize_t	resid;
 	ssize_t read_cnt = 0;
