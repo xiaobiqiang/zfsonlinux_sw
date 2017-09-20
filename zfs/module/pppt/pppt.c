@@ -1638,7 +1638,8 @@ pppt_task_free(pppt_task_t *ptask)
 	if(ptask->pt_refcnt != 0){
 		cmn_err(CE_WARN,   "%s  ptask = %p refcnt=%d ",__func__, (void *)ptask,ptask->pt_refcnt);
 	}
-	
+
+	mutex_exit(&ptask->pt_mutex);
 	mutex_destroy(&ptask->pt_mutex);
 	kmem_free(ptask->pt_pbufs->pbuf_stmf_buf, sizeof(stmf_data_buf_t));
 	kmem_free(ptask->pt_pbufs, sizeof(pppt_buf_t));
