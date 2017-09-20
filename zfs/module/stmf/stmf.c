@@ -323,7 +323,8 @@ int avs_local_host  = 0;
 int stmf_avs_enable_flag = 0;
 int stmf_avs_debug = 0;
 
-static boolean_t stmf_client_is_vm = B_FALSE;
+static boolean_t stmf_client_is_vm = B_TRUE;
+module_param(stmf_client_is_vm, int, S_IRUGO|S_IWUSR);
 
 #define	STMF_NAME			"COMSTAR STMF"
 #define	STMF_MODULE_NAME	"stmf"
@@ -2394,6 +2395,10 @@ stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 	stmf_xd_to_dbuf(dbuf, 0);
 
 	dbuf->db_flags = DB_DIRECTION_TO_RPORT;
+
+	if (msg->final_xfer)
+		dbuf->db_flags |= DB_SEND_STATUS_GOOD;
+	
 	(void) stmf_xfer_data(task, dbuf, 0);
 	return (STMF_SUCCESS);
 }
@@ -9117,6 +9122,66 @@ debug_stmf_dlun0_dbuf_done(scsi_task_t *task, stmf_i_scsi_task_t *itask,
 }
 
 void
+stmf_proxy_task_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
+{
+	stmf_i_scsi_task_t *itask =
+	    (stmf_i_scsi_task_t *)task->task_stmf_private;
+	stmf_ic_msg_t *ic_xfer_done_msg = NULL;
+	stmf_status_t ic_ret = STMF_FAILURE;
+	boolean_t free_it = B_FALSE;
+
+	printk("zjn %s task=%p, aflags=%x, db_flags=%x\n", __func__,
+		task, task->task_additional_flags, dbuf->db_flags);
+
+	if ((dbuf->db_flags & DB_DIRECTION_TO_RPORT) &&
+		(dbuf->db_flags & DB_SEND_STATUS_GOOD)) {
+		printk("zjn %s task=%p, free task\n", __func__, task);
+		free_it = B_TRUE;
+	}
+	
+	/* send xfer done status to pppt */
+	ic_xfer_done_msg = ic_scsi_data_xfer_done_msg_alloc(
+	    itask->itask_proxy_msg_id,
+	    task->task_session->ss_session_id,
+	    STMF_SUCCESS, itask->itask_proxy_msg_id);
+
+	if (!free_it) {
+		mutex_enter(&itask->itask_transition_mutex);
+		itask->itask_transition_state = ITASK_TRANSITION_WAIT; 
+		itask->itask_io_step = ITASK_IO_STEP_XFERDONE;
+		mutex_exit(&itask->itask_transition_mutex);
+	}
+	
+	if (ic_xfer_done_msg) {
+		bcopy(task->task_lu->lu_id->ident,ic_xfer_done_msg->icm_guid, 16);
+		ic_xfer_done_msg->icm_sess = task->task_lu->lu_active_sess;
+		ic_ret = ic_tx_msg(ic_xfer_done_msg);
+		if (ic_ret != STMF_IC_MSG_SUCCESS) {
+			cmn_err(CE_WARN, "unable to xmit session msg");
+		}
+	}
+
+	if (free_it) {
+		uint32_t new, old;
+		printk("zjn %s task=%p, itask_flags=%x\n", __func__, task, itask->itask_flags);
+		
+		do {
+			new = old = itask->itask_flags;
+			new &= ~(ITASK_KNOWN_TO_LU | ITASK_IN_WORKER_QUEUE);
+		} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
+		
+		if ((itask->itask_flags & (ITASK_KNOWN_TO_LU |
+		    ITASK_KNOWN_TO_TGT_PORT | ITASK_IN_WORKER_QUEUE |
+		    ITASK_BEING_ABORTED)) == 0) {
+			stmf_task_free(task);
+		} else {
+			printk("zjn %s task=%p, itask_flags=%x, unexpected!\n", 
+				__func__, task, itask->itask_flags);
+		}
+	}
+}
+
+void
 stmf_dlun0_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 {
 	stmf_i_scsi_task_t *itask =
@@ -9156,31 +9221,8 @@ stmf_dlun0_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 	 * then relay that status back to the lport.
 	 */
 	if (itask->itask_flags & ITASK_PROXY_TASK) {
-		stmf_ic_msg_t *ic_xfer_done_msg = NULL;
-		stmf_status_t ic_ret = STMF_FAILURE;
-		//uint64_t session_msg_id;
-		//mutex_enter(&stmf_state.stmf_lock);
-		//session_msg_id = stmf_proxy_msg_id++;
-		//mutex_exit(&stmf_state.stmf_lock);
-		/* send xfer done status to pppt */
-		ic_xfer_done_msg = ic_scsi_data_xfer_done_msg_alloc(
-		    itask->itask_proxy_msg_id,
-		    task->task_session->ss_session_id,
-		    STMF_SUCCESS, itask->itask_proxy_msg_id);
-
-		mutex_enter(&itask->itask_transition_mutex);
-		itask->itask_transition_state = ITASK_TRANSITION_WAIT; 
-		itask->itask_io_step = ITASK_IO_STEP_XFERDONE;
-		mutex_exit(&itask->itask_transition_mutex);
-		if (ic_xfer_done_msg) {
-			bcopy(task->task_lu->lu_id->ident,ic_xfer_done_msg->icm_guid, 16);
-			ic_xfer_done_msg->icm_sess = task->task_lu->lu_active_sess;
-			ic_ret = ic_tx_msg(ic_xfer_done_msg);
-			if (ic_ret != STMF_IC_MSG_SUCCESS) {
-				cmn_err(CE_WARN, "unable to xmit session msg");
-			}
-		}
 		/* task will be completed from pppt */
+		stmf_proxy_task_dbuf_done(task, dbuf);
 		return;
 	}
 	stmf_scsilib_send_status(task, STATUS_GOOD, 0);

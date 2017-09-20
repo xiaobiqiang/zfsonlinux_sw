@@ -418,7 +418,8 @@ xdr_ic_scsi_data_msg(XDR *xdrs, void *msg)
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_task_msgid) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_session_id) ||
 	    !xdr_opaque(xdrs, (char *)m->icsd_lun_id, 16) ||
-	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_data_len))
+	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_data_len) ||
+	    !xdr_u_char(xdrs, (uchar_t *)&m->final_xfer))
 	    	return (B_FALSE);
 
 	if (xdrs->x_op == XDR_DECODE) {

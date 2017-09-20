@@ -193,6 +193,9 @@ sbd_do_read_xfer(struct scsi_task *task, sbd_cmd_t *scmd,
 	dbuf->db_relative_offset = scmd->current_ro;
 	//dbuf->db_data_size = buflen;
 	dbuf->db_flags = DB_DIRECTION_TO_RPORT;
+	if (scmd->len - buflen == 0)
+		dbuf->db_flags |= DB_SEND_STATUS_GOOD;
+
 	(void) stmf_xfer_data(task, dbuf, 0);
 	scmd->len -= buflen;
 	scmd->current_ro += buflen;
@@ -513,7 +516,8 @@ sbd_handle_read_xfer_completion(struct scsi_task *task, sbd_cmd_t *scmd,
 			stmf_scsilib_send_status(task, STATUS_CHECK,
 			    STMF_SAA_READ_ERROR);
 		else
-			stmf_scsilib_send_status(task, STATUS_GOOD, 0);
+			stmf_task_lu_done(task);
+		
 		return;
 	}
 	if (dbuf->db_flags & DB_DONT_REUSE) {

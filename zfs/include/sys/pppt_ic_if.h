@@ -175,6 +175,7 @@ typedef struct {
 	uint64_t icsd_session_id;
 	uint8_t icsd_lun_id[16];
 	uint64_t icsd_data_len;
+	uint8_t final_xfer;
 	uint8_t *icsd_data;
 } stmf_ic_scsi_data_msg_t;
 
@@ -412,7 +413,8 @@ stmf_ic_msg_t *stmf_ic_scsi_data_msg_alloc(
     uint8_t		*lun_id,
     uint64_t		data_len,
     uint8_t		*data,
-    stmf_ic_msgid_t msgid);
+    stmf_ic_msgid_t msgid,
+    uint8_t		final_xfer);
 
 /* Allocate a scsi transfer done message */
 typedef

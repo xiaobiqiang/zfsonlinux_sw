@@ -1028,7 +1028,8 @@ pppt_lport_xfer_data(scsi_task_t *task, stmf_data_buf_t *dbuf,
 		    pppt_task->pt_sess->ps_session_id,
 		    pppt_task->pt_lun_id,
 		    dbuf->db_data_size, 
-		    dbuf->db_sglist[0].seg_addr, 0);
+		    dbuf->db_sglist[0].seg_addr, 0,
+		    dbuf->db_flags & DB_SEND_STATUS_GOOD);
 
 		pppt_task->pt_read_buf = pbuf;
 		pppt_task->pt_read_xfer_msgid = msg->icm_msgid;
@@ -1070,8 +1071,9 @@ pppt_lport_xfer_data(scsi_task_t *task, stmf_data_buf_t *dbuf,
 void
 pppt_xfer_read_complete(pppt_task_t *pppt_task, stmf_status_t status)
 {
-	pppt_buf_t		*pppt_buf;
-	stmf_data_buf_t		*dbuf;
+	pppt_buf_t *pppt_buf;
+	stmf_data_buf_t *dbuf;
+	uint32_t iof = 0;
 
 	/*
 	 * Caller should have taken a task hold (likely via pppt_task_lookup)
@@ -1082,10 +1084,16 @@ pppt_xfer_read_complete(pppt_task_t *pppt_task, stmf_status_t status)
 	dbuf = pppt_buf->pbuf_stmf_buf;
 	dbuf->db_xfer_status = (status == STMF_SUCCESS) ?
 	    STMF_SUCCESS : STMF_FAILURE;
-	#if 1
-		
-		stmf_data_xfer_done(pppt_task->pt_stmf_task, dbuf, 0);
-	#else
+
+#if 1
+	if (dbuf->db_flags & DB_SEND_STATUS_GOOD) {
+		printk("zjn %s task=%p STMF_IOF_LPORT_DONE\n", __func__, 
+			pppt_task->pt_stmf_task);
+		iof = STMF_IOF_LPORT_DONE;
+	}
+	stmf_data_xfer_done(pppt_task->pt_stmf_task, dbuf, iof);
+
+#else
 	/*
 	 * COMSTAR currently requires port providers to support
 	 * the DB_SEND_STATUS_GOOD flag even if phase collapse is
@@ -1125,7 +1133,7 @@ pppt_xfer_read_complete(pppt_task_t *pppt_task, stmf_status_t status)
 	} else {
 		stmf_data_xfer_done(pppt_task->pt_stmf_task, dbuf, 0);
 	}
-	#endif
+#endif
 }
 
 /*ARGSUSED*/

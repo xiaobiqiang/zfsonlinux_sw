@@ -2273,7 +2273,8 @@ stmf_ic_scsi_data_msg_alloc(
     uint8_t *lun_id,
     uint64_t data_len,
     uint8_t *data,
-    stmf_ic_msgid_t msgid)
+    stmf_ic_msgid_t msgid,
+    uint8_t final_xfer)
 {
 	stmf_ic_msg_t *icm = NULL;
 	stmf_ic_scsi_data_msg_t *icsd = NULL;
@@ -2289,7 +2290,8 @@ stmf_ic_scsi_data_msg_alloc(
 	bcopy(lun_id, icsd->icsd_lun_id, sizeof (icsd->icsd_lun_id));
 	icsd->icsd_data_len = data_len;
 	icsd->icsd_data = data;
-
+	icsd->final_xfer = final_xfer;
+	
 	return (icm);
 }
 
