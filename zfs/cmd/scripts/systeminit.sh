@@ -431,13 +431,13 @@ return 0
 #OTHERS OF OLD SYSTEMINIT.SH
 function init_cluster_conf
 {
-	if [ ! -f /usr/local/sbin/cluster_init.sh ];then
-		touch /usr/local/sbin/cluster_init.sh
+	if [ ! -f /usr/sbin/cluster_init.sh ];then
+		touch /usr/sbin/cluster_init.sh
 	else
-		rm /usr/local/sbin/cluster_init.sh
+		rm /usr/sbin/cluster_init.sh
 	fi
 
-cat > /usr/local/sbin/cluster_init.sh <<_CLUSTERINIT_
+cat > /usr/sbin/cluster_init.sh <<_CLUSTERINIT_
 #!/usr/bin/bash
 
 #
@@ -467,13 +467,13 @@ _CLUSTERINIT_
 	done
 	HOSTITEM='\/usr\/local\/sbin\/zfs mirror -e '$MIRRORID
 
-	sed "s/.*usr\/local\/sbin\/zfs mirror.*/${HOSTITEM}/g" /usr/local/sbin/cluster_init.sh > /tmp/cluster_init.sh
-	sed 's/.*sleep.*/sleep 5/g' /tmp/cluster_init.sh > /usr/local/sbin/cluster_init.sh
+	sed "s/.*usr\/local\/sbin\/zfs mirror.*/${HOSTITEM}/g" /usr/sbin/cluster_init.sh > /tmp/cluster_init.sh
+	sed 's/.*sleep.*/sleep 5/g' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
 
 	i=1
 	SANNAME=
 	NICNAME=
-	sed '/zfs clustersan enable*/d' /usr/local/sbin/cluster_init.sh > /tmp/cluster_init.sh
+	sed '/zfs clustersan enable*/d' /usr/sbin/cluster_init.sh > /tmp/cluster_init.sh
 
 	while [ -z $SANNAME ]
 	do
@@ -505,12 +505,12 @@ _CLUSTERINIT_
 
 		if [ -z $response ]||[ $response != "y" -a $response != "Y" ];then
 			echo "not enable cluster nas ! "
-			sed '/zfs multiclus*/d' /tmp/cluster_init.sh > /usr/local/sbin/cluster_init.sh
-			cp /usr/local/sbin/cluster_init.sh /tmp/cluster_init.sh
+			sed '/zfs multiclus*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
+			cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh
 		else
-			sed '/zfs multiclus*/d' /tmp/cluster_init.sh > /usr/local/sbin/cluster_init.sh
-			echo "/usr/local/sbin/zfs multiclus -e" >> /usr/local/sbin/cluster_init.sh            
-			cp /usr/local/sbin/cluster_init.sh /tmp/cluster_init.sh
+			sed '/zfs multiclus*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
+			echo "/usr/local/sbin/zfs multiclus -e" >> /usr/sbin/cluster_init.sh            
+			cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh
 		fi
 	fi
 
@@ -521,13 +521,13 @@ _CLUSTERINIT_
 	read response
 	if [ -z $response ]||[ $response != "y" -a $response != "Y" ];then
 		echo "not set route for partner IPMI! "
-		sed '/zfs clustersan set ipmi*/d' /tmp/cluster_init.sh > /usr/local/sbin/cluster_init.sh
+		sed '/zfs clustersan set ipmi*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
 	else
-		sed '/zfs clustersan set ipmi*/d' /tmp/cluster_init.sh > /usr/local/sbin/cluster_init.sh
-		echo "/usr/local/sbin/zfs clustersan set ipmi=on" >> /usr/local/sbin/cluster_init.sh
+		sed '/zfs clustersan set ipmi*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
+		echo "/usr/local/sbin/zfs clustersan set ipmi=on" >> /usr/sbin/cluster_init.sh
 	fi
 
-	chmod 755 /usr/local/sbin/cluster_init.sh
+	chmod 755 /usr/sbin/cluster_init.sh
 }
 
 #set ip address
