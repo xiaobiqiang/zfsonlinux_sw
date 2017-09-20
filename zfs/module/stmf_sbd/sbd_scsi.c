@@ -355,9 +355,11 @@ sbd_do_sgl_read_xfer(struct scsi_task *task, sbd_cmd_t *scmd, int first_xfer)
 		 * Note there is no buffer address for the probe yet.
 		 */
 		stmf_lu_xfer_start(task);
+		/*
 		DTRACE_PROBE5(backing__store__read__start, sbd_lu_t *, sl,
 		    uint8_t *, NULL, uint64_t, xfer_len,
 		    uint64_t, offset, scsi_task_t *, task);
+		*/
 		xfer_start = gethrtime();
 
 		ret = sbd_zvol_alloc_read_bufs(sl, dbuf, inititator_wwn);
@@ -366,9 +368,11 @@ sbd_do_sgl_read_xfer(struct scsi_task *task, sbd_cmd_t *scmd, int first_xfer)
 
 		stmf_lu_xfer_done(task, B_TRUE /* read */, (uint64_t)xfer_len,
 		    xfer_elapsed);
+		/*
 		DTRACE_PROBE6(backing__store__read__end, sbd_lu_t *, sl,
 		    uint8_t *, NULL, uint64_t, xfer_len,
 		    uint64_t, offset, int, ret, scsi_task_t *, task);
+		*/
 
 		if (ret != 0) {
 			/*
@@ -427,9 +431,11 @@ sbd_do_sgl_read_xfer(struct scsi_task *task, sbd_cmd_t *scmd, int first_xfer)
 		scmd->nbufs++;
 
 		/* XXX leave this in for FW? */
+		/*
 		DTRACE_PROBE4(sbd__xfer, struct scsi_task *, task,
 		    struct stmf_data_buf *, dbuf, uint64_t, offset,
 		    uint32_t, xfer_len);
+		*/
 		/*
 		 * Do not pass STMF_IOF_LU_DONE so that the zvol
 		 * state can be released in the completion callback.
@@ -698,9 +704,11 @@ sbd_handle_sgl_write_xfer_completion(struct scsi_task *task, sbd_cmd_t *scmd,
 
 	/* start the accounting clock */
 	stmf_lu_xfer_start(task);
+	/*
 	DTRACE_PROBE5(backing__store__write__start, sbd_lu_t *, sl,
 	    uint8_t *, NULL, uint64_t, data_size,
 	    uint64_t, zvio->zvio_offset, scsi_task_t *, task);
+	*/
 	xfer_start = gethrtime();
 
 	if (scmd_err) {
@@ -719,10 +727,11 @@ sbd_handle_sgl_write_xfer_completion(struct scsi_task *task, sbd_cmd_t *scmd,
 	/* finalize accounting */
 	stmf_lu_xfer_done(task, B_FALSE /* not read */, data_size,
 	    (gethrtime() - xfer_start));
+	/*
 	DTRACE_PROBE6(backing__store__write__end, sbd_lu_t *, sl,
 	    uint8_t *, NULL, uint64_t, data_size,
 	    uint64_t, zvio->zvio_offset, int, ret,  scsi_task_t *, task);
-
+	*/
 	if (ret != 0) {
 		/* update the error flag */
 		scmd->flags |= SBD_SCSI_CMD_XFER_FAIL;
@@ -869,30 +878,36 @@ sbd_copy_rdwr(scsi_task_t *task, uint64_t laddr, stmf_data_buf_t *dbuf,
 	if (is_read == B_TRUE) {
 		uio.uio_fmode = FREAD;
 		/* uio.uio_extflg = UIO_COPY_CACHED; */
+		/*
 		DTRACE_PROBE5(backing__store__read__start, sbd_lu_t *, sl,
 		    uint8_t *, NULL, uint64_t, len, uint64_t, laddr,
 		    scsi_task_t *, task);
-
+		*/
 		/* Fetch the data */
 		ret = sbd_zvol_copy_read(sl, &uio, inititator_wwn);
-
+		
+		/*
 		DTRACE_PROBE6(backing__store__read__end, sbd_lu_t *, sl,
 		    uint8_t *, NULL, uint64_t, len, uint64_t, laddr, int, ret,
 		    scsi_task_t *, task);
+		*/
 	} else {
 		uio.uio_fmode = FWRITE;
 		/* uio.uio_extflg = UIO_COPY_DEFAULT; */
+		/*
 		DTRACE_PROBE5(backing__store__write__start, sbd_lu_t *, sl,
 		    uint8_t *, NULL, uint64_t, len, uint64_t, laddr,
 		    scsi_task_t *, task);
-
+		*/
 		flags = (commit) ? ZVIO_COMMIT : 0;
 		/* Write the data */
 		ret = sbd_zvol_copy_write(sl, &uio, dbuf->db_flags, inititator_wwn);
 
+		/*
 		DTRACE_PROBE6(backing__store__write__end, sbd_lu_t *, sl,
 		    uint8_t *, NULL, uint64_t, len, uint64_t, laddr, int, ret,
 		    scsi_task_t *, task);
+		*/
 	}
 	/* finalize accounting */
 	stmf_lu_xfer_done(task, is_read, (uint64_t)len,
@@ -1032,10 +1047,12 @@ sbd_handle_read(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 				dbuf->db_flags = DB_SEND_STATUS_GOOD |
 					DB_DIRECTION_TO_RPORT;
 				/* XXX keep for FW? */
+				/*
 				DTRACE_PROBE4(sbd__xfer,
 					struct scsi_task *, task,
 					struct stmf_data_buf *, dbuf,
 					uint64_t, laddr, uint32_t, len);
+				*/
 				(void) stmf_xfer_data(task, dbuf,
 					STMF_IOF_LU_DONE);
 			}
@@ -1095,9 +1112,11 @@ sbd_handle_read(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 			dbuf->db_flags = DB_SEND_STATUS_GOOD |
 			    DB_DIRECTION_TO_RPORT;
 			/* XXX keep for FW? */
+			/*
 			DTRACE_PROBE4(sbd__xfer, struct scsi_task *, task,
 			    struct stmf_data_buf *, dbuf,
 			    uint64_t, laddr, uint32_t, len);
+			*/
 			(void) stmf_xfer_data(task, dbuf, STMF_IOF_LU_DONE);
 		} else {
 			stmf_scsilib_send_status(task, STATUS_CHECK,
@@ -2798,7 +2817,9 @@ sbd_write_same_data(struct scsi_task *task, sbd_cmd_t *scmd)
 		 * Just send it in terms of of the transmitted data.  This
 		 * will be very slow.
 		 */
+		/*
 		DTRACE_PROBE1(write__same__low__memory, uint64_t, big_buf_size);
+		*/
 		big_buf = scmd->trans_data;
 		big_buf_size = scmd->trans_data_len;
 	} else {
@@ -2811,7 +2832,9 @@ sbd_write_same_data(struct scsi_task *task, sbd_cmd_t *scmd)
 	}
 
 	/* Do the actual I/O.  Recycle xfer_size now to be write size. */
+	/*
 	DTRACE_PROBE1(write__same__io__begin, uint64_t, len);
+	*/
 	for (sz_done = 0; sz_done < len; sz_done += (uint64_t)xfer_size) {
 		xfer_size = ((big_buf_size + sz_done) <= len) ? big_buf_size :
 		    len - sz_done;
@@ -2820,8 +2843,9 @@ sbd_write_same_data(struct scsi_task *task, sbd_cmd_t *scmd)
 		if (ret != SBD_SUCCESS)
 			break;
 	}
+	/*
 	DTRACE_PROBE2(write__same__io__end, uint64_t, len, uint64_t, sz_done);
-
+	*/
 	if (big_buf != scmd->trans_data)
 		kmem_free(big_buf, big_buf_size);
 
@@ -3530,9 +3554,10 @@ sbd_remove_it_handle(sbd_lu_t *sl, sbd_it_data_t *it)
 	}
 	mutex_exit(&sl->sl_lock);
 
+	/*
 	DTRACE_PROBE2(itl__nexus__end, stmf_lu_t *, sl->sl_lu,
 	    sbd_it_data_t *, it);
-
+	*/
 	kmem_free(it, sizeof (*it));
 }
 
@@ -3602,7 +3627,9 @@ sbd_new_task(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 		sl->sl_it_list = it;
 		mutex_exit(&sl->sl_lock);
 
+		/*
 		DTRACE_PROBE1(itl__nexus__start, scsi_task *, task);
+		*/
 
 		sbd_pgr_initialize_it(task, it);
 		if (stmf_register_itl_handle(task->task_lu, task->task_lun_no,

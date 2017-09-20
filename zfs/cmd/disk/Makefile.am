@@ -14,13 +14,13 @@ disk_SOURCES = 	\
 disk_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la \
 	$(top_builddir)/lib/libuutil/libuutil.la \
-	$(top_builddir)/lib/libzpool/libzpool.la \
-	$(top_builddir)/lib/libzfs/libzfs.la \
 	$(top_builddir)/lib/libdiskmgt/libdiskmgt.la \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
+	$(top_builddir)/lib/libzpool/libzpool.la \
+	$(top_builddir)/lib/libzfs/libzfs.la \
 	$(top_builddir)/lib/libstmf/libstmf.la
 
-disk_LDADD += $(ZLIB) -lxml2
+disk_LDADD += $(ZLIB) -lxml2 -lrt
 disk_LDFLAGS = -pthread
 
 install-exec-hook:

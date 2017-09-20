@@ -25,7 +25,7 @@ int cn_hbx_msg_send(const char *buf, size_t len)
 
 	memcpy(m + 1, buf, m->len);
 
-	err = cn_netlink_send(m, CN_IDX_HBX, GFP_ATOMIC);
+	err = cn_netlink_send(m, 0, CN_IDX_HBX, GFP_ATOMIC);
 	if (err < 0)
 		printk(KERN_ERR "cn_netlink_send error %d\n", err);
 	kfree(m);

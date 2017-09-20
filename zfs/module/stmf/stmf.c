@@ -162,7 +162,7 @@ void stmf_trace_clear(void);
 void stmf_worker_init(void);
 stmf_status_t stmf_worker_fini(void);
 void stmf_init_task_checker(void);
-int stmf_fini_task_checker();
+int stmf_fini_task_checker(void);
 void stmf_worker_mgmt(void);
 void stmf_worker_task(void *arg);
 static void stmf_task_lu_free(scsi_task_t *task, stmf_i_scsi_session_t *iss);
@@ -2596,7 +2596,7 @@ stmf_register_pppt_cb(struct pppt_callback cb)
 }
 
 stmf_status_t
-stmf_pppt_cb_registerd()
+stmf_pppt_cb_registerd(void)
 {
 	stmf_status_t ret = STMF_SUCCESS;
 	
@@ -4823,8 +4823,10 @@ stmf_register_scsi_session(stmf_local_port_t *lport, stmf_scsi_session_t *ss)
 
 	cmn_err(CE_NOTE, "%s initiator = %s, target = %s, ss_session_id = 0x%"PRIx64"",
 		__func__, initiator_id, target_id, ss->ss_session_id);
+	/*
 	DTRACE_PROBE2(session__online, stmf_local_port_t *, lport,
 	    stmf_scsi_session_t *, ss);
+	*/
 	return (STMF_SUCCESS);
 }
 
@@ -4840,9 +4842,10 @@ stmf_deregister_scsi_session(stmf_local_port_t *lport, stmf_scsi_session_t *ss)
 	uint8_t		initiator_id[256] = {0};
 	uint8_t 	target_id[256] = {0};	
 
+	/*
 	DTRACE_PROBE2(session__offline, stmf_local_port_t *, lport,
 	    stmf_scsi_session_t *, ss);
-
+	*/
 	bcopy(ss->ss_rport_id->ident, initiator_id,
 		ss->ss_rport_id->ident_length);
 
@@ -6275,9 +6278,11 @@ stmf_task_free(scsi_task_t *task)
 	task->task_sense_length=0;
 	stmf_free_task_bufs(itask, lport);
 	stmf_itl_task_done(itask);
+	/*
 	DTRACE_PROBE2(stmf__task__end, scsi_task_t *, task,
 	    hrtime_t,
 	    itask->itask_done_timestamp - itask->itask_start_timestamp);
+	*/
 	if (itask->itask_itl_datap) {
 		if (atomic_add_32_nv(&itask->itask_itl_datap->itl_counter,
 		    -1) == 0) {
@@ -6515,8 +6520,10 @@ setworks:
 
 	if ((w->worker_flags & STMF_WORKER_ACTIVE) == 0) {
 		w->worker_signal_timestamp = gethrtime();
+		/*
 		DTRACE_PROBE2(worker__signal, stmf_worker_t *, w,
 		    scsi_task_t *, task);
+		*/
 		cv_signal(&w->worker_cv);
 		w->worker_after_sig_timestamp = gethrtime();
 	}
@@ -6588,8 +6595,10 @@ stmf_redo_queue_new_task(scsi_task_t *task,stmf_data_buf_t *dbuf)
 
 	if ((w->worker_flags & STMF_WORKER_ACTIVE) == 0) {
 		w->worker_signal_timestamp = gethrtime();
+		/*
 		DTRACE_PROBE2(worker__signal, stmf_worker_t *, w,
 		    scsi_task_t *, task);
+		*/
 		cv_signal(&w->worker_cv);
 		w->worker_after_sig_timestamp = gethrtime();
 	}
@@ -6875,7 +6884,9 @@ stmf_send_scsi_status(scsi_task_t *task, uint32_t ioflags)
 	stmf_i_scsi_task_t *itask =
 	    (stmf_i_scsi_task_t *)task->task_stmf_private;
 
+	/*
 	DTRACE_PROBE1(scsi__send__status, scsi_task_t *, task);
+	*/
 	stmf_task_audit(itask, TE_SEND_STATUS, ioflags, NULL);
 
 	if (ioflags & STMF_IOF_LU_DONE) {
@@ -7100,9 +7111,10 @@ stmf_abort(int abort_cmd, scsi_task_t *task, stmf_status_t s, void *arg, uint32_
 	stmf_i_scsi_task_t *itask = NULL;
 	uint32_t old, new, f, rf;
 
+	/*
 	DTRACE_PROBE2(scsi__task__abort, scsi_task_t *, task,
 	    stmf_status_t, s);
-
+	*/
 	switch (abort_cmd) {
 	case STMF_QUEUE_ABORT_LU:
 		cmn_err(CE_WARN,   "%s invoke stmf_task_lu_killall", __func__);
@@ -7393,17 +7405,21 @@ stmf_ctl(int cmd, void *obj, void *arg)
 		if (ilu == NULL) {
 			goto stmf_ctl_lock_exit;
 		}
+		/*
 		DTRACE_PROBE3(lu__state__change,
 		    stmf_lu_t *, ilu->ilu_lu,
 		    int, cmd, stmf_state_change_info_t *, ssci);
+		*/
 	} else if (cmd & STMF_CMD_LPORT_OP) {
 		ilport = stmf_lookup_lport((stmf_local_port_t *)obj);
 		if (ilport == NULL) {
 			goto stmf_ctl_lock_exit;
 		}
+		/*
 		DTRACE_PROBE3(lport__state__change,
 		    stmf_local_port_t *, ilport->ilport_lport,
 		    int, cmd, stmf_state_change_info_t *, ssci);
+		*/
 	} else {
 		goto stmf_ctl_lock_exit;
 	}
@@ -8500,8 +8516,9 @@ stmf_worker_task(void *arg)
 
 	w = (stmf_worker_t *)arg;
 	wait_ticks = drv_usectohz(10000);
-
+	/*
 	DTRACE_PROBE1(worker__create, stmf_worker_t, w);
+	*/
 	mutex_enter(&w->worker_lock);
 	w->worker_flags |= STMF_WORKER_STARTED | STMF_WORKER_ACTIVE;
 stmf_worker_loop:;
@@ -8511,7 +8528,9 @@ stmf_worker_loop:;
 		    STMF_WORKER_ACTIVE | STMF_WORKER_TERMINATE);
 		w->worker_tid = NULL;
 		mutex_exit(&w->worker_lock);
+		/*
 		DTRACE_PROBE1(worker__destroy, stmf_worker_t, w);
+		*/
 		thread_exit();
 	}
 	/* CONSTCOND */
@@ -8537,8 +8556,10 @@ stmf_worker_loop:;
 			break;
 		}
 		task = itask->itask_task;
+		/*
 		DTRACE_PROBE2(worker__active, stmf_worker_t, w,
 		    scsi_task_t *, task);
+		*/
 		w->worker_task_head = itask->itask_worker_next;
 		if (w->worker_task_head == NULL)
 			w->worker_task_tail = NULL;
@@ -8651,7 +8672,9 @@ out_itask_flag_loop:
 				}
 			}
 #endif
+			/*
 			DTRACE_PROBE1(scsi__task__start, scsi_task_t *, task);
+			*/
 			lu->lu_new_task(task, dbuf);
 			break;
 		case ITASK_CMD_DATA_XFER_DONE:
@@ -8704,16 +8727,22 @@ out_itask_flag_loop:
 	}
 	w->worker_flags &= ~STMF_WORKER_ACTIVE;
 	if (wait_timer) {
+		/*
 		DTRACE_PROBE1(worker__timed__sleep, stmf_worker_t, w);
+		*/
 		w->worker_timed_wait_timestamp = gethrtime();
 		cv_timedwait(&w->worker_cv, &w->worker_lock,
 			ddi_get_lbolt() + wait_delta);
 	} else {
+		/*
 		DTRACE_PROBE1(worker__sleep, stmf_worker_t, w);
+		*/
 		w->worker_wait_timestamp = gethrtime();
 		cv_wait(&w->worker_cv, &w->worker_lock);
 	}
+	/*
 	DTRACE_PROBE1(worker__wakeup, stmf_worker_t, w);
+	*/
 	w->worker_rec_signal_timestamp = gethrtime();
 	w->worker_flags |= STMF_WORKER_ACTIVE;
 	goto stmf_worker_loop;
@@ -9882,10 +9911,11 @@ stmf_lport_xfer_start(stmf_i_scsi_task_t *itask, stmf_data_buf_t *dbuf)
 
 	if (itl == NULL)
 		return;
-
+	
+	/*
 	DTRACE_PROBE2(scsi__xfer__start, scsi_task_t *, itask->itask_task,
 	    stmf_data_buf_t *, dbuf);
-
+	*/
 	dbuf->db_xfer_start_timestamp = gethrtime();
 }
 
@@ -9920,9 +9950,10 @@ stmf_lport_xfer_done(stmf_i_scsi_task_t *itask, stmf_data_buf_t *dbuf)
 		    xfer_size);
 	}
 
+	/*
 	DTRACE_PROBE3(scsi__xfer__end, scsi_task_t *, itask->itask_task,
 	    stmf_data_buf_t *, dbuf, hrtime_t, elapsed_time);
-
+	*/
 	kip = KSTAT_IO_PTR(itl->itl_kstat_lport_xfer);
 	mutex_enter(ilp->ilport_kstat_io->ks_lock);
 	if (dbuf->db_flags & DB_DIRECTION_TO_RPORT) {

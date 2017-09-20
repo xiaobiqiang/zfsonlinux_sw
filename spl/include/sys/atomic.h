@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <asm/cmpxchg.h>
 
+#define ATOMIC_SPINLOCK 1
 
 /*
  * Two approaches to atomic operations are implemented each with its
@@ -115,10 +116,10 @@ atomic_inc_16(volatile uint16_t *target)
 	spin_unlock(&atomic32_lock);
 }
 static __inline__ void
-atomic_inc_16(volatile uint16_t *target)
+atomic_dec_16(volatile uint16_t *target)
 {
 	spin_lock(&atomic32_lock);
-	(*target)++;
+	(*target)--;
 	spin_unlock(&atomic32_lock);
 }
 static __inline__ void

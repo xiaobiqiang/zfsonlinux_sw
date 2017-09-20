@@ -39,7 +39,7 @@ AC_CONFIG_MACRO_DIR([config])
 AC_CANONICAL_SYSTEM
 AM_MAINTAINER_MODE
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([subdir-objects])
 AC_CONFIG_HEADERS([zfs_config.h], [
 	(mv zfs_config.h zfs_config.h.tmp &&
 	awk -f ${ac_srcdir}/config/config.awk zfs_config.h.tmp >zfs_config.h &&
@@ -176,6 +176,7 @@ AC_CONFIG_FILES([
 	module/fct/Makefile
 	module/qlt/Makefile
 	module/qlf/Makefile
+	module/qlf_hengwei/Makefile
 	module/stmf/Makefile
 	module/stmf_sbd/Makefile
 	module/pppt/Makefile

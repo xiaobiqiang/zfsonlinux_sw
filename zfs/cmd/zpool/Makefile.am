@@ -25,4 +25,4 @@ zpool_LDADD = \
 	$(top_builddir)/lib/libdiskmgt/libdiskmgt.la \
 	$(LIBBLKID)
 
-zpool_LDADD += -lxml2
+zpool_LDADD += -lxml2 -lrt

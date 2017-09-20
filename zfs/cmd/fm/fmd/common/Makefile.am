@@ -51,17 +51,18 @@ fmd_SOURCES =		\
 
 fmd_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la			\
-        $(top_builddir)/lib/libzpool/libzpool.la 			\
-        $(top_builddir)/lib/libzfs/libzfs.la 				\
         $(top_builddir)/lib/fm/libdiagcode/common/libdiagcode.la	\
         $(top_builddir)/lib/fm/libexacct/common/libexacct.la		\
         $(top_builddir)/lib/fm/libfmd_msg/common/libfmd_msg.la		\
         $(top_builddir)/lib/libfmd/libfmd.la				\
         $(top_builddir)/lib/libipmi/libipmi.la				\
         $(top_builddir)/lib/fm/topo/libtopo/common/libtopo.la 		\
-        $(top_builddir)/lib/libstmf/libstmf.la 
+	$(top_builddir)/lib/libspl/libspl.la				\
+        $(top_builddir)/lib/libzpool/libzpool.la 			\
+        $(top_builddir)/lib/libzfs/libzfs.la 				\
+        $(top_builddir)/lib/libstmf/libstmf.la				\
+	-lxml2 -lrt
 
-
-fmd_LDFLAGS = -lpthread -ldl -lxml2					\
+fmd_LDFLAGS = -lpthread -ldl 						\
 		-Wl,--dynamic-list=./fmd_api.map			\
 		-Wl,--dynamic-list=./fmd_fmri.map
