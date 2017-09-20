@@ -2526,6 +2526,108 @@ int zpool_init_dev_labels(char *path)
 	return (ret);
 }
 
+/*
+ * synckey needed
+ */
+static void
+synckey_no_receive_info(int recv)
+{
+	char fifo_name[512];
+	long int current_id;
+	current_id = getpid();
+
+	bzero(fifo_name,512);
+	sprintf(fifo_name,"/tmp/synckeyrebak%d",current_id);
+	unlink(fifo_name);
+	printf("send or recv fail,please check services open or not\n");
+	exit(EXIT_FAILURE);
+}
+
+/*
+ * Function: the function add the current PID in the buffer,
+ * 		 so we can get the oppsite result.
+ * Parameters
+ *		buffer -- date ,we want to send
+ *		size	 -- the buffer size
+ *		flages -- judge choice which case
+ * Return : 0 == success, -1 == faile 
+ */
+int 
+zfs_add_guide_info( char *buffer, int size, uint64_t flags)
+{
+	long int current_id;
+	int fifo_fd = -1;
+	int chkfifo = 0;
+	char fifo_name[512];
+	char fifo_buffer[16];
+	char *tmp_buffer=NULL;
+	libzfs_handle_t *zfs_handle = NULL;
+	int tmp_size = size;
+
+	signal(SIGALRM,synckey_no_receive_info);
+	alarm(5);
+	
+	current_id = getpid();
+	bzero(fifo_name, 512);
+	sprintf(fifo_name, "/tmp/synckeyrebak%d", current_id);
+	chkfifo = mkfifo(fifo_name, 0777);
+	if (chkfifo != 0){
+		printf("Could not create FIFO\n");
+		return (-1);
+	}
+	
+	if (flags == ZFS_HBX_RCMD_UPDATE){
+		tmp_buffer = malloc(size + MAX_ID_BYTE);
+		if (NULL == tmp_buffer) {
+			printf("malloc fail\n");
+			unlink(fifo_name);
+			return (-1);
+		}
+		sprintf(tmp_buffer,"%ld",current_id);
+		bcopy(buffer, tmp_buffer + MAX_ID_BYTE, strlen(buffer));
+		tmp_buffer[strlen(buffer) + MAX_ID_BYTE] = '\0';
+
+		/* Calculate the length of the string */
+		tmp_size = strlen(tmp_buffer + MAX_ID_BYTE) + MAX_ID_BYTE + 1;
+	}
+
+	if ((zfs_handle = libzfs_init()) == NULL) {
+		printf("key file get zfs handle failed\n");
+		if (flags == ZFS_HBX_RCMD_UPDATE)
+			free(tmp_buffer);
+		unlink(fifo_name);
+		return (-1);
+	}
+
+	if (ZFS_HBX_KEYFILE_UPDATE == flags) {
+		zfs_do_hbx_process(zfs_handle, buffer, size, flags);
+	} else if (ZFS_HBX_RCMD_UPDATE == flags) {
+		zfs_do_hbx_process(zfs_handle, tmp_buffer, tmp_size, flags);
+	}
+	
+	if (flags == ZFS_HBX_RCMD_UPDATE)
+		free(tmp_buffer);
+	
+	libzfs_fini(zfs_handle);
+
+	fifo_fd = open(fifo_name,O_RDONLY);
+	if (fifo_fd != -1){
+		read(fifo_fd, fifo_buffer, sizeof(fifo_buffer));
+		if (strcmp(fifo_buffer, "0") != 0){
+			if (ZFS_HBX_RCMD_UPDATE == flags)
+				printf("%s fail\n",buffer);
+			else if (ZFS_HBX_KEYFILE_UPDATE == flags)
+				printf("please check the file\n");
+			}
+		close(fifo_fd);
+	} else {
+		printf("open FIFO fail\n");
+	}
+	unlink(fifo_name);
+	return 0;
+}
+
+
 int
 zfs_create_lu(char *lu_name)
 {

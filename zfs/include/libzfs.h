@@ -66,6 +66,7 @@ extern "C" {
 #define	DISK_LABEL_WAIT		(30 * 1000)  /* 30 seconds */
 
 #define	DEFAULT_IMPORT_PATH_SIZE	7
+#define MAX_ID_BYTE 8
 extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 
 
@@ -883,6 +884,7 @@ extern void zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size
 	uint64_t flags, int remote_id);
 extern int zfs_do_hbx_get_nvlist(libzfs_handle_t *hdl, zfs_hbx_ioc_t cmd,
 	uint32_t hostid, nvlist_t **nv_ptr);
+extern int zfs_add_guide_info(char *buffer, int size, uint64_t flags);
 
 extern int zfs_is_failover_prop(const char * prop);
 

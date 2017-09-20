@@ -137,6 +137,7 @@ AC_CONFIG_FILES([
 	cmd/clusterd/Makefile
 	cmd/clumgt/Makefile
 	cmd/disk/Makefile
+	cmd/synckey/Makefile
 	cmd/fm/Makefile
 	cmd/fm/fmd/Makefile
 	cmd/fm/fmd/common/Makefile

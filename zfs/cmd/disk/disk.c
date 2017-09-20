@@ -246,10 +246,7 @@ static void disk_info_free(disk_table_t *tb)
 	disk_info_t *temp = NULL;
 	disk_info_t *cur = tb->next;
 
-	for (cur = tb->next; cur != NULL; cur = cur->next) {
-		if (cur == NULL)
-			break;
-
+	for (cur = tb->next; cur != NULL; ) {
 		temp = cur->next;
 		free(cur);
 		cur = temp;
@@ -285,9 +282,6 @@ static void disk_info_show(disk_table_t *tb, int all)
 
 	di_cur = tb->next;
 	for (di_cur = tb->next; di_cur != NULL; di_cur = di_cur->next) {
-		if (di_cur == NULL)
-			break;
-
 		pstr = (char*)di_cur->dk_name;
 		len = strlen(di_cur->dk_name);
 

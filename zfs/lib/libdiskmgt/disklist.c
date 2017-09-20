@@ -18,23 +18,6 @@
 #include <linux/ioctl.h>
 #include <linux/hdreg.h>
 
-#if 0
-#include <thread_pool.h>
-#include <sys/scsi/generic/commands.h>
-#include <sys/scsi/generic/status.h>
-#include <sys/scsi/impl/types.h>
-#include <sys/scsi/impl/uscsi.h>
-#include <sys/scsi/impl/commands.h>
-#include <sys/scsi/generic/mode.h>
-
-/*
-#include <thread_pool.h>
-*/
-//#include <sys/thread.h>
-
-//#include "../../libc/inc/thread_pool.h"
-#endif
-
 #include <thread.h>
 #include <pthread.h>
 #include <dirent.h>
@@ -1246,7 +1229,7 @@ int disk_get_info(disk_table_t *dt)
 			continue;
 		}
 		
-		if (strncasecmp(buf_scsi, "scsi", 4) == 0) {
+		if (strncasecmp(buf_scsi, "scsi", 4) == 0 && strlen(buf_scsi) == 22) {
 			di_cur = (disk_info_t*)malloc(sizeof(disk_info_t));
 			bzero(di_cur, sizeof(disk_info_t));
 			snprintf(di_cur->dk_scsid, strlen(buf_scsi) + strlen(DEFAULT_SCSI) + 1, "%s%s",
