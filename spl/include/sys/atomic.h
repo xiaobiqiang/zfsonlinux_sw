@@ -30,8 +30,6 @@
 #include <sys/types.h>
 #include <asm/cmpxchg.h>
 
-#define ATOMIC_SPINLOCK 1
-
 /*
  * Two approaches to atomic operations are implemented each with its
  * own benefits are drawbacks imposed by the Solaris API.  Neither
