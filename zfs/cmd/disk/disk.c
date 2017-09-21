@@ -244,12 +244,12 @@ static void disk_info_free(disk_table_t *tb)
 {
 	int i = 0;
 	disk_info_t *temp = NULL;
-	disk_info_t *cur = tb->next;
-
-	for (cur = tb->next; cur != NULL; ) {
-		temp = cur->next;
-		free(cur);
-		cur = temp;
+	disk_info_t *current = NULL;
+	
+	for (current = tb->next; current != NULL; ) {
+		temp = current->next;
+		free(current);
+		current = temp;
 	}
 }
 
@@ -260,40 +260,33 @@ static void disk_info_show(disk_table_t *tb, int all)
 	int order = 0;
 	char *pstr = NULL;
 	char *value = NULL;
-	disk_info_t *di_cur = NULL;
+	disk_info_t *current = NULL;
 	
-	di_cur = tb->next;
-	for (i = 0; i < tb->total; i++) {
-		if (di_cur == NULL)
-			break;
-
-		if (di_cur->dk_serial[0] == 0 &&
-			(value = disk_info_find_value(di_cur, 0)) != NULL) {
-			memcpy(di_cur->dk_serial, value, strlen(value));
+	for (current = tb->next; current != NULL; current = current->next) {
+		if (current->dk_serial[0] == 0 &&
+			(value = disk_info_find_value(current, 0)) != NULL) {
+			memcpy(current->dk_serial, value, strlen(value));
 		}
 
-		if (di_cur->dk_vendor[0] == 0 &&
-			(value = disk_info_find_value(di_cur, 1)) != NULL) {
-			memcpy(di_cur->dk_vendor, value, strlen(value));
+		if (current->dk_vendor[0] == 0 &&
+			(value = disk_info_find_value(current, 1)) != NULL) {
+			memcpy(current->dk_vendor, value, strlen(value));
 		}
-
-		di_cur = di_cur->next;
 	}
 
-	di_cur = tb->next;
-	for (di_cur = tb->next; di_cur != NULL; di_cur = di_cur->next) {
-		pstr = (char*)di_cur->dk_name;
-		len = strlen(di_cur->dk_name);
+	for (current = tb->next; current != NULL; current = current->next) {
+		pstr = (char*)current->dk_name;
+		len = strlen(current->dk_name);
 
 		if (*(pstr + len - 1) >= '0' && *(pstr + len - 1) <= '9') {
 			if (all == 1) {
-				create_lun_node( di_cur ) ;
-				print_info(di_cur, order);
+				create_lun_node( current) ;
+				print_info(current, order);
 				order++;
 			}
 		} else {
-			create_lun_node( di_cur ) ;
-			print_info(di_cur, order);
+			create_lun_node( current) ;
+			print_info(current, order);
 			order++;
 		}
 	}

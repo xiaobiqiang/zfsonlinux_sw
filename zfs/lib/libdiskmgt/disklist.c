@@ -1252,14 +1252,11 @@ int disk_get_info(disk_table_t *dt)
 
 	(void) disk_get_system(sysdisk);	
 
-	di_cur = dt->next;
-	for (i = 0; i < dt->total; i++) {
+	for (di_cur = dt->next; di_cur != NULL; di_cur = di_cur->next) {
 		if (strncmp(di_cur->dk_name, sysdisk, 8) == 0) {
 			di_cur->dk_is_sys = 1;
 			break;
 		}
-
-		di_cur = di_cur->next;
 	}
 
 	(void) fclose(fd);
