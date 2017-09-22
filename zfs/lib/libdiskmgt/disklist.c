@@ -1171,6 +1171,7 @@ dmg_slice_compare(const void *p1, const void *p2) {
 void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 {
 	int slot = di->dk_slot;
+	int enclosure = di->dk_enclosure;
 	disk_info_t *search = dt->next;
 
 	if (search == NULL) {
@@ -1181,7 +1182,10 @@ void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 		return;
 	}
 
-	if (slot == 0) {
+	while (search->next != NULL && search->dk_enclosure != enclosure)
+		search = search->next;
+
+	if (slot == 0 && enclosure == 0) {
 		dt->next->prev = di;
 		di->next = dt->next;
 		dt->next = di;
