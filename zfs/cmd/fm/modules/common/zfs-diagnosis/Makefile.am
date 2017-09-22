@@ -2,6 +2,7 @@ include $(top_srcdir)/config/Rules.am
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
+	-I$(top_srcdir)/lib/fm/topo/libtopo/common \
 	-I$(top_srcdir)/lib/libspl/include
 
 lib_LTLIBRARIES = libzfs_etf.la

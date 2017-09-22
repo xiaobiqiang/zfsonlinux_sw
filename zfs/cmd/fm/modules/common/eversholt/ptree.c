@@ -43,7 +43,8 @@
 
 int Pchildgen;
 
-#ifdef	FMAPLUGIN
+//#ifdef	FMAPLUGIN
+#ifndef	FMAPLUGIN
 
 #include "itree.h"
 #include "eval.h"

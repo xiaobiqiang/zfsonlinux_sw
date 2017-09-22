@@ -1,8 +1,10 @@
 include $(top_srcdir)/config/Rules.am
 
-DEFAULT_INCLUDES += \
-        -I$(top_srcdir)/include \
-        -I$(top_srcdir)/lib/libspl/include \
+DEFAULT_INCLUDES += 					\
+        -I$(top_srcdir)/include 			\
+        -I$(top_srcdir)/lib/libspl/include 		\
+	-I$(top_srcdir)/lib/libipmi			\
+        -I$(top_srcdir)/cmd/fm/fmd/common 		\
         -I$(top_srcdir)/lib/fm/topo/libtopo/common	\
         -I$(top_srcdir)/lib/fm/libexacct/common		\
         -I$(top_srcdir)/lib/fm/libdiagcode/common	\
@@ -47,22 +49,29 @@ fmd_SOURCES =		\
 	fmd_serd.c	\
 	fmd_rtld.c	\
 	fmd_proc.c	\
-	fmd_channel.c
+	fmd_channel.c	\
+	fmd_rpc.c	\
+	fmd_svc_adm.c	\
+	fmd_svc_api.c	\
+	fmd_xdr_adm.c	\
+	fmd_xdr_api.c 	\
+	fmd_rpc_adm.c	\
+	fmd_rpc_api.c
 
 fmd_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la			\
+        $(top_builddir)/lib/libzpool/libzpool.la 			\
+        $(top_builddir)/lib/libzfs/libzfs.la 				\
         $(top_builddir)/lib/fm/libdiagcode/common/libdiagcode.la	\
         $(top_builddir)/lib/fm/libexacct/common/libexacct.la		\
         $(top_builddir)/lib/fm/libfmd_msg/common/libfmd_msg.la		\
+        $(top_builddir)/lib/fm/libfmd_adm/common/libfmd_adm.la		\
         $(top_builddir)/lib/libfmd/libfmd.la				\
         $(top_builddir)/lib/libipmi/libipmi.la				\
         $(top_builddir)/lib/fm/topo/libtopo/common/libtopo.la 		\
-	$(top_builddir)/lib/libspl/libspl.la				\
-        $(top_builddir)/lib/libzpool/libzpool.la 			\
-        $(top_builddir)/lib/libzfs/libzfs.la 				\
-        $(top_builddir)/lib/libstmf/libstmf.la				\
-	-lxml2 -lrt
+        $(top_builddir)/lib/libstmf/libstmf.la 
 
-fmd_LDFLAGS = -lpthread -ldl 						\
+
+fmd_LDFLAGS = -lpthread -ldl -lxml2					\
 		-Wl,--dynamic-list=./fmd_api.map			\
 		-Wl,--dynamic-list=./fmd_fmri.map
