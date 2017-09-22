@@ -1181,6 +1181,15 @@ void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 		return;
 	}
 
+	if (slot == 0) {
+		dt->next->prev = di;
+		di->next = dt->next;
+		dt->next = di;
+		di->prev = NULL;
+		dt->total++;
+		return;
+	}
+
 	while (search->next != NULL && search->dk_slot < slot)
 		search = search->next;
 
@@ -1346,7 +1355,8 @@ int disk_get_slotid(disk_info_t *di)
 		} else if (strcasecmp(args, SERIALNO) == 0) {
 			sscanf(tmp, "%*[^:]:%s", value_sn);
 			if (di->dk_serial != NULL && value_sn != -1
-				&& strcasestr(di->dk_serial, value_sn) != NULL) {
+				&& (strcasestr(di->dk_serial, value_sn) != NULL
+				|| strcasestr(value_sn, di->dk_serial) != NULL)) {
 				di->dk_enclosure = enclosure;
 				di->dk_slot = slot;
 			} else {
