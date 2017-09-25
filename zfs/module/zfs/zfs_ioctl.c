@@ -4958,6 +4958,62 @@ zfs_ioc_mirror_speed_test(zfs_cmd_t *zc)
 }
 
 static int
+zfs_ioc_get_max_raidz_reservation(zfs_cmd_t *zc)
+{
+	int err;
+	int i;
+	char *p;
+	spa_t *spa;
+	vdev_t *rvd;
+	vdev_t *vd;
+	uint64_t blksize_asize;
+	uint64_t blksize_dsize;
+	uint64_t volsize = zc->zc_cookie;
+	uint64_t volblocksize  = zc->zc_objset_type;
+	uint64_t raidz_reservation = 0;
+	uint64_t max_reservation = 0;
+
+	p = strchr(zc->zc_name, '/');
+	if (p == NULL)
+		return (-1);
+	p[0] = '\0';
+
+	err = spa_open(zc->zc_name, &spa, FTAG);
+	if (err) {
+		cmn_err(CE_WARN, "zfs_ioc_get_max_raidz_reservation: "
+			"spa_open(%s) failed\n", zc->zc_name);
+		return (err);
+	}
+	p[0] = '/';
+	rvd = spa->spa_root_vdev;
+	
+	for (i = 0; i < rvd->vdev_children; i++) {
+		vd = rvd->vdev_child[i];
+		if (vd->vdev_deflate_ratio != SPA_MINBLOCKSIZE) {
+			/* raidz vdev */
+			blksize_asize = vdev_psize_to_asize(vd, volblocksize);
+			blksize_dsize = (blksize_asize >> SPA_MINBLOCKSHIFT) * 
+				vd->vdev_deflate_ratio;
+			if (blksize_dsize > volblocksize) {
+				raidz_reservation = volsize * 
+					(double)((double)(blksize_dsize - volblocksize) /(double)volblocksize);
+				cmn_err(CE_NOTE, "zfs_ioc_get_max_raidz_reservation: vloume(%s) "
+					"raidz reservation size(0x%016"PRIx64")", zc->zc_name, raidz_reservation);
+				if (max_reservation < raidz_reservation)
+					max_reservation = raidz_reservation;
+			}
+		}
+	}
+	spa_close(spa, FTAG);
+
+	zc->zc_cookie = max_reservation;
+	cmn_err(CE_NOTE, "zfs_ioc_get_max_raidz_reservation: vloume(%s) "
+		"max raidz reservation size(0x%016"PRIx64")", zc->zc_name, max_reservation);
+	
+	return(err);
+}
+
+static int
 zfs_ioc_zvol_create_minor_done_wait(zfs_cmd_t *zc)
 {
 	spa_t *spa = NULL;
@@ -5858,6 +5914,10 @@ zfs_ioctl_init(void)
 	zfs_ioctl_register_legacy(ZFS_IOC_MIRROR_SPEED_TEST,
 		zfs_ioc_mirror_speed_test, zfs_secpolicy_none, NO_NAME,
 		B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_GET_MAX_RAIDZ_RESERVATION,
+        zfs_ioc_get_max_raidz_reservation, zfs_secpolicy_none,
+        NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	zfs_ioctl_register_legacy(ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
         zfs_ioc_zvol_create_minor_done_wait, zfs_secpolicy_none,

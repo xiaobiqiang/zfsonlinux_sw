@@ -887,7 +887,7 @@ zfs_do_create(int argc, char **argv)
 			resv_prop = ZFS_PROP_REFRESERVATION;
 		else
 			resv_prop = ZFS_PROP_RESERVATION;
-		volsize = zvol_volsize_to_reservation(volsize, props);
+		volsize = zvol_volsize_to_reservation(g_zfs, argv[0], volsize, props);
 
 		if (nvlist_lookup_string(props, zfs_prop_to_name(resv_prop),
 		    &strval) != 0) {

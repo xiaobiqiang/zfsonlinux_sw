@@ -1390,7 +1390,7 @@ zfs_add_synthetic_resv(zfs_handle_t *zhp, nvlist_t *nvl)
 	if (zfs_which_resv_prop(zhp, &resv_prop) < 0)
 		return (-1);
 	old_reservation = zfs_prop_get_int(zhp, resv_prop);
-	if ((zvol_volsize_to_reservation(old_volsize, zhp->zfs_props) !=
+	if ((zvol_volsize_to_reservation(zhp->zfs_hdl, zhp->zfs_name, old_volsize, zhp->zfs_props) !=
 	    old_reservation) || nvlist_lookup_uint64(nvl,
 	    zfs_prop_to_name(resv_prop), &new_reservation) != ENOENT) {
 		return (0);
@@ -1398,7 +1398,7 @@ zfs_add_synthetic_resv(zfs_handle_t *zhp, nvlist_t *nvl)
 	if (nvlist_lookup_uint64(nvl, zfs_prop_to_name(ZFS_PROP_VOLSIZE),
 	    &new_volsize) != 0)
 		return (-1);
-	new_reservation = zvol_volsize_to_reservation(new_volsize,
+	new_reservation = zvol_volsize_to_reservation(zhp->zfs_hdl, zhp->zfs_name, new_volsize,
 	    zhp->zfs_props);
 	if (nvlist_add_uint64(nvl, zfs_prop_to_name(resv_prop),
 	    new_reservation) != 0) {
@@ -4646,12 +4646,14 @@ zfs_get_holds(zfs_handle_t *zhp, nvlist_t **nvl)
  * suite's shell version in reservation.kshlib.
  */
 uint64_t
-zvol_volsize_to_reservation(uint64_t volsize, nvlist_t *props)
+zvol_volsize_to_reservation(libzfs_handle_t *hdl, char *name, uint64_t volsize, nvlist_t *props)
 {
 	uint64_t numdb;
 	uint64_t nblocks, volblocksize;
 	int ncopies;
 	char *strval;
+	zfs_cmd_t zc = { 0 };
+	int ret;	
 
 	if (nvlist_lookup_string(props,
 	    zfs_prop_to_name(ZFS_PROP_COPIES), &strval) == 0)
@@ -4663,6 +4665,11 @@ zvol_volsize_to_reservation(uint64_t volsize, nvlist_t *props)
 	    &volblocksize) != 0)
 		volblocksize = ZVOL_DEFAULT_BLOCKSIZE;
 	nblocks = volsize/volblocksize;
+
+	strcpy(zc.zc_name, name);
+	zc.zc_cookie = volsize;
+	zc.zc_objset_type = volblocksize;
+	
 	/* start with metadnode L0-L6 */
 	numdb = 7;
 	/* calculate number of indirects */
@@ -4680,6 +4687,11 @@ zvol_volsize_to_reservation(uint64_t volsize, nvlist_t *props)
 	 */
 	numdb *= 1ULL << DN_MAX_INDBLKSHIFT;
 	volsize += numdb;
+
+	ret = zfs_ioctl(hdl, ZFS_IOC_GET_MAX_RAIDZ_RESERVATION, &zc);
+	if (ret == 0)
+		volsize += zc.zc_cookie;
+	
 	return (volsize);
 }
 
