@@ -1336,14 +1336,44 @@ int disk_get_gsize(disk_info_t *di)
 int disk_get_slotid(disk_info_t *di)
 {
 	FILE *fd = -1;
+	FILE *pfd = -1;
+	FILE *vfd = -1;
 	int len = -1;
 	int slot = -1;
 	int enclosure = -1;
+	int is_ubuntu = -1;
 	char value_sn[ARGS_LEN] = {0};
 	char args[ARGS_LEN] = {0};
+	char version[ARGS_LEN] = {0};
 	char tmp[CMD_TMP_LEN] = {0};
 
-	fd = popen(SAS2IRCU, "r");
+	pfd = popen("which gcc 2>/dev/null", "r");
+	if (pfd != NULL) {
+		if (fgets(tmp, sizeof(tmp), pfd) != NULL) {
+			sscanf(tmp,"%s",args);
+			sprintf(version, "%s --version", args);
+			vfd = popen(version, "r");
+			if (vfd != NULL) {
+				bzero(tmp, sizeof(tmp));
+				if (fgets(tmp, sizeof(tmp), vfd) != NULL) {
+					if (strcasestr(tmp, "ubuntu") != NULL)
+						is_ubuntu = 1;
+				}
+			}
+		}
+	}
+	pclose(vfd);
+	pclose(pfd);
+
+	bzero(tmp, sizeof(tmp));
+	bzero(args, sizeof(args));
+
+	if (is_ubuntu == 1) {
+		fd = popen(SAS3IRCU, "r");
+	} else {
+		fd = popen(SAS2IRCU, "r");
+	}
+
 	if (fd == NULL)
 		return (0);
 
@@ -1358,11 +1388,12 @@ int disk_get_slotid(disk_info_t *di)
 			sscanf(tmp, "%*[^:]:%d", &slot);
 		} else if (strcasecmp(args, SERIALNO) == 0) {
 			sscanf(tmp, "%*[^:]:%s", value_sn);
-			if (di->dk_serial != NULL && value_sn != -1
-				&& (strcasestr(di->dk_serial, value_sn) != NULL
+			if (di->dk_serial != NULL && (strcasestr(di->dk_serial, value_sn) != NULL
 				|| strcasestr(value_sn, di->dk_serial) != NULL)) {
 				di->dk_enclosure = enclosure;
 				di->dk_slot = slot;
+				pclose(fd);
+				return (0);
 			} else {
 				slot = -1;
 				enclosure = -1;
