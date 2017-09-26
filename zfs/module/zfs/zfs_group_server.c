@@ -2043,7 +2043,7 @@ static int zfs_group_process_data_request(zfs_group_server_para_t *server_para)
 	if (zsb == NULL)
 		return (EGHOLD);
 
-	if (msg_header->operation == DIR_READ || msg_header->operation == LINK_READ)
+	if (msg_header->operation == DIR_READ || msg_header->operation == LINK_READ || msg_header->operation == XATTR_LIST )
 		object = data->call.data.id.master_object;
 	else
 		object = data->call.data.id.data_object;
@@ -2157,6 +2157,26 @@ static int zfs_group_process_data_request(zfs_group_server_para_t *server_para)
 			abort_creds(cred);
 		}
 		break;
+
+		case XATTR_LIST:{
+			void *addr = data->call.data.data ;
+			zfs_group_data_read_t *read = &data->call.data.arg.p.read ;
+			size_t maxlen = read->len ;
+			cred = zfs_group_getcred( &read->cred ) ;
+
+			if( maxlen == 0 ) {
+				error = zfs_xattr_list( ZTOI(zp), NULL, 0, cred ) ;
+			}else {
+				error = zfs_xattr_list( ZTOI( zp ), addr, maxlen, cred ) ;
+			}
+
+			if( error > 0 ) {
+				read->len = error ;
+				error = 0 ;
+			}
+			abort_creds(cred);
+		}
+		break ;
 
 		case LINK_READ:{
 //			uint64_t resid;
