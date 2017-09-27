@@ -1555,7 +1555,7 @@ fme_receive_report(fmd_hdl_t *hdl, fmd_event_t *ffep,
 	out(O_ALTFP|O_NONL, "fme_receive_report: ");
 	ipath_print(O_ALTFP|O_NONL, eventstring, ipp);
 	out(O_ALTFP|O_STAMP, NULL);
-printf("---------------:%s.\n", eventstring);
+
 	/* decide which FME it goes to */
 	for (fmep = FMElist; fmep; fmep = fmep->next) {
 		int prev_verbose;

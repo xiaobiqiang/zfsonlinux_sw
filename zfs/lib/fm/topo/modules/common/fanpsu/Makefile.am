@@ -1,18 +1,20 @@
 include $(top_srcdir)/config/Rules.am
 
+libfanpsu_ladir=/usr/local/lib/topo/plugins
+
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
 	-I$(top_srcdir)/lib/libspl/include \
 	-I$(top_srcdir)/lib/fm/topo/libtopo/common \
 	-I$(top_srcdir)/lib/libipmi
 
-lib_LTLIBRARIES = libfanpsumod.la
+libfanpsu_la_LTLIBRARIES = libfanpsu.la
 
 USER_C = \
 	fanpsu_enum.c
 
-libfanpsumod_la_LIBADD = $(top_builddir)/lib/libnvpair/libnvpair.la \
+libfanpsu_la_LIBADD = $(top_builddir)/lib/libnvpair/libnvpair.la \
 			$(top_builddir)/lib/libipmi/libipmi.la
 
-dist_libfanpsumod_la_SOURCES = \
+dist_libfanpsu_la_SOURCES = \
 	$(USER_C)

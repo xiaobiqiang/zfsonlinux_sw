@@ -25,6 +25,7 @@
 
 #include <sys/types.h>
 #include <sys/fm/util.h>
+#include <pthread.h>
 
 //#include <netdir.h>
 #include <strings.h>
@@ -33,10 +34,10 @@
 #include <unistd.h>
 #include <ucred.h>
 #include <priv.h>
+#include <rpc/rpc.h>
 
 #include "fmd_rpc_api.h"
 #include "fmd_rpc_adm.h"
-//#include <rpc/svc_mt.h>
 
 #include "fmd_subr.h"
 #include "fmd_error.h"
@@ -45,8 +46,6 @@
 #include "fmd_api.h"
 #include "fmd.h"
 
-
-#if 0
 extern void fmd_pceo_1(struct svc_req *, SVCXPRT *);
 
 /*
@@ -68,97 +67,48 @@ static int
 fmd_rpc_svc_create_local(void (*disp)(struct svc_req *, SVCXPRT *),
     rpcprog_t prog, rpcvers_t vers, uint_t ssz, uint_t rsz, int force)
 {
-	struct netconfig *ncp;
-	struct netbuf buf;
-	SVCXPRT *xprt;
-	void *hdl;
-	int fd, n = 0;
-
-	char door[PATH_MAX];
-	time_t tm;
-
-	if ((hdl = setnetconfig()) == NULL) {
-		fmd_error(EFMD_RPC_REG, "failed to iterate over "
-		    "netconfig database: %s\n", nc_sperror());
-		return (fmd_set_errno(EFMD_RPC_REG));
+	register SVCXPRT *xprt;
+	
+	if (force){
+		pmap_unset(prog, vers);
+		svc_unregister(prog, vers); /* clear stale rpcbind registrations */
 	}
 
-	if (force)
-		svc_unreg(prog, vers); /* clear stale rpcbind registrations */
-
-	buf.buf = alloca(_SS_MAXSIZE);
-	buf.maxlen = _SS_MAXSIZE;
-	buf.len = 0;
-
-	while ((ncp = getnetconfig(hdl)) != NULL) {
-		if (strcmp(ncp->nc_protofmly, NC_LOOPBACK) != 0)
-			continue;
-
-		if (!force && rpcb_getaddr(prog, vers, ncp, &buf, HOST_SELF)) {
-			(void) endnetconfig(hdl);
-			return (fmd_set_errno(EFMD_RPC_BOUND));
-		}
-
-		if ((fd = t_open(ncp->nc_device, O_RDWR, NULL)) == -1) {
-			fmd_error(EFMD_RPC_REG, "failed to open %s: %s\n",
-			    ncp->nc_device, t_strerror(t_errno));
-			continue;
-		}
-
-		svc_fd_negotiate_ucred(fd); /* enable ucred option on xprt */
-
-		if ((xprt = svc_tli_create(fd, ncp, NULL, ssz, rsz)) == NULL) {
-			(void) t_close(fd);
-			continue;
-		}
-
-		if (svc_reg(xprt, prog, vers, disp, ncp) == FALSE) {
-			fmd_error(EFMD_RPC_REG, "failed to register "
-			    "rpc service on %s\n", ncp->nc_netid);
-			svc_destroy(xprt);
-			continue;
-		}
-
-		n++;
+	xprt = svcudp_create(RPC_ANYSOCK);
+	if (xprt == NULL) {
+		fprintf (stderr, "%s", "cannot create udp service.");
+		return(-1);
+	}
+	if (!svc_register(xprt, prog, vers, disp, IPPROTO_UDP)) {
+		fprintf (stderr, "%s", "unable to register (TESTPROG, VERSION, udp).");
+		return(-1);
 	}
 
-	(void) endnetconfig(hdl);
-
-	/*
-	 * If we failed to register services (n == 0) because rpcbind is down,
-	 * then check to see if the RPC door file exists before attempting an
-	 * svc_door_create(), which cleverly destroys any existing door file.
-	 * The RPC APIs have no stable errnos, so we use rpcb_gettime() as a
-	 * hack to determine if rpcbind itself is down.
-	 */
-	if (!force && n == 0 && rpcb_gettime(HOST_SELF, &tm) == FALSE &&
-	    snprintf(door, sizeof (door), RPC_DOOR_RENDEZVOUS,
-	    prog, vers) > 0 && access(door, F_OK) == 0)
-		return (fmd_set_errno(EFMD_RPC_BOUND));
-
-	/*
-	 * Attempt to create a door server for the RPC program as well.  Limit
-	 * the maximum request size for the door transport to the receive size.
-	 */
-	if ((xprt = svc_door_create(disp, prog, vers, ssz)) == NULL) {
-		fmd_error(EFMD_RPC_REG, "failed to create door for "
-		    "rpc service 0x%lx/0x%lx\n", prog, vers);
-	} else {
-		(void) svc_control(xprt, SVCSET_CONNMAXREC, &rsz);
-		n++;
+	xprt = svctcp_create(RPC_ANYSOCK, 0, 0);
+	if (xprt == NULL) {
+		fprintf (stderr, "%s", "cannot create tcp service.");
+		return(-1);
+	}
+	if (!svc_register(xprt, prog, vers, disp, IPPROTO_TCP)) {
+		fprintf (stderr, "%s", "unable to register (TESTPROG, VERSION, tcp).");
+		return(-1);
 	}
 
-	return (n);
+	svc_run ();
+	fprintf (stderr, "%s", "svc_run returned");
+	return (-1);
+
 }
-
+#if 0
 static int
 fmd_rpc_svc_create_romote(void)
 {
-	svc_create(fmd_pceo_1, RPC_TRANS_REMOTE, RPC_DOOR_VERSION, "netpath");
+	SVCXPRT *xprt = NULL;
+	svc_register(xprt, RPC_TRANS_REMOTE, RPC_DOOR_VERSION, fmd_pceo_1, IPPROTO_UDP);
 
 	return 1;
 }
-
+#endif
 static int
 fmd_rpc_svc_init(void (*disp)(struct svc_req *, SVCXPRT *),
     const char *name, const char *path, const char *prop,
@@ -171,7 +121,7 @@ fmd_rpc_svc_init(void (*disp)(struct svc_req *, SVCXPRT *),
 
 	for (prog = pmin; prog <= pmax; prog++) {
 		if (fmd_rpc_svc_create_local(disp, prog, vers,
-		    sndsize, rcvsize, force) > 0) {
+		    sndsize, rcvsize, force) == 0) {
 			fmd_dprintf(FMD_DBG_RPC, "registered %s rpc service "
 			    "as 0x%lx.%lx\n", name, prog, vers);
 
@@ -193,16 +143,13 @@ fmd_rpc_svc_init(void (*disp)(struct svc_req *, SVCXPRT *),
 
 	return (-1); /* errno is set for us */
 }
+
 void
 fmd_rpc_init(void)
 {
 	int err, prog;
-//	int err, prog, mode = RPC_SVC_MT_USER;
 	uint64_t sndsize = 0, rcvsize = 0;
 	const char *s;
-
-//	if (rpc_control(RPC_SVC_MTMODE_SET, &mode) == FALSE)
-//		fmd_panic("failed to enable user-MT rpc mode");
 
 	(void) fmd_conf_getprop(fmd.d_conf, "rpc.sndsize", &sndsize);
 	(void) fmd_conf_getprop(fmd.d_conf, "rpc.rcvsize", &rcvsize);
@@ -214,7 +161,6 @@ fmd_rpc_init(void)
 	(void) fmd_conf_getprop(fmd.d_conf, "rpc.adm.prog", &prog);
 	(void) fmd_conf_getprop(fmd.d_conf, "rpc.adm.path", &s);
 
-#if 0
 	if (prog != 0) {
 		err = fmd_rpc_svc_init(fmd_adm_1, "FMD_ADM", s, "rpc.adm.prog",
 		    FMD_ADM, FMD_ADM, FMD_ADM_VERSION_1,
@@ -224,16 +170,15 @@ fmd_rpc_init(void)
 		    RPC_TRANS_MIN, RPC_TRANS_MAX, FMD_ADM_VERSION_1,
 		    (uint_t)sndsize, (uint_t)rcvsize, FALSE);
 	}
-#endif
+
 	if (err != 0)
 		fmd_error(EFMD_EXIT, "failed to create rpc server bindings");
 
 //	(void) fmd_rpc_svc_create_romote();
-
 #if 0
-	if (fmd_thread_create(fmd.d_rmod, (fmd_thread_f *)svc_run, 0) == NULL)
+	if (fmd_thread_create(fmd.d_rmod, (fmd_thread_f *)svc_run, NULL) == NULL)
 		fmd_error(EFMD_EXIT, "failed to create rpc server thread");
-#endif 
+#endif
 }
 
 void
@@ -244,10 +189,10 @@ fmd_rpc_fini(void)
 	svc_exit(); /* force svc_run() threads to exit */
 
 	(void) fmd_conf_getprop(fmd.d_conf, "rpc.adm.prog", &prog);
-	svc_unreg(prog, FMD_ADM_VERSION_1);
+	svc_unregister(prog, FMD_ADM_VERSION_1);
 
 	(void) fmd_conf_getprop(fmd.d_conf, "rpc.api.prog", &prog);
-	svc_unreg(prog, FMD_API_VERSION_1);
+	svc_unregister(prog, FMD_API_VERSION_1);
 }
 
 /*
@@ -259,7 +204,8 @@ fmd_rpc_fini(void)
 int
 fmd_rpc_deny(struct svc_req *rqp)
 {
-	ucred_t *ucp = alloca(ucred_size());
+#if 0
+	ucred_t *ucp = alloca(sizeof(ucred_t));
 	const priv_set_t *psp;
 
 	if (!fmd.d_booted) {
@@ -283,6 +229,7 @@ fmd_rpc_deny(struct svc_req *rqp)
 		return (!priv_isfullset(psp));
 #endif
 	return (!priv_ismember(psp, PRIV_SYS_CONFIG));
-}
 #endif
+	return 0;
+}
 

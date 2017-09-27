@@ -1,0 +1,2 @@
+fmd topo module lib file name must be based on the subdir name.
+eg, subdir is "fanpsu", the lib file name must be "libfanpsu.so".

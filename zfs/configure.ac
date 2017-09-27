@@ -106,6 +106,8 @@ AC_CONFIG_FILES([
 	lib/fm/libfmd_msg/common/Makefile
 	lib/fm/libfmd_log/Makefile
 	lib/fm/libfmd_log/common/Makefile
+	lib/fm/libfmd_adm/Makefile
+	lib/fm/libfmd_adm/common/Makefile
 	lib/fm/libexacct/Makefile
 	lib/fm/libexacct/common/Makefile
 	lib/fm/topo/Makefile
@@ -116,6 +118,8 @@ AC_CONFIG_FILES([
 	lib/fm/topo/modules/common/ipmi/Makefile
 	lib/fm/topo/modules/common/fac_prov_ipmi/Makefile
 	lib/fm/topo/modules/common/fanpsu/Makefile
+	lib/fm/topo/maps/Makefile
+	lib/fm/topo/maps/i86pc/Makefile
 	lib/libipmi/Makefile
 	cmd/Makefile
 	cmd/zdb/Makefile
@@ -145,14 +149,18 @@ AC_CONFIG_FILES([
 	cmd/fm/fmtopo/common/Makefile
 	cmd/fm/fmdump/Makefile
 	cmd/fm/fmdump/common/Makefile
+	cmd/fm/fmadm/Makefile
+	cmd/fm/fmadm/common/Makefile
 	cmd/fm/modules/Makefile
 	cmd/fm/modules/common/Makefile
 	cmd/fm/modules/common/zfs-retire/Makefile
 	cmd/fm/modules/common/zfs-diagnosis/Makefile
 	cmd/fm/modules/common/fanpsu-transport/Makefile
 	cmd/fm/modules/common/eversholt/Makefile
+	cmd/fm/modules/common/eversholt/files/Makefile
 	cmd/fm/fmd/schemes/Makefile
 	cmd/fm/fmd/schemes/zfs/Makefile
+	cmd/fm/dicts/Makefile
 	cmd/stmfadm/Makefile
 	cmd/configd/Makefile
 	cmd/stmfsvc/Makefile

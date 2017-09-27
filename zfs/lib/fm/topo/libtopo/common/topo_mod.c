@@ -132,7 +132,7 @@ topo_mod_load(topo_mod_t *pmod, const char *name,
 		return (mod);
 	}
 
-	(void) snprintf(file, PLUGIN_PATH_LEN, "%s/%s.so",
+	(void) snprintf(file, PLUGIN_PATH_LEN, "%s/lib%s.so",
 	    PLUGIN_PATH, name);
 	path = topo_search_path(pmod, thp->th_rootdir, (const char *)file);
 	if (path == NULL ||

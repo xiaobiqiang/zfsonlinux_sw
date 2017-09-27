@@ -824,6 +824,11 @@ fmd_asru_hash_create(const char *root, const char *dir)
 	ahp->ah_rsrc_hash = fmd_zalloc(sizeof (void *) * ahp->ah_hashlen,
 	    FMD_SLEEP);
 	(void) snprintf(path, sizeof (path), "%s/%s", root, dir);
+	if (access(path, F_OK) != 0) {
+		if(mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0)
+			return NULL;
+	}
+
 	ahp->ah_dirpath = fmd_strdup(path, FMD_SLEEP);
 	(void) fmd_conf_getprop(fmd.d_conf, "rsrc.age", &ahp->ah_lifetime);
 	(void) fmd_conf_getprop(fmd.d_conf, "fakenotpresent",

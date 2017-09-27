@@ -1,10 +1,13 @@
 include $(top_srcdir)/config/Rules.am
 
+libzfs_etf_ladir=/usr/local/lib/fmd
+
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
+	-I$(top_srcdir)/lib/fm/topo/libtopo/common \
 	-I$(top_srcdir)/lib/libspl/include
 
-lib_LTLIBRARIES = libzfs_etf.la
+libzfs_etf_la_LTLIBRARIES = libzfs_etf.la
 
 USER_C = \
 	zfs_de.c

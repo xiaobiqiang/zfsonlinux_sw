@@ -3,4 +3,4 @@ dist_scripts_SCRIPTS = 		\
 		systeminit.sh
 
 install: 
-	@cp -rf $(dist_scripts_SCRIPTS) /usr/local/sbin
+	@cp -rvf $(dist_scripts_SCRIPTS) $(scriptsdir)
