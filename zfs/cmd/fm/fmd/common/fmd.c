@@ -889,6 +889,10 @@ fmd_run(fmd_t *dp, int pfd)
 
 	(void) sigemptyset(&act.sa_mask);
 	(void) sigaction(dp->d_thr_sig, &act, NULL);
+	
+	if (access("/var/fm/fmd", F_OK) != 0) {
+		mkdir("/var/fm/fmd", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+	}
 
 	(void) fmd_conf_getprop(dp->d_conf, "schemedir", &name);
 	dp->d_schemes = fmd_scheme_hash_create(dp->d_rootdir, name);

@@ -1,1 +1,1 @@
-SUBDIRS  = fmd fmtopo fmdump fmadm modules
+SUBDIRS  = fmd fmtopo fmdump fmadm modules dicts
