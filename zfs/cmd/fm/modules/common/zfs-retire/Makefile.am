@@ -1,11 +1,14 @@
 include $(top_srcdir)/config/Rules.am
 
+libzfs_retire_ladir=/usr/local/lib/fmd
+
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
 	-I/usr/include/libxml2 \
+	-I$(top_srcdir)/lib/fm/topo/libtopo/common \
 	-I$(top_srcdir)/lib/libspl/include
 
-lib_LTLIBRARIES = libzfs_retire.la
+libzfs_retire_la_LTLIBRARIES = libzfs_retire.la
 
 USER_C = \
 	make_vdev.c	\

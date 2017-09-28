@@ -29,22 +29,22 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <alloca.h>
-//#include <libipmi.h>
+#include <libipmi.h>
+#include <sys/fm/protocol.h>
 
-#include "fmd_rpc_adm.h"
-#include "fmd_rpc.h"
-#include "fmd_module.h"
-#include "fmd_ustat.h"
-#include "fmd_error.h"
-#include "fmd_asru.h"
-#include "fmd_ckpt.h"
-#include "fmd_case.h"
-#include "fmd_fmri.h"
-#include "fmd_idspace.h"
-#include "fmd_xprt.h"
+#include <fmd_rpc_adm.h>
+#include <fmd_rpc.h>
+#include <fmd_module.h>
+#include <fmd_ustat.h>
+#include <fmd_error.h>
+#include <fmd_asru.h>
+#include <fmd_ckpt.h>
+#include <fmd_case.h>
+#include <fmd_fmri.h>
+#include <fmd_idspace.h>
+#include <fmd_xprt.h>
 
-#include "fmd.h"
-#if 0
+#include <fmd.h>
 
 bool_t
 fmd_adm_modinfo_1_svc(struct fmd_rpc_modlist *rvp, struct svc_req *req)
@@ -65,31 +65,26 @@ fmd_adm_modinfo_1_svc(struct fmd_rpc_modlist *rvp, struct svc_req *req)
 
 	for (mp = fmd_list_next(&fmd.d_mod_list);
 	    mp != NULL; mp = fmd_list_next(mp)) {
-
 		if ((rmi = malloc(sizeof (struct fmd_rpc_modinfo))) == NULL) {
 			rvp->rml_err = FMD_ADM_ERR_NOMEM;
 			break;
 		}
-
-		fmd_module_lock(mp);
 
 		/*
 		 * If mod_info is NULL, the module is in the middle of loading:
 		 * do not report its presence to observability tools yet.
 		 */
 		if (mp->mod_info == NULL) {
-			fmd_module_unlock(mp);
 			free(rmi);
 			continue;
 		}
-
+		
 		rmi->rmi_name = strdup(mp->mod_name);
 		rmi->rmi_desc = strdup(mp->mod_info->fmdi_desc);
 		rmi->rmi_vers = strdup(mp->mod_info->fmdi_vers);
 		rmi->rmi_faulty = mp->mod_error != 0;
 		rmi->rmi_next = rvp->rml_list;
 
-		fmd_module_unlock(mp);
 		rvp->rml_list = rmi;
 		rvp->rml_len++;
 
@@ -219,35 +214,25 @@ fmd_adm_modgstat_1_svc(struct fmd_rpc_modstat *rms, struct svc_req *req)
 }
 
 bool_t
-fmd_adm_genxml_1_svc(int warning, int *rvp, struct svc_req *req)
+fmd_adm_genxml_1_svc(int *rvp, struct svc_req *req)
 {
 	int err = 0;
 	fmd_topo_t * ftp;
-	fmd_event_t *e;
-
+	if ((ftp = fmd_list_next(&fmd.d_topo_list)) == NULL) {
+		syslog(LOG_ERR, "get topo handle failed.\n");
+		*rvp = FMD_ADM_ERR_MODFAIL;
+		return (TRUE);
+	}
+#if 0
 	if (fmd_rpc_deny(req)) {
 		*rvp = FMD_ADM_ERR_PERM;
 		return (TRUE);
 	}
-	
-	ftp = fmd_topo_hold();
-
-	if (warning) {
-		if (topo_warning_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
-			*rvp = FMD_ADM_ERR_MODFAIL;
-			fmd_topo_rele(ftp);
-			return (TRUE);
-		}
-	} else { 
-		if (topo_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
-			*rvp = FMD_ADM_ERR_MODFAIL;
-			fmd_topo_rele(ftp);
-			return (TRUE);
-		}
+#endif	
+	if (topo_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
+		*rvp = FMD_ADM_ERR_MODFAIL;
+		return (TRUE);
 	}
-	
-	e = fmd_event_create(FMD_EVT_TOPO, ftp->ft_time_end, NULL, ftp);
-	fmd_modhash_dispatch(fmd.d_mod_hash, e);
 
 	*rvp = err;
 	return (TRUE);
@@ -812,7 +797,6 @@ fmd_adm_caselist_case(fmd_case_t *cp, void *arg)
 		return;
 
 	(void) pthread_mutex_lock(&cip->ci_lock);
-
 	uuid_len = cip->ci_uuidlen + 1;
 
 	while (rcl->rcl_len + uuid_len > rcl->rcl_buf.rcl_buf_len) {
@@ -1000,7 +984,7 @@ int
 fmd_adm_1_freeresult(SVCXPRT *xprt, xdrproc_t proc, caddr_t data)
 {
 	xdr_free(proc, data);
-	svc_done(xprt);
+//	svc_done(xprt);
 	return (TRUE);
 }
 
@@ -1049,7 +1033,7 @@ int
 fmd_pceo_1_freeresult(SVCXPRT *xprt, xdrproc_t proc, caddr_t data)
 {
 	xdr_free(proc, data);
-	svc_done(xprt);
+//	svc_done(xprt);
 	return (TRUE);
 }
 
@@ -1104,7 +1088,7 @@ fmd_adm_get_psu_status(int * data)
 		return (1);
 	}
 	if (ipmi_entity_iter(ihp, fmd_adm_entity_print, data) != 0) {
-		syslog(LOG_ERR, "failed to iterate entities\n",
+		syslog(LOG_ERR, "failed to iterate entities, %s\n",
 		    ipmi_errmsg(ihp));
 		ipmi_close(ihp);
 		return (1);
@@ -1191,5 +1175,4 @@ fmd_adm_get_fan_status(int *data)
 
 	return 0;
 }
-#endif
 

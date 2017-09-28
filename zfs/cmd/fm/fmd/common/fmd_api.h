@@ -121,10 +121,6 @@ typedef struct fmd_hdl_info {
 	const fmd_prop_t *fmdi_props;	/* array of configuration props */
 } fmd_hdl_info_t;
 
-//maybe delete topo_hdl_t,TOPO_VERSION
-typedef struct topo_hdl{
-
-} topo_hdl_t;
 #define	TOPO_VERSION	1	/* Library ABI Interface Version */
 
 extern void _fmd_init(fmd_hdl_t *);

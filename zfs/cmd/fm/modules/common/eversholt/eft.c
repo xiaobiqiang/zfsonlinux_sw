@@ -47,7 +47,8 @@
 #include "eval.h"
 #include "config.h"
 #include "platform.h"
-
+#include "fmd_case.h"
+#include "fmd_module.h"
 /*
  * eversholt diagnosis engine (eft.so) main entry points
  */

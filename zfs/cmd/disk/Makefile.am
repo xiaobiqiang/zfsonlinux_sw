@@ -26,3 +26,5 @@ disk_LDFLAGS = -pthread
 install-exec-hook:
 	cp $(top_srcdir)/cmd/disk/sas2ircu /usr/local/sbin
 	chmod a+x /usr/local/sbin/sas2ircu
+	cp $(top_srcdir)/cmd/disk/sas3ircu /usr/local/sbin
+	chmod a+x /usr/local/sbin/sas3ircu

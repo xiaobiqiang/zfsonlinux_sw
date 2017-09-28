@@ -1,1 +1,1 @@
-SUBDIRS = libtopo modules
+SUBDIRS = libtopo modules maps

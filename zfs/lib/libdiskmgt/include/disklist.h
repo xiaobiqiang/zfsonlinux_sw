@@ -37,6 +37,7 @@ extern "C" {
 #define DEFAULT_PATH	"/dev/"
 #define DEFAULT_SCSI	"/dev/disk/by-id/"
 #define SAS2IRCU		"sas2ircu 0 display 2>/dev/null"
+#define SAS3IRCU		"sas3ircu 0 display 2>/dev/null"
 #define DISK_BY_ID		"ls -l /dev/disk/by-id 2>/dev/null"
 #define LSBLK			"lsblk 2>/dev/null"
 

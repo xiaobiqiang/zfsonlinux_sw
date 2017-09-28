@@ -736,6 +736,7 @@ fmd_xprt_create(fmd_module_t *mp, uint_t flags, nvlist_t *auth, void *data)
 	uint_t i, statc;
 
 	char buf[PATH_MAX];
+	char tmp[PATH_MAX];
 	fmd_event_t *e;
 	nvlist_t *nvl;
 	char *s;
@@ -834,6 +835,12 @@ fmd_xprt_create(fmd_module_t *mp, uint_t flags, nvlist_t *auth, void *data)
 	 */
 	(void) fmd_conf_getprop(fmd.d_conf, "client.xprtlog", &i);
 	(void) fmd_conf_getprop(fmd.d_conf, "log.xprt", &s);
+	memset(tmp, 0, PATH_MAX);
+	sprintf(tmp, "%s/%s", fmd.d_rootdir, s);
+	if (access(tmp, F_OK) != 0) {
+		if(mkdir(tmp, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0)
+			return NULL;
+	}
 
 	if (i) {
 		(void) snprintf(buf, sizeof (buf), "%s/%u.log", s, xip->xi_id);
