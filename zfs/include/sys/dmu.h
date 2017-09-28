@@ -192,6 +192,13 @@ typedef enum dmu_object_type {
 	DMU_OT_DEADLIST_HDR,		/* UINT64 */
 	DMU_OT_DSL_CLONES,		/* ZAP */
 	DMU_OT_BPOBJ_SUBOBJ,		/* UINT64 */
+	
+	DMU_OT_DIRQUOTA,
+	DMU_OT_DIRLOWDATA,
+	DMU_OT_GROUP_DTL,			/* ZFS Group DTL */
+	DMU_OT_GROUP_DTL_HEADER,
+	DMU_OT_GROUP_MAP,
+	DMU_OT_NAS_GROUP_MASTER_NODE,
 	/*
 	 * Do not allocate new object types here. Doing so makes the on-disk
 	 * format incompatible with any other format that uses the same object

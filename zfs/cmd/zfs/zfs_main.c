@@ -111,7 +111,7 @@ static int zfs_do_bookmark(int argc, char **argv);
 static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
 static int zfs_do_speed_test(int arc, char **argv);
-
+static int zfs_do_multiclus(int argc, char **argv);
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -161,7 +161,8 @@ typedef enum {
 	HELP_BOOKMARK,
     HELP_MIRROR,
 	HELP_CLUSTERSAN,
-	HELP_SPEEDTEST
+	HELP_SPEEDTEST,
+	HELP_MULTICLUS
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -218,6 +219,7 @@ static zfs_command_t command_table[] = {
     { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
 	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
+	{ "multiclus",	zfs_do_multiclus,	HELP_MULTICLUS		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -356,6 +358,16 @@ get_usage(zfs_help_t idx)
 	case HELP_SPEEDTEST:
 		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
 			
+	case HELP_MULTICLUS:
+		return (gettext("\n"
+		    "\tmulticlus -e <portname>\n"
+		    "\tmulticlus -vd\n"
+		    "\tmulticlus create/add <groupname> <zfsname>\n"
+		    "\tmulticlus set slave/master/master2/master3/master4 <groupname> <zfsname>\n"
+		    "\tmulticlus get dtlstatus <zfsname> [count]\n"
+		    "\tmulticlus clean dtl <zfsname>\n"
+		    "\tmulticlus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]\n"
+		    "\tmulticlus sync-data <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s | -a]\n"));			
 	}
 
 	abort();
@@ -6759,6 +6771,301 @@ zfs_do_diff(int argc, char **argv)
 
 	return (err != 0);
 }
+
+
+static int
+zfs_do_multiclus(int argc, char **argv)
+{
+	int flags = 0;
+	char *group_name = NULL;
+	char *portname[2];
+	char *fs_name = NULL;
+	int c;
+
+	void* param = NULL;	
+	zfs_grp_sync_param_t sync_param = { B_FALSE, B_FALSE, B_FALSE };
+
+	while ((c = getopt(argc, argv, "vedxrt")) != -1) {
+		switch (c) {
+		case 'v':
+			flags = SHOW_MULTICLUS;
+			break;
+		case 'e':
+			flags = ENABLE_MULTICLUS;
+			break;
+		case 'd':
+			flags = DISABLE_MULTICLUS;
+			break;
+		case 'x':
+			flags = XML_MULTICLUS;
+			break;
+		case 'r':
+			flags = ZFS_RPC_CALL_SERVER;
+			break;
+		case 't':
+			flags = ZFS_RPC_CALL_TEST;
+			break;
+		default:
+			(void) fprintf(stderr,
+			    gettext("invalid option '%c'\n"), optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	if(argc){
+		if(!strcmp(argv[0], "create")){
+			flags = CREATE_MULTICLUS;
+			group_name = argv[1];
+			fs_name = argv[2];
+		}
+		else if(!strcmp(argv[0], "z_info")) {
+			flags = ZNODE_INFO;
+			sync_param.target_dir = argv[1];
+			param = (void*)(&sync_param);
+		}
+		else if(!strcmp(argv[0], "add")){
+			flags = ADD_MULTICLUS;
+			group_name = argv[1];
+			fs_name = argv[2];
+		}
+		else if(!strcmp(argv[0], "set")){
+			/*
+			 * master node is specified by "create" command,
+			 * this command can specify only slave/master2/3/4 nodes:
+			 *
+			 * 1. zfs multiclus set slave group_name zfs_name
+			 * set file system 'zfs_name' in group 'group_name' as a slave node;
+			 *
+			 * 2. zfs multiclus set master2/3/4 group_name zfs_name
+			 * set file system 'zfs_name' in group 'group_name' as the master-backup node.
+			 */
+			if (strcmp(argv[1], "slave") == 0){
+		 		flags = SET_MULTICLUS_SLAVE;
+		 	} else if (strcmp(argv[1], "master4") == 0){
+				flags = SET_MULTICLUS_MASTER4;
+		 	} else if (strcmp(argv[1], "master3") == 0){
+				flags = SET_MULTICLUS_MASTER3;
+		 	} else if (strcmp(argv[1], "master2") == 0){
+				flags = SET_MULTICLUS_MASTER2;
+			} else if (strcmp(argv[1], "master") == 0){
+				flags = SET_MULTICLUS_MASTER;
+			} else{
+				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
+				usage(B_FALSE);
+
+				return -1;
+			}
+
+			group_name = argv[2];
+			fs_name = argv[3];
+		}
+		else if(!strcmp(argv[0], "get")){
+			/*
+			 * this command can get the basic information in multiclus dtl trees:
+			 *
+			 * 1. zfs multiclus get dtlstatus fs_name
+			 * display the current dtl tree status (node number in tree) with 'fs_name';
+			 *
+			 * 2. zfs multiclus get dtlstatus fs_name x(interval second)
+			 * display the current dtl tree status (node number in tree) with 'fs_name'
+			 * every x second.
+			 */
+			if (strcmp(argv[1], "dtlstatus") == 0){
+		 		flags = GET_MULTICLUS_DTLSTATUS;
+		 	} else{
+				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
+				usage(B_FALSE);
+
+				return -1;
+			}
+
+			group_name = argv[3];
+			fs_name = argv[2];
+		}
+		else if(!strcmp(argv[0], "clean")){
+			/*
+			 * this command clean the node in multiclus dtl trees:
+			 *
+			 * 1. zfs multiclus clean dtlstatus fs_name
+			 * clean the current dtl tree node with 'fs_name';
+			 */
+			if (strcmp(argv[1], "dtl") == 0){
+		 		flags = CLEAN_MULTICLUS_DTLTREE;
+		 	} else{
+				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
+				usage(B_FALSE);
+
+				return -1;
+			}
+
+			fs_name = argv[2];
+		}
+		else if (strcmp(argv[0], "sync") == 0) {
+			char* output_file = NULL;
+
+			/*
+			 * zfs multiclus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]
+			 *
+			 * "-d dir_path": start sync/check from the specified target dir
+			 * "-c": check only, do not sync
+			 * "-s": stop current sync/check
+			 */
+			if (argc < 4) {
+				usage(B_FALSE);
+				return -1;
+			}
+
+			group_name = argv[1];
+			fs_name = argv[2];
+			output_file = argv[3];
+
+			argc -= 4;
+			argv += 4;
+
+			sync_param.check_only = B_FALSE;
+			sync_param.stop_sync = B_FALSE;
+			sync_param.output_file = output_file;
+			sync_param.target_dir = NULL;
+
+			if (argc == 0) {
+				;
+			} else if (argc == 1) {
+				if (strcmp(argv[0], "-c") == 0) {
+					sync_param.check_only = B_TRUE;
+				} else if (strcmp(argv[0], "-s") == 0) {
+					sync_param.stop_sync = B_TRUE;
+				} else {
+					usage(B_FALSE);
+					return -1;
+				}
+			} else if (argc == 2) {
+				if (strcmp(argv[0], "-d") != 0) {
+					usage(B_FALSE);
+					return -1;
+				} else {
+					sync_param.target_dir = argv[1];
+				}
+			} else if (argc == 3) {
+				if (strcmp(argv[0], "-d") != 0) {
+					usage(B_FALSE);
+					return -1;
+				}
+				sync_param.target_dir = argv[1];
+
+				if (strcmp(argv[2], "-c") == 0) {
+					sync_param.check_only = B_TRUE;
+				} else if (strcmp(argv[2], "-s") == 0) {
+					sync_param.stop_sync = B_TRUE;
+				} else {
+					usage(B_FALSE);
+					return -1;
+				}
+			} else {
+				usage(B_FALSE);
+				return -1;
+			}
+
+			flags = SYNC_MULTICLUS_GROUP;
+			param = (void*)(&sync_param);
+		}
+		else if (strcmp(argv[0], "sync-data") == 0) { 
+		
+		char* output_file = NULL;
+		
+		/*
+		 * zfs multiclus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]
+		 *
+		 * "-d dir_path": start sync/check from the specified target dir
+		 * "-c": check only, do not sync
+		 * "-s": stop current sync/check
+		 */
+		if (argc < 4) {
+			usage(B_FALSE);
+			return -1;
+		}
+		
+		group_name = argv[1];
+		fs_name = argv[2];
+		output_file = argv[3];
+		
+		argc -= 4;
+		argv += 4;
+		
+		sync_param.check_only = B_FALSE;
+		sync_param.stop_sync = B_FALSE;
+		sync_param.output_file = output_file;
+		sync_param.target_dir = NULL;
+		sync_param.all_member_online = B_FALSE;
+		
+		if (argc == 0) {
+			;
+		} else if (argc == 1) {
+			if (strcmp(argv[0], "-c") == 0) {
+				sync_param.check_only = B_TRUE;
+			} else if (strcmp(argv[0], "-s") == 0) {
+				sync_param.stop_sync = B_TRUE;
+			} else if (strcmp(argv[0], "-a") == 0) {
+				sync_param.all_member_online = B_TRUE;
+			} else {
+				usage(B_FALSE);
+				return -1;
+			}
+		} else if (argc == 2) {
+			if (strcmp(argv[0], "-d") != 0) {
+				usage(B_FALSE);
+				return -1;
+			} else {
+				sync_param.target_dir = argv[1];
+			}
+		} else if (argc == 3) {
+			if (strcmp(argv[0], "-d") != 0) {
+				usage(B_FALSE);
+				return -1;
+			}
+			sync_param.target_dir = argv[1];
+		
+			if (strcmp(argv[2], "-c") == 0) {
+				sync_param.check_only = B_TRUE;
+			} else if (strcmp(argv[2], "-s") == 0) {
+				sync_param.stop_sync = B_TRUE;
+			} else if (strcmp(argv[0], "-a") == 0) {
+				sync_param.all_member_online = B_TRUE;
+			} else {
+				usage(B_FALSE);
+				return -1;
+			}
+		} else {
+			usage(B_FALSE);
+			return -1;
+		}
+		
+		flags = SYNC_MULTICLUS_GROUP_DATA;
+		param = (void*)(&sync_param);
+		
+		}
+		else{
+			(void) fprintf(stderr, gettext("missing property "
+			    "argument\n"));
+			usage(B_FALSE);
+		}
+
+		zfs_start_multiclus(g_zfs, group_name, fs_name, flags, param);
+	}else{
+		if(flags && flags < CREATE_MULTICLUS){
+			zfs_start_multiclus(g_zfs, portname[0], portname[1], flags, param);
+		}else{
+			(void) fprintf(stderr, gettext("missing property "
+			    "argument\n"));
+			usage(B_FALSE);
+		}
+	}
+
+	return (0);
+}
+
 
 /*
  * zfs bookmark <fs@snap> <fs#bmark>

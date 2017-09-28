@@ -71,6 +71,10 @@ typedef enum dmu_objset_type {
 #define	ZAP_OLDMAXVALUELEN 1024
 #define	ZFS_MAX_DATASET_NAME_LEN 256
 
+
+#define	ZFS_ADDR_LEN 16
+#define	ZFS_PORT_LEN 8
+
 /*
  * Dataset properties are identified by these constants and must be added to
  * the end of this list to ensure that external consumers are not affected
@@ -157,14 +161,24 @@ typedef enum {
 	ZFS_PROP_REDUNDANT_METADATA,
 	ZFS_PROP_OVERLAY,
 	ZFS_PROP_CLUSTER_NODE_NAME,
-	ZFS_NUM_PROPS
+	ZFS_PROP_GROUP,
+	ZFS_PROP_MASTER,
+	ZFS_PROP_GROUP_NAME,
+	ZFS_PROP_MASTER_SPA,
+	ZFS_PROP_MASTER_OS,
+	ZFS_PROP_MASTER_ROOT,
+	ZFS_PROP_SELF_ROOT,
+	ZFS_PROP_NODE_TYPE,
+	ZFS_NUM_PROPS,
 } zfs_prop_t;
 
 typedef enum {
 	ZFS_PROP_USERUSED,
 	ZFS_PROP_USERQUOTA,
+	ZFS_PROP_SOFTUSERQUOTA,
 	ZFS_PROP_GROUPUSED,
 	ZFS_PROP_GROUPQUOTA,
+	ZFS_PROP_SOFTGROUPQUOTA,
 	ZFS_NUM_USERQUOTA_PROPS
 } zfs_userquota_prop_t;
 
@@ -381,6 +395,26 @@ typedef enum {
 	ZFS_REDUNDANT_METADATA_ALL,
 	ZFS_REDUNDANT_METADATA_MOST
 } zfs_redundant_metadata_type_t;
+
+
+typedef enum {
+	ZFS_LOWDATA_OFF = 0,
+	ZFS_LOWDATA_MIGRATE = 1,
+	ZFS_LOWDATA_DELETE = 2,
+	ZFS_LOWDATA_END
+} zfs_lowdata_type_t;
+
+typedef enum {
+	ZFS_LOWDATA_PERIOD_SEC = 0,
+	ZFS_LOWDATA_PERIOD_MIN = 1,
+	ZFS_LOWDATA_PERIOD_HR = 2,
+	ZFS_LOWDATA_PERIOD_DAY = 3
+} zfs_lowdata_period_unit_t;
+
+typedef enum {
+	ZFS_LOWDATA_CRITERIA_ATIME = 0,
+	ZFS_LOWDATA_CRITERIA_CTIME = 1
+} zfs_lowdata_criteria_t;
 
 /*
  * On-disk version number.
@@ -621,6 +655,20 @@ typedef struct zpool_rewind_policy {
 #define	VDEV_TYPE_LOG			"log"
 #define	VDEV_TYPE_L2CACHE		"l2cache"
 
+
+#define	ZPOOL_CONFIG_MULTICLUS_GNAME		"multiclus_gname"
+#define	ZPOOL_CONFIG_MULTICLUS_MASTER		"multiclus_master"
+#define	ZPOOL_CONFIG_MULTICLUS_GNUM		"multiclus_gnum"
+#define	ZPOOL_CONFIG_MULTICLUS_VDEV		"multiclus_vdev"
+#define	ZPOOL_CONFIG_MULTICLUS_CHILD	"multiclus_child"
+#define	ZPOOL_CONFIG_MULTICLUS_FSNAME	"multiclus_fsname"
+#define	ZPOOL_CONFIG_MULTICLUS		"multiclus_stats"
+
+#define	ZFS_RPC_GROUP_IP		"group_ipaddr"
+#define	ZFS_RPC_MASTER_IP		"master_ipaddr"
+#define	ZFS_RPC_MASTER_FS		"master_fsname"
+#define	ZFS_RPC_MASTER_TYPE		"master_type"
+
 /*
  * This is needed in userland to report the minimum necessary device size.
  */
@@ -788,6 +836,26 @@ typedef struct vdev_stat {
 	uint64_t	vs_fragmentation;	/* device fragmentation */
 } vdev_stat_t;
 
+
+/* for pool or filesystem name max length */
+#define	MAX_FSNAME_LEN	64
+
+/*
+ * Multiclus group info.
+ */
+typedef struct zfs_group_info {
+	char gi_fsname[MAX_FSNAME_LEN];	/* group name */
+
+	/* master/master2/master3/master4/slave */
+	char node_type[MAX_FSNAME_LEN];
+	uint64_t spa_id;
+	uint64_t gnode_id;	/* group node id */
+	uint64_t avail_size;	/* available size */
+	uint64_t used_size;	/* used size */
+	uint64_t load_ios;	/* load io state */
+	int node_status; /* node status */
+}zfs_group_info_t;
+
 /*
  * DDT statistics.  Note: all fields should be 64-bit because this
  * is passed between kernel and userland as an nvlist uint64 array.
@@ -912,6 +980,8 @@ typedef enum zfs_ioc {
     ZFS_IOC_START_MIRROR,
     ZFS_IOC_GET_MIRROR_STATE,
 	ZFS_IOC_CLUSTERSAN,
+	ZFS_IOC_START_MULTICLUS,
+	ZFS_IOC_GET_RPC_INFO,
 	ZFS_IOC_HBX,
 	ZFS_IOC_MIRROR_SPEED_TEST,
 	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
@@ -1001,8 +1071,9 @@ typedef  enum {
 #define	ZFS_IMPORT_ANY_HOST	0x2
 #define	ZFS_IMPORT_MISSING_LOG	0x4
 #define	ZFS_IMPORT_ONLY		0x8
-#define	ZFS_IMPORT_IGNORE_CLUSTER	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x10
+#define	ZFS_IMPORT_IGNORE_CLUSTER		0x20
+#define	ZFS_IMPORT_MULTICLUS_UPDATE		0x40
 
 #define	ZFS_SINGLE_DATA		"zfs:single_data"
 
@@ -1117,14 +1188,38 @@ typedef  enum {
 #define	CLUSTER_PROP_FAILOVER		"failover"
 #define	CLUSTER_PROP_IPMI_SWITCH	"ipmi"
 
-
-
 #define COMM_TEST
-
 
 /* cluster end */
 
 #define	ZFS_QUANTUM_INTERVAL_TICK	5
+
+typedef  enum {
+	ENABLE_MULTICLUS = 1,
+	DISABLE_MULTICLUS,
+	SHOW_MULTICLUS,
+	XML_MULTICLUS,
+	ZFS_RPC_CALL_SERVER,
+	ZFS_RPC_CALL_TEST,
+	CREATE_MULTICLUS,
+	ADD_MULTICLUS,
+	SET_MULTICLUS_SLAVE,
+	SET_MULTICLUS_MASTER4,
+	SET_MULTICLUS_MASTER3,
+	SET_MULTICLUS_MASTER2,
+	SET_MULTICLUS_MASTER,
+	GET_MULTICLUS_DTLSTATUS,
+	CLEAN_MULTICLUS_DTLTREE,
+	SYNC_MULTICLUS_GROUP,
+	SYNC_MULTICLUS_GROUP_DATA,
+	MULTICLUS_CMD_MAX,
+	ZNODE_INFO
+}MULTICLUS_OP;
+
+typedef  enum {
+	GET_GROUP_IP = 1,
+	GET_MASTER_IPFS    /* Get master ipaddress and fsname */
+}RPC_INFO_OP;
 
 #ifdef	__cplusplus
 }

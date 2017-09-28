@@ -150,6 +150,7 @@ dsl_pool_open_special_dir(dsl_pool_t *dp, const char *name, dsl_dir_t **ddp)
 static dsl_pool_t *
 dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 {
+	int i;
 	dsl_pool_t *dp;
 	blkptr_t *bp = spa_get_rootblkptr(spa);
 
@@ -167,6 +168,11 @@ dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 	    offsetof(dsl_dir_t, dd_dirty_link));
 	txg_list_create(&dp->dp_sync_tasks,
 	    offsetof(dsl_sync_task_t, dst_node));
+
+	for (i = 0; i < TXG_SIZE; i++){
+		list_create(&dp->dp_sync_system_space[i], sizeof (system_space_os_t),
+	    	offsetof(system_space_os_t, ds_space_link));
+	}
 
 	mutex_init(&dp->dp_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&dp->dp_spaceavail_cv, NULL, CV_DEFAULT, NULL);
@@ -297,6 +303,7 @@ out:
 void
 dsl_pool_close(dsl_pool_t *dp)
 {
+	int i;
 	/*
 	 * Drop our references from dsl_pool_open().
 	 *
@@ -325,6 +332,10 @@ dsl_pool_close(dsl_pool_t *dp)
 	txg_list_destroy(&dp->dp_dirty_zilogs);
 	txg_list_destroy(&dp->dp_sync_tasks);
 	txg_list_destroy(&dp->dp_dirty_dirs);
+
+	for (i = 0; i < TXG_SIZE; i++){
+		list_destroy(&dp->dp_sync_system_space[i]);
+	}
 
 	/*
 	 * We can't set retry to TRUE since we're explicitly specifying
@@ -475,6 +486,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 	dmu_tx_t *tx;
 	dsl_dir_t *dd;
 	dsl_dataset_t *ds;
+	system_space_os_t *spos = NULL;
 	objset_t *mos = dp->dp_meta_objset;
 	list_t synced_datasets;
 
@@ -495,6 +507,12 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 		 */
 		ASSERT(!list_link_active(&ds->ds_synced_link));
 		list_insert_tail(&synced_datasets, ds);
+
+		if (ds->ds_objset->os_is_group) {
+			spos = kmem_zalloc(sizeof(system_space_os_t), KM_SLEEP);
+			spos->ds_os_id = ds->ds_object;	
+			list_insert_tail(&dp->dp_sync_system_space[txg & TXG_MASK], spos);
+		}
 		dsl_dataset_sync(ds, zio, tx);
 	}
 	VERIFY0(zio_wait(zio));

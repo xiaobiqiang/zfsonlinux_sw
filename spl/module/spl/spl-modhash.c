@@ -144,6 +144,7 @@
 #include <sys/kmem_cache.h>
 
 #include <sys/modhash_impl.h>
+#include <sys/vmem.h>
 
 /*
  * MH_KEY_DESTROY()
@@ -512,13 +513,13 @@ mod_hash_create_extended(
 	mod_hash_t *mod_hash;
 	ASSERT(hname && keycmp && hash_alg && vdtor && kdtor);
 
-	if ((mod_hash = kmem_zalloc(MH_SIZE(nchains), sleep)) == NULL)
+	if ((mod_hash = vmem_zalloc(MH_SIZE(nchains), sleep)) == NULL)
 		return (NULL);
 
 	rw_init(&mod_hash->mh_contents, NULL, RW_DEFAULT, NULL);
 	mod_hash->mh_name = kmem_alloc(strlen(hname) + 1, sleep);
 	if (mod_hash->mh_name == NULL) {
-		kmem_free(mod_hash, MH_SIZE(nchains));
+		vmem_free(mod_hash, MH_SIZE(nchains));
 		return (NULL);
 	}
 	(void) strcpy(mod_hash->mh_name, hname);
@@ -583,7 +584,7 @@ mod_hash_destroy_hash(mod_hash_t *hash)
 	rw_destroy(&hash->mh_contents);
 	
 	kmem_free(hash->mh_name, strlen(hash->mh_name) + 1);
-	kmem_free(hash, MH_SIZE(hash->mh_nchains));
+	vmem_free(hash, MH_SIZE(hash->mh_nchains));
 }
 
 EXPORT_SYMBOL(mod_hash_destroy_hash);

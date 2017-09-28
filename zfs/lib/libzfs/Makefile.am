@@ -5,7 +5,9 @@ libzfs_pc_DATA = libzfs.pc libzfs_core.pc
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include  \
+	-I/usr/include/libxml2
+	
 
 lib_LTLIBRARIES = libzfs.la
 
@@ -22,7 +24,7 @@ USER_C = \
 	libzfs_pool.c \
 	libzfs_sendrecv.c \
 	libzfs_status.c \
-	libzfs_util.c
+	libzfs_util.c   
 
 KERNEL_C =
 
@@ -36,7 +38,7 @@ libzfs_la_LIBADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la \
 	$(top_builddir)/lib/libzpool/libzpool.la
 
-libzfs_la_LIBADD += -lm -ldl $(LIBBLKID)
+libzfs_la_LIBADD += -lm -ldl -lxml2 $(LIBBLKID)
 libzfs_la_LDFLAGS = -version-info 2:0:0
 
 EXTRA_DIST = $(libzfs_pc_DATA) $(USER_C)

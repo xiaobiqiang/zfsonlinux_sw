@@ -122,13 +122,16 @@ zpl_vap_init(vattr_t *vap, struct inode *dir, zpl_umode_t mode, cred_t *cr)
 	vap->va_mask = ATTR_MODE;
 	vap->va_mode = mode;
 	vap->va_uid = crgetfsuid(cr);
+	vap->va_mask |= ATTR_UID;
 
 	if (dir && dir->i_mode & S_ISGID) {
 		vap->va_gid = KGID_TO_SGID(dir->i_gid);
+		vap->va_mask |= ATTR_GID;
 		if (S_ISDIR(mode))
 			vap->va_mode |= S_ISGID;
 	} else {
 		vap->va_gid = crgetfsgid(cr);
+		vap->va_mask |= ATTR_GID;
 	}
 }
 
@@ -152,7 +155,7 @@ zpl_create(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	zpl_vap_init(vap, dir, mode, cr);
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL);
+	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
 
@@ -161,7 +164,7 @@ zpl_create(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 			error = zpl_init_acl(ip, dir);
 
 		if (error)
-			(void) zfs_remove(dir, dname(dentry), cr);
+			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
 
 	spl_fstrans_unmark(cookie);
@@ -195,7 +198,7 @@ zpl_mknod(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	vap->va_rdev = rdev;
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL);
+	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
 
@@ -204,7 +207,7 @@ zpl_mknod(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 			error = zpl_init_acl(ip, dir);
 
 		if (error)
-			(void) zfs_remove(dir, dname(dentry), cr);
+			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
 
 	spl_fstrans_unmark(cookie);
@@ -225,7 +228,7 @@ zpl_unlink(struct inode *dir, struct dentry *dentry)
 
 	crhold(cr);
 	cookie = spl_fstrans_mark();
-	error = -zfs_remove(dir, dname(dentry), cr);
+	error = -zfs_remove(dir, dname(dentry), cr, 0);
 
 	/*
 	 * For a CI FS we must invalidate the dentry to prevent the
@@ -405,8 +408,9 @@ zpl_symlink(struct inode *dir, struct dentry *dentry, const char *name)
 		d_instantiate(dentry, ip);
 
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
+
 		if (error)
-			(void) zfs_remove(dir, dname(dentry), cr);
+			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
 
 	spl_fstrans_unmark(cookie);
@@ -461,7 +465,7 @@ zpl_get_link_common(struct dentry *dentry, struct inode *ip, char **link)
 	uio.uio_segflg = UIO_SYSSPACE;
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_readlink(ip, &uio, cr);
+	error = -zfs_readlink(ip, &uio, cr, 0);
 	spl_fstrans_unmark(cookie);
 	crfree(cr);
 
@@ -554,7 +558,7 @@ zpl_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry)
 	igrab(ip); /* Use ihold() if available */
 
 	cookie = spl_fstrans_mark();
-	error = -zfs_link(dir, ip, dname(dentry), cr);
+	error = -zfs_link(dir, ip, dname(dentry), cr, 0);
 	if (error) {
 		iput(ip);
 		goto out;
@@ -620,6 +624,8 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 #endif /* HAVE_D_REVALIDATE_NAMEIDATA */
 	zfs_sb_t *zsb = dentry->d_sb->s_fs_info;
 	int error;
+	cred_t *cr = CRED();
+	vn_op_type_t node_type = VN_OP_CLIENT;
 
 	if (flags & LOOKUP_RCU)
 		return (-ECHILD);
@@ -651,14 +657,29 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 			return (0);
 	}
 
+	if (dentry->d_inode) {
+		node_type = zpl_vn_type(dentry->d_inode);
+		if (node_type == VN_OP_CLIENT) {
+			error = 0;
+			znode_t	*zp = NULL;
+			znode_t	*tmp_zp = NULL;
+			zp = ITOZ(dentry->d_inode);
+			error = zfs_group_zget(zsb, zp->z_id, &tmp_zp, 0, 0, 0, B_FALSE);
+			if (error) {
+				return (0);
+			}
+			zfs_update_inode_info(ZTOI(tmp_zp), ZTOI(zp));
+			iput(ZTOI(tmp_zp));
+		}
+	}
+
 	/*
 	 * The dentry may reference a stale inode if a mounted file system
 	 * was rolled back to a point in time where the object didn't exist.
 	 */
 	if (dentry->d_inode && ITOZ(dentry->d_inode)->z_is_stale)
 		return (0);
-
-	return (1);
+	return 1;
 }
 
 const struct inode_operations zpl_inode_operations = {
