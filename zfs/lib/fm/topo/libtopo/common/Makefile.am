@@ -46,5 +46,7 @@ USER_C = \
 libtopo_la_LIBADD = $(top_builddir)/lib/libnvpair/libnvpair.la	\
 		    $(top_builddir)/lib/libipmi/libipmi.la
 
+libtopo_la_LIBADD += -lxml2 -lzfs -lstmf
+
 dist_libtopo_la_SOURCES = \
 	$(USER_C)
