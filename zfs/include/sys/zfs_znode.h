@@ -232,12 +232,9 @@ typedef struct zfs_group_phys {
 	uint64_t zp_overquota;
 	uint64_t zp_old_gen;
 	uint64_t zp_scan[4];
+	boolean_t	zp_is_ctldir;	/* are we .zfs entry */
     /*inode information*/
-	uint64_t		ino;
-	unsigned int	nlink;
-	struct timespec atime;
-	struct timespec	mtime;
-	struct timespec	ctime;
+	unsigned long	ino;
 }zfs_group_phys_t;
 
 typedef enum zfs_group_role {
@@ -536,6 +533,8 @@ extern vn_op_type_t zpl_vn_type(struct inode *ip);
 extern vn_op_type_t zfs_sa_op_type(znode_t *zp);
 
 extern void zfs_inquota(zfs_sb_t *zsb, znode_t *zp);
+int
+zfs_update_inode_info(struct inode *src_ip, struct inode *dest_ip);
 #endif /* _KERNEL */
 
 

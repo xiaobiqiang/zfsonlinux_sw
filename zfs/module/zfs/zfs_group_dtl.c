@@ -1341,14 +1341,14 @@ caller_context_t *ct, vsecattr_t *vsap)
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.create.dir_zid = pzp->z_id;
-	z_carrier->z_dtl.create.dir_os_id = dmu_objset_id(pzp->z_zsb->z_os);
+	z_carrier->z_dtl.create.dir_os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.create.dir_spa_id =
-		spa_guid(dmu_objset_spa(pzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 	z_carrier->z_dtl.create.dir_gen = pzp->z_gen;
 	z_carrier->z_dtl.create.zid = zp->z_id;
-	z_carrier->z_dtl.create.os_id = dmu_objset_id(zp->z_zsb->z_os);
+	z_carrier->z_dtl.create.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.create.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.create.gen = zp->z_gen;
 
 	if (name != NULL)
@@ -1405,9 +1405,9 @@ zfs_group_dtl_carry_remove(name_operation_t z_op, znode_t *pzp, char *name,
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.remove.group_id = pzp->z_group_id;
-	z_carrier->z_dtl.remove.os_id = dmu_objset_id(pzp->z_zsb->z_os);
+	z_carrier->z_dtl.remove.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.remove.spa_id =
-		spa_guid(dmu_objset_spa(pzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1436,14 +1436,14 @@ vattr_t *vap, znode_t *zp,	cred_t *credp, caller_context_t *ct, int flag, vsecat
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.mkdir.dir_zid = pzp->z_id;
-	z_carrier->z_dtl.mkdir.dir_os_id = dmu_objset_id(pzp->z_zsb->z_os);
+	z_carrier->z_dtl.mkdir.dir_os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.mkdir.dir_spa_id =
-		spa_guid(dmu_objset_spa(pzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 	z_carrier->z_dtl.mkdir.dir_gen = pzp->z_gen;
 	z_carrier->z_dtl.mkdir.zid = zp->z_id;
-	z_carrier->z_dtl.mkdir.os_id = dmu_objset_id(zp->z_zsb->z_os);
+	z_carrier->z_dtl.mkdir.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 	z_carrier->z_dtl.mkdir.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.mkdir.gen = zp->z_gen;
 
 	if (name != NULL)
@@ -1497,9 +1497,9 @@ zfs_group_dtl_carry_rmdir(name_operation_t z_op, znode_t *pzp, char *name,
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.rmdir.group_id = pzp->z_group_id;
-	z_carrier->z_dtl.rmdir.os_id = dmu_objset_id(pzp->z_zsb->z_os);
+	z_carrier->z_dtl.rmdir.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.rmdir.spa_id =
-		spa_guid(dmu_objset_spa(pzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1528,15 +1528,15 @@ zfs_group_dtl_carry_link(name_operation_t z_op, znode_t *dzp,	char *name,
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.link.zid = dzp->z_id;
-	z_carrier->z_dtl.link.os_id = dmu_objset_id(dzp->z_zsb->z_os);
+	z_carrier->z_dtl.link.os_id = dmu_objset_id(ZTOZSB(dzp)->z_os);
 	z_carrier->z_dtl.link.spa_id =
-		spa_guid(dmu_objset_spa(dzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(dzp)->z_os));
 	z_carrier->z_dtl.link.gen = dzp->z_gen;
 	
 	z_carrier->z_dtl.link.szid= szp->z_id;
-	z_carrier->z_dtl.link.sos_id= dmu_objset_id(szp->z_zsb->z_os);
+	z_carrier->z_dtl.link.sos_id= dmu_objset_id(ZTOZSB(szp)->z_os);
 	z_carrier->z_dtl.link.sspa_id=
-		spa_guid(dmu_objset_spa(szp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(szp)->z_os));
 	z_carrier->z_dtl.link.sgen = szp->z_gen;
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1565,15 +1565,15 @@ znode_t *nzp, cred_t *credp, int flag, caller_context_t *ct, char* newname)
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.rename.zid= ozp->z_id;
-	z_carrier->z_dtl.rename.os_id = dmu_objset_id(ozp->z_zsb->z_os);
+	z_carrier->z_dtl.rename.os_id = dmu_objset_id(ZTOZSB(ozp)->z_os);
 	z_carrier->z_dtl.rename.spa_id =
-		spa_guid(dmu_objset_spa(ozp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(ozp)->z_os));
 	z_carrier->z_dtl.rename.gen = ozp->z_gen;
 	
 	z_carrier->z_dtl.rename.nzid = nzp->z_id;
-	z_carrier->z_dtl.rename.nos_id = dmu_objset_id(nzp->z_zsb->z_os);
+	z_carrier->z_dtl.rename.nos_id = dmu_objset_id(ZTOZSB(nzp)->z_os);
 	z_carrier->z_dtl.rename.nspa_id =
-		spa_guid(dmu_objset_spa(nzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(nzp)->z_os));
 	z_carrier->z_dtl.rename.ngen = nzp->z_gen;
 	z_carrier->z_dtl.rename.old_group_id = ozp->z_group_id;
 	z_carrier->z_dtl.rename.new_group_id = nzp->z_group_id;
@@ -1610,15 +1610,15 @@ vattr_t *vap, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct, char *
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.symlink.dir_zid= dzp->z_id;
-	z_carrier->z_dtl.symlink.dir_os_id = dmu_objset_id(dzp->z_zsb->z_os);
+	z_carrier->z_dtl.symlink.dir_os_id = dmu_objset_id(ZTOZSB(dzp)->z_os);
 	z_carrier->z_dtl.symlink.dir_spa_id =
-		spa_guid(dmu_objset_spa(dzp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(dzp)->z_os));
 	z_carrier->z_dtl.symlink.dir_gen = dzp->z_gen;
 	
 	z_carrier->z_dtl.symlink.zid = zp->z_id;
-	z_carrier->z_dtl.symlink.os_id = dmu_objset_id(zp->z_zsb->z_os);
+	z_carrier->z_dtl.symlink.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 	z_carrier->z_dtl.symlink.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.symlink.gen = zp->z_gen;
 
 	if (name != NULL)
@@ -1663,9 +1663,9 @@ int flag, caller_context_t *ct, vsecattr_t *vsap)
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.setsecattr.zid= zp->z_id;
-	z_carrier->z_dtl.setsecattr.os_id = dmu_objset_id(zp->z_zsb->z_os);
+	z_carrier->z_dtl.setsecattr.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 	z_carrier->z_dtl.setsecattr.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.setsecattr.gen = zp->z_gen;
 
 	if(vsap != NULL){
@@ -1706,9 +1706,9 @@ vattr_t *vap, cred_t *credp, int flag, caller_context_t *ct)
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.setattr.zid = zp->z_id;
-	z_carrier->z_dtl.setattr.os_id = dmu_objset_id(zp->z_zsb->z_os);
+	z_carrier->z_dtl.setattr.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 	z_carrier->z_dtl.setattr.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.setattr.gen = zp->z_gen;
 
 	if(vap != NULL){
@@ -1744,8 +1744,8 @@ zfs_group_dtl_carry_dirquota(name_operation_t z_op, znode_t *zp,
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.dirquota.zid = zp->z_id;
 	z_carrier->z_dtl.dirquota.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
-	z_carrier->z_dtl.dirquota.os_id = dmu_objset_id(zp->z_zsb->z_os);
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.dirquota.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 
 	z_carrier->z_dtl.dirquota.obj_id = dir_obj;
 	z_carrier->z_dtl.dirquota.dir_gen = zp->z_gen;
@@ -1780,8 +1780,8 @@ zfs_group_dtl_carry_dirlowdata(name_operation_t z_op, znode_t *zp,
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.dirlowdata.zid = zp->z_id;
 	z_carrier->z_dtl.dirlowdata.spa_id =
-		spa_guid(dmu_objset_spa(zp->z_zsb->z_os));
-	z_carrier->z_dtl.dirlowdata.os_id = dmu_objset_id(zp->z_zsb->z_os);
+		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.dirlowdata.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 
 	z_carrier->z_dtl.dirlowdata.obj_id = z_dirlow->dir_obj;
 	z_carrier->z_dtl.dirlowdata.dir_gen = zp->z_gen;

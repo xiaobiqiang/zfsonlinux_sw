@@ -185,7 +185,7 @@
 extern int ZFS_GROUP_DTL_ENABLE;
 int debug_nas_group = 0;
 int TO_DOUBLE_DATA_FILE = 0;
-int NOTIFY_FILE_SIZE = 0;
+int NOTIFY_FILE_SIZE = 1;
 
 static void zfs_set_worm_retention(znode_t *zp, uint64_t n_retent);
 
@@ -464,7 +464,7 @@ zfs_read_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	znode_t	*nzp = NULL;
 	znode_t	*old_zp = ITOZ(ip);
 	struct inode  *old_ip = ip;
-	zfs_sb_t	*zsb = zp->z_zsb;
+	zfs_sb_t	*zsb = ZTOZSB(zp);
 	objset_t	*os;
 	ssize_t	n, nbytes;
 	rl_t	*rl;
@@ -851,7 +851,7 @@ static int zfs_local_dirty(znode_t *zp)
 
 	zp->z_group_id.data_status = DATA_NODE_DIRTY;
 	while (1) {
-		tx = dmu_tx_create(zp->z_zsb->z_os);
+		tx = dmu_tx_create(ZTOZSB(zp)->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 		error = dmu_tx_assign(tx, waited ? TXG_WAITED : TXG_NOWAIT);
 		if (error != 0) {
@@ -866,7 +866,7 @@ static int zfs_local_dirty(znode_t *zp)
 			break;
 		}
 
-		error = sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zp->z_zsb),
+		error = sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(ZTOZSB(zp)),
 			&zp->z_group_id, sizeof (zp->z_group_id), tx);
 
 		dmu_tx_commit(tx);
@@ -914,7 +914,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	ssize_t		tx_bytes;
 	uint64_t	end_size;
 	dmu_tx_t	*tx;
-	zfs_sb_t	*zsb = zp->z_zsb;
+	zfs_sb_t	*zsb = ZTOZSB(zp);
 	zilog_t		*zilog;
 	offset_t	woff;
 	ssize_t		n, nbytes;
@@ -2240,7 +2240,7 @@ EXPORT_SYMBOL(zfs_access);
 boolean_t
 zfs_worm_is_due(znode_t *zp)
 {
-	zfs_sb_t	*zsb = zp->z_zsb;
+	zfs_sb_t	*zsb = ZTOZSB(zp);
 	timestruc_t		now;
 	sa_bulk_attr_t		bulk[2];
 	uint64_t		time[2];
@@ -2289,7 +2289,7 @@ zfs_worm_is_due(znode_t *zp)
 int
 zfs_worm_is_tran(znode_t *zp)
 {
-	zfs_sb_t	*zsb = zp->z_zsb;
+	zfs_sb_t	*zsb = ZTOZSB(zp);
 	timestruc_t		now;
 	sa_bulk_attr_t		bulk[2];
 	uint64_t		ctime[2];
@@ -2526,7 +2526,7 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 			uint64_t parent = 0;
 			zp = ITOZ(*ipp);
 
-			err = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zp->z_zsb), &parent, sizeof(parent));
+			err = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(ZTOZSB(zp)), &parent, sizeof(parent));
 			if (err == 0 && parent == zdp->z_id) {
 				if (zp->z_dirquota == 0)
 					zp->z_dirquota = zdp->z_dirquota;
@@ -2866,7 +2866,7 @@ top:
 		mutex_enter(&zp->z_lock);
 		
 		bcopy(name, zp->z_filename, strlen(name)+1);
-		sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(zp->z_zsb),
+		sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(ZTOZSB(zp)),
 							zp->z_filename, MAXNAMELEN, tx);
 		if (zp->z_dirlowdata == 0){
 		    zp->z_dirlowdata = dzp->z_dirlowdata;
@@ -3551,7 +3551,7 @@ top:
 
 	mutex_enter(&zp->z_lock);
 	bcopy(dirname, zp->z_filename, strlen(dirname)+1);
-	sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(zp->z_zsb),
+	sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(ZTOZSB(zp)),
 					zp->z_filename, MAXNAMELEN, tx);
 	mutex_exit(&zp->z_lock);
 
@@ -3815,13 +3815,11 @@ zfs_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flags)
 	uint64_t	offset; /* must be unsigned; checks for < 1 */
 
 	vn_op_type_t optype;
-	int maxbytes = 0;
 
 	optype = zfs_vn_dir_type(zp, flags);
 	if (optype == VN_OP_CLIENT){
-		maxbytes = ((struct ctx_struct *)ctx->dirent)->count;
 		ZFS_ENTER(zsb);
-		error = zfs_client_readdir(ip, ctx, maxbytes, cr, flags);
+		error = zfs_client_readdir(ip, ctx, cr, flags);
 		ZFS_EXIT(zsb);
 		return (error);
 	}		
@@ -4138,7 +4136,7 @@ zfs_readdir_server(struct inode *ip, uio_t *uio, cred_t *cr, int *eofp, int flag
 			 * this entry in the returned information
 			 */
 			znode_t	*ezp;
-			if (zfs_zget(zp->z_zsb, objnum, &ezp) != 0)
+			if (zfs_zget(ZTOZSB(zp), objnum, &ezp) != 0)
 				goto skip_entry;
 			if (!zfs_has_access(ezp, cr)) {
 				iput(ZTOI(ezp));
@@ -4510,9 +4508,9 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 				vap->va_blksize = blksz;
 				vap->va_nblocks = nblks;
 			} else {
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(zp->z_zsb),
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(ZTOZSB(zp)),
 				    &blksz, sizeof (uint64_t));
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(zp->z_zsb),
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(ZTOZSB(zp)),
 				    &nblks, sizeof (uint64_t));
 				vap->va_blksize = blksz;
 				vap->va_nblocks = nblks;
@@ -4590,7 +4588,18 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 	
 	mutex_enter(&zp->z_lock);
 	generic_fillattr(ip, sp);
-	sp->size = (loff_t)zp->z_size;
+	if (ITOZ(ip)->z_id == zsb->z_root && zsb->z_os->os_is_group &&
+		!spa_get_group_flags(dmu_objset_spa(zsb->z_os)) &&
+		!zsb->z_os->os_is_master){
+		sp->ino = ZTOI(zp)->i_ino;
+		sp->mode = (umode_t)zp->z_mode;
+		sp->nlink = (unsigned int)zp->z_links;
+		bcopy(&(ZTOI(zp)->i_atime), &(sp->atime), sizeof(struct timespec));
+		bcopy(&(ZTOI(zp)->i_mtime), &(sp->mtime), sizeof(struct timespec));
+		bcopy(&(ZTOI(zp)->i_ctime), &(sp->ctime), sizeof(struct timespec));
+		sp->size = (loff_t)zp->z_size;
+	}
+	
 	if (zsb->z_os->os_is_group) {
 		if (zp->z_group_role != GROUP_VIRTUAL) {
 			if (zp->z_group_id.data_spa == spa_guid(dmu_objset_spa(zsb->z_os))) {
@@ -4598,11 +4607,11 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 				sp->blksize = (unsigned long)blksize;
 				sp->blocks = (unsigned long long)nblocks;
 			} else {
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(zp->z_zsb),
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(ZTOZSB(zp)),
 				    &blksize, sizeof (uint64_t));
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(zp->z_zsb),
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(ZTOZSB(zp)),
 				    &nblocks, sizeof (uint64_t));
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_SIZE(zp->z_zsb),
+				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_SIZE(ZTOZSB(zp)),
 				    &size, sizeof (uint64_t));
 				sp->blksize = (unsigned long)blksize;
 				sp->blocks = (unsigned long long)nblocks;
@@ -4654,7 +4663,7 @@ static void zfs_set_worm_retention(znode_t *zp, uint64_t n_retent)
 //	uint64_t o_reftime;
 //	uint64_t ref_delta;
 //	uint64_t retent_delta;
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 	sa_bulk_attr_t	bulk[2];
 	
 
@@ -5813,7 +5822,7 @@ top:
 				mutex_enter(&szp->z_lock);
 				bcopy(tnm, szp->z_filename, strlen(tnm)+1);
 				
-				sa_update(szp->z_sa_hdl, SA_ZPL_FILENAME(szp->z_zsb),
+				sa_update(szp->z_sa_hdl, SA_ZPL_FILENAME(ZTOZSB(szp)),
 					szp->z_filename, MAXNAMELEN, tx);
 				szp->z_dirlowdata = tdzp->z_dirlowdata;
 				zfs_sa_set_dirlowdata(szp, szp->z_dirlowdata, tx);
@@ -6074,7 +6083,7 @@ top:
 	mutex_enter(&zp->z_lock);
 	zfs_sa_set_remote_object(zp, &group_id, tx);
 	bcopy(name, zp->z_filename,  strlen(name)+1);
-	sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(zp->z_zsb),
+	sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(ZTOZSB(zp)),
 						zp->z_filename, MAXNAMELEN, tx);
 	mutex_exit(&zp->z_lock);
 	
@@ -7089,7 +7098,7 @@ zfs_fid(struct inode *ip, fid_t *fidp)
 		for (i = 0; i < sizeof (zfid->zf_object); i++)
 			zfid->zf_object[i] = (uint8_t)(object >> (8 * i));
 		if (gen == 0)
-		gen = 1;
+			gen = 1;
 		for (i = 0; i < sizeof (zfid->zf_gen); i++)
 			zfid->zf_gen[i] = (uint8_t)(gen >> (8 * i));
 
@@ -7418,8 +7427,8 @@ int zfs_print_znode_info(char *path)
 
 	ip = filp->f_dentry->d_inode;
 	zp = ITOZ(ip);
-	cmn_err(CE_WARN, "%s line(%d) znode(%s) id(%"PRIx64") m_spa(%"PRIx64") m_objset(%"PRIx64") m_object(%"PRIx64") d1_spa(%"PRIx64") d1_objset(%"PRIx64") d1_object(%"PRIx64") d2_spa(%"PRIx64") d2_objset(%"PRIx64") d2_object(%"PRIx64")",
-		__func__, __LINE__, path, zp->z_id,  zp->z_group_id.master_spa, zp->z_group_id.master_objset, zp->z_group_id.master_object,
+	cmn_err(CE_WARN, "%s line(%d) znode(%s) id(%"PRIx64") gen(%"PRIu64") m_spa(%"PRIx64") m_objset(%"PRIx64") m_object(%"PRIx64") d1_spa(%"PRIx64") d1_objset(%"PRIx64") d1_object(%"PRIx64") d2_spa(%"PRIx64") d2_objset(%"PRIx64") d2_object(%"PRIx64")",
+		__func__, __LINE__, path, zp->z_id,  zp->z_gen, zp->z_group_id.master_spa, zp->z_group_id.master_objset, zp->z_group_id.master_object,
 		zp->z_group_id.data_spa, zp->z_group_id.data_objset, zp->z_group_id.data_object, zp->z_group_id.data2_spa, zp->z_group_id.data2_objset, zp->z_group_id.data2_object);
 	filp_close(filp, NULL);
 	return error;

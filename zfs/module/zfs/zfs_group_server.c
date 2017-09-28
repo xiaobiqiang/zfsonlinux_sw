@@ -301,7 +301,7 @@ int zfs_group_process_create_data_file(znode_t *dzp, uint64_t master_object,
 
 	zp = NULL;
 	waited = B_FALSE;
-	zsb = dzp->z_zsb;
+	zsb = ZTOZSB(dzp);
 
 top:
 	bzero(&group_object, sizeof(zfs_group_object_t));
@@ -368,12 +368,12 @@ top:
 	group_object.data_object = zp->z_id;
 
 	bcopy(ZIL_LOG_DATA_FILE_NAME, zp->z_filename, strlen(ZIL_LOG_DATA_FILE_NAME)+1);
-	sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(zp->z_zsb),
+	sa_update(zp->z_sa_hdl, SA_ZPL_FILENAME(ZTOZSB(zp)),
 							zp->z_filename, MAXNAMELEN, tx);
 
 	sa_update(zp->z_sa_hdl, SA_ZPL_LINKS(zsb),
 		    &zp->z_links, sizeof (zp->z_links), tx);
-	sa_update(zp->z_sa_hdl, SA_ZPL_DIRLOWDATA(zp->z_zsb),
+	sa_update(zp->z_sa_hdl, SA_ZPL_DIRLOWDATA(ZTOZSB(zp)),
  		    dirlowdata, 8, tx);
 	zfs_sa_set_remote_object(zp, &group_object, tx);
 	txtype = zfs_log_create_txtype(Z_FILE, NULL, vap);
@@ -547,7 +547,7 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 	cp = np->component;
 	cp_len = 0;
 
-	zsb = dzp->z_zsb;
+	zsb = ZTOZSB(dzp);
 
 	zfs_group_v32_to_v(&createp->vattr, &xattrp->xva_vattr);
 	zfs_group_set_create_extra(cp, createp->name_len, name, createp->xattr_len,
@@ -640,7 +640,7 @@ static int update_z_group_id(zfs_group_header_t *msg_header, zfs_msg_t *msg_data
 	np = &msg_data->call.name;
 	n2p = (zfs_group_name2_t *)np;
 
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 
 
 	/* in MasterX, it always takes itself as the master */
@@ -842,7 +842,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 	cp = np->component;
 	cp_len = 0;
 
-	zsb = dzp->z_zsb;
+	zsb = ZTOZSB(dzp);
 
 
 	zfs_group_v32_to_v(&createp->vattr, &xattrp->xva_vattr);
@@ -1145,7 +1145,7 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 
 	char buf[MAXNAMELEN];
 
-	zsb = dzp->z_zsb;
+	zsb = ZTOZSB(dzp);
 
 	vsap = NULL;
 	xattrp = kmem_zalloc(sizeof(xvattr_t), KM_SLEEP);
@@ -1363,7 +1363,7 @@ static int zfs_group_process_remove_backup(zfs_msg_t *msg_data, znode_t *dzp, cr
 	zfs_group_name_t *np = &msg_data->call.name;
 	zfs_sb_t *zsb = NULL;
 
-	zsb = dzp->z_zsb;
+	zsb = ZTOZSB(dzp);
 	flag = np->flags |FCLUSTER;
 
 	flag |= FBackupMaster;
@@ -1381,11 +1381,7 @@ static int zfs_group_process_remove_backup(zfs_msg_t *msg_data, znode_t *dzp, cr
 static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 {
 	int	error = 1;
-//	int	client_ord = 0;
-//	uint64_t	vflg = 0;
 	uint64_t	client_spa = 0;
-//	uint64_t	dspa = 0;
-//	uint64_t	dos = 0;
 	uint64_t	object = 0;
 	uint64_t	flags = 0;
 	znode_t	*zp = NULL;
@@ -1480,7 +1476,6 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 	break;
 
 	case NAME_LOOKUP: {
-//		vnode_t *vp;
 		struct inode *ip;
 		pathname_t	rpn;
 		zfs_group_pathname_t gpn;
@@ -1662,7 +1657,7 @@ static int zfs_group_process_create_data(zfs_group_header_t *msg_header, zfs_msg
 	cp = np->component;
 	cp_len = 0;
 
-	zsb = dzp->z_zsb;
+	zsb = ZTOZSB(dzp);
 
 	zfs_group_v32_to_v(&createp->vattr, &xattrp->xva_vattr);
 	zfs_group_set_create_extra(cp, createp->name_len, name, createp->xattr_len,
@@ -2260,7 +2255,7 @@ int zfs_remote_updata_node_dirty(znode_t* zp, uint64_t dirty_flag,
 	msg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 	nop = &notify_msg->call.notify;
 
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	if (zsb == NULL) {
 		kmem_free(notify_msg, sizeof (zfs_group_notify_msg_t));
 		return EGHOLD;
@@ -2337,7 +2332,7 @@ int zfs_remote_update_node(struct inode *ip, void *ptr, uint64_t dst_spa, uint64
 	
 	zfs_group_znode_setattr_t *setattr;
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	msg_len = sizeof (zfs_group_data_msg_t);
 
 	znode_msg = kmem_zalloc(sizeof (zfs_group_znode_msg_t), KM_SLEEP);
@@ -2355,7 +2350,7 @@ int zfs_remote_update_node(struct inode *ip, void *ptr, uint64_t dst_spa, uint64
 			sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t), dst_spa, dst_os, dst_object,
 			zp->z_group_id.data_object, dst_spa, dst_os, dst_object, MSG_REQUEST, APP_USER);
 
-	error = zfs_client_send_to_server(zp->z_zsb->z_os, msg_header, (zfs_msg_t *)znode_msg, B_TRUE);
+	error = zfs_client_send_to_server(ZTOZSB(zp)->z_os, msg_header, (zfs_msg_t *)znode_msg, B_TRUE);
 
 	if (znode_msg != NULL)
 		kmem_free(znode_msg, sizeof(zfs_group_znode_msg_t));
@@ -2524,7 +2519,7 @@ int zfs_remote_write_node(struct inode * src_ip,uint64_t dst_spa,uint64_t dst_os
 	zfs_group_header_t *msg_header = NULL;
 	
 	src_zp = ITOZ(src_ip);
-	zsb = src_zp->z_zsb;
+	zsb = ZTOZSB(src_zp);
 
 	write = kmem_alloc(sizeof(zfs_group_data_write_t), KM_SLEEP);
 	write->addr = (uint64_t)(uintptr_t)uiop;
@@ -2627,6 +2622,39 @@ zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *of
 	return (err);
 }
 
+
+static int
+zfs_group_get_relativepath(znode_t *zp, zfs_group_znode2_t *z2p)
+{
+       struct inode *pip = NULL;
+       zfs_sb_t *zsb = ZTOZSB(zp);
+       struct inode *tmp_ip = ZTOI(zp);
+       char path[MAXNAMELEN] = {0};
+       char path_tmp[MAXNAMELEN] = {0};
+       int err = 0;
+
+       if (zp->z_id != zsb->z_root){
+               while(ITOZ(tmp_ip)->z_id != zsb->z_root){
+                       if (path_tmp[0] == '\0'){
+                               strncpy(path_tmp, ITOZ(tmp_ip)->z_filename, strlen(ITOZ(tmp_ip)->z_filename));
+                       }else {
+                               sprintf(path_tmp, "%s/%s", ITOZ(tmp_ip)->z_filename, path);
+                       }
+                       bcopy(path_tmp, path, MAXNAMELEN);
+                       err = zfs_lookup(tmp_ip, "..", &pip, 0, CRED(), NULL, NULL);
+                       if (ITOZ(tmp_ip) != zp)
+                               iput(tmp_ip);
+                       if (err != 0){
+                               return err;
+                       }
+                       tmp_ip = pip;
+               }
+               if (ITOZ(tmp_ip) != zp)
+                       iput(tmp_ip);
+               bcopy(path, z2p->relativepath, MAXNAMELEN);
+       }
+       return 0;
+}
 
 
 int	
@@ -2762,6 +2790,9 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 		}
 		zfs_group_znode_copy_phys(zp, &z2p->zrec.object_phy, B_FALSE);
 		z2p->inp.id = zp->z_group_id;
+		if (S_ISDIR(ZTOI(zp)->i_mode) && zp->z_id != zsb->z_root){
+                      error = zfs_group_get_relativepath(zp, z2p);
+		}
 	}
 //	crfree(cred);
 	abort_creds(cred);
@@ -3175,7 +3206,7 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			}
 
 			if (zp->z_dirquota == 0) {
-				if ((error = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zp->z_zsb), &parent,
+				if ((error = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(ZTOZSB(zp)), &parent,
 						sizeof (parent))) != 0){
 					dmu_tx_commit(tx);
 					iput(ZTOI(zp));
@@ -3324,7 +3355,7 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 			error = zfs_zget(zsb, quota->master_object, &zp);
 			if (error == 0) {
 				if (zp->z_dirquota == 0) {
-					error = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zp->z_zsb), &parent, sizeof (parent));
+					error = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(ZTOZSB(zp)), &parent, sizeof (parent));
 					if (error == 0) {
 						error = zfs_zget(zsb, parent, &dzp);
 						if (error == 0 && dzp != NULL) {

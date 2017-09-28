@@ -435,7 +435,7 @@ void
 zfs_sa_set_remote_object(znode_t *zp, zfs_group_object_t *remote_object, 
    dmu_tx_t *tx)
 {
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 //	xoptattr_t *xoap;
 
 	ASSERT(MUTEX_HELD(&zp->z_lock));
@@ -451,7 +451,7 @@ void
 zfs_sa_get_remote_object(znode_t *zp)
 {
     int err;
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 
 	ASSERT(MUTEX_HELD(&zp->z_lock));
 	if (zp->z_is_sa && zp->z_sa_hdl != NULL) {
@@ -464,7 +464,7 @@ zfs_sa_get_remote_object(znode_t *zp)
 void
 zfs_sa_set_dirquota(znode_t *zp, uint64_t quota, dmu_tx_t *tx)
 {
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 //	xoptattr_t *xoap;
 
 	ASSERT(MUTEX_HELD(&zp->z_lock));
@@ -480,7 +480,7 @@ void
 zfs_sa_get_dirquota(znode_t *zp)
 {
     int err = 0;
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 	if (zp->z_is_sa && zp->z_sa_hdl != NULL) {
         err = sa_lookup(zp->z_sa_hdl, SA_ZPL_DIRQUOTA(zsb),
 		    &zp->z_dirquota,
@@ -494,7 +494,7 @@ zfs_sa_get_dirquota(znode_t *zp)
 void
 zfs_sa_set_dirlowdata(znode_t *zp, uint64_t dir_lowdata, dmu_tx_t *tx)
 {
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 //	xoptattr_t *xoap;
 	ASSERT(MUTEX_HELD(&zp->z_lock));
 	zp->z_dirlowdata = dir_lowdata;
@@ -508,7 +508,7 @@ void
 zfs_sa_get_dirlowdata(znode_t *zp)
 {
     int err = 0;
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 
 	if (zp->z_is_sa && zp->z_sa_hdl != NULL) {
         err = sa_lookup(zp->z_sa_hdl, SA_ZPL_DIRLOWDATA(zsb),

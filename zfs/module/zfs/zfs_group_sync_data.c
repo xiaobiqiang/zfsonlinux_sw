@@ -183,7 +183,7 @@ int zfs_remote_get_node(struct inode * ip, struct inode ** ipp, uint64_t dst_spa
 	znode_t *zpp;
 
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 
 	group_object.master_spa = dst_spa;
 	group_object.master_objset = dst_objset;
@@ -439,7 +439,7 @@ int zmc_check_data1_data2(struct inode * ip, struct inode *ip_data1, struct inod
 		return 0;
 		
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	zp_data1 = ITOZ(ip_data1);
@@ -531,7 +531,7 @@ int zmc_check_master_data(struct inode * ip, struct inode * data_ip)
 	zmc_sync_obj_t* sync_obj = NULL;
 	zfs_sb_t *zsb = NULL;
 
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	if ((ip->i_mode & S_IFMT) != (data_ip->i_mode & S_IFMT)) {	
@@ -589,7 +589,7 @@ int zmc_do_check_file_data(struct inode * pip, struct inode * ip)
 	}
 
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	/* get data1 */
@@ -667,7 +667,7 @@ int zmc_check_master_file_data(struct inode * pip, struct inode * ip)
 int zmc_check_master_dir_entry_data(struct inode * pip, struct inode * ip, void* args)
 {
 	znode_t* zp = ITOZ(ip);
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int ret = 0;
 
 	args = args;
@@ -807,7 +807,7 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 		}
 
 //		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
-		if (dmu_objset_fsid_guid(ITOZ(ip)->z_zsb->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
+		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
 			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
 			iput(ZTOI(root));
 			iput(ip);
@@ -991,7 +991,7 @@ int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, cha
 		}
 
 //		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
-		if (dmu_objset_fsid_guid(ITOZ(ip)->z_zsb->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
+		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
 			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
 //			VN_RELE(ZTOV(root));
 //			VN_RELE(pvp);
@@ -1036,7 +1036,7 @@ int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, cha
 int zmc_sync_master_dir_entry_data(struct inode * pip, struct inode * ip, void* args)
 {
 	znode_t *zp = ITOZ(ip);
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 
 	int ret = 0;
 
@@ -1196,7 +1196,7 @@ int zfs_group_create_data_file_node(znode_t *zp, char *name, boolean_t bregual,
 		return 0;
 	}
 
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	master_object = zp->z_id;
 	master_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 	master_os = dmu_objset_id(zsb->z_os);
@@ -1354,7 +1354,7 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 	caller_context_t ct;
 	int error;
 
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	 
 	va.va_mask = ATTR_IATTR_MASK;
 //	error = vp->v_op->vop_getattr(vp, &va, FCLUSTER, kcred, NULL);
@@ -1445,7 +1445,7 @@ int zmc_do_sync_file_data(struct inode * pip, struct inode * ip,void *args)
 	}
 	
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	/* get data1 */
@@ -1513,7 +1513,7 @@ int zfs_client_notify_master_data_info(znode_t* zp, zfs_multiclus_node_type_t m_
 	zfs_sb_t *zsb;
 
 	ip = ZTOI(zp);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	if (zfs_client_notify_file_info(zp, m_node_type, ZFS_UPDATE_FILE_NODE_DATA1) != 0) {
@@ -1561,7 +1561,7 @@ int zmc_sync_master_data(struct inode * ip,struct inode *ip_data1, struct inode 
 		return ENOENT;
 
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	if (ip_data1 != NULL)
@@ -1585,7 +1585,7 @@ int zmc_sync_master_data(struct inode * ip,struct inode *ip_data1, struct inode 
 static void
 zfs_tstamp_update_setup2(znode_t *zp, uint_t flag, boolean_t have_tx)
 {
-	zfs_sb_t *zsb = zp->z_zsb;
+	zfs_sb_t *zsb = ZTOZSB(zp);
 	timestruc_t	now;
 
 	gethrestime(&now);
@@ -1627,7 +1627,7 @@ int zfs_sync_master_data(struct inode * ip, struct inode * data_ip)
 	zp = ITOZ(ip);
 	dzp = ITOZ(data_ip);
 	
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 	
 	if ((ip->i_mode & S_IFMT) != (data_ip->i_mode & S_IFMT)) {	
@@ -1745,7 +1745,7 @@ int zmc_sync_data1_data2(struct inode * ip,struct inode *ip_data1, struct inode 
 		return 0;
 		
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
 	zp_data1 = ITOZ(ip_data1);
@@ -1827,7 +1827,7 @@ int zmc_sync_data_to_data(struct inode * src_ip, struct inode * dst_ip)
 	read = kmem_zalloc(sizeof(zfs_group_data_read_t), KM_SLEEP);
 
 	src_zp = ITOZ(src_ip);
-	zsb = src_zp->z_zsb;
+	zsb = ZTOZSB(src_zp);
 
 	dst_zp = ITOZ(dst_ip);
 	zfs_group_set_cred(kcred, &read->cred);
@@ -2006,7 +2006,7 @@ int zmc_compare_data1_data2_info(struct inode * ip,zfs_group_object_t* robj1, zf
 	zfs_sb_t *zsb = NULL;
 	
 	zp = ITOZ(ip);
-	zsb = zp->z_zsb;
+	zsb = ZTOZSB(zp);
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 	
 	error = zmc_compare_data1_data2_node(robj1->master_spa, robj1->master_objset, robj1->master_object, robj1->master_gen,

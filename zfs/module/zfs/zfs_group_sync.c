@@ -146,15 +146,15 @@ int zfs_read_local_dir(struct inode * ip, uint64_t* offset, uint64_t count,
 	zp = ITOZ(ip);
 	*entry_cnt = 0;
 
-	ZFS_ENTER(zp->z_zsb);
+	ZFS_ENTER(ZTOZSB(zp));
 	ZFS_VERIFY_ZP(zp);
 
 	if (zp->z_unlinked != 0) {
-		ZFS_EXIT(zp->z_zsb);
+		ZFS_EXIT(ZTOZSB(zp));
 		return 0;
 	}
 
-	zap_cursor_init_serialized(&zc, zp->z_zsb->z_os, zp->z_id, *offset);
+	zap_cursor_init_serialized(&zc, ZTOZSB(zp)->z_os, zp->z_id, *offset);
 
 	while (index < count) {
 		error = zap_cursor_retrieve(&zc, &zap);
@@ -196,7 +196,7 @@ int zfs_read_local_dir(struct inode * ip, uint64_t* offset, uint64_t count,
 
 	zap_cursor_fini(&zc);
 
-	ZFS_EXIT(zp->z_zsb);
+	ZFS_EXIT(ZTOZSB(zp));
 
 	*entry_cnt = index;
 
@@ -269,15 +269,15 @@ int zmc_do_remote_lookup(struct inode * pip, char* name, struct inode ** ipp,
 	strncpy(send_info->component, name, buf_len);
 	send_info->component[buf_len - 1] = 0;
 
-	zmc_build_msg_header(pzp->z_zsb->z_os, msg_header, ZFS_GROUP_CMD_NAME,
+	zmc_build_msg_header(ZTOZSB(pzp)->z_os, msg_header, ZFS_GROUP_CMD_NAME,
 		SHARE_WAIT, NAME_LOOKUP, sizeof(zfs_group_name_msg_t), sizeof(zfs_group_name2_t),
 		dst_spa, dst_os, dst_obj, 0, 0, 0, 0, MSG_REQUEST, APP_USER);
 
-	error = zfs_client_send_to_server(pzp->z_zsb->z_os, msg_header, (zfs_msg_t*)msg, B_TRUE);
+	error = zfs_client_send_to_server(ZTOZSB(pzp)->z_os, msg_header, (zfs_msg_t*)msg, B_TRUE);
 	if (error == 0) {
 		reply_info = &(msg->call.name2);
 
-		zp = zfs_znode_alloc_by_group(pzp->z_zsb, reply_info->nrec.object_blksz,
+		zp = zfs_znode_alloc_by_group(ZTOZSB(pzp), reply_info->nrec.object_blksz,
 				&(reply_info->nrec.object_id), &(reply_info->nrec.object_phy));
 		strncpy(zp->z_filename, name, MAXNAMELEN);
 		zp->z_filename[MAXNAMELEN - 1] = 0;
@@ -365,7 +365,7 @@ int zfs_remote_lookup(struct inode * pip, char* name, struct inode ** ipp, zfs_m
 		/*
 		 * root node
 		 */
-		record = zfs_multiclus_get_group_master(pzp->z_zsb->z_os->os_group_name, node_type);
+		record = zfs_multiclus_get_group_master(ZTOZSB(pzp)->z_os->os_group_name, node_type);
 		if (record != NULL) {
 			dst_spa = record->spa_id;
 			dst_os = record->os_id;
@@ -445,7 +445,7 @@ int zfs_foreach_dir_entry(struct inode * ip, zfs_dir_entry_func_t func, void* ar
 		}
 
 		for (index = 0; index < count; ++index) {
-			if (zfs_zget(zp->z_zsb, entry[index].obj_id, &czp) != 0) {
+			if (zfs_zget(ZTOZSB(zp), entry[index].obj_id, &czp) != 0) {
 				continue;
 			}
 
@@ -1087,7 +1087,7 @@ int zmc_check_group_master(zfs_multiclus_group_t* group, zfs_sb_t * zsb, char* d
 		}
 
 //		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
-		if (dmu_objset_fsid_guid(ITOZ(ip)->z_zsb->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
+		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
 			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
 			iput(ZTOI(root));
 			iput(pip);
@@ -1248,7 +1248,7 @@ int zmc_sync_group_master(zfs_multiclus_group_t* group, zfs_sb_t * zsb, char* di
 		}
 
 //		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
-		if (dmu_objset_fsid_guid(ITOZ(ip)->z_zsb->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
+		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
 			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
 			iput(ZTOI(root));
 			iput(pip);
@@ -1405,7 +1405,7 @@ int zmc_compare_symlink_entry(struct inode * ip, struct inode * rip)
 int zmc_check_master_dir_entry(struct inode * pip, struct inode * ip, void* args)
 {
 	znode_t *zp = ITOZ(ip);
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int ret = 0;
 
 	args = args;
@@ -1509,7 +1509,7 @@ int zmc_do_check_master_dir(struct inode * pip, struct inode * ip, zfs_multiclus
 {
 	znode_t* zp = ITOZ(ip);
 	struct inode * rip = NULL;
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int error = 0;
 
 	error = zfs_remote_lookup(pip, zp->z_filename, &rip, node_type);
@@ -1560,7 +1560,7 @@ int zmc_do_check_master_file(struct inode * pip, struct inode * ip, zfs_multiclu
 {
 	znode_t* zp = ITOZ(ip);
 	struct inode * rip = NULL;
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int error = 0;
 
 	error = zfs_remote_lookup(pip, zp->z_filename, &rip, node_type);
@@ -1623,7 +1623,7 @@ int zmc_do_check_master_symlink(struct inode * pip, struct inode * ip, zfs_multi
 {
 	znode_t* zp = ITOZ(ip);
 	struct inode * rip = NULL;
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int error = 0;
 
 	error = zfs_remote_lookup(pip, zp->z_filename, &rip, node_type);
@@ -1679,7 +1679,7 @@ int zmc_do_check_master_symlink(struct inode * pip, struct inode * ip, zfs_multi
 int zmc_sync_master_dir_entry(struct inode * pip, struct inode * ip, void* args)
 {
 	znode_t* zp = ITOZ(ip);
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int flag = (int)((intptr_t)args);
 	int ret = 0;
 
@@ -1789,7 +1789,7 @@ int zmc_do_sync_master_dir(struct inode *pip, struct inode *ip, zfs_multiclus_no
 {
 	znode_t *zp = ITOZ(ip);
 	struct inode *rip = NULL;
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int error = 0;
 
 	error = zfs_remote_lookup(pip, zp->z_filename, &rip, node_type);
@@ -1838,7 +1838,7 @@ int zmc_do_sync_master_file(struct inode * pip, struct inode * ip, zfs_multiclus
 {
 	znode_t* zp = ITOZ(ip);
 	struct inode *rip = NULL;
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int error = 0;
 
 	error = zfs_remote_lookup(pip, zp->z_filename, &rip, node_type);
@@ -1889,7 +1889,7 @@ int zmc_do_sync_master_symlink(struct inode * pip, struct inode * ip, zfs_multic
 {
 	znode_t *zp = ITOZ(ip);
 	struct inode *rip = NULL;
-	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(zp->z_zsb->z_group_sync_obj);
+	zmc_sync_obj_t* sync_obj = (zmc_sync_obj_t*)(ZTOZSB(zp)->z_group_sync_obj);
 	int error = 0;
 
 	error = zfs_remote_lookup(pip, zp->z_filename, &rip, node_type);
@@ -2023,7 +2023,7 @@ int zmc_remote_create_dir(struct inode * pip, struct inode * ip, zfs_multiclus_n
 		goto out;
 	}
 
-	tx = dmu_tx_create(zp->z_zsb->z_os);
+	tx = dmu_tx_create(ZTOZSB(zp)->z_os);
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 	ret = dmu_tx_assign(tx, TXG_WAIT);
 	if (ret != 0) {
@@ -2032,7 +2032,7 @@ int zmc_remote_create_dir(struct inode * pip, struct inode * ip, zfs_multiclus_n
 	}
 
 	mutex_enter(&(zp->z_lock));
-	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zp->z_zsb), 
+	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(ZTOZSB(zp)), 
 		&(zp->z_group_id), sizeof(zfs_group_object_t), tx));
 	mutex_exit(&(zp->z_lock));
 
@@ -2091,7 +2091,7 @@ int zmc_remote_create_file(struct inode* pip, struct inode * ip, zfs_multiclus_n
 		goto out;
 	}
 
-	tx = dmu_tx_create(zp->z_zsb->z_os);
+	tx = dmu_tx_create(ZTOZSB(zp)->z_os);
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 	ret = dmu_tx_assign(tx, TXG_WAIT);
 	if (ret != 0) {
@@ -2100,7 +2100,7 @@ int zmc_remote_create_file(struct inode* pip, struct inode * ip, zfs_multiclus_n
 	}
 
 	mutex_enter(&(zp->z_lock)); 
-	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zp->z_zsb), 
+	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(ZTOZSB(zp)), 
 		&(zp->z_group_id), sizeof(zfs_group_object_t), tx));
 	mutex_exit(&(zp->z_lock));
 
@@ -2132,7 +2132,7 @@ int zmc_readlink(znode_t* zp, char* buf, unsigned int buf_len)
 	mutex_enter(&(zp->z_lock));
 
 	if (zp->z_is_sa) {
-		ret = sa_lookup(zp->z_sa_hdl, SA_ZPL_SYMLINK(zp->z_zsb), buf, buf_len);
+		ret = sa_lookup(zp->z_sa_hdl, SA_ZPL_SYMLINK(ZTOZSB(zp)), buf, buf_len);
 	} else {
 		dmu_buf_t* db = sa_get_db(zp->z_sa_hdl);
 		size_t bufsz = zp->z_size;
@@ -2141,7 +2141,7 @@ int zmc_readlink(znode_t* zp, char* buf, unsigned int buf_len)
 			bcopy((char*)(db->db_data) + ZFS_OLD_ZNODE_PHYS_SIZE, buf, MIN((size_t)bufsz, buf_len));
 		} else {
 			dmu_buf_t* dbp = NULL;
-			ret = dmu_buf_hold(zp->z_zsb->z_os, zp->z_id, 0, FTAG, &dbp, DMU_READ_NO_PREFETCH);
+			ret = dmu_buf_hold(ZTOZSB(zp)->z_os, zp->z_id, 0, FTAG, &dbp, DMU_READ_NO_PREFETCH);
 			if (ret == 0) {
 				bcopy(dbp->db_data, buf, MIN((size_t)bufsz, buf_len));
 				dmu_buf_rele(dbp, FTAG);
@@ -2188,7 +2188,7 @@ int zmc_remote_create_symlink(struct inode *pip, struct inode *ip, zfs_multiclus
 		goto out;
 	}
 
-	tx = dmu_tx_create(zp->z_zsb->z_os);
+	tx = dmu_tx_create(ZTOZSB(zp)->z_os);
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 	ret = dmu_tx_assign(tx, TXG_WAIT);
 	if (ret != 0) {
@@ -2197,7 +2197,7 @@ int zmc_remote_create_symlink(struct inode *pip, struct inode *ip, zfs_multiclus
 	}
 
 	mutex_enter(&(zp->z_lock));
-	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zp->z_zsb), &(zp->z_group_id), sizeof(zfs_group_object_t), tx));
+	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(ZTOZSB(zp)), &(zp->z_group_id), sizeof(zfs_group_object_t), tx));
 	mutex_exit(&(zp->z_lock));
 
 	dmu_tx_commit(tx);

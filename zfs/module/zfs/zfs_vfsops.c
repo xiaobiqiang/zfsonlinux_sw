@@ -2003,6 +2003,39 @@ reget:
 			ZFS_EXIT(zsb);
 			return (err);
  		}
+		/* if zp is dir, need to get inode with dentry*/
+		if (object != zsb->z_root && S_ISDIR(ZTOI(zp)->i_mode)){
+			char *fullpath = NULL;
+			struct file *filp = NULL;
+
+			fullpath = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
+			/*root dir*/
+			sprintf(fullpath, "%s/%s", zsb->z_mntopts->z_mntpoint, zp->z_filename);
+			//cmn_err(CE_WARN, "[%s %d] full path=%s", __func__, __LINE__, fullpath);
+			iput(ZTOI(zp));
+			zp = NULL;
+
+			/*get inode linked dentry*/
+			if (fullpath == NULL) {
+				vmem_free(fullpath, MAXPATHLEN);
+				return EINVAL;
+			}
+			ZFS_EXIT(zsb);
+			filp = filp_open(fullpath, O_DIRECTORY, 0);
+			if (IS_ERR(filp)){
+				filp = filp_open(fullpath, O_RDONLY, 0444);
+				if (IS_ERR(filp)){
+					cmn_err(CE_WARN, "[%s %d], the fullpath %s is error", __func__, __LINE__, fullpath);
+					vmem_free(fullpath, MAXPATHLEN);
+					return (EINVAL);
+				}
+			}
+			zp = ITOZ(filp->f_dentry->d_inode);
+			igrab(ZTOI(zp));
+			filp_close(filp, NULL);
+			vmem_free(fullpath, MAXPATHLEN);
+			ZFS_ENTER(zsb);
+		}
 		zp_gen = zp->z_gen;
 	}
 	zp_gen = zp_gen & gen_mask;
@@ -2012,7 +2045,6 @@ reget:
 	}
 
 	if (zp->z_unlinked || (zp_gen != fid_gen && fid_gen != old_gen && (zsb->z_os->os_is_group == 0))) {
-			
 		cmn_err(CE_WARN, "[ERROR] zp->z_unlinked %d, z_id 0x%llx, zp_gen 0x%llx, fid_gen 0x%llx, file name %s, zp->z_gen 0x%llx, gen_mask 0x%llx, z_old_gen: %llx", 
 			zp->z_unlinked, (unsigned long long)zp->z_id,(unsigned long long)zp_gen, 
 			(unsigned long long)fid_gen, zp->z_filename, (unsigned long long)zp->z_gen, (unsigned long long)gen_mask, 

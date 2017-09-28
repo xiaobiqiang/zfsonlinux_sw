@@ -657,22 +657,29 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 			return (0);
 	}
 
+	if (dentry->d_inode) {
+		node_type = zpl_vn_type(dentry->d_inode);
+		if (node_type == VN_OP_CLIENT) {
+			error = 0;
+			znode_t	*zp = NULL;
+			znode_t	*tmp_zp = NULL;
+			zp = ITOZ(dentry->d_inode);
+			error = zfs_group_zget(zsb, zp->z_id, &tmp_zp, 0, 0, 0, B_FALSE);
+			if (error) {
+				return (0);
+			}
+			zfs_update_inode_info(ZTOI(tmp_zp), ZTOI(zp));
+			iput(ZTOI(tmp_zp));
+		}
+	}
+
 	/*
 	 * The dentry may reference a stale inode if a mounted file system
 	 * was rolled back to a point in time where the object didn't exist.
 	 */
 	if (dentry->d_inode && ITOZ(dentry->d_inode)->z_is_stale)
 		return (0);
-/*
-	if (dentry->d_inode){
-		node_type = zpl_vn_type(dentry->d_inode);
-		if (node_type == VN_OP_SERVER)
-			return (1);
-		else
-			return (0);
-	}
-*/
-	return 0;
+	return 1;
 }
 
 const struct inode_operations zpl_inode_operations = {

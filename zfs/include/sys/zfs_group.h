@@ -544,6 +544,7 @@ typedef struct zfs_group_znode {
 typedef struct zfs_group_znode2 {
 	zfs_group_znode_t	inp;	/* Inode input parameters */
 	zfs_group_znode_record_t	zrec;	/* Inode instance record */
+	char relativepath[MAXNAMELEN];
 } zfs_group_znode2_t;
 
 
@@ -771,7 +772,7 @@ int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *
     caller_context_t *ct, int flag, zfs_multiclus_node_type_t m_node_type);
 
 int		
-zfs_client_readdir(struct inode *ip, struct dir_context *ctx, int maxbytes, cred_t *cr, int flag);
+zfs_client_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flag);
 int	zfs_client_symlink(struct inode *pip, char *cp, vattr_t *vap, char *tnm, struct inode **ipp,		
     cred_t *credp, int flag);
 int	zfs_client_symlink_backup(
