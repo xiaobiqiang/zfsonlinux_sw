@@ -115,6 +115,7 @@ static int zpool_do_release(int, char **);
 
 /* add for zpool cluster cmd */
 static int zpool_do_cluster(int argc, char **argv);
+static int zpool_do_scanthin(int argc, char **argv);
 static void zpool_init_efi(char *path);
 
 xmlDocPtr pool_doc;
