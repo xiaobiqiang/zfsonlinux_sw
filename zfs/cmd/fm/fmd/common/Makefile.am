@@ -62,6 +62,7 @@ fmd_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la			\
         $(top_builddir)/lib/libzpool/libzpool.la 			\
         $(top_builddir)/lib/libzfs/libzfs.la 				\
+        $(top_builddir)/lib/libspl/libspl.la 				\
         $(top_builddir)/lib/fm/libdiagcode/common/libdiagcode.la	\
         $(top_builddir)/lib/fm/libexacct/common/libexacct.la		\
         $(top_builddir)/lib/fm/libfmd_msg/common/libfmd_msg.la		\
