@@ -73,6 +73,7 @@ extern struct file_system_type zpl_fs_type;
 
 /* zpl_xattr.c */
 extern ssize_t zpl_xattr_list(struct dentry *dentry, char *buf, size_t size);
+extern ssize_t zfs_xattr_list(struct inode *ip, void *buf, size_t size, cred_t *cr);
 extern int zpl_xattr_security_init(struct inode *ip, struct inode *dip,
     const struct qstr *qstr);
 #if defined(CONFIG_FS_POSIX_ACL)

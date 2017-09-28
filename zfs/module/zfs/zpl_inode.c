@@ -158,11 +158,11 @@ zpl_create(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-/* deleted temporarily
+
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error == 0)
 			error = zpl_init_acl(ip, dir);
-*/
+
 		if (error)
 			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
@@ -201,11 +201,11 @@ zpl_mknod(struct inode *dir, struct dentry *dentry, zpl_umode_t mode,
 	error = -zfs_create(dir, dname(dentry), vap, 0, mode, &ip, cr, 0, NULL, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-/* deleted temporarily
+
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error == 0)
 			error = zpl_init_acl(ip, dir);
-*/
+
 		if (error)
 			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}
@@ -261,11 +261,11 @@ zpl_mkdir(struct inode *dir, struct dentry *dentry, zpl_umode_t mode)
 	error = -zfs_mkdir(dir, dname(dentry), vap, &ip, cr, 0, NULL);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-/* deleted temporarily
+
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
 		if (error == 0)
 			error = zpl_init_acl(ip, dir);
-*/
+
 		if (error)
 			(void) zfs_rmdir(dir, dname(dentry), NULL, cr, 0);
 	}
@@ -406,9 +406,9 @@ zpl_symlink(struct inode *dir, struct dentry *dentry, const char *name)
 	error = -zfs_symlink(dir, dname(dentry), vap, (char *)name, &ip, cr, 0);
 	if (error == 0) {
 		d_instantiate(dentry, ip);
-/* deleted temporarily
+
 		error = zpl_xattr_security_init(ip, dir, &dentry->d_name);
-*/
+
 		if (error)
 			(void) zfs_remove(dir, dname(dentry), cr, 0);
 	}

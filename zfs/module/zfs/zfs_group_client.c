@@ -81,7 +81,8 @@ const char *do_names[DATA_MAX_OP] = {
 	"LINK_READ",
 	"DATA_READ",
 	"DATA_WRITE",
-	"MIGRATE_DATA"
+	"MIGRATE_DATA",
+	"XATTR_LIST"
 };
 
 const char *zo_names[ZNODE_MAX_OP] = {
@@ -1059,6 +1060,7 @@ zfs_proc_data(zfs_sb_t *zsb, znode_t *zp,
 
 	switch (op) {
 	case DIR_READ:
+	case XATTR_LIST:
 	case LINK_READ:
 	case DATA_READ: {
 			zfs_group_data_read_t *read;
@@ -1442,9 +1444,14 @@ void zfs_client_get_read_data(zfs_msg_t *omsg, zfs_group_header_t *nmsg_header, 
 	}
 
 	if (nmsg_header->error == 0) {
-		uiomove(nmsg->call.data.data, (size_t)nread->len, UIO_READ, uiop);
-		if (nmsg_header->operation == DIR_READ) {
+		if( nmsg_header->operation != XATTR_LIST || uiop->uio_iov->iov_base != NULL ) {
+			uiomove(nmsg->call.data.data, (size_t)nread->len, UIO_READ, uiop);
+		}
+		if (nmsg_header->operation == DIR_READ ) {
 			uiop->uio_loffset = nread->offset;
+		}
+		if( nmsg_header->operation == XATTR_LIST ) {
+			uiop->uio_loffset = nread->len ;
 		}
 	}
 }
@@ -1453,7 +1460,7 @@ static void zfs_client_process_data(zfs_msg_t *omsg,
 	zfs_group_header_t *nmsg_header, zfs_msg_t *nmsg)
 {
 	if (nmsg_header->operation == DATA_READ || nmsg_header->operation == DIR_READ
-	    || nmsg_header->operation == LINK_READ) {
+	    || nmsg_header->operation == LINK_READ || nmsg_header->operation == XATTR_LIST ) {
 		zfs_client_get_read_data(omsg, nmsg_header, nmsg);
 	}
 }
@@ -3195,8 +3202,6 @@ zfs_client_lookup(struct inode *pip, char *cp, struct inode **ipp,
 	return (error);
 }
 
-
-
 int zfs_client_remove(struct inode *pip, char *cp, 
 	cred_t *credp, caller_context_t *ct, int flag)
 {
@@ -4210,7 +4215,35 @@ int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *
 	return (error);
 }
 
+int
+zfs_client_xattr_list(struct inode *ip, void *buffer, size_t buffer_size, cred_t *cr)
+{
+	int error;
+	znode_t *zp = ITOZ(ip);
 
+	struct uio auio;
+	struct iovec aiov;
+
+	bzero(&auio, sizeof(struct uio));
+	bzero(&aiov, sizeof(struct iovec));
+	aiov.iov_base = buffer ;
+	aiov.iov_len = buffer_size ;
+	auio.uio_iov = &aiov ;
+	auio.uio_iovcnt = 1;
+	auio.uio_skip = 0 ;
+	auio.uio_loffset = 0 ;
+	auio.uio_segflg = UIO_SYSSPACE ;
+	auio.uio_resid = buffer_size ;
+	auio.uio_fmode = 0 ;
+	auio.uio_extflg = UIO_COPY_CACHED ;
+
+	error = zfs_client_read_data(zp->z_zsb, zp, &auio, buffer_size, XATTR_LIST, cr, 0, DATA_TO_MASTER, NULL);
+
+	if( error < 0 )
+		return (error) ;
+	else
+		return auio.uio_loffset ;
+}
 
 int		
 zfs_client_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flag)

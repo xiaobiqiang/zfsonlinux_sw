@@ -58,6 +58,7 @@
 #include <sys/zfs_sa.h>
 #include <sys/dnlc.h>
 #include <sys/extdirent.h>
+#include <sys/dmu_objset.h>
 
 /*
  * zfs_match_find() is used by zfs_dirent_lock() to peform zap lookups
@@ -937,6 +938,8 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, struct inode **xipp, cred_t *cr)
 	int error;
 	zfs_acl_ids_t acl_ids;
 	boolean_t fuid_dirtied;
+	zfs_group_object_t group_object;
+       bzero(&group_object, sizeof(zfs_group_object_t));
 #ifdef DEBUG
 	uint64_t parent;
 #endif
@@ -969,6 +972,11 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, struct inode **xipp, cred_t *cr)
 		return (error);
 	}
 	zfs_mknode(zp, vap, tx, cr, IS_XATTR, &xzp, &acl_ids);
+	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master) {
+		group_object.master_object = xzp->z_id;
+		group_object.master_spa = spa_guid(dmu_objset_spa(zsb->z_os));
+		group_object.master_objset  = dmu_objset_id(zsb->z_os);
+	}
 
 	if (fuid_dirtied)
 		zfs_fuid_sync(zsb, tx);
@@ -981,6 +989,10 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, struct inode **xipp, cred_t *cr)
 
 	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_XATTR(zsb), &xzp->z_id,
 	    sizeof (xzp->z_id), tx));
+
+	mutex_enter(&xzp->z_lock);
+	zfs_sa_set_remote_object(xzp, &group_object, tx);
+	mutex_exit(&xzp->z_lock);
 
 	(void) zfs_log_create(zsb->z_log, tx, TX_MKXATTR, zp,
 	    xzp, "", NULL, acl_ids.z_fuidp, vap);

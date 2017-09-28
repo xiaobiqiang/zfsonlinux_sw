@@ -318,6 +318,7 @@ typedef enum data_operation {
 	DATA_READ,
 	DATA_WRITE,
 	MIGRATE_DATA,
+	XATTR_LIST,
 	DATA_MAX_OP
 }data_operation_t;
 
@@ -773,6 +774,8 @@ int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *
 
 int		
 zfs_client_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flag);
+ssize_t
+zfs_client_xattr_list(struct inode *ip, void *buffer, size_t buffer_size, cred_t *cr) ;
 int	zfs_client_symlink(struct inode *pip, char *cp, vattr_t *vap, char *tnm, struct inode **ipp,		
     cred_t *credp, int flag);
 int	zfs_client_symlink_backup(
