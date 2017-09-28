@@ -1478,10 +1478,11 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 	case NAME_LOOKUP: {
 		struct inode *ip;
 		pathname_t	rpn;
-		zfs_group_pathname_t gpn;
+		zfs_group_pathname_t *gpn;
 		boolean_t get_rpn = np->arg.b_get_rpn;
+		gpn = vmem_zalloc(sizeof(zfs_group_pathname_t), KM_SLEEP);
 		bzero(&rpn, sizeof(pathname_t));
-		bzero(&gpn, sizeof(zfs_group_pathname_t));
+		bzero(gpn, sizeof(zfs_group_pathname_t));
 //		pn_alloc(&rpn);
 		rpn.pn_path = rpn.pn_buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 		rpn.pn_pathlen = 0;
@@ -1518,13 +1519,14 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 		}
 
 		if (get_rpn) {
-			(void) strlcpy(gpn.pn_buf, rpn.pn_buf, rpn.pn_bufsize);
-			gpn.pn_bufsize = rpn.pn_bufsize;
-			gpn.pn_pathlen = rpn.pn_pathlen;
-			bcopy(&gpn, &n2p->nrec.rpn, sizeof(zfs_group_pathname_t));
+			(void) strlcpy(gpn->pn_buf, rpn.pn_buf, rpn.pn_bufsize);
+			gpn->pn_bufsize = rpn.pn_bufsize;
+			gpn->pn_pathlen = rpn.pn_pathlen;
+			bcopy(gpn, &n2p->nrec.rpn, sizeof(zfs_group_pathname_t));
 		}
 //		pn_free(&rpn);
 		vmem_free(rpn.pn_buf, rpn.pn_bufsize);
+		vmem_free(gpn, sizeof(zfs_group_pathname_t));
 		rpn.pn_path = rpn.pn_buf = NULL;
 		rpn.pn_pathlen = rpn.pn_bufsize = 0;
 		iput(ip);
