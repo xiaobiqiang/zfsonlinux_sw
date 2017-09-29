@@ -2030,7 +2030,7 @@ reget:
 					return (EINVAL);
 				}
 			}
-			zp = ITOZ(filp->f_dentry->d_inode);
+			zp = ITOZ(filp->f_path.dentry->d_inode);
 			igrab(ZTOI(zp));
 			filp_close(filp, NULL);
 			vmem_free(fullpath, MAXPATHLEN);

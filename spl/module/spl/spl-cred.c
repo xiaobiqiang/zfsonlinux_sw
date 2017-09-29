@@ -283,7 +283,7 @@ crsetgroups(cred_t *cr, int n, gid_t *grp)
 		grp++;
 	}
 
-	ret = set_groups(cr, gi);
+	set_groups(cr, gi);
 	put_group_info(gi);
 
 	return (ret);

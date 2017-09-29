@@ -7425,7 +7425,7 @@ int zfs_print_znode_info(char *path)
 		}
 	}
 
-	ip = filp->f_dentry->d_inode;
+	ip = filp->f_path.dentry->d_inode;
 	zp = ITOZ(ip);
 	cmn_err(CE_WARN, "%s line(%d) znode(%s) id(%"PRIx64") gen(%"PRIu64") m_spa(%"PRIx64") m_objset(%"PRIx64") m_object(%"PRIx64") d1_spa(%"PRIx64") d1_objset(%"PRIx64") d1_object(%"PRIx64") d2_spa(%"PRIx64") d2_objset(%"PRIx64") d2_object(%"PRIx64")",
 		__func__, __LINE__, path, zp->z_id,  zp->z_gen, zp->z_group_id.master_spa, zp->z_group_id.master_objset, zp->z_group_id.master_object,
