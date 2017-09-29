@@ -1914,18 +1914,17 @@ tx_again:
 		error = EDQUOT;
 	}
 
-	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
-	zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE -1) >> SPA_MINBLOCKSHIFT);
-
-	/*
-	 * in cluster, the old_zp may be different from the zp
-	 * when the old_zp is a virtual node, update it here
-	 */
-	old_zp->z_size = zp->z_size;
-	old_zp->z_nblks = zp->z_nblks;
-	old_zp->z_blksz = zp->z_blksz;
-
 	if (zsb->z_os->os_is_group && NOTIFY_FILE_SIZE) {
+		sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
+		zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE -1) >> SPA_MINBLOCKSHIFT);
+
+		/*
+		 * in cluster, the old_zp may be different from the zp
+		 * when the old_zp is a virtual node, update it here
+		 */
+		old_zp->z_size = zp->z_size;
+		old_zp->z_nblks = zp->z_nblks;
+		old_zp->z_blksz = zp->z_blksz;
 		zfs_group_notify_para_t *notify_para = kmem_zalloc(sizeof(zfs_group_notify_para_t), KM_SLEEP);
 
 //		notify_para->znode = *zp;

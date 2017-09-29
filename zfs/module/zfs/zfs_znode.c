@@ -119,6 +119,44 @@ zfs_znode_cache_constructor(void *buf, void *arg, int kmflags)
 	zp->z_acl_cached = NULL;
 	zp->z_xattr_cached = NULL;
 	zp->z_moved = 0;
+
+	zp->z_is_group = 0;
+	zp->z_group_role = GROUP_VIRTUAL;
+	
+	zp->z_low = 0;	/* file is migrated to low data device */
+	zp->z_dirquota = 0;
+	zp->z_dirlowdata = 0;
+	zp->z_bquota = 0;
+	zp->z_overquota = 0;
+	zp->z_old_gen = 0;
+	bzero(zp->z_filename, MAXNAMELEN);
+
+	bzero(&zp->z_group_id, sizeof(zfs_group_object_t));
+	zp->z_group_id.master2_spa = 0xffffffffffffffff;
+	zp->z_group_id.master2_objset = 0xffffffffffffffff;
+	zp->z_group_id.master2_object = 0xffffffffffffffff;
+	zp->z_group_id.master2_gen = 0;
+
+	zp->z_group_id.master3_spa = 0xffffffffffffffff;
+	zp->z_group_id.master3_objset = 0xffffffffffffffff;
+	zp->z_group_id.master3_object = 0xffffffffffffffff;
+	zp->z_group_id.master3_gen = 0;
+
+	zp->z_group_id.master4_spa = 0xffffffffffffffff;
+	zp->z_group_id.master4_objset = 0xffffffffffffffff;
+	zp->z_group_id.master4_object = 0xffffffffffffffff;
+	zp->z_group_id.master4_gen = 0;
+
+	zp->z_group_id.data_spa = 0;
+	zp->z_group_id.data_objset = 0;
+	zp->z_group_id.data_object = 0;
+	zp->z_group_id.data_status = 0;
+
+	zp->z_group_id.data2_spa = 0;
+	zp->z_group_id.data2_objset = 0;
+	zp->z_group_id.data2_object = 0;
+	zp->z_group_id.data2_status = 0;
+	zp->nfs_query_data = 0;
 	return (0);
 }
 
