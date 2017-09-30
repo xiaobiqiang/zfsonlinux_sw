@@ -88,6 +88,8 @@ typedef struct objset_phys {
 	    sizeof (zil_header_t) - sizeof (uint64_t)*2];
 	dnode_phys_t os_userused_dnode;
 	dnode_phys_t os_groupused_dnode;
+	dnode_phys_t os_userobjused_dnode ;
+	dnode_phys_t os_groupobjused_dnode ;
 } objset_phys_t;
 
 typedef struct os_mirror_blkptr_node {
@@ -143,6 +145,8 @@ struct objset {
 	dnode_handle_t os_meta_dnode;
 	dnode_handle_t os_userused_dnode;
 	dnode_handle_t os_groupused_dnode;
+	dnode_handle_t os_userobjused_dnode ;
+	dnode_handle_t os_groupobjused_dnode ;
 	zilog_t *os_zil;
 
 	list_node_t os_evicting_node;
@@ -236,7 +240,9 @@ struct objset {
 #define	DMU_OBJECT_IS_SPECIAL(obj) ((int64_t)(obj) <= 0)
 #define	DMU_META_DNODE(os)	((os)->os_meta_dnode.dnh_dnode)
 #define	DMU_USERUSED_DNODE(os)	((os)->os_userused_dnode.dnh_dnode)
+#define	DMU_USEROBJUSED_DNODE(os) ( (os)->os_userobjused_dnode.dnh_dnode )
 #define	DMU_GROUPUSED_DNODE(os)	((os)->os_groupused_dnode.dnh_dnode)
+#define	DMU_GROUPOBJUSED_DNODE(os)	((os)->os_groupobjused_dnode.dnh_dnode)
 
 #define	DMU_OS_IS_L2CACHEABLE(os)				\
 	((os)->os_secondary_cache == ZFS_CACHE_ALL ||		\

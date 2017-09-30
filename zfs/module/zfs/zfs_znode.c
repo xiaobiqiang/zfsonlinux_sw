@@ -1941,6 +1941,8 @@ zfs_trunc(znode_t *zp, uint64_t end)
 int
 zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 {
+	uint64_t reduce_len = 0;
+	uint64_t expand_len = 0;
 	dmu_tx_t *tx;
 	zfs_sb_t *zsb = ZTOZSB(zp);
 	zilog_t *zilog = zsb->z_log;
@@ -1949,12 +1951,15 @@ zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 	sa_bulk_attr_t bulk[3];
 	int count = 0;
 	int error;
+	int err_meta_tx = 0;
 
 	if ((error = sa_lookup(zp->z_sa_hdl, SA_ZPL_MODE(zsb), &mode,
 	    sizeof (mode))) != 0)
 		return (error);
 
+	reduce_len = 0;
 	if (off > zp->z_size) {
+		expand_len = off + len - zp->z_size;
 		error =  zfs_extend(zp, off+len);
 		if (error == 0 && log)
 			goto log;
@@ -1962,11 +1967,20 @@ zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 	}
 
 	if (len == 0) {
+		if(zp->z_size > off){
+			reduce_len = zp->z_size - off;
+		}else{
+			reduce_len = 0;
+			expand_len = off - zp->z_size;
+		}
 		error = zfs_trunc(zp, off);
 	} else {
 		if ((error = zfs_free_range(zp, off, len)) == 0 &&
-		    off + len > zp->z_size)
+		    off + len > zp->z_size) {
 			error = zfs_extend(zp, off+len);
+			reduce_len = 0;
+			expand_len = off + len - zp->z_size;
+		}
 	}
 	if (error || !log)
 		goto out;
@@ -1988,13 +2002,36 @@ log:
 	error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 	ASSERT(error == 0);
 
-	zfs_log_truncate(zilog, tx, TX_TRUNCATE, zp, off, len);
-
+	err_meta_tx = zfs_log_truncate(zilog, tx, TX_TRUNCATE, zp, off, len);
+	if ( ( zp->z_pflags & ZFS_XATTR == 0 ) && (zp->z_bquota > 0 || zp->z_dirquota > 0) && \
+		(!zsb->z_os->os_is_group ||(zsb->z_os->os_is_group && zsb->z_os->os_is_master))) {
+	    if (reduce_len) {
+			zfs_update_quota_used(zsb, zp, reduce_len, REDUCE_SPACE , tx);
+	    } else if (expand_len) {
+			zfs_update_quota_used(zsb, zp, expand_len, EXPAND_SPACE , tx);
+	    }
+	}
 	dmu_tx_commit(tx);
-
+	if ( err_meta_tx ){
+		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
+	}
 	zfs_inode_update(zp);
-	error = 0;
 
+	error = 0;
+	if ( err_meta_tx ){
+		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
+	}
+	if (zsb->z_os->os_is_group) {
+		if (reduce_len) {
+			zfs_client_notify_file_space(zp, reduce_len, REDUCE_SPACE,
+				(flag & F_DT2_NO_UP_QUOTA) ? B_FALSE : B_TRUE,
+				spa_guid(dmu_objset_spa(zsb->z_os)), dmu_objset_id(zsb->z_os));
+		} else if (expand_len) {
+			zfs_client_notify_file_space(zp, expand_len, EXPAND_SPACE,
+				(flag & F_DT2_NO_UP_QUOTA) ? B_FALSE : B_TRUE,
+				spa_guid(dmu_objset_spa(zsb->z_os)), dmu_objset_id(zsb->z_os));
+		}
+	}
 out:
 	/*
 	 * Truncate the page cache - for file truncate operations, use

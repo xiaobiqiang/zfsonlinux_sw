@@ -505,10 +505,22 @@ zfs_userquota_prop_to_obj(zfs_sb_t *zsb, zfs_userquota_prop_t type)
 		return (DMU_USERUSED_OBJECT);
 	case ZFS_PROP_GROUPUSED:
 		return (DMU_GROUPUSED_OBJECT);
+	case ZFS_PROP_USEROBJUSED:
+		return (DMU_USEROBJUSED_OBJECT ) ;
+	case ZFS_PROP_GROUPOBJUSED:
+		return (DMU_GROUPOBJUSED_OBJECT ) ;
 	case ZFS_PROP_USERQUOTA:
 		return (zsb->z_userquota_obj);
+	case ZFS_PROP_USEROBJQUOTA:
+		return (zsb->z_userobjquota_obj);
 	case ZFS_PROP_GROUPQUOTA:
 		return (zsb->z_groupquota_obj);
+	case ZFS_PROP_GROUPOBJQUOTA:
+		return (zsb->z_groupobjquota_obj);
+	case ZFS_PROP_SOFTUSERQUOTA:
+		return (zsb->z_softuserquota_obj);
+	case ZFS_PROP_SOFTGROUPQUOTA:
+		return (zsb->z_softgroupquota_obj);
 	default:
 		return (SET_ERROR(ENOTSUP));
 	}
@@ -588,8 +600,12 @@ zfs_userspace_one(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 
 	*valp = 0;
 
+	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0)
+		return (ENOENT);
+#if 0	
 	if (!dmu_objset_userspace_present(zsb->z_os))
 		return (SET_ERROR(ENOTSUP));
+#endif
 
 	obj = zfs_userquota_prop_to_obj(zsb, type);
 	if (obj == 0)
@@ -614,16 +630,51 @@ zfs_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 	int err;
 	dmu_tx_t *tx;
 	uint64_t *objp;
+	uint64_t used_obj ;
 	boolean_t fuid_dirtied;
 
-	if (type != ZFS_PROP_USERQUOTA && type != ZFS_PROP_GROUPQUOTA)
-		return (SET_ERROR(EINVAL));
+	if (zsb->z_os->os_is_group &&
+		zsb->z_os->os_is_master == 0 &&
+		zsb->z_os->os_node_type == OS_NODE_TYPE_SLAVE)
+		return (EINVAL);
+
+	if (type != ZFS_PROP_USERQUOTA &&
+		type != ZFS_PROP_USEROBJQUOTA &&
+		type != ZFS_PROP_GROUPQUOTA &&
+		type != ZFS_PROP_GROUPOBJQUOTA &&
+		type != ZFS_PROP_SOFTUSERQUOTA &&
+		type != ZFS_PROP_SOFTGROUPQUOTA)
+		return (EINVAL);
 
 	if (zsb->z_version < ZPL_VERSION_USERSPACE)
 		return (SET_ERROR(ENOTSUP));
 
-	objp = (type == ZFS_PROP_USERQUOTA) ? &zsb->z_userquota_obj :
-	    &zsb->z_groupquota_obj;
+	switch(type) {
+		case ZFS_PROP_USERQUOTA:
+			objp = &zsb->z_userquota_obj;
+			used_obj = DMU_USERUSED_OBJECT ;
+			break;
+		case ZFS_PROP_USEROBJQUOTA:
+			objp = &zsb->z_userobjquota_obj ;
+			used_obj = DMU_USEROBJUSED_OBJECT ;
+			break ;
+		case ZFS_PROP_GROUPQUOTA:
+			objp = &zsb->z_groupquota_obj;
+			used_obj = DMU_GROUPUSED_OBJECT ;
+			break;
+		case ZFS_PROP_GROUPOBJQUOTA:
+			objp = &zsb->z_groupobjquota_obj ;
+			used_obj = DMU_GROUPOBJUSED_OBJECT ;
+			break ;
+		case ZFS_PROP_SOFTUSERQUOTA:
+			objp = &zsb->z_softuserquota_obj;
+			used_obj = DMU_USERUSED_OBJECT ;
+			break;
+		case ZFS_PROP_SOFTGROUPQUOTA:
+			objp = &zsb->z_softgroupquota_obj;
+			used_obj = DMU_GROUPUSED_OBJECT ;
+			break;
+	}
 
 	err = id_to_fuidstr(zsb, domain, rid, buf, B_TRUE);
 	if (err)
@@ -651,26 +702,55 @@ zfs_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 		VERIFY(0 == zap_add(zsb->z_os, MASTER_NODE_OBJ,
 		    zfs_userquota_prop_prefixes[type], 8, 1, objp, tx));
 	}
+	if (DMU_USERUSED_DNODE(zsb->z_os)->dn_type == DMU_OT_NONE) {
+		VERIFY(0 == zap_create_claim(zsb->z_os,
+		    DMU_USERUSED_OBJECT,
+		    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+		VERIFY(0 == zap_create_claim(zsb->z_os,
+		    DMU_GROUPUSED_OBJECT,
+		    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+		VERIFY(0 == zap_create_claim(zsb->z_os,
+		    DMU_USEROBJUSED_OBJECT,
+		    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+		VERIFY(0 == zap_create_claim(zsb->z_os,
+		    DMU_GROUPOBJUSED_OBJECT,
+		    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+	}
 	mutex_exit(&zsb->z_lock);
 
 	if (quota == 0) {
 		err = zap_remove(zsb->z_os, *objp, buf, tx);
+		if (err == 0 || err == ENOENT)
+			err = zap_remove(zsb->z_os, used_obj, buf, tx);
+
 		if (err == ENOENT)
 			err = 0;
 	} else {
-		err = zap_update(zsb->z_os, *objp, buf, 8, 1, &quota, tx);
+		uint64_t used=0;
+		err = zap_lookup(zsb->z_os, used_obj, buf, 8, 1, &used);
+		if (quota < used) {
+			err = EINVAL;
+		} else {
+			if (err == ENOENT) {
+				used = 0;
+				err = zap_update(zsb->z_os, used_obj, buf, 8, 1, &used, tx);
+			}
+			if (err == 0 ) {
+				err = zap_update(zsb->z_os, *objp, buf, 8, 1, &quota, tx);
+			}
+		}
 	}
 	ASSERT(err == 0);
 	if (fuid_dirtied)
 		zfs_fuid_sync(zsb, tx);
 	dmu_tx_commit(tx);
+	txg_wait_synced( dmu_objset_pool( zsb->z_os ), dmu_tx_get_txg( tx ) ) ;
 	return (err);
 }
 EXPORT_SYMBOL(zfs_set_userquota);
 
-boolean_t
-zfs_fuid_overquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
-{
+static boolean_t
+__zfs_fuid_overspacequota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	char buf[32];
 	uint64_t used, quota, usedobj, quotaobj;
 	int err;
@@ -689,26 +769,81 @@ zfs_fuid_overquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
 	err = zap_lookup(zsb->z_os, usedobj, buf, 8, 1, &used);
 	if (err != 0)
 		return (B_FALSE);
-	return (used >= quota);
+
+	return ( used >= quota ) ;
+}
+
+static boolean_t
+__zfs_fuid_overobjquota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
+	char buf[32];
+	uint64_t used, quota, usedobj, quotaobj;
+	int err;
+
+	usedobj = isgroup ? DMU_GROUPOBJUSED_OBJECT : DMU_USEROBJUSED_OBJECT;
+	quotaobj = isgroup ? zsb->z_groupobjquota_obj : zsb->z_userobjquota_obj;
+
+	if (quotaobj == 0 || zsb->z_replay)
+		return (B_FALSE);
+
+	(void) sprintf(buf, "%llx", (longlong_t)fuid);
+	err = zap_lookup(zsb->z_os, quotaobj, buf, 8, 1, &quota);
+	if (err != 0)
+		return (B_FALSE);
+
+	err = zap_lookup(zsb->z_os, usedobj, buf, 8, 1, &used);
+	if (err != 0)
+		return (B_FALSE);
+
+	return ( used>=quota ) ;
+
+}
+
+boolean_t
+zfs_fuid_overquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
+{
+	if( __zfs_fuid_overspacequota( zsb, isgroup, fuid ) ) return B_TRUE ;
+	return __zfs_fuid_overobjquota( zsb, isgroup, fuid ) ;
 }
 EXPORT_SYMBOL(zfs_fuid_overquota);
 
-int
-zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
-{
+static int
+__zfs_fuid_inspacequota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	char buf[32];
 	uint64_t quota, usedobj, quotaobj;
 	int err;
 
-	usedobj = isgroup ? DMU_GROUPUSED_OBJECT : DMU_USERUSED_OBJECT;
 	quotaobj = isgroup ? zsb->z_groupquota_obj : zsb->z_userquota_obj;
-
 	if (quotaobj == 0 || zsb->z_replay)
 		return (ENOENT);
 
 	(void) sprintf(buf, "%llx", (longlong_t)fuid);
 	err = zap_lookup(zsb->z_os, quotaobj, buf, 8, 1, &quota);
+
 	return (err);
+}
+
+static int
+__zfs_fuid_inobjquota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
+	char buf[32];
+	uint64_t quota, usedobj, quotaobj;
+	int err;
+
+	quotaobj = isgroup ? zsb->z_groupobjquota_obj : zsb->z_userobjquota_obj;
+	if (quotaobj == 0 || zsb->z_replay)
+		return (ENOENT);
+
+	(void) sprintf(buf, "%llx", (longlong_t)fuid);
+	err = zap_lookup(zsb->z_os, quotaobj, buf, 8, 1, &quota);
+
+	return (err);
+}
+
+int
+zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
+{
+	int err ;
+	if( ( err = __zfs_fuid_inspacequota(zsb, isgroup, fuid) ) == 0 ) return 0 ;
+	return __zfs_fuid_inobjquota( zsb, isgroup, fuid ) ;
 }
 
 boolean_t
@@ -878,6 +1013,12 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 		goto out;
 
 	error = zap_lookup(os, MASTER_NODE_OBJ,
+	    zfs_userquota_prop_prefixes[ZFS_PROP_USEROBJQUOTA],
+	    8, 1, &zsb->z_userobjquota_obj);
+	if (error && error != ENOENT)
+		goto out;
+
+	error = zap_lookup(os, MASTER_NODE_OBJ,
 	    zfs_userquota_prop_prefixes[ZFS_PROP_SOFTUSERQUOTA],
 	    8, 1, &zsb->z_softuserquota_obj);
 	if (error && error != ENOENT)
@@ -886,6 +1027,12 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	error = zap_lookup(os, MASTER_NODE_OBJ,
 	    zfs_userquota_prop_prefixes[ZFS_PROP_GROUPQUOTA],
 	    8, 1, &zsb->z_groupquota_obj);
+	if (error && error != ENOENT)
+		goto out;
+
+	error = zap_lookup(os, MASTER_NODE_OBJ,
+	    zfs_userquota_prop_prefixes[ZFS_PROP_GROUPOBJQUOTA],
+	    8, 1, &zsb->z_groupobjquota_obj);
 	if (error && error != ENOENT)
 		goto out;
 
@@ -2647,24 +2794,29 @@ zfs_fuid_updatequota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid,
     uint64_t update_size, uint64_t update_op, dmu_tx_t *tx)
 {
 	char buf[32];
-	uint64_t used, quota, usedobj, quotaobj;
+	uint64_t used=0, quota=0, usedobj, quotaobj;
 	int err;
 
-	usedobj = isgroup ? DMU_GROUPUSED_OBJECT : DMU_USERUSED_OBJECT;
-	quotaobj = isgroup ? zsb->z_groupquota_obj : zsb->z_userquota_obj;
+	if( update_op == EXPAND_SPACE || update_op == REDUCE_SPACE ) {
+		usedobj = isgroup ? DMU_GROUPUSED_OBJECT : DMU_USERUSED_OBJECT;
+		quotaobj = isgroup ? zsb->z_groupquota_obj : zsb->z_userquota_obj;
+	}else {
+		usedobj = isgroup ? DMU_GROUPOBJUSED_OBJECT : DMU_USEROBJUSED_OBJECT;
+		quotaobj = isgroup ? zsb->z_groupobjquota_obj : zsb->z_userobjquota_obj;
+	}
 
 	if (quotaobj == 0 || zsb->z_replay)
 		return ;
 
 	(void) sprintf(buf, "%llx", (longlong_t)fuid);
 	err = zap_lookup(zsb->z_os, quotaobj, buf, 8, 1, &quota);
-	if (err != 0)
+	if (err )
 		return;
 
 	err = zap_lookup(zsb->z_os, usedobj, buf, 8, 1, &used);
-	if (err != 0)
+	if (err && err != ENOENT )
 		return ;
-	if (update_op == EXPAND_SPACE) {
+	if (update_op == EXPAND_SPACE || update_op == ADD_FILE ) {
 		used += update_size;
 	} else {
 		if (used > update_size)

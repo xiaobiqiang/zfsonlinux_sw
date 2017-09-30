@@ -24,7 +24,9 @@ USER_C = \
 	libzfs_pool.c \
 	libzfs_sendrecv.c \
 	libzfs_status.c \
-	libzfs_util.c   
+	libzfs_util.c  \
+	libzfs_rpc.c	\
+	libzfs_zfs.c
 
 KERNEL_C =
 

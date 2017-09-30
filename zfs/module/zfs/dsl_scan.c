@@ -737,6 +737,12 @@ dsl_scan_recurse(dsl_scan_t *scn, dsl_dataset_t *ds, dmu_objset_type_t ostype,
 			dsl_scan_visitdnode(scn, ds, osp->os_type,
 			    &osp->os_userused_dnode,
 			    DMU_USERUSED_OBJECT, tx);
+			dsl_scan_visitdnode(scn, ds, osp->os_type,
+			    &osp->os_groupobjused_dnode,
+			    DMU_GROUPOBJUSED_OBJECT, tx);
+			dsl_scan_visitdnode(scn, ds, osp->os_type,
+			    &osp->os_userobjused_dnode,
+			    DMU_USEROBJUSED_OBJECT, tx);
 		}
 		(void) arc_buf_remove_ref(buf, &buf);
 	}

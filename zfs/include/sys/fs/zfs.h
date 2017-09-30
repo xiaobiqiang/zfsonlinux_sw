@@ -174,10 +174,14 @@ typedef enum {
 
 typedef enum {
 	ZFS_PROP_USERUSED,
+	ZFS_PROP_USEROBJUSED,
 	ZFS_PROP_USERQUOTA,
+	ZFS_PROP_USEROBJQUOTA,
 	ZFS_PROP_SOFTUSERQUOTA,
 	ZFS_PROP_GROUPUSED,
+	ZFS_PROP_GROUPOBJUSED,
 	ZFS_PROP_GROUPQUOTA,
+	ZFS_PROP_GROUPOBJQUOTA,
 	ZFS_PROP_SOFTGROUPQUOTA,
 	ZFS_NUM_USERQUOTA_PROPS
 } zfs_userquota_prop_t;
@@ -258,6 +262,26 @@ typedef enum {
 	ZPROP_ERR_NORESTORE = 0x2 /* failure to restore props on error */
 } zprop_errflags_t;
 
+
+typedef enum {
+	ZPROP_SET_RECEIVED = 0x1, /* received properties */
+	/*
+	 * If we're setting recursively, we want to explicitly inherit in all
+	 * but the top level dataset so the setting is in one place. However, if
+	 * the property is not inheritable, we still want to apply the setting
+	 * recursively. This flag indicates:
+	 *
+	 * 1. We are setting properties recursively
+	 * 2. This is not a top-level dataset
+	 */
+	ZPROP_SET_DESCENDANT = 0x2,
+	/*
+	 * Indicates that regardless of what is updated in a property's stack of
+	 * values, the effective value of the property must not change.
+	 */
+	ZPROP_SET_PRESERVE = 0x4
+} zprop_setflags_t;
+
 typedef int (*zprop_func)(int, void *);
 
 /*
@@ -279,6 +303,7 @@ const char *zfs_prop_to_name(zfs_prop_t);
 zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
 boolean_t zfs_prop_userquota(const char *);
+boolean_t zfs_prop_dirquota(const char *name);
 boolean_t zfs_prop_written(const char *);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
@@ -583,6 +608,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_ERRCOUNT		"error_count"
 #define	ZPOOL_CONFIG_NOT_PRESENT	"not_present"
 #define	ZPOOL_CONFIG_SPARES		"spares"
+#define	ZPOOL_CONFIG_IS_META		"is_meta"
+#define	ZPOOL_CONFIG_IS_LOW			"is_low"
 #define	ZPOOL_CONFIG_IS_SPARE		"is_spare"
 #define	ZPOOL_CONFIG_NPARITY		"nparity"
 #define	ZPOOL_CONFIG_HOSTID		"hostid"
@@ -619,6 +646,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_FEATURE_STATS	"feature_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ERRATA		"errata"	/* not stored on disk */
 #define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
+#define	ZPOOL_CONFIG_METASPARES		"metaspares"
+#define	ZPOOL_CONFIG_LOWSPARES		"lowspares"
 /*
  * The persistent vdev state is stored as separate values rather than a single
  * 'vdev_state' entry.  This is because a device can be in multiple states, such
@@ -668,6 +697,9 @@ typedef struct zpool_rewind_policy {
 #define	ZFS_RPC_MASTER_IP		"master_ipaddr"
 #define	ZFS_RPC_MASTER_FS		"master_fsname"
 #define	ZFS_RPC_MASTER_TYPE		"master_type"
+
+#define	ZPOOL_CONFIG_SPARES_STATUS		"spares_status"
+#define	ZPOOL_CONFIG_SPARES_AUX		"spares_aux"
 
 /*
  * This is needed in userland to report the minimum necessary device size.
@@ -985,6 +1017,8 @@ typedef enum zfs_ioc {
 	ZFS_IOC_HBX,
 	ZFS_IOC_MIRROR_SPEED_TEST,
 	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
+	ZFS_IOC_GET_DIRQUOTA,
+	ZFS_IOC_SET_DIRQUOTA,
 	
 	/*
 	 * Linux - 3/64 numbers reserved.
@@ -1215,6 +1249,18 @@ typedef  enum {
 	MULTICLUS_CMD_MAX,
 	ZNODE_INFO
 }MULTICLUS_OP;
+
+typedef  enum {
+	REMOTE_CMD = 1,
+	REMOTE_FILE,
+	TYPE_MAX
+}RPC_REMOTE_CMD;
+
+typedef enum zfs_msg_type {
+	ZFS_MSG_SET,
+	ZFS_MSG_GET,
+	ZFS_MSG_USERSPACE
+} zfs_msg_type_t;
 
 typedef  enum {
 	GET_GROUP_IP = 1,

@@ -584,7 +584,9 @@ typedef enum {
 
 typedef enum {
 	EXPAND_SPACE = 1,
-	REDUCE_SPACE
+	REDUCE_SPACE ,
+	ADD_FILE,
+	REMOVE_FILE
 }zfs_group_used_op_type_t;
 
 typedef enum {

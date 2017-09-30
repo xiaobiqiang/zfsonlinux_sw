@@ -5742,34 +5742,32 @@ zfs_proc_dir_low(objset_t *os, ushort_t op, share_flag_t wait_flag,
 // 	return (err);
 // }
 
-// int zfs_client_get_dirquota(zfs_sb_t *zsb,
-// 	uint64_t dir_obj, zfs_dirquota_t *dirquota)
-// {
-// 	zfs_multiclus_stat_arg_t stat_arg;
-// 	dir_lowdata_t dir_lowdata = {0};
+int zfs_client_get_dirquota(zfs_sb_t *zsb,
+ 	uint64_t dir_obj, zfs_dirquota_t *dirquota)
+{
+ 	zfs_multiclus_stat_arg_t stat_arg;
+ 	dir_lowdata_t dir_lowdata = {0};
 
-// 	dir_lowdata.pairvalue.object = dir_obj;
-// 	stat_arg.arg_ptr = (uintptr_t)(&dir_lowdata);
-// 	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_t);
-// 	stat_arg.return_ptr = (uintptr_t)dirquota;
-// 	stat_arg.return_size = (uintptr_t)sizeof(zfs_dirquota_t);
+ 	dir_lowdata.pairvalue.object = dir_obj;
+ 	stat_arg.arg_ptr = (uintptr_t)(&dir_lowdata);
+	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_t);
+ 	stat_arg.return_ptr = (uintptr_t)dirquota;
+ 	stat_arg.return_size = (uintptr_t)sizeof(zfs_dirquota_t);
+
+ 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIR_QUOTA, SHARE_WAIT, &stat_arg,
+ 		    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
 	
-// //	int err = zfs_proc_dir_low(zfsvfs->z_os, SC_FS_DIR_QUOTA, SHARE_WAIT, &stat_arg,
-// //		    zfsvfs->z_os->os_master_spa,zfsvfs->z_os->os_master_os,APP_USER);
-// 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIR_QUOTA, SHARE_WAIT, &stat_arg,
-// 		    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
+ 	if (err == 0) {
+ 		if(dir_lowdata.ret != 0){
+ 			err=dir_lowdata.ret;
+ 			cmn_err(CE_WARN, "ret=%d: get dirquota from master FAIL!!!",err);
+ 		}
+ 	}else{
+ 		cmn_err(CE_WARN, "ret=%d: get dirquota from master FAIL!!",err);
+ 	}
 	
-// 	if (err == 0) {
-// 		if(dir_lowdata.ret != 0){
-// 			err=dir_lowdata.ret;
-// 			cmn_err(CE_WARN, "ret=%d: get dirquota from master FAIL!!!",err);
-// 		}
-// 	}else{
-// 		cmn_err(CE_WARN, "ret=%d: get dirquota from master FAIL!!",err);
-// 	}
-	
-// 	return (err);
-// }
+ 	return (err);
+}
 
   
 // int zfs_client_get_dirquotalist(zfs_sb_t * zsb,  	

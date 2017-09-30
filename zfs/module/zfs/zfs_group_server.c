@@ -2972,9 +2972,11 @@ void zfs_group_update_system_space(objset_t *os,
 void zfs_update_quota_used(zfs_sb_t *zsb, znode_t *zp,
     uint64_t space, uint64_t update_op, dmu_tx_t *tx)
 {
-	zfs_dir_updatequota(zsb, zp, space, update_op, tx);
-//	zfs_fuid_updatequota(zsb, B_TRUE, zp->z_gid, space, update_op, tx);
-//	zfs_fuid_updatequota(zsb, B_FALSE, zp->z_uid, space, update_op, tx);
+	if( update_op == EXPAND_SPACE || update_op == REDUCE_SPACE ) {
+		zfs_dir_updatequota(zsb, zp, space, update_op, tx);
+	}
+	zfs_fuid_updatequota(zsb, B_TRUE, zp->z_gid, space, update_op, tx);
+	zfs_fuid_updatequota(zsb, B_FALSE, zp->z_uid, space, update_op, tx);
 }
 
 int zfs_group_server_update_file_info(zfs_sb_t * zsb, zfs_group_notify_file_info_t* info)

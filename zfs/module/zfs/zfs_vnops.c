@@ -1446,6 +1446,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	uint64_t retrys = 0;
 	uint64_t used = 0;
 	int64_t update_size = 0;
+	uint64_t total_update_size = 0 ;
 
 	ASSERTV(iovcnt);
 
@@ -1855,6 +1856,8 @@ tx_again:
 			    uio->uio_loffset);
 			ASSERT(error == 0);
 		}
+		if (update_size > 0)
+			total_update_size += (uint64_t)update_size ;
 		/*
 		 * If we are replaying and eof is non zero then force
 		 * the file size to the specified eof. Note, there's no
@@ -1870,9 +1873,9 @@ tx_again:
 		if (n <= nbytes && ((zsb->z_os->os_is_group == 0) || 
 			(zsb->z_os->os_is_group > 0 &&
 			zsb->z_os->os_is_master > 0)) && (zp->z_bquota || zp->z_dirquota > 0)) {
-			if (update_size > 0) {
-				zfs_update_quota_used(zsb, zp, (uint64_t)update_size,  EXPAND_SPACE , tx); 
-			}
+	/*		if (update_size > 0) { */
+				zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE, tx);
+/*			}*/
 		}
 	
 #if 0
@@ -1929,7 +1932,7 @@ tx_again:
 
 //		notify_para->znode = *zp;
 		bcopy(zp, &notify_para->znode, sizeof(znode_t));
-		notify_para->update_size = start_resid - uio->uio_resid;
+		notify_para->update_size = used;
 		notify_para->used_op = EXPAND_SPACE;
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
@@ -2849,6 +2852,7 @@ top:
 			return (error);
 		}
 		zfs_mknode(dzp, vap, tx, cr, 0, &zp, &acl_ids);
+		zfs_update_quota_used(zsb, zp, 1, ADD_FILE, tx);
 
 		if (fuid_dirtied)
 			zfs_fuid_sync(zsb, tx);
@@ -2962,6 +2966,7 @@ top:
 				}
 #endif
 			}
+
 			bCreateGroupDataFile = B_FALSE;
 			mutex_enter(&zp->z_lock);
 			zfs_sa_get_remote_object(zp);
@@ -3236,12 +3241,6 @@ top:
 		return (error);
 	}
 
-	if (zp->z_dirquota > 0 || zp->z_bquota > 0) {
-		zfs_update_quota_used(zsb, zp, zp->z_size, REDUCE_SPACE, tx); 
-		bover = zfs_write_overquota(zsb, zp);
-		zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
-	}
-
 	/*
 	 * Remove the directory entry.
 	 */
@@ -3268,6 +3267,21 @@ top:
 		    &xattr_obj_unlinked, sizeof (xattr_obj_unlinked));
 		mutex_exit(&zp->z_lock);
 		zfs_unlinked_add(zp, tx);
+
+		/* ATTENTION
+		 *
+		 * This is for updating related quotas( including space quota and obj quota)
+		 * However, for dir quota, the update shouldn't be here!
+		 *
+		 * We'll fix this in the future
+		 */
+		if (zp->z_dirquota > 0 || zp->z_bquota > 0) {
+			zfs_update_quota_used(zsb, zp, zp->z_size, REDUCE_SPACE, tx);
+			/* I don't think we need to check overquota here. */
+		/*	bover = zfs_write_overquota(zsb, zp);
+			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL); */
+			zfs_update_quota_used( zsb, zp, 1, REMOVE_FILE, tx ) ;
+		}
 	}
 
 	txtype = TX_REMOVE;

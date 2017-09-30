@@ -49,12 +49,17 @@ static zprop_desc_t zfs_prop_table[ZFS_NUM_PROPS];
 /* Note this is indexed by zfs_userquota_prop_t, keep the order the same */
 const char *zfs_userquota_prop_prefixes[] = {
 	"userused@",
+	"userobjused@",
 	"userquota@",
+	"userobjquota@",
 	"softuserquota@",
 	"groupused@",
+	"groupobjused@",
 	"groupquota@",
+	"groupobjquota@",
 	"softgroupquota@"
 };
+const char *zfs_dirquota_prefixex = "dirquota@";
 
 zprop_desc_t *
 zfs_prop_get_table(void)
@@ -570,6 +575,19 @@ zfs_prop_userquota(const char *name)
 		    strlen(zfs_userquota_prop_prefixes[prop])) == 0) {
 			return (B_TRUE);
 		}
+	}
+
+	return (B_FALSE);
+}
+
+boolean_t
+zfs_prop_dirquota(const char *name)
+{
+	zfs_userquota_prop_t prop;
+
+	if (strncmp(name, zfs_dirquota_prefixex,
+		    strlen(zfs_dirquota_prefixex)) == 0) {
+			return (B_TRUE);
 	}
 
 	return (B_FALSE);

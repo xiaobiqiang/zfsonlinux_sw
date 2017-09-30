@@ -573,7 +573,7 @@ disk_get_enid_slotid(const char *dev ,int *en_id,int *slot_id)
 }
 
 
-	int
+int
 dmg_get_disk(dmg_lun_t **luns, int *tot_luns)
 {
 	int ret = 0;

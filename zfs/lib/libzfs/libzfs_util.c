@@ -53,6 +53,7 @@
 #include <libzfs.h>
 #include <libzfs_core.h>
 #include <libstmf.h>
+#include <libzfs_rpc.h>
 
 #include "libzfs_impl.h"
 #include "zfs_prop.h"
@@ -3103,8 +3104,10 @@ int zfs_enable_avs_iter_dataset(zfs_handle_t *zhp, void *data)
 
 	if (zfs_get_type(zhp) == ZFS_TYPE_VOLUME) {
 		nvlist_t *props, *nvl;
-		zfs_cmd_t zc = {0};
+		zfs_cmd_t zc;
 		char *is_single_data;
+
+		memset(&zc, '\0', sizeof(zfs_cmd_t));
 #if 0
 		nvpair_t *elem = NULL;
 		elem_node_t *head, *tail, *curnode;
@@ -3526,7 +3529,6 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 				gdoc = xmlNewDoc((xmlChar *)"1.0");
 				root_node = xmlNewNode(NULL, (xmlChar *)"multiclus");
 				xmlDocSetRootElement(gdoc, root_node);
-				group_node;
 				group_node = xmlNewChild(root_node, NULL, (xmlChar *)"group", NULL);
 				xmlSetProp(group_node, (xmlChar *)"mcstate", (xmlChar *)"down");
 				xmlDocDumpFormatMemory(gdoc, &xmlbuff, &buffersize, 1);
@@ -3548,10 +3550,11 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 {
 	int err,ret;
 	unsigned long interval = 0;
-	zfs_cmd_t zc = { 0 };
-	//char buf[RPC_SEND_RECV_SIZE] = {0};
+	zfs_cmd_t zc;
+	char buf[RPC_SEND_RECV_SIZE] = {0};
 	char dtl_buf[6][32] = {0};
 
+	memset(&zc, '\0', sizeof(zfs_cmd_t));
 	if (flags == ENABLE_MULTICLUS) {
 		//printf("ENABLE_MULTICAST\r\n");
 	} else if(flags == DISABLE_MULTICLUS) {
@@ -3559,20 +3562,20 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	} else if (flags == SHOW_MULTICLUS) {
 		//printf("SHOW_MULTICLUS\r\n");
 	}
-// 	else if(flags == XML_MULTICLUS) {
-//		printf("XML_MULTICLUS\r\n");
-//	} else if(flags == ZFS_RPC_CALL_SERVER) {
+ 	else if(flags == XML_MULTICLUS) {
+		//printf("XML_MULTICLUS\r\n");
+	} else if(flags == ZFS_RPC_CALL_SERVER) {
 		//printf("ZFS_RPC_CALL_SERVER\r\n");
-//		zfs_rpc_server(NULL);
-//	} else if(flags == ZFS_RPC_CALL_TEST) {
-//		ret = zfs_rpc_msg_send( hdl, NULL, ZFS_RPC_DISK_TEST, (char*)buf);
-//		if(ret){
-//			printf("%s: Fail to call remote server!!!\n", __func__);
-//		}else {
-//			printf("%s: the remote info: %s\n", __func__, buf);
-//		}
-//		return;
-//	} 
+		zfs_rpc_server();
+	} else if(flags == ZFS_RPC_CALL_TEST) {
+		ret = zfs_rpc_msg_send(hdl, ZFS_RPC_DISK_TEST, (char*)buf);
+		if(ret){
+			printf("%s: Fail to call remote server!!!\n", __func__);
+		}else {
+			printf("%s: the remote info: %s\n", __func__, buf);
+		}
+		return;
+	} 
 	else if (flags == SYNC_MULTICLUS_GROUP) {
 		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
 
@@ -3661,7 +3664,7 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 			err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MULTICLUS, &zc);
 			if(err){
 				if(ENOENT == zc.zc_cookie){
-					printf("[Error]: Invalid fs name %d\n", zc.zc_cookie);
+					printf("[Error]: Invalid fs name %"PRIu64"\n", zc.zc_cookie);
 				}else{
 					printf("Fail to get dtlstatus: %d\n", err);
 				}
@@ -3743,4 +3746,78 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	}
 	
 }
+
+
+int
+get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 
+	char *groupip, uint_t *num )
+{
+	int err = 0;
+	zfs_cmd_t zc;
+	nvlist_t *config = NULL;
+	char **ipaddr = NULL;
+	int ii = 0;
+	char *iptr = NULL;
+
+	memset(&zc, '\0', sizeof(zfs_cmd_t));
+	zc.zc_cookie = flags;
+	if(GET_MASTER_IPFS == flags){
+		strcpy(zc.zc_name, groupip);
+	}
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0){
+		printf("zcmd_alloc_dst_nvlist: NULL\n");
+		return (-1);
+	}
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_GET_RPC_INFO, &zc);
+
+	if(err){
+		zcmd_free_nvlists(&zc);
+		return (zc.zc_cookie);
+	}
+	
+	if(zcmd_read_dst_nvlist(hdl, &zc, &config) != 0){
+		printf("cookie is: %"PRIu64"\n", zc.zc_cookie);
+		zcmd_free_nvlists(&zc);
+		return (-2);
+	}
+	zcmd_free_nvlists(&zc);
+	/* nvlist_print(stdout, config); */
+	if(GET_GROUP_IP == flags){
+		verify(nvlist_lookup_string_array(config, ZFS_RPC_GROUP_IP,
+		    &ipaddr, num) == 0);
+		iptr = groupip;
+		for(ii=0;ii<*num;ii++){
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+	} else if(GET_MASTER_IPFS == flags) {
+		memset(groupip, 0, 12*MAX_FSNAME_LEN);
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_IP, &ipaddr, num) == 0);
+		iptr = groupip;
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_FS, &ipaddr, num) == 0);
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+		verify(nvlist_lookup_string_array(config, 
+			ZFS_RPC_MASTER_TYPE, &ipaddr, num) == 0);
+		for(ii=0;ii<(*num);ii++)
+		{
+			strncpy(iptr, ipaddr[ii], MAX_FSNAME_LEN);
+			iptr += MAX_FSNAME_LEN;
+		}
+	}
+	nvlist_free(config);
+
+	return (0);
+}
+
 

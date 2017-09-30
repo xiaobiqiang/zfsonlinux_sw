@@ -73,6 +73,7 @@
 #include "zfs_util.h"
 #include "zfs_comutil.h"
 #include "libzfs_impl.h"
+#include <syslog.h>
 
 libzfs_handle_t *g_zfs;
 
@@ -1571,6 +1572,17 @@ get_callback(zfs_handle_t *zhp, void *data)
 
 			zprop_print_one_property(zfs_get_name(zhp), cbp,
 			    pl->pl_user_prop, buf, sourcetype, source, NULL);
+		} else if (zfs_prop_dirquota(pl->pl_user_prop)) {
+			sourcetype = ZPROP_SRC_LOCAL;
+
+			if (zfs_prop_get_dirquota(zhp, pl->pl_user_prop,
+			    buf, sizeof (buf)) != 0) {
+				sourcetype = ZPROP_SRC_NONE;
+				(void) strlcpy(buf, "-", sizeof (buf));
+			}
+
+			zprop_print_one_property(zfs_get_name(zhp), cbp,
+			    pl->pl_user_prop, buf, sourcetype, source, NULL);
 		} else if (zfs_prop_written(pl->pl_user_prop)) {
 			sourcetype = ZPROP_SRC_LOCAL;
 
@@ -1839,6 +1851,19 @@ zfs_do_get(int argc, char **argv)
 	}
 
 	cb.cb_first = B_TRUE;
+
+	if (zfs_prop_userquota(fields)){
+		/* Get info from remote RPC */
+		ret = zfs_group_userquota_send(flags, ZFS_MSG_GET, argc, argv, &cb);
+		if(0 == ret)
+		{
+			if (cb.cb_proplist == &fake_name)
+				zprop_free_list(fake_name.pl_next);
+			else
+				zprop_free_list(cb.cb_proplist);
+			return (ret);
+		}
+	}
 
 	/* run for each object */
 	ret = zfs_for_each(argc, argv, flags, types, NULL,
@@ -2616,7 +2641,8 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 		(void) snprintf(sizebuf, sizeof (sizebuf), "%llu",
 		    (u_longlong_t)space);
 	sizelen = strlen(sizebuf);
-	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED) {
+	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED \
+		|| prop == ZFS_PROP_USEROBJUSED || prop == ZFS_PROP_GROUPOBJUSED ) {
 		propname = "used";
 		if (!nvlist_exists(props, "quota"))
 			(void) nvlist_add_uint64(props, "quota", 0);
@@ -2921,9 +2947,11 @@ zfs_do_userspace(int argc, char **argv)
 		cb.cb_width[i] = strlen(gettext(us_field_hdr[i]));
 
 	for (p = 0; p < ZFS_NUM_USERQUOTA_PROPS; p++) {
-		if (((p == ZFS_PROP_USERUSED || p == ZFS_PROP_USERQUOTA) &&
+		if (((p == ZFS_PROP_USERUSED || p == ZFS_PROP_USERQUOTA || \
+			p == ZFS_PROP_USEROBJUSED || p == ZFS_PROP_USEROBJQUOTA ) &&
 		    !(types & (USTYPE_PSX_USR | USTYPE_SMB_USR))) ||
-		    ((p == ZFS_PROP_GROUPUSED || p == ZFS_PROP_GROUPQUOTA) &&
+		    ((p == ZFS_PROP_GROUPUSED || p == ZFS_PROP_GROUPQUOTA || \
+		    p == ZFS_PROP_GROUPOBJUSED || p == ZFS_PROP_GROUPOBJQUOTA ) &&
 		    !(types & (USTYPE_PSX_GRP | USTYPE_SMB_GRP))))
 			continue;
 		cb.cb_prop = p;
@@ -3061,9 +3089,12 @@ print_dataset(zfs_handle_t *zhp, list_cbdata_t *cb)
 	char property[ZFS_MAXPROPLEN];
 	nvlist_t *userprops = zfs_get_user_props(zhp);
 	nvlist_t *propval;
-	char *propstr;
+	char *propstr = NULL;
 	boolean_t right_justify;
+	int err = 0;
 
+	propstr = (char *)malloc(ZFS_MAXPROPLEN);
+	memset(propstr, 0, ZFS_MAXPROPLEN);
 	for (; pl != NULL; pl = pl->pl_next) {
 		if (!first) {
 			if (cb->cb_scripted)
@@ -3077,34 +3108,37 @@ print_dataset(zfs_handle_t *zhp, list_cbdata_t *cb)
 		if (pl->pl_prop == ZFS_PROP_NAME) {
 			(void) strlcpy(property, zfs_get_name(zhp),
 			    sizeof (property));
-			propstr = property;
+			strcpy(propstr, property);
 			right_justify = zfs_prop_align_right(pl->pl_prop);
 		} else if (pl->pl_prop != ZPROP_INVAL) {
 			if (zfs_prop_get(zhp, pl->pl_prop, property,
 			    sizeof (property), NULL, NULL, 0,
 			    cb->cb_literal) != 0)
-				propstr = "-";
+				strcpy(propstr, "-");
 			else
-				propstr = property;
+				strcpy(propstr, property);
 			right_justify = zfs_prop_align_right(pl->pl_prop);
 		} else if (zfs_prop_userquota(pl->pl_user_prop)) {
 			if (zfs_prop_get_userquota(zhp, pl->pl_user_prop,
-			    property, sizeof (property), cb->cb_literal) != 0)
-				propstr = "-";
+			    property, sizeof (property), B_FALSE) != 0){
+			    err = zfs_prop_get_group_userquota(g_zfs, zhp, pl, propstr);
+				if (err < 0)
+					strcpy(propstr, "-");
+			}
 			else
-				propstr = property;
+				strcpy(propstr, property);
 			right_justify = B_TRUE;
 		} else if (zfs_prop_written(pl->pl_user_prop)) {
 			if (zfs_prop_get_written(zhp, pl->pl_user_prop,
 			    property, sizeof (property), cb->cb_literal) != 0)
-				propstr = "-";
+				strcpy(propstr, "-");
 			else
-				propstr = property;
+				strcpy(propstr, property);
 			right_justify = B_TRUE;
 		} else {
 			if (nvlist_lookup_nvlist(userprops,
 			    pl->pl_user_prop, &propval) != 0)
-				propstr = "-";
+				strcpy(propstr, "-");
 			else
 				verify(nvlist_lookup_string(propval,
 				    ZPROP_VALUE, &propstr) == 0);
@@ -3125,6 +3159,7 @@ print_dataset(zfs_handle_t *zhp, list_cbdata_t *cb)
 	}
 
 	(void) printf("\n");
+	free(propstr);
 }
 
 /*
@@ -3603,6 +3638,189 @@ typedef struct set_cbdata {
 	char		*cb_value;
 } set_cbdata_t;
 
+int zfs_group_userquota_send(int flags, zfs_msg_type_t settype, int argc, char **argv, void *data)
+{
+	int ret = 0;
+	char host[4][MAX_FSNAME_LEN] = {0};
+	char rfsname[4][MAX_FSNAME_LEN] = {0};
+	char mastertype[4][MAX_FSNAME_LEN] = {0};
+	zfs_rpc_arg_t rpcarg = {0};
+	char propbuf[ZFS_NAME_LEN] = {0};
+	int ii=0;
+	int ismaster = 0;
+	uint32_t rpctype = 0;
+	zfs_rpc_ret_t backarg = {0};
+	char *backinfo = NULL;
+	char groupip[12*MAX_FSNAME_LEN]	= {0}; 
+	uint_t num = 0;
+	if(1 != argc){
+		return (1);
+	}
+
+	if(ZFS_MSG_SET == settype ){
+		set_cbdata_t *cb = data;
+
+		rpctype = ZFS_RPC_SET_USERQUOTA;
+		rpcarg.bufcnt = argc;
+		rpcarg.flag = flags;
+		rpcarg.propname = cb->cb_propname;
+		rpcarg.value = cb->cb_value;
+		strcpy(propbuf, cb->cb_propname);
+		backarg.backbuf = (char *)malloc(ZFS_MAXPROPLEN);
+		memset(backarg.backbuf, 0, ZFS_MAXPROPLEN);
+
+		if(argc>ZFS_NAME_LEN){
+			printf("Arg is too many, cannot send to remote!!!");
+			if(backarg.backbuf)
+			{
+				free(backarg.backbuf);
+				backarg.backbuf = NULL;
+			}
+			return (1);
+		}
+		for(ii=0; ii<argc; ii++){
+			rpcarg.buf[ii] = argv[ii];
+		}
+	}else if(ZFS_MSG_GET == settype){
+		zprop_get_cbdata_t *cb = data;
+		zprop_list_t *pl = cb->cb_proplist;
+		for (; pl != NULL; pl = pl->pl_next) {
+			/*
+			 * Skip the special fake placeholder.  This will also skip over
+			 * the name property when 'all' is specified.
+			 */
+			if (pl->pl_prop == ZFS_PROP_NAME &&
+			    pl == cb->cb_proplist){
+				continue;
+			}
+			rpcarg.propname = pl->pl_user_prop;
+			rpctype = ZFS_RPC_GET_USERQUOTA;
+			rpcarg.bufcnt = argc;
+			rpcarg.flag = flags;
+			rpcarg.value = "-";
+			backinfo = (char *)malloc(rpcarg.bufcnt*ZFS_MAXPROPLEN);
+			memset(backinfo, 0, rpcarg.bufcnt*ZFS_MAXPROPLEN);
+			/* printf("---Get userspace--------0---[%s]-----\n", 
+			pl->pl_user_prop); */
+			
+			strcpy(propbuf, pl->pl_user_prop);
+
+			if(argc>ZFS_NAME_LEN) {
+				printf("Arg is too many, cannot send to remote!!!");
+				if(backinfo) {
+					free(backinfo);
+					backinfo = NULL;
+				}
+				return (1);
+			}
+			for(ii=0; ii<argc; ii++) {
+				rpcarg.buf[ii] = argv[ii];
+			}
+		}
+	}
+
+	if(ZFS_MSG_GET == settype || ZFS_MSG_SET == settype )	{
+		strcpy(groupip, rpcarg.buf[0]);
+	}
+	ret = get_rpc_addr(g_zfs, GET_MASTER_IPFS, groupip, &num);
+	if(ret){
+		/* printf("Fail to get the rpc IP, ret: <%d>\n", ret); */
+		if(backinfo) {
+			free(backinfo);
+			backinfo = NULL;
+		}
+		return (1);
+	}
+	for(ii=0; ii<num; ii++) {
+		memset(host[ii], 0, MAX_FSNAME_LEN);
+		memset(rfsname[ii], 0, MAX_FSNAME_LEN);
+		memset(mastertype[ii], 0, MAX_FSNAME_LEN);
+		strcpy(host[ii], groupip+ii*MAX_FSNAME_LEN);
+		strcpy(rfsname[ii], groupip+(num+ii)*MAX_FSNAME_LEN);
+		strcpy(mastertype[ii], groupip+(num*2+ii)*MAX_FSNAME_LEN);
+		if(0 == strcmp(mastertype[ii], "master")) {
+			if(0 == strcmp(rfsname[ii], argv[0])){
+				ismaster = 1;
+				if(ZFS_MSG_GET == settype){
+					break;
+				}else{
+					continue;
+				}
+			}
+		}else{
+			if(ZFS_MSG_GET == settype) {
+				continue;
+			}
+			if(0 == strcmp(rfsname[ii], argv[0])){
+				ismaster = 1;
+				continue;
+			}
+		}
+		
+		/* printf("The remote IP is:[%s], fsname:[%s]\n", host, rfsname ); */
+		if(ZFS_MSG_GET == settype || ZFS_MSG_SET == settype ) 	{
+			rpcarg.buf[0] = rfsname[ii];
+		}
+	
+		rpcarg.flag = 0;
+		rpcarg.backoffset = 0;
+		backarg.backbuf = backinfo;
+		do{
+			ret = zfs_rpc_call(host[ii], rpctype, &rpcarg, &backarg);
+			if(ret){
+				syslog(LOG_ERR, "%s: Fail to call rpc!!!\n", __func__);
+				if(backinfo) {
+					free(backinfo);
+					backinfo = NULL;
+				}
+				return (1);
+			}
+			rpcarg.flag = 1;
+			rpcarg.backoffset += backarg.backlen;
+			backarg.backbuf = backinfo +backarg.backlen;
+		}while(backarg.flag);
+		if(ZFS_MSG_GET == settype) {
+			break;
+		}
+	}
+	if(ismaster) {
+		syslog(LOG_ERR, "%s: Current fs is Master!!!\n", __func__);
+		if(backinfo){
+			free(backinfo);
+			backinfo = NULL;
+		}
+		return (1);
+	}
+	/*printf("[zfs_group_userquota_send]: the remote disk info: %s\n", 
+		backinfo);*/
+
+	if(ZFS_MSG_GET == settype ){
+		zprop_get_cbdata_t *cb = data;
+		char *bufptr = NULL;
+		/*cb->cb_first = B_TRUE; */
+		char source[ZFS_MAXNAMELEN];
+		
+		/* printf("---Get 
+		userspace--------1----bufcnt:%d----\n",rpcarg.bufcnt); */
+		bufptr = backinfo;
+		for(ii=0; ii<rpcarg.bufcnt; ii++) {
+			/* printf("----[%s]----\n", argv[ii]);
+			printf("----[%s]----\n", rpcarg.propname);
+			printf("----[%s]----\n", bufptr); */
+			zprop_print_one_property(argv[ii], cb,
+			    rpcarg.propname, bufptr, ZPROP_SRC_LOCAL, source, NULL);
+			bufptr += ZFS_MAXPROPLEN;
+		}
+	}
+	/* printf("------------get userspace--------2--------\n"); */
+	if(backinfo){
+		free(backinfo);
+		backinfo = NULL;
+	}
+	
+	return (0);
+}
+
 int 
 zfs_is_single_data_prop(const char *prop)
 {
@@ -3765,6 +3983,15 @@ zfs_do_set(int argc, char **argv)
 		(check_failover_set(cb.cb_propname, cb.cb_value) == -1)) {
 		(void) fprintf(stderr, gettext("invalid failover property\n"));
 		usage(B_FALSE);
+	}
+
+	if( zfs_prop_userquota(cb.cb_propname) ) {
+		/* Set to remote by RPC */
+		ret = zfs_group_userquota_send(0, ZFS_MSG_SET, argc-2, argv+2, &cb);
+		if(0 == ret)
+		{
+			return (ret);
+		}
 	}
 
 	ret = zfs_for_each(argc - 2, argv + 2, 0,
@@ -4168,7 +4395,12 @@ zfs_do_receive(int argc, char **argv)
 #define	ZFS_DELEG_PERM_USERPROP		"userprop"
 #define	ZFS_DELEG_PERM_VSCAN		"vscan" /* ??? */
 #define	ZFS_DELEG_PERM_USERQUOTA	"userquota"
+#define	ZFS_DELEG_PERM_USEROBJQUOTA "userobjquota"
 #define	ZFS_DELEG_PERM_GROUPQUOTA	"groupquota"
+#define	ZFS_DELEG_PERM_GROUPOBJQUOTA "groupobjquota"
+#define	ZFS_DELEG_PERM_USEROBJUSED		"userobjused"
+#define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
+#define	ZFS_DELEG_PERM_GROUPOBJUSED	"groupobjused"
 #define	ZFS_DELEG_PERM_USERUSED		"userused"
 #define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
 #define	ZFS_DELEG_PERM_HOLD		"hold"
@@ -4197,10 +4429,14 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_BOOKMARK, ZFS_DELEG_NOTE_BOOKMARK },
 
 	{ ZFS_DELEG_PERM_GROUPQUOTA, ZFS_DELEG_NOTE_GROUPQUOTA },
+	{ ZFS_DELEG_PERM_GROUPOBJQUOTA, ZFS_DELEG_NOTE_GROUPOBJQUOTA},
 	{ ZFS_DELEG_PERM_GROUPUSED, ZFS_DELEG_NOTE_GROUPUSED },
+	{ ZFS_DELEG_PERM_GROUPOBJUSED, ZFS_DELEG_NOTE_GROUPOBJUSED },
 	{ ZFS_DELEG_PERM_USERPROP, ZFS_DELEG_NOTE_USERPROP },
 	{ ZFS_DELEG_PERM_USERQUOTA, ZFS_DELEG_NOTE_USERQUOTA },
+	{ ZFS_DELEG_PERM_USEROBJQUOTA, ZFS_DELEG_NOTE_USEROBJQUOTA },
 	{ ZFS_DELEG_PERM_USERUSED, ZFS_DELEG_NOTE_USERUSED },
+	{ ZFS_DELEG_PERM_USEROBJUSED, ZFS_DELEG_NOTE_USEROBJUSED },
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
 

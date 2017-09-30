@@ -1966,18 +1966,15 @@ int zfs_get_group_ip( nvlist_t **config)
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_group[j].used &&
-					(zfs_multiclus_node_id != 
-					zfs_multiclus_table[i].multiclus_group[j].hostid) )
+					(zfs_multiclus_node_id != zfs_multiclus_table[i].multiclus_group[j].hostid))
 				{
 					groupip[gnum] = kmem_alloc(MAX_FSNAME_LEN, KM_SLEEP);
 					bzero(groupip[gnum], MAX_FSNAME_LEN);
-					strcpy(groupip[gnum],
-						(char*)zfs_multiclus_table[i].multiclus_group[j].rpc_addr);
+					strcpy(groupip[gnum], (char*)zfs_multiclus_table[i].multiclus_group[j].rpc_addr);
 					gnum++;
 					groupip[gnum] = kmem_alloc(MAX_FSNAME_LEN, KM_SLEEP);
 					bzero(groupip[gnum], MAX_FSNAME_LEN);
-					strcpy(groupip[gnum],
-						(char*)zfs_multiclus_table[i].multiclus_group[j].fsname);					
+					strcpy(groupip[gnum], (char*)zfs_multiclus_table[i].multiclus_group[j].fsname);					
 					gnum++;
 				}
 				if(gnum >= 2*ZFS_MULTICLUS_GROUP_NODE_NUM)

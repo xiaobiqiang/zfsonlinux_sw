@@ -240,9 +240,13 @@ typedef struct zfs_ioc_vec {
 /* This array is indexed by zfs_userquota_prop_t */
 static const char *userquota_perms[] = {
 	ZFS_DELEG_PERM_USERUSED,
+	ZFS_DELEG_PERM_USEROBJUSED,
 	ZFS_DELEG_PERM_USERQUOTA,
+	ZFS_DELEG_PERM_USEROBJQUOTA,
 	ZFS_DELEG_PERM_GROUPUSED,
+	ZFS_DELEG_PERM_GROUPOBJUSED,
 	ZFS_DELEG_PERM_GROUPQUOTA,
+	ZFS_DELEG_PERM_GROUPOBJQUOTA,
 };
 
 static int zfs_ioc_userspace_upgrade(zfs_cmd_t *zc);
@@ -1162,8 +1166,10 @@ zfs_secpolicy_userspace_one(zfs_cmd_t *zc, nvlist_t *innvl, cred_t *cr)
 		 * They are asking about a posix uid/gid.  If it's
 		 * themself, allow it.
 		 */
-		if (zc->zc_objset_type == ZFS_PROP_USERUSED ||
-		    zc->zc_objset_type == ZFS_PROP_USERQUOTA) {
+		if (zc->zc_objset_type == ZFS_PROP_USERUSED || \
+		    zc->zc_objset_type == ZFS_PROP_USERQUOTA  || \
+		    zc->zc_objset_type == ZFS_PROP_USEROBJUSED || \
+		    zc->zc_objset_type == ZFS_PROP_USEROBJQUOTA ) {
 			if (zc->zc_guid == crgetuid(cr))
 				return (0);
 		} else {
@@ -3743,12 +3749,16 @@ zfs_check_settable(const char *dsname, nvpair_t *pair, cred_t *cr)
 			    zfs_userquota_prop_prefixes[ZFS_PROP_USERQUOTA];
 			const char *gq_prefix =
 			    zfs_userquota_prop_prefixes[ZFS_PROP_GROUPQUOTA];
+			const char *uoq_prefix =
+			    zfs_userquota_prop_prefixes[ZFS_PROP_USEROBJQUOTA];
+			const char *goq_prefix =
+			    zfs_userquota_prop_prefixes[ZFS_PROP_GROUPOBJQUOTA];
 
-			if (strncmp(propname, uq_prefix,
-			    strlen(uq_prefix)) == 0) {
+			if (strncmp(propname, uq_prefix, strlen(uq_prefix)) == 0 || \
+				strncmp( propname, uoq_prefix, strlen( uoq_prefix ) ) ==0 ) {
 				perm = ZFS_DELEG_PERM_USERQUOTA;
-			} else if (strncmp(propname, gq_prefix,
-			    strlen(gq_prefix)) == 0) {
+			} else if (strncmp(propname, gq_prefix, strlen(gq_prefix)) == 0 || \
+				strncmp( propname, goq_prefix, strlen( goq_prefix ) ) == 0 ) {
 				perm = ZFS_DELEG_PERM_GROUPQUOTA;
 			} else {
 				/* USERUSED and GROUPUSED are read-only */
@@ -5780,6 +5790,64 @@ zfs_ioc_do_hbx(zfs_cmd_t *zc)
 	return (err);
 }
 
+static int
+zfs_ioc_get_dirquota(zfs_cmd_t *zc)
+{
+	zfs_sb_t 	*zsb;	
+	int error;
+	zfs_dirquota_t *dirquota = vmem_zalloc(sizeof(zfs_dirquota_t), KM_SLEEP);
+
+	if(NULL == dirquota){
+		return (ENOMEM);
+	}
+
+	error = zfs_sb_hold(zc->zc_name, FTAG, &zsb, B_FALSE);
+	if (error)
+		return (error);
+
+	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0){
+		error = zfs_client_get_dirquota(zsb, zc->zc_obj, dirquota);
+	}else{
+		if (zsb->z_dirquota_obj== 0){
+			error = ENOENT;
+		}else{
+			error = zfs_get_dirquota(zsb, zc->zc_obj, dirquota);
+		}
+	}
+
+	if (error == 0) {
+		error = xcopyout(dirquota,(void *)(uintptr_t)zc->zc_nvlist_dst,
+			sizeof(zfs_dirquota_t));
+	}
+
+	zfs_sb_rele(zsb, FTAG);
+	
+	if(NULL != dirquota){
+		vmem_free(dirquota, sizeof(zfs_dirquota_t));
+	}
+	
+	return (error);
+
+}
+
+static int
+zfs_ioc_set_dirquota(zfs_cmd_t *zc)
+{
+
+	zfs_sb_t *zsb;	
+	int error;
+	uint64_t *parent_ids;
+
+	error = zfs_sb_hold(zc->zc_name, FTAG, &zsb, B_FALSE);
+	if (error)
+		return (error);
+
+	error = zfs_set_dir_quota(zsb, zc->zc_obj, zc->zc_value, zc->zc_cookie);
+	zfs_sb_rele(zsb, FTAG);
+
+	return (error);
+}
+
 static zfs_ioc_vec_t zfs_ioc_vec[ZFS_IOC_LAST - ZFS_IOC_FIRST];
 
 static void
@@ -6139,6 +6207,12 @@ zfs_ioctl_init(void)
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	zfs_ioctl_register_legacy(ZFS_IOC_HBX, zfs_ioc_do_hbx,
+	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_SET_DIRQUOTA, zfs_ioc_set_dirquota,
+	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_GET_DIRQUOTA, zfs_ioc_get_dirquota,
 	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 }
 

@@ -1144,10 +1144,14 @@ zap_increment(objset_t *os, uint64_t obj, const char *name, int64_t delta,
 	if (err != 0 && err != ENOENT)
 		return (err);
 	value += delta;
-	if (value == 0)
+	if (value == 0 || ( delta<0 && value < (-delta ) ) )
 		err = zap_remove(os, obj, name, tx);
 	else
 		err = zap_update(os, obj, name, 8, 1, &value, tx);
+	if( err == ENOENT ) {
+		err = 0 ;
+		cmn_err( CE_NOTE, "in [%s:%u] zap_remove return ENOENT", __func__, __LINE__ ) ;
+	}
 	return (err);
 }
 

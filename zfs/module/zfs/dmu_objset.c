@@ -301,6 +301,8 @@ dmu_objset_byteswap(void *buf, size_t size)
 	if (size == sizeof (objset_phys_t)) {
 		dnode_byteswap(&osp->os_userused_dnode);
 		dnode_byteswap(&osp->os_groupused_dnode);
+		dnode_byteswap(&osp->os_userobjused_dnode);
+		dnode_byteswap(&osp->os_groupobjused_dnode);
 	}
 }
 
@@ -964,6 +966,10 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 		    DMU_USERUSED_OBJECT, &os->os_userused_dnode);
 		dnode_special_open(os, &os->os_phys->os_groupused_dnode,
 		    DMU_GROUPUSED_OBJECT, &os->os_groupused_dnode);
+		dnode_special_open( os, &os->os_phys->os_userobjused_dnode,
+		    DMU_USEROBJUSED_OBJECT, &os->os_userobjused_dnode ) ;
+		dnode_special_open( os, &os->os_phys->os_groupobjused_dnode,
+		    DMU_GROUPOBJUSED_OBJECT, &os->os_groupobjused_dnode ) ;
 	}
 
 	*osp = os;
@@ -1168,6 +1174,8 @@ dmu_objset_evict_dbufs(objset_t *os)
 	if (DMU_USERUSED_DNODE(os) != NULL) {
 		dnode_evict_dbufs(DMU_GROUPUSED_DNODE(os));
 		dnode_evict_dbufs(DMU_USERUSED_DNODE(os));
+		dnode_evict_dbufs(DMU_GROUPOBJUSED_DNODE(os));
+		dnode_evict_dbufs(DMU_USEROBJUSED_DNODE(os));
 	}
 	dnode_evict_dbufs(DMU_META_DNODE(os));
 }
@@ -1260,6 +1268,8 @@ dmu_objset_evict_done(objset_t *os)
 	if (DMU_USERUSED_DNODE(os)) {
 		dnode_special_close(&os->os_userused_dnode);
 		dnode_special_close(&os->os_groupused_dnode);
+		dnode_special_close( &os->os_userobjused_dnode ) ;
+		dnode_special_close( &os->os_groupobjused_dnode ) ;
 	}
 	zil_free(os->os_zil);
 
@@ -1671,6 +1681,10 @@ dmu_objset_sync(objset_t *os, zio_t *pio, dmu_tx_t *tx)
 		dnode_sync(DMU_USERUSED_DNODE(os), tx);
 		DMU_GROUPUSED_DNODE(os)->dn_zio = zio;
 		dnode_sync(DMU_GROUPUSED_DNODE(os), tx);
+		DMU_USEROBJUSED_DNODE(os)->dn_zio = zio;
+		dnode_sync(DMU_USEROBJUSED_DNODE(os), tx);
+		DMU_GROUPOBJUSED_DNODE(os)->dn_zio = zio;
+		dnode_sync(DMU_GROUPOBJUSED_DNODE(os), tx);
 	}
 
 	txgoff = tx->tx_txg & TXG_MASK;
@@ -1734,10 +1748,11 @@ do_userquota_update(objset_t *os, uint64_t used, uint64_t flags,
 		int64_t delta = DNODE_SIZE + used;
 		if (subtract)
 			delta = -delta;
-		VERIFY3U(0, ==, zap_increment_int(os, DMU_USERUSED_OBJECT,
+		/* Because we have done user/group used in zfs_update_quota_used, so no need for this now */
+/*		VERIFY3U(0, ==, zap_increment_int(os, DMU_USERUSED_OBJECT,
 		    user, delta, tx));
 		VERIFY3U(0, ==, zap_increment_int(os, DMU_GROUPUSED_OBJECT,
-		    group, delta, tx));
+		    group, delta, tx)); */
 	}
 }
 
@@ -1763,6 +1778,12 @@ dmu_objset_do_userquota_updates(objset_t *os, dmu_tx_t *tx)
 			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
 			VERIFY(0 == zap_create_claim(os,
 			    DMU_GROUPUSED_OBJECT,
+			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+			VERIFY(0 == zap_create_claim(os,
+			    DMU_USEROBJUSED_OBJECT,
+			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+			VERIFY(0 == zap_create_claim(os,
+			    DMU_GROUPOBJUSED_OBJECT,
 			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
 		}
 
