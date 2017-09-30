@@ -3622,6 +3622,9 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	} else if (flags == ZNODE_INFO) {
 		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
 		strncpy(zc.zc_top_ds, sync_param->target_dir, MAXPATHLEN);
+	}else if (flags == DOUBLE_DATA) {
+		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
+		zc.zc_obj = (uint64_t)sync_param->double_data;
 	}
 	else {
 		if (group_name) {
@@ -3738,6 +3741,13 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 				default:
 					printf("Fail to set multiclus, Type invalid\n");
 					break;
+			}
+		}else{
+			if (flags == DOUBLE_DATA){
+				if (zc.zc_sendobj)
+					printf("Double Data Mode Enabled.\n");
+				else
+					printf("Double Data Mode Disabled.\n");
 			}
 		}
 	}

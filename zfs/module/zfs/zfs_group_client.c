@@ -1184,7 +1184,7 @@ zfs_proc_data2(zfs_sb_t *zsb, znode_t *zp,
 			uiop = (uio_t *)(uintptr_t)write->addr;
 			write_len = (write->len + (8 -1)) & (~(8 -1));
 			msg_len = sizeof(zfs_group_data_msg_t) + write_len - 8;
-			data_msg = kmem_zalloc(msg_len, KM_SLEEP);
+			data_msg = vmem_zalloc(msg_len, KM_SLEEP);
 			data = &data_msg->call.data;
 			addr = &data_msg->call.data.data;
 			data->io_flags = io_flags;
@@ -1241,7 +1241,7 @@ zfs_proc_data2(zfs_sb_t *zsb, znode_t *zp,
 	}
 
 	if (data_msg != NULL) {
-		kmem_free(data_msg, msg_len);
+		vmem_free(data_msg, msg_len);
 	}
 	if (msg_header != NULL) {
 		kmem_free(msg_header, sizeof(zfs_group_header_t));
@@ -1611,7 +1611,7 @@ zfs_client_write_data2(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	off = uiop->uio_loffset;
 	len = nbytes ;
 
-	write = kmem_alloc(sizeof(zfs_group_data_write_t), KM_SLEEP);
+	write = vmem_alloc(sizeof(zfs_group_data_write_t), KM_SLEEP);
 	write->addr = (uint64_t)(uintptr_t)uiop;
 	write->offset = off;
 	write->len = nbytes;
@@ -1625,7 +1625,7 @@ zfs_client_write_data2(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 		uioskip(uiop, nbytes);
 	}
 
-	kmem_free(write, sizeof(zfs_group_data_write_t));
+	vmem_free(write, sizeof(zfs_group_data_write_t));
 	return (error);
 }
 
@@ -6060,12 +6060,12 @@ void zfs_group_fill_data(zfs_group_header_t *hdr, uint64_t data_index,
 			app_data = (char *)datap + write_hdr_len;
 			iovp = &datavps->iovps[0];
 			
-			iovp->iov_base = kmem_zalloc((data_len - write_hdr_len), KM_SLEEP);
+			iovp->iov_base = vmem_zalloc((data_len - write_hdr_len), KM_SLEEP);
 			bcopy(app_data, iovp->iov_base, (data_len - write_hdr_len));
 			iovp->iov_len = data_len - write_hdr_len;
 		} else {
 			iovp = &datavps->iovps[data_index];
-			iovp->iov_base = kmem_zalloc(data_len, KM_SLEEP);
+			iovp->iov_base = vmem_zalloc(data_len, KM_SLEEP);
 			bcopy(datap, iovp->iov_base, data_len);
 			iovp->iov_len = data_len;
 		}

@@ -1313,18 +1313,17 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	    (zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct))
 		zil_commit(zilog, zp->z_id);
 
-	sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
-	zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE - 1) >> SPA_MINBLOCKSHIFT);
-
-	/*
-	 * in cluster, the old_zp may be different from the zp
-	 * when the old_zp is a virtual node, update it here
-	 */
-	old_zp->z_size = zp->z_size;
-	old_zp->z_nblks = zp->z_nblks;
-	old_zp->z_blksz = zp->z_blksz;
-
 	if (zsb->z_os->os_is_group && NOTIFY_FILE_SIZE) {
+		sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
+		zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE - 1) >> SPA_MINBLOCKSHIFT);
+
+		/*
+		 * in cluster, the old_zp may be different from the zp
+		 * when the old_zp is a virtual node, update it here
+		 */
+		old_zp->z_size = zp->z_size;
+		old_zp->z_nblks = zp->z_nblks;
+		old_zp->z_blksz = zp->z_blksz;
 		zfs_group_notify_para_t *notify_para = kmem_zalloc(sizeof(zfs_group_notify_para_t), KM_SLEEP);
 
 		//notify_para->znode = *zp;
@@ -2552,20 +2551,22 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 		
 		if(error == 0){
 			zp = ITOZ(*ipp);
-			if (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
-				(zp->z_group_id.data_spa != zp->z_group_id.master_spa || zp->z_group_id.data_objset != zp->z_group_id.master_objset 
-				  || zp->z_group_id.data_object != zp->z_group_id.master_object) &&
-				(zp->z_group_id.data_spa != 0 && zp->z_group_id.data_objset != 0 && zp->z_group_id.data_object != 0) &&
-				zp->z_group_id.data_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) ){
-				error = zfs_group_get_attr_from_data_node(zsb, zp);
+			if (!NOTIFY_FILE_SIZE){
+				if (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
+					(zp->z_group_id.data_spa != zp->z_group_id.master_spa || zp->z_group_id.data_objset != zp->z_group_id.master_objset 
+					  || zp->z_group_id.data_object != zp->z_group_id.master_object) &&
+					(zp->z_group_id.data_spa != 0 && zp->z_group_id.data_objset != 0 && zp->z_group_id.data_object != 0) &&
+					zp->z_group_id.data_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) ){
+					error = zfs_group_get_attr_from_data_node(zsb, zp);
+				}
+				if ((error != 0) && (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
+					(zp->z_group_id.data2_spa != zp->z_group_id.master_spa || zp->z_group_id.data2_objset != zp->z_group_id.master_objset 
+					  || zp->z_group_id.data2_object != zp->z_group_id.master_object) && 
+					(zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0) &&
+					zp->z_group_id.data2_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) )){
+					error = zfs_group_get_attr_from_data2_node(zsb, zp);
+				}	
 			}
-			if ((error != 0) && (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
-				(zp->z_group_id.data2_spa != zp->z_group_id.master_spa || zp->z_group_id.data2_objset != zp->z_group_id.master_objset 
-				  || zp->z_group_id.data2_object != zp->z_group_id.master_object) && 
-				(zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0) &&
-				zp->z_group_id.data2_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) )){
-				error = zfs_group_get_attr_from_data2_node(zsb, zp);
-			}	
 			zp->nfs_query_data = getdata;
 			if (zsb->z_isworm > 0) {
 				if ((zp->z_pflags & ZFS_IMMUTABLE) != 0) {
@@ -7433,6 +7434,11 @@ int zfs_print_znode_info(char *path)
 	return error;
 }
 
+int zfs_enable_disable_double_data(boolean_t double_data)
+{
+	TO_DOUBLE_DATA_FILE = double_data;
+	return TO_DOUBLE_DATA_FILE;
+}
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 module_param(zfs_read_chunk_size, long, 0644);
