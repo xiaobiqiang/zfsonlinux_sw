@@ -7019,7 +7019,7 @@ zfs_do_multiclus(int argc, char **argv)
 	int c;
 
 	void* param = NULL;	
-	zfs_grp_sync_param_t sync_param = { B_FALSE, B_FALSE, B_FALSE };
+	zfs_grp_sync_param_t sync_param = { B_FALSE, B_FALSE, B_FALSE, B_FALSE};
 
 	while ((c = getopt(argc, argv, "vedxrt")) != -1) {
 		switch (c) {
@@ -7060,6 +7060,11 @@ zfs_do_multiclus(int argc, char **argv)
 		else if(!strcmp(argv[0], "z_info")) {
 			flags = ZNODE_INFO;
 			sync_param.target_dir = argv[1];
+			param = (void*)(&sync_param);
+		}
+		else if(!strcmp(argv[0], "double_data")) {
+			flags = DOUBLE_DATA;
+			sync_param.double_data = (boolean_t)(atoi(argv[1]));
 			param = (void*)(&sync_param);
 		}
 		else if(!strcmp(argv[0], "add")){

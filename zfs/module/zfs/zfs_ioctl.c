@@ -5293,12 +5293,16 @@ static int
 zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 {
 	int error = 0;
-extern int zfs_print_znode_info(char *path);
-
+	int mode = 0;
+	
 	switch (zc->zc_cookie)
 	{
 		case ZNODE_INFO:
 			error = zfs_print_znode_info(zc->zc_top_ds);
+			break;
+		case DOUBLE_DATA:
+			mode = zfs_enable_disable_double_data((boolean_t)zc->zc_obj);
+			zc->zc_sendobj = (uint64_t)mode;
 			break;
 		case ENABLE_MULTICLUS:
 			error = zfs_multiclus_init();

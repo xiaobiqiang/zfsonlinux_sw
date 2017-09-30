@@ -88,6 +88,7 @@ typedef struct zfs_group_sync_param
 	boolean_t	check_only;
 	boolean_t	stop_sync;
 	boolean_t	all_member_online;
+	boolean_t  	double_data;
 	char		*output_file;
 	char		*target_dir;
 } zfs_grp_sync_param_t;
