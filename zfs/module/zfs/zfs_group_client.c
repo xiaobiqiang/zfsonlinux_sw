@@ -2343,9 +2343,12 @@ int zfs_client_notify_file_space(znode_t *zp, uint64_t update_size, uint64_t use
 	}
 
 	bzero(&file_notify, sizeof(zfs_group_notify_file_space_t));
-	bcopy(zp->z_atime, file_notify.atime, sizeof(zp->z_atime));
-	bcopy(zp->z_ctime, file_notify.ctime, sizeof(zp->z_ctime));
-	bcopy(zp->z_mtime, file_notify.mtime, sizeof(zp->z_mtime));	
+//	bcopy(zp->z_atime, file_notify.atime, sizeof(zp->z_atime));
+//	bcopy(zp->z_ctime, file_notify.ctime, sizeof(zp->z_ctime));
+//	bcopy(zp->z_mtime, file_notify.mtime, sizeof(zp->z_mtime));
+	ZFS_TIME_ENCODE(&ZTOI(zp)->i_atime, file_notify.atime);
+	ZFS_TIME_ENCODE(&ZTOI(zp)->i_ctime, file_notify.ctime);
+	ZFS_TIME_ENCODE(&ZTOI(zp)->i_mtime, file_notify.mtime);
 	file_notify.file_updatesize = update_size;
 	file_notify.file_updateop = used_op;
 	file_notify.file_size = zp->z_size;

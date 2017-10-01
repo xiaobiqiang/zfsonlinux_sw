@@ -3181,7 +3181,12 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			bcopy(file_notify->atime, zp->z_atime, sizeof(zp->z_atime));
 			bcopy(file_notify->ctime, zp->z_ctime, sizeof(zp->z_ctime));
 			bcopy(file_notify->mtime, zp->z_mtime, sizeof(zp->z_mtime));
-			zp->z_size = file_notify->file_size;
+			ZFS_TIME_DECODE(&ZTOI(zp)->i_atime, file_notify->atime);
+			ZFS_TIME_DECODE(&ZTOI(zp)->i_ctime, file_notify->ctime);
+			ZFS_TIME_DECODE(&ZTOI(zp)->i_mtime, file_notify->mtime);
+			if ((file_notify->file_updateop==EXPAND_SPACE &&  zp->z_size < file_notify->file_size) 
+				|| (file_notify->file_updateop==REDUCE_SPACE &&  zp->z_size > file_notify->file_size))
+				zp->z_size = file_notify->file_size;
 
 			SA_ADD_BULK_AMCTIME(bulk, count, zsb, zp);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
