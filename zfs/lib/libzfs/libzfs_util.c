@@ -1880,7 +1880,7 @@ zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
     uint64_t flags)
 {
     int err;
-    zfs_cmd_t zc = { 0 };
+    zfs_cmd_t zc = {"\0"};
 
 
     if (flags == ENABLE_MIRROR) {
@@ -1929,7 +1929,7 @@ int
 zfs_test_mirror(libzfs_handle_t *hdl, long int bs, long int cnt, uint8_t need_reply)
 {
 	int err;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 
 	zc.zc_guid = bs;
 	zc.zc_cookie = cnt;
@@ -1946,7 +1946,7 @@ int zfs_comm_test(libzfs_handle_t *hdl, char *hostid, char*datalen, char*headlen
 	uint32_t id;
 	uint32_t len;
 	uint32_t exlen;
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {"\0"};
 	
 	if (hostid == NULL) {
 		(void) printf("must give the hostid\n");
@@ -2728,7 +2728,7 @@ zfs_import_all_lus(libzfs_handle_t *hdl, char *data)
 	zfs_ilu_ctx_t zic;
 	zfs_ilu_list_t *lu_list;
 	int ret;
-	int tp_size;
+	/*int tp_size;*/
 	zfs_cmd_t *zc;
 	int error;
 
@@ -2792,6 +2792,8 @@ zfs_import_all_lus(libzfs_handle_t *hdl, char *data)
 			__func__, data);
 		return ;
 	}
+	bzero(zc, sizeof(zfs_cmd_t));
+	assert(zc->zc_nvlist_src_size == 0);
 	strcpy(zc->zc_name, data);
 	ret = zfs_ioctl(hdl, ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT, zc);
 	if (ret != 0) {
@@ -2934,7 +2936,7 @@ zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name)
 int 
 zfs_destroy_lu(char *dataset)
 {
-	int stmf_proxy_door_fd;
+	/*int stmf_proxy_door_fd;*/
 	char dev_path[MAXNAMELEN];
 	char prop_val[MAXNAMELEN];
 	size_t prop_val_sz = sizeof(prop_val);
@@ -2945,7 +2947,7 @@ zfs_destroy_lu(char *dataset)
 	int lu_num;
 	int view_num;
 	luResource hdl = NULL;
-	boolean_t b_destroy_partner = B_TRUE;
+	/*boolean_t b_destroy_partner = B_TRUE;*/
 	boolean_t b_del_partion = B_FALSE;
 	stmf_remove_proxy_view_t *proxy_remove_view_entry;
 
@@ -3100,7 +3102,7 @@ int zfs_enable_avs_iter_dataset(zfs_handle_t *zhp, void *data)
 
 	if (zfs_get_type(zhp) == ZFS_TYPE_VOLUME) {
 		nvlist_t *props, *nvl;
-		zfs_cmd_t zc = {0};
+		zfs_cmd_t zc = {"\0"};
 		char *is_single_data;
 #if 0
 		nvpair_t *elem = NULL;
@@ -3291,7 +3293,7 @@ void
 zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled)
 {
 	zfs_avs_ctx_t ctx;
-	struct stat sb;	
+	/*struct stat sb;*/
 	
 	ctx.pool_name = data;
 	ctx.enabled = enabled;
