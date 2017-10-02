@@ -1849,13 +1849,12 @@ tx_again:
 		 * account for possible concurrent updates.
 		 */
 		while ((end_size = zp->z_size) < uio->uio_loffset) {
-			if (end_size == zp->z_size)
-				update_size = (int64_t)(uio->uio_loffset-zp->z_size);
-			(void) atomic_cas_64(&zp->z_size, end_size,
+			update_size = 0 ;
+			update_size = uio->uio_loffset - atomic_cas_64(&zp->z_size, end_size,
 			    uio->uio_loffset);
 			ASSERT(error == 0);
 		}
-		if (update_size > 0)
+		if (update_size >= 0)
 			total_update_size += (uint64_t)update_size ;
 		/*
 		 * If we are replaying and eof is non zero then force
@@ -1873,7 +1872,9 @@ tx_again:
 			(zsb->z_os->os_is_group > 0 &&
 			zsb->z_os->os_is_master > 0)) && (zp->z_bquota || zp->z_dirquota > 0)) {
 	/*		if (update_size > 0) { */
-				zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE, tx);
+			/*	zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE, tx); */
+			if( !( zp->z_pflags & ZFS_XATTR ) )
+				zfs_update_quota_used( zsb, zp, total_update_size, EXPAND_SPACE, tx ) ;
 /*			}*/
 		}
 	
@@ -1931,7 +1932,8 @@ tx_again:
 
 //		notify_para->znode = *zp;
 		bcopy(zp, &notify_para->znode, sizeof(znode_t));
-		notify_para->update_size = used;
+/*		notify_para->update_size = used; */
+		notify_para->update_size = total_update_size ;
 		notify_para->used_op = EXPAND_SPACE;
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
@@ -1941,6 +1943,8 @@ tx_again:
 		} else {
 			notify_para->update_quota = (ioflag & F_DT2_NO_UP_QUOTA) ? B_FALSE : B_TRUE;
 		}
+		if( zp->z_pflags & ZFS_XATTR )
+			notify_para->update_quota = B_FALSE ;
 
 		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
 		    (void*)notify_para, TQ_NOSLEEP) == 0){
@@ -2853,7 +2857,8 @@ top:
 			return (error);
 		}
 		zfs_mknode(dzp, vap, tx, cr, 0, &zp, &acl_ids);
-		zfs_update_quota_used(zsb, zp, 1, ADD_FILE, tx);
+		if( !( dzp->z_pflags & ZFS_XATTR ) )
+			zfs_update_quota_used(zsb, zp, 1, ADD_FILE, tx);
 
 		if (fuid_dirtied)
 			zfs_fuid_sync(zsb, tx);
@@ -3276,7 +3281,7 @@ top:
 		 *
 		 * We'll fix this in the future
 		 */
-		if (zp->z_dirquota > 0 || zp->z_bquota > 0) {
+		if ( ( ! (zp->z_pflags & ZFS_XATTR ) ) && (zp->z_dirquota > 0 || zp->z_bquota > 0)) {
 			zfs_update_quota_used(zsb, zp, zp->z_size, REDUCE_SPACE, tx);
 			/* I don't think we need to check overquota here. */
 		/*	bover = zfs_write_overquota(zsb, zp);

@@ -2003,7 +2003,7 @@ log:
 	ASSERT(error == 0);
 
 	err_meta_tx = zfs_log_truncate(zilog, tx, TX_TRUNCATE, zp, off, len);
-	if ( ( zp->z_pflags & ZFS_XATTR == 0 ) && (zp->z_bquota > 0 || zp->z_dirquota > 0) && \
+	if ( ( (zp->z_pflags & ZFS_XATTR) == 0 ) && (zp->z_bquota > 0 || zp->z_dirquota > 0) && \
 		(!zsb->z_os->os_is_group ||(zsb->z_os->os_is_group && zsb->z_os->os_is_master))) {
 	    if (reduce_len) {
 			zfs_update_quota_used(zsb, zp, reduce_len, REDUCE_SPACE , tx);
