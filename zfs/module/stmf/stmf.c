@@ -7297,12 +7297,26 @@ stmf_queue_task_for_abort(scsi_task_t *task, stmf_status_t s, uint32_t abort_typ
 	uint32_t old, new;
 	clock_t cur_time;
 
+	if ((w = itask->itask_worker) == NULL)
+		return;
+
+	mutex_enter(&w->worker_lock);
+	if (itask->itask_flags & ITASK_CHECKER_PROCESS) {
+		cmn_err(CE_NOTE, "%s: ITASK_CHECKER_PROCESS not to abort, task = %p, abort_type = %d,"
+			"itask_flags = 0x%x, cdb0 = %02x", __func__, (void *)task, abort_type, 
+			itask->itask_flags, task->task_cdb[0]);
+		mutex_exit(&w->worker_lock);
+		return;
+	}
+
+
 	stmf_task_audit(itask, TE_TASK_ABORT, CMD_OR_IOF_NA, NULL);
 	do {
 		old = new = itask->itask_flags;
 		if ((old & ITASK_BEING_ABORTED) ||
 		    ((old & (ITASK_KNOWN_TO_TGT_PORT |
 		    ITASK_KNOWN_TO_LU)) == 0)) {
+		    mutex_exit(&w->worker_lock);
 			return;
 		}
 		new |= ITASK_BEING_ABORTED;
@@ -7316,13 +7330,12 @@ stmf_queue_task_for_abort(scsi_task_t *task, stmf_status_t s, uint32_t abort_typ
 	task->task_completion_status = s;
 	itask->itask_start_time = ddi_get_lbolt();
 	
-	if (((w = itask->itask_worker) == NULL) ||
-	    (itask->itask_flags & ITASK_IN_TRANSITION)) {
+	if (itask->itask_flags & ITASK_IN_TRANSITION) {
+	    mutex_exit(&w->worker_lock);
 		return;
 	}
 
 	/* Queue it and get out */
-	mutex_enter(&w->worker_lock);
 	if (itask->itask_flags & ITASK_IN_WORKER_QUEUE) {
 		mutex_exit(&w->worker_lock);
 		return;
@@ -9643,6 +9656,7 @@ stmf_worker_remove_task(stmf_worker_t *w)
 	boolean_t need_remove;
 	list_t itask_list;
 	stmf_task_node_t *task_node;
+	uint32_t old, new;
 
 	mutex_enter(&w->worker_lock);
 
@@ -9667,24 +9681,28 @@ stmf_worker_remove_task(stmf_worker_t *w)
 
 			if (curcmd == ITASK_CMD_NEW_TASK) {
 				waitq_time = stmf_task_waitq_time(itask);
-
+				mutex_enter(&itask->itask_transition_mutex);
 				if (waitq_time >= stmf_waitq_time_threshold) {
-					if (!(itask->itask_flags & ITASK_BEING_ABORTED)) {
+					if (!(itask->itask_flags & ITASK_BEING_ABORTED) &&
+						(itask->itask_transition_state == ITASK_TRANSITION_NORMAL)) {
 						stmf_debug_task(itask, waitq_time);
 						cmn_err(CE_NOTE, "%s need remove task = %p", __func__,
 							itask->itask_task);
 						need_remove = B_TRUE;
-					} else {
-						cmn_err(CE_NOTE, "%s being abort, not remove task = %p",
-							__func__, itask->itask_task);
 					}
-				}				
+				}
+				mutex_exit(&itask->itask_transition_mutex);
 			}
 		}
 
 		if (need_remove) {
-			stmf_i_scsi_task_t *itask_next = itask->itask_worker_next;
-			
+			stmf_i_scsi_task_t *itask_next;			
+			do {
+				old = new = itask->itask_flags;
+				new |= ITASK_CHECKER_PROCESS;
+			} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
+
+			itask_next = itask->itask_worker_next;
 			if (itask == w->worker_task_head) {
 				if (itask == w->worker_task_tail) {
 					w->worker_task_head = w->worker_task_tail = NULL;

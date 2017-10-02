@@ -335,6 +335,7 @@ typedef struct stmf_i_scsi_task {
 #define	ITASK_KSTAT_IN_RUNQ		0x1000
 #define	ITASK_PROXY_TASK		0x2000
 #define	ITASK_HOLD_INSTOP		0x4000
+#define	ITASK_CHECKER_PROCESS	0x8000
 
 
 /*
