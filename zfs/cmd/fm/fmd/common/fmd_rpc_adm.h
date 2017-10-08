@@ -231,7 +231,7 @@ extern  enum clnt_stat fmd_adm_caseacquit_1(char *, int *, CLIENT *);
 extern  bool_t fmd_adm_caseacquit_1_svc(char *, int *, struct svc_req *);
 #define FMD_ADM_GENXML 24
 extern  enum clnt_stat fmd_adm_genxml_1(int *, CLIENT *);
-extern  bool_t fmd_adm_genxml_1_svc(int *, struct svc_req *);
+extern  bool_t fmd_adm_genxml_1_svc(const int *warning, int *rvp, struct svc_req *req);
 extern int fmd_adm_1_freeresult (SVCXPRT *, xdrproc_t, caddr_t);
 
 #else /* K&R C */

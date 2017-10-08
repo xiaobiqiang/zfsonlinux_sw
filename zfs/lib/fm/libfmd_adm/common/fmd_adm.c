@@ -411,7 +411,7 @@ fmd_adm_module_iter(fmd_adm_t *ap, fmd_adm_module_f *func, void *arg)
 }
 
 int
-fmd_adm_module_genxml(fmd_adm_t *ap)
+fmd_adm_module_genxml(fmd_adm_t *ap, const int warning)
 {
 	int err = 0;
 	enum clnt_stat cs;
@@ -419,7 +419,7 @@ fmd_adm_module_genxml(fmd_adm_t *ap)
 	int *clnt_res = NULL;
 
 	do {
-		cs = fmd_adm_genxml_1(err, clnt_res, ap->adm_clnt);
+		cs = fmd_adm_genxml_1(warning, &err, ap->adm_clnt);
 	} while (fmd_adm_retry(ap, cs, &retries));
 
 	if (cs != RPC_SUCCESS)

@@ -163,9 +163,9 @@ _fmd_adm_caseacquit_1 (char * *argp, void *result, struct svc_req *rqstp)
 }
 
 int
-_fmd_adm_genxml_1 (void  *argp, void *result, struct svc_req *rqstp)
+_fmd_adm_genxml_1 (int  *argp, void *result, struct svc_req *rqstp)
 {
-	return (fmd_adm_genxml_1_svc(result, rqstp));
+	return (fmd_adm_genxml_1_svc(*argp, result, rqstp));
 }
 
 int
@@ -374,7 +374,7 @@ fmd_adm_1(struct svc_req *rqstp, register SVCXPRT *transp)
 		break;
 
 	case FMD_ADM_GENXML:
-		_xdr_argument = (xdrproc_t) xdr_void;
+		_xdr_argument = (xdrproc_t) xdr_int;
 		_xdr_result = (xdrproc_t) xdr_int;
 		local = (bool_t (*) (char *, void *,  struct svc_req *))_fmd_adm_genxml_1;
 		break;

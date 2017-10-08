@@ -75,7 +75,7 @@ typedef int fmd_adm_module_f(const fmd_adm_modinfo_t *, void *);
 extern int fmd_adm_module_iter(fmd_adm_t *, fmd_adm_module_f *, void *);
 extern int fmd_adm_module_load(fmd_adm_t *, const char *);
 extern int fmd_adm_module_unload(fmd_adm_t *, const char *);
-extern int fmd_adm_module_genxml(fmd_adm_t *);
+extern int fmd_adm_module_genxml(fmd_adm_t *ap, const int warning);
 extern int fmd_adm_module_reset(fmd_adm_t *, const char *);
 extern int fmd_adm_module_stats(fmd_adm_t *, const char *, fmd_adm_stats_t *);
 extern int fmd_adm_module_gc(fmd_adm_t *, const char *);
