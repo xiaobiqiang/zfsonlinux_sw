@@ -726,7 +726,7 @@ int ethernet_link_walk(conn_handle_t *chp){/*{{{*/
 		fp2 = popen(cmd, "r");
 		fgets(state, CMDLEN, fp2);
 		state[strlen(state)-1] = 0;
-		#if 1
+		#if 0
 		printf("%s: %s\n", linkname, state);
 		#endif
 		pclose(fp2);
