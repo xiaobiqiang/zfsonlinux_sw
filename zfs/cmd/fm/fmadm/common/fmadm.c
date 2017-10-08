@@ -35,6 +35,7 @@
 static const char *g_pname;
 static fmd_adm_t *g_adm;
 static int g_quiet;
+int g_warning = 0;
 
 /*PRINTFLIKE1*/
 void
@@ -116,7 +117,7 @@ static const struct cmd {
 { cmd_reset, "reset", "[-s serd] <module>", "reset module or sub-component" },
 { cmd_rotate, "rotate", "<logname>", "rotate log file" },
 { cmd_unload, "unload", "<module>", "unload specified fault manager module" },
-{ cmd_genxml, "genxml", NULL, "generate a xml formatted topology" },
+{ cmd_genxml, "genxml", "[-w] [-u]", "generate a xml formatted topology" },
 { NULL, NULL, NULL }
 };
 
@@ -182,13 +183,19 @@ main(int argc, char *argv[])
 	else
 		program = FMD_ADM_PROGRAM;
 
-	while ((c = getopt(argc, argv, "P:q")) != EOF) {
+	while ((c = getopt(argc, argv, "P:qwu")) != EOF) {
 		switch (c) {
 		case 'P':
 			program = getu32("program", optarg);
 			break;
 		case 'q':
 			g_quiet++;
+			break;
+		case 'w':
+			g_warning = 1;
+			break;
+		case 'u':
+			g_warning = 2;
 			break;
 		default:
 			return (usage(stderr));
