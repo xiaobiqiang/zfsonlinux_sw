@@ -34,7 +34,7 @@ struct topo_fruhash {
 typedef struct topo_fru topo_fru_t;
 typedef struct topo_fruhash topo_fruhash_t;
 
-topo_fruhash_t *topo_get_fruhash();
+topo_fruhash_t *topo_get_fruhash(void);
 topo_fru_t *topo_fru_setime(const char *name, int status, char *diskname,
 		char *slotid, char *encid, char *product);
 topo_fru_t *topo_fru_hash_lookup(const char *name);

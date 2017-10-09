@@ -366,9 +366,9 @@ int is_linkstate_changed(topo_mod_t *mod, tnode_t *nodep, topo_version_t vers, n
 	}
 
 	if (status == SXML_OK || status == SXML_ONLINE || status == SXML_UP)
-		topo_fru_cleartime(fmristr);
+		topo_fru_cleartime(fmristr, status);
 	else
-		(void) topo_fru_setime(fmristr, status);
+		(void) topo_fru_setime(fmristr, status, NULL, NULL, NULL, NULL);
 	nvlist_free(fmri);
 	topo_mod_strfree(mod, fmristr);
 	

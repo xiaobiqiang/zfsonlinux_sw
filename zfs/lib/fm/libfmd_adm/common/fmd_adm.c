@@ -918,43 +918,36 @@ fmd_adm_case_iter(fmd_adm_t *ap, const char *url_token, fmd_adm_case_f *func,
 
 	bzero(&rcl, sizeof (rcl)); /* tell xdr to allocate memory for us */
 	do {
-		printf("wwwwwttttwwwwwwwwwwwww...\n");
 		cs = fmd_adm_caselist_1(&rcl, ap->adm_clnt);
 	} while (fmd_adm_retry(ap, cs, &retries));
 
 	if (cs != RPC_SUCCESS){
-		printf("00000...\n");
 		return (fmd_adm_set_errno(ap, EPROTO));
 	}
 	if (rcl.rcl_err != 0) {
 		xdr_free((xdrproc_t)xdr_fmd_rpc_caselist, (char *)&rcl);
 		return (fmd_adm_set_svcerr(ap, rcl.rcl_err));
 	}
-printf("11111...\n");
 
 	if ((uuids = malloc(sizeof (char *) * rcl.rcl_cnt)) == NULL) {
 		xdr_free((xdrproc_t)xdr_fmd_rpc_caselist, (char *)&rcl);
 		return (fmd_adm_set_errno(ap, EAGAIN));
 	}
-printf("22222...\n");
 
 	p = rcl.rcl_buf.rcl_buf_val;
 
 	for (i = 0; i < rcl.rcl_cnt; i++, p += strlen(p) + 1)
 		uuids[i] = p;
-printf("33333...\n");
+
 	qsort(uuids, rcl.rcl_cnt, sizeof (char *), fmd_adm_case_cmp);
-printf("44444...\n");
 	for (i = 0; i < rcl.rcl_cnt; i++) {
 		bzero(&rci, sizeof (rci));
 
 		retries = 0;
 		do {
-			printf("zzzzzzzzzzzzzz...\n");
 
 			cs = fmd_adm_caseinfo_1(uuids[i], &rci, ap->adm_clnt);
 		} while (fmd_adm_retry(ap, cs, &retries));
-printf("yyyyyyyyyyyyyyyyyy...\n");
 
 		if (cs != RPC_SUCCESS) {
 			free(uuids);
@@ -983,7 +976,7 @@ printf("yyyyyyyyyyyyyyyyyy...\n");
 			xdr_free((xdrproc_t)xdr_fmd_rpc_caselist, (char *)&rcl);
 			return (fmd_adm_set_errno(ap, rv));
 		}
-nvlist_print(stdout, aci.aci_event);
+
 		if ((rv = nvlist_lookup_string(aci.aci_event, FM_SUSPECT_UUID,
 		    (char **)&aci.aci_uuid)) != 0) {
 			xdr_free((xdrproc_t)xdr_fmd_rpc_caseinfo, (char *)&rci);
