@@ -1,1 +1,1 @@
-SUBDIRS = zfs-retire zfs-diagnosis fanpsu-transport eversholt link-transport disk-transport snmp-trapgen
+SUBDIRS = zfs-retire zfs-diagnosis fanpsu-transport eversholt link-transport disk-transport
