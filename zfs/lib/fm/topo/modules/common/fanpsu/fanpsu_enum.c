@@ -5,6 +5,7 @@
 #include <libipmi.h>
 #include <topo_module.h>
 #include <topo_mod.h>
+#include <topo_fruhash.h>
 
 #include "fanpsu_enum.h"
 
@@ -154,7 +155,7 @@ fanpsu_node_list_walk(fanpsu_node_list_t *list, fanpsu_walk_ops_t *walk){
 	fanpsu_t *cp;
 
 	if(!(list && walk)){
-		printf("conn_node_list_dump the list or walk have been fucked\n");
+		printf("fanpsu_node_list_t the list or walk have been fucked\n");
 		return -1;
 	}
 
@@ -174,7 +175,15 @@ static int fanpsu_wrong_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t v
 	char state[2];
 	char *nodename = NULL;
 	int err;
+	nvlist_t *fmri;
+	char *fmristr;
 
+	if(topo_node_resource(nodep, &fmri, &err) != 0 ||
+		topo_mod_nvl2str(mod, fmri, &fmristr) != 0) {
+		nvlist_free(fmri);
+		return -1;
+	}
+	
 	if(topo_prop_get_string(nodep, "fanpsu_status", "name", &nodename, &err) != 0){
 		syslog(LOG_ERR, "update_linknode_state nodep no state prop entry.\n");
 		return (topo_mod_seterrno(mod, EMOD_METHOD_NOTSUP));
@@ -186,7 +195,7 @@ static int fanpsu_wrong_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t v
 	if (topo_mod_nvalloc(mod, &nvl, NV_UNIQUE_NAME) != 0)
 		return (topo_mod_seterrno(mod, EMOD_FMRI_NVL));
 
-	if(!strncmp(state, "ok", 2)){
+	if(strncmp(state, "ok", 2)){
 		if (nvlist_add_string(nvl, TOPO_PROP_VAL_NAME,
 			TOPO_PROP_STATE) != 0 ||
 			nvlist_add_uint32(nvl, TOPO_PROP_VAL_TYPE, TOPO_TYPE_STRING) != 0 ||
@@ -194,8 +203,15 @@ static int fanpsu_wrong_status(topo_mod_t *mod, tnode_t *nodep, topo_version_t v
 			nvlist_free(nvl);
 			return (topo_mod_seterrno(mod, EMOD_FMRI_NVL));
 		}
-	*out = nvl;
+
+		(void) topo_fru_setime(fmristr, FANPSU_STATE_CR, NULL, NULL, NULL, NULL);
+		*out = nvl;
+	}else{
+		topo_fru_cleartime(fmristr, FANPSU_STATE_OK);
 	}
+
+	nvlist_free(fmri);
+	topo_mod_strfree(mod, fmristr);
 
 	return (0);
 }
@@ -323,12 +339,12 @@ fanpsu_topo_node_create(fanpsu_handle_t *fp_hdl, fanpsu_nodeinfo_t *nodeinfo){
 	 */
 	if(!fp)
 		if(!(fp = (fanpsu_t *)topo_mod_zalloc(mod, sizeof(fanpsu_t)))){
-			topo_mod_dprintf(mod, "no memary in conn_node_creat conn_t\n");
+			topo_mod_dprintf(mod, "no memary in fanpsu_topo_node_create fanpsu_t\n");
 			return -1;
 		}
 
 	if(!(fp->name = topo_mod_strdup(mod, nodeinfo->name))){
-		topo_mod_dprintf(mod, "no memary in conn_node_creat conn_t.name\n");
+		topo_mod_dprintf(mod, "no memary in fanpsu_topo_node_create fanpsu_t.name\n");
 		topo_mod_free(mod, fp, sizeof(fanpsu_t));
 		return -1;
 	}

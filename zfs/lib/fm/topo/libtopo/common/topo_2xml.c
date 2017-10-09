@@ -826,7 +826,9 @@ topo_warning_xml_print(topo_hdl_t *thp,  FILE *fp, const char *scheme, int *err)
 					status = SXML_CRITICAL;
 				} else if ((name = strstr(fru->tf_name, "card_link")) != NULL) {
 					status = fru->tf_status;
-				} else if ((name = strstr(fru->tf_name, "ses-enclosure")) != NULL) {
+				}else if  ((name = strstr(fru->tf_name, "fanpsu")) != NULL) {
+					status = fru->tf_status;
+				}else if ((name = strstr(fru->tf_name, "ses-enclosure")) != NULL) {
 					if (strstr(name, "disk") != 0)
 						status = SXML_CRITICAL;
 					else
