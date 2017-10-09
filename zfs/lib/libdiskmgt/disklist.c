@@ -1168,6 +1168,126 @@ dmg_slice_compare(const void *p1, const void *p2) {
  * linux disk list interface
  ***************************************************************************
  */
+typedef struct slot_record {
+	int	 sr_enclosure;
+	int	 sr_slot;
+	struct slot_record *sr_next;
+	char sr_serial[ARGS_LEN];
+} slot_record_t;
+
+typedef struct slot_map {
+	slot_record_t *sm_head;
+	int sm_total;
+} slot_map_t;
+
+void slot_map_insert(slot_map_t *sm, slot_record_t *sr)
+{
+	if (sm->sm_head == NULL) {
+		sm->sm_head = sr;
+	} else {
+		sr->sr_next = sm->sm_head;
+		sm->sm_head = sr;
+	}
+
+	sm->sm_total++;
+}
+
+void slot_map_free(slot_map_t *sm)
+{
+	slot_record_t *temp = NULL;
+	slot_record_t *search = NULL;
+
+	if (sm->sm_head == NULL)
+		return;
+
+	for (search = sm->sm_head; search != NULL;) {
+		temp = search->sr_next;
+		free(search);
+		search = temp;
+	}
+
+	return;
+}
+
+void disk_get_slot_map(slot_map_t *sm)
+{
+	FILE *fd = -1;
+	FILE *pfd = -1;
+	FILE *vfd = -1;
+	int len = -1;
+	int slot = -1;
+	int enclosure = -1;
+	int is_ubuntu = -1;
+	char value_sn[ARGS_LEN] = {0};
+	char args[ARGS_LEN] = {0};
+	char version[ARGS_LEN] = {0};
+	char tmp[CMD_TMP_LEN] = {0};
+
+	pfd = popen("which gcc 2>/dev/null", "r");
+	if (pfd != NULL) {
+		if (fgets(tmp, sizeof(tmp), pfd) != NULL) {
+			sscanf(tmp,"%s",args);
+			sprintf(version, "%s --version", args);
+			vfd = popen(version, "r");
+			if (vfd != NULL) {
+				bzero(tmp, sizeof(tmp));
+				if (fgets(tmp, sizeof(tmp), vfd) != NULL) {
+					if (strcasestr(tmp, "ubuntu") != NULL)
+						is_ubuntu = 1;
+				}
+			}
+		}
+	}
+
+	pclose(vfd);
+	pclose(pfd);
+	bzero(tmp, sizeof(tmp));
+	bzero(args, sizeof(args));
+
+	fd = (is_ubuntu == 1 ? popen(SAS3IRCU, "r") : popen(SAS2IRCU, "r"));
+	if (fd == NULL)
+		return (0);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
+			continue;
+
+		sscanf(tmp, "%s", args);
+		if (strcasecmp(args, ENCLOSURE) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &enclosure);
+		} else if (strcasecmp(args, SLOT) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &slot);
+		} else if (strcasecmp(args, SERIALNO) == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_sn);
+			if (value_sn != NULL) {
+				slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
+				sr->sr_enclosure = enclosure;
+				sr->sr_slot = slot;
+				memcpy(sr->sr_serial, value_sn, strlen(value_sn));
+				slot_map_insert(sm, sr);
+				slot = 0;
+				enclosure = 0;
+			}
+		}
+	}
+}
+
+void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
+{
+	slot_record_t *search = NULL;
+
+	for (search = sm->sm_head; search != NULL; search = search->sr_next) {
+		if (strcasestr(di->dk_serial, search->sr_serial) != NULL ||
+				strcasestr(search->sr_serial, di->dk_serial) != NULL) {
+			di->dk_enclosure = search->sr_enclosure;
+			di->dk_slot = search->sr_slot;
+			break;
+		}
+	}
+
+	return;
+}
+
 void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 {
 	int slot = di->dk_slot;
@@ -1182,7 +1302,7 @@ void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 		return;
 	}
 
-	while (search->next != NULL && search->dk_enclosure != enclosure)
+	while (search->next != NULL && search->dk_enclosure < enclosure)
 		search = search->next;
 
 	if (slot == 0 && enclosure == 0) {
@@ -1194,10 +1314,11 @@ void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 		return;
 	}
 
-	while (search->next != NULL && search->dk_slot < slot)
+	while (search->next != NULL && search->dk_enclosure == enclosure
+			&& search->dk_slot < slot)
 		search = search->next;
 
-	if (search->dk_slot > slot) {
+	if (search->next != NULL || (dt->total == 1 && search->dk_enclosure > enclosure)) {
 		di->prev = search->prev;
 		di->next = search;
 		if (search->prev == NULL) {
@@ -1222,6 +1343,7 @@ int disk_get_info(disk_table_t *dt)
 	int i = 0;
 	int sec = 0;
 	int len = 0;
+	slot_map_t sm;
 	char *ptr = NULL;
 	disk_info_t *di_cur = NULL;
 	disk_info_t *di_ptr = NULL;
@@ -1234,6 +1356,9 @@ int disk_get_info(disk_table_t *dt)
 	fd = popen(DISK_BY_ID, "r");
 	if (fd == NULL)
 		return (-1);
+
+	bzero(&sm, sizeof(slot_map_t));
+	disk_get_slot_map(&sm);
 
 	while (fgets(tmp, sizeof(tmp), fd)) {
 		sscanf(tmp, "%*[^:]:%d %s %s %s",&sec, buf_scsi, buf_other, buf_dev);
@@ -1256,9 +1381,8 @@ int disk_get_info(disk_table_t *dt)
 			disk_get_vendor(di_cur);
 			disk_get_serial(di_cur);
 			disk_get_status(di_cur);
-			disk_get_slotid(di_cur);
 			disk_get_gsize(di_cur);
-
+			slot_map_find_value(&sm, di_cur);
 			disk_table_insert(dt, di_cur);
 		}
 	}
@@ -1272,6 +1396,7 @@ int disk_get_info(disk_table_t *dt)
 		}
 	}
 
+	slot_map_free(&sm);
 	(void) fclose(fd);
 	return (0);
 }
@@ -1368,12 +1493,7 @@ int disk_get_slotid(disk_info_t *di)
 	bzero(tmp, sizeof(tmp));
 	bzero(args, sizeof(args));
 
-	if (is_ubuntu == 1) {
-		fd = popen(SAS3IRCU, "r");
-	} else {
-		fd = popen(SAS2IRCU, "r");
-	}
-
+	fd = (is_ubuntu == 1 ? popen(SAS3IRCU, "r") : popen(SAS2IRCU, "r"));
 	if (fd == NULL)
 		return (0);
 
@@ -1381,7 +1501,7 @@ int disk_get_slotid(disk_info_t *di)
 		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
 			continue;
 
-		sscanf(tmp, "%s", args);	
+		sscanf(tmp, "%s", args);
 		if (strcasecmp(args, ENCLOSURE) == 0) {
 			sscanf(tmp, "%*[^:]:%d", &enclosure);
 		} else if (strcasecmp(args, SLOT) == 0) {
