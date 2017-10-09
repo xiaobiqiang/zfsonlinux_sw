@@ -162,6 +162,7 @@ AC_CONFIG_FILES([
 	cmd/fm/modules/common/fanpsu-transport/Makefile
 	cmd/fm/modules/common/disk-transport/Makefile
 	cmd/fm/modules/common/snmp-trapgen/Makefile
+	cmd/fm/modules/common/link-transport/Makefile
 	cmd/fm/modules/common/eversholt/Makefile
 	cmd/fm/modules/common/eversholt/files/Makefile
 	cmd/fm/fmd/schemes/Makefile
