@@ -353,7 +353,8 @@ typedef enum zfs_cache_type {
 typedef enum {
 	ZFS_SYNC_MIRROR = 0,
 	ZFS_SYNC_DISK = 1,
-	ZFS_SYNC_STANDARD = 2
+	ZFS_SYNC_STANDARD = 2,
+	ZFS_SYNC_ALWAYS = 3
 	/*
 	ZFS_SYNC_STANDARD = 0,
 	ZFS_SYNC_ALWAYS = 1,

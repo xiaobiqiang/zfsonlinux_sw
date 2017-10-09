@@ -24,7 +24,7 @@
 #include <sys/dmu_impl.h>
 #include <sys/zfs_rlock.h>
 #include <sys/zil.h>
-
+#include <sys/dmu_objset.h>
 #include <sys/stmf.h>
 #include <sys/lpif.h>
 #include <sys/portif.h>
@@ -434,7 +434,7 @@ sbd_zvol_rele_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	kmem_free(zvio->zvio_abp,
 	    sizeof (arc_buf_t *) * dbuf->db_sglist_length);
 	zvio->zvio_abp = NULL;
-	if (sync && write_direct) {
+	if ((sync && write_direct) || ((objset_t*)sl->sl_zvol_objset_hdl)->os_sync == ZFS_SYNC_ALWAYS) {
 		zil_commit(sl->sl_zvol_zil_hdl, ZVOL_OBJ);
 	}
 	return (0);
@@ -573,7 +573,7 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 		dmu_tx_commit(tx);
 	}
 	zfs_range_unlock(rl);
-	if (sync && write_direct) {
+	if ((sync && write_direct) || ((objset_t*)sl->sl_zvol_objset_hdl)->os_sync == ZFS_SYNC_ALWAYS) {
 		zil_commit(sl->sl_zvol_zil_hdl, ZVOL_OBJ);
 	}
 	if (error == ECKSUM)
