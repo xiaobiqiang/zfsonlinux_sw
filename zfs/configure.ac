@@ -108,6 +108,8 @@ AC_CONFIG_FILES([
 	lib/fm/libfmd_log/common/Makefile
 	lib/fm/libfmd_adm/Makefile
 	lib/fm/libfmd_adm/common/Makefile
+	lib/fm/libdiskstatus/Makefile
+	lib/fm/libdiskstatus/common/Makefile
 	lib/fm/libexacct/Makefile
 	lib/fm/libexacct/common/Makefile
 	lib/fm/topo/Makefile
@@ -119,6 +121,7 @@ AC_CONFIG_FILES([
 	lib/fm/topo/modules/common/fac_prov_ipmi/Makefile
 	lib/fm/topo/modules/common/fanpsu/Makefile
 	lib/fm/topo/modules/common/link/Makefile
+	lib/fm/topo/modules/common/disk/Makefile
 	lib/fm/topo/maps/Makefile
 	lib/fm/topo/maps/i86pc/Makefile
 	lib/libipmi/Makefile
@@ -157,6 +160,8 @@ AC_CONFIG_FILES([
 	cmd/fm/modules/common/zfs-retire/Makefile
 	cmd/fm/modules/common/zfs-diagnosis/Makefile
 	cmd/fm/modules/common/fanpsu-transport/Makefile
+	cmd/fm/modules/common/disk-transport/Makefile
+	cmd/fm/modules/common/snmp-trapgen/Makefile
 	cmd/fm/modules/common/eversholt/Makefile
 	cmd/fm/modules/common/eversholt/files/Makefile
 	cmd/fm/fmd/schemes/Makefile

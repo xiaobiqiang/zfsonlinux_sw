@@ -35,6 +35,7 @@ USER_C = \
 	topo_tables.c	\
 	topo_xml.c	\
 	cpu.c		\
+	dev.c		\
 	zfs.c		\
 	fmd.c		\
 	mem.c		\
