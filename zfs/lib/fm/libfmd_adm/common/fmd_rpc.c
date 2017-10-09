@@ -239,7 +239,7 @@ fmd_adm_genxml_1(int arg1, int *clnt_res, CLIENT *clnt)
 {
 	return (clnt_call(clnt, FMD_ADM_GENXML,
 		(xdrproc_t)xdr_int, (caddr_t)&arg1,
-		(xdrproc_t)xdr_void, (caddr_t)clnt_res,
+		(xdrproc_t)xdr_int, (caddr_t)clnt_res,
 		TIMEOUT));
 }
 

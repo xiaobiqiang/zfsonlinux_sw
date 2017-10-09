@@ -7476,3 +7476,283 @@ stmfCheckService(void)
 	return ((ret == STMF_PS_SUCCESS) ? 1 : 0);
 }
 
+/*
+ * stmfSetLuTaskLimit
+ *
+ * Purpose: Change the number of task limit of logical unit
+ *
+ * lu - guid of the logical unit
+ * task_limit - the number of task executed meanwhile
+ * stmf_max_cur_task - [out] max task count which is limited by stmf
+ */
+int
+stmfSetLuTaskLimit(stmfGuid *lu, uint32_t task_limit,
+	uint32_t *stmf_max_cur_task)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmfIoctl;
+	stmf_lu_task_limit_t limit;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/*
+	 * Open control node for stmf
+	 * to make call to stmfSetLuTaskLimit()
+	 */
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	limit.task_limit = task_limit;
+	bcopy(lu, &limit.lu_guid, sizeof (stmfGuid));
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to set lu task limit
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_ibuf_size = sizeof (stmf_lu_task_limit_t);
+	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&limit;
+	stmfIoctl.stmf_obuf_size = sizeof (stmf_lu_task_limit_t);
+	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&limit;
+	
+	ioctlRet = ioctl(fd, STMF_IOCTL_SET_LU_TASK_LIMIT, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+		case EBUSY:
+			ret = STMF_ERROR_BUSY;
+			break;
+		case EPERM:
+		case EACCES:
+			ret = STMF_ERROR_PERM;
+			break;
+		case ENOENT:
+			ret = STMF_ERROR_NOT_FOUND;
+			break;
+		default:
+			syslog(LOG_DEBUG,
+				"stmfSetLuTaskLimit:ioctl errno(%d)", errno);
+			ret = STMF_STATUS_ERROR;
+			break;
+		}
+	}
+
+	if (stmfIoctl.stmf_error == STMF_IOCERR_INVALID_TASK_LIMIT) {
+		*stmf_max_cur_task = limit.stmf_task_limit;
+		ret = STMF_ERROR_INVALID_TASK_LIMIT;
+	}
+
+	closeStmf(fd);
+	return (ret);
+}
+
+/*
+ * stmfGetLuTaskInfo
+ *
+ * Purpose:  Get cur task and task uplimit of logical unit
+ *
+ * lu - guid of the logical unit
+ * cur_task - [out] current task num of the logical unit
+ * task_limit - [out] the task uplimit of the logical unit
+ */
+int
+stmfGetLuTaskInfo(stmfGuid *lu, uint32_t *cur_task, uint32_t *task_limit)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmfIoctl;
+	stmf_lu_task_info_t info;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/*
+	 * Open control node for stmf
+	 * to make call to stmfGetLuTaskLimit()
+	 */
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	bcopy(lu, &info.lu_guid, sizeof (stmfGuid));
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to get lu task info
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_ibuf_size = sizeof (stmf_lu_task_info_t);
+	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&info;
+	stmfIoctl.stmf_obuf_size = sizeof (stmf_lu_task_info_t);
+	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&info;
+	
+	ioctlRet = ioctl(fd, STMF_IOCTL_GET_LU_TASK_INFO, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+		case EBUSY:
+			ret = STMF_ERROR_BUSY;
+			break;
+		case EPERM:
+		case EACCES:
+			ret = STMF_ERROR_PERM;
+			break;
+		case ENOENT:
+			ret = STMF_ERROR_NOT_FOUND;
+			break;
+		default:
+			syslog(LOG_DEBUG,
+				"stmfGetLuTaskInfo:ioctl errno(%d)", errno);
+			ret = STMF_STATUS_ERROR;
+			break;
+		}
+	} else {
+		*cur_task = info.cur_task;
+		*task_limit = info.task_limit;
+	}
+
+	closeStmf(fd);
+	return (ret);
+}
+
+/*
+ * stmfSetIopsLimit
+ *
+ * Purpose: Change iops limit of logical unit
+ *
+ * lu - guid of the logical unit
+ * iops_limit - iops uplimit
+ */
+int
+stmfSetIopsLimit(stmfGuid *lu, uint32_t iops_limit)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmfIoctl;
+	stmf_iops_limit_t limit;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/*
+	 * Open control node for stmf to make call
+	 */
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	limit.iops_limit = iops_limit;
+	bcopy(lu, &limit.lu_guid, sizeof (stmfGuid));
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to set lu iops limit
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_ibuf_size = sizeof (stmf_lu_task_limit_t);
+	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&limit;
+	
+	ioctlRet = ioctl(fd, STMF_IOCTL_SET_IOPS_LIMIT, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+		case EBUSY:
+			ret = STMF_ERROR_BUSY;
+			break;
+		case EPERM:
+		case EACCES:
+			ret = STMF_ERROR_PERM;
+			break;
+		case ENOENT:
+			ret = STMF_ERROR_NOT_FOUND;
+			break;
+		default:
+			syslog(LOG_DEBUG,
+				"stmfSetIopsLimit:ioctl errno(%d)", errno);
+			ret = STMF_STATUS_ERROR;
+			break;
+		}
+	}
+
+	if (stmfIoctl.stmf_error == STMF_IOCERR_INVALID_IOPS_LIMIT)
+		ret = STMF_ERROR_INVALID_IOPS_LIMIT;
+
+	closeStmf(fd);
+	return (ret);
+}
+
+/*
+ * stmfGetIopsInfo
+ *
+ * Purpose:  Get cur iops and iops limnit of logical unit
+ *
+ * lu - guid of the logical unit
+ * cur_iops - [out] current iops of the logical unit
+ * iops_limit - [out] iops uplimit of the logical unit
+ */
+int
+stmfGetIopsInfo(stmfGuid *lu, uint32_t *cur_iops, uint32_t *iops_limit)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmfIoctl;
+	stmf_iops_info_t info;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/*
+	 * Open control node for stmf to make call
+	 */
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	bcopy(lu, &info.lu_guid, sizeof (stmfGuid));
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to get lu iops info
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_ibuf_size = sizeof (stmf_iops_info_t);
+	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&info;
+	stmfIoctl.stmf_obuf_size = sizeof (stmf_iops_info_t);
+	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&info;
+	
+	ioctlRet = ioctl(fd, STMF_IOCTL_GET_IOPS_INFO, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+		case EBUSY:
+			ret = STMF_ERROR_BUSY;
+			break;
+		case EPERM:
+		case EACCES:
+			ret = STMF_ERROR_PERM;
+			break;
+		case ENOENT:
+			ret = STMF_ERROR_NOT_FOUND;
+			break;
+		default:
+			syslog(LOG_DEBUG,
+				"stmfGetIopsInfo:ioctl errno(%d)", errno);
+			ret = STMF_STATUS_ERROR;
+			break;
+		}
+	} else {
+		*cur_iops = info.cur_iops;
+		*iops_limit = info.iops_limit;
+	}
+
+	closeStmf(fd);
+	return (ret);
+}
+

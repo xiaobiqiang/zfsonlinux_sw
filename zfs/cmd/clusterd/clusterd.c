@@ -71,6 +71,8 @@ char zpool_import_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool import -bfi";
 char zpool_export_cmd[MAXPATHLEN] = "/usr/local/sbin/zpool export -f";
 char clusterd_cmd[MAXPATHLEN] = "/usr/local/sbin/clusterd";
 
+char ip_cmd[MAXPATHLEN] = "/usr/sbin/ip";
+
 #define	FAILOVER_TIME_TAG "clusterd failover time:"
 
 typedef enum{
@@ -90,15 +92,10 @@ char ipmi_passwd[16];
 #define	ETH_MAXNAMELEN	32
 #define MAXLINKNAMELEN	ETH_MAXNAMELEN
 
-#define	IFCONFIG_CMD	"/usr/sbin/ifconfig"
-#define	IP_CMD	"/usr/sbin/ip"
-#if	0
-#define	ZPOOL_CMD		"/sbin/zpool"
-#else
+#define	IP_CMD	ip_cmd
 #define	ZPOOL_CMD		zpool_cmd
 #define	ZPOOL_IMPORT	zpool_import_cmd
 #define	ZPOOL_EXPORT	zpool_export_cmd
-#endif
 
 typedef struct cluster_event_s {
 	int event;
@@ -154,6 +151,7 @@ typedef struct service_if {
 	char eth[MAXLINKNAMELEN];
 	char alias[IFALIASZ];
 	struct link_list *zpool_list;
+	failover_conf_t *failover_config;
 
 	int flag;
 } service_if_t;
@@ -324,7 +322,7 @@ static struct shielding_failover_pools shielding_failover_pools;
 
 static int excute_cmd_common(const char *cmd, boolean_t dup2log);
 static int excute_cmd(const char *cmd);
-static int do_ip_failover(failover_conf_t * conf, int restore_flag);
+static int do_ip_failover(failover_conf_t * conf, int flag);
 static int do_ip_restore(failover_conf_t * conf);
 static int parse_failover_conf(const char *msg, failover_conf_t *conf);
 static int cluster_failover_conf_handler(int flag, const void *data);
@@ -1959,6 +1957,83 @@ cluster_set_hbx_event(hbx_door_para_t *para, char *data, int len)
 }
 
 static int
+excute_cmd_result(const char *cmd, char **result)
+{
+	int ret, fd;
+	char *buf = NULL;
+	size_t cmdlen;
+	pid_t pid;
+	pthread_t tid;
+	struct stat sb;
+	ssize_t nread;
+
+	cmdlen = strlen(cmd);
+	pid = getpid();
+	tid = pthread_self();
+	buf = (char *) malloc(cmdlen + 64);
+	if (buf) {
+		snprintf(buf, cmdlen + 64,
+			"%s > /tmp/clusterd.%d.%d.stderr 2>&1",
+			cmd, (int) pid, (int) tid);
+	} else {
+		syslog(LOG_ERR, "out of memory");
+	}
+
+	c_log(LOG_WARNING, "system('%s')", buf);
+	ret = system(buf);
+
+	if (ret == -1) {
+		syslog(LOG_ERR,
+			"system(): create child failed or cannot receive status of child");
+	} else if (!WIFEXITED(ret)) {
+		syslog(LOG_ERR,
+			"system(): shell could not be executed in the child process");
+	} else {
+		ret = WEXITSTATUS(ret);
+	}
+
+	snprintf(buf, cmdlen+64, "/tmp/clusterd.%d.%d.stderr",
+		(int) pid, (int) tid);
+
+	fd = open(buf, O_RDONLY);
+	if (fd == -1) {
+		syslog(LOG_ERR, "open %s error %d", buf, errno);
+		*result = NULL;
+		goto out;
+	}
+
+	if (fstat(fd, &sb) == -1) {
+		syslog(LOG_ERR, "stat %s error %d", buf, errno);
+		*result = NULL;
+		goto out;
+	}
+
+	*result = malloc(sb.st_size + 1);
+	if (*result) {
+		nread = read(fd, *result, sb.st_size);
+		if (nread == -1) {
+			syslog(LOG_ERR, "read %s error %d", buf, errno);
+			free(*result);
+			*result = NULL;
+		} else {
+			if (nread > 0 && (*result)[nread-1] == '\n')
+				(*result)[nread-1] = '\0';
+			else
+				(*result)[nread] = '\0';
+			c_log(LOG_WARNING, "%s", *result);
+		}
+	}
+
+out:
+	if (fd > 0)
+		close(fd);
+	if (unlink(buf) == -1)
+		syslog(LOG_ERR, "unlink %s error %d", buf, errno);
+
+	return (ret);
+}
+
+static int
 excute_cmd_common(const char *cmd, boolean_t dup2log)
 {
 	int ret;
@@ -2001,11 +2076,11 @@ excute_cmd_common(const char *cmd, boolean_t dup2log)
 		snprintf(buf, cmdlen + 64,
 			"cat /tmp/clusterd.%d.%d.stderr | logger -p daemon.notice -t clusterd",
 			(int) pid, (int) tid);
-		system(buf);
+		(void) system(buf);
 		snprintf(buf, cmdlen + 64,
 			"unlink /tmp/clusterd.%d.%d.stderr",
 			(int) pid, (int) tid);
-		system(buf);
+		(void) system(buf);
 		free(buf);
 	}
 
@@ -5008,8 +5083,24 @@ ifconfig_up(const char *cmd, int af, const char *ifname, const char *ipaddr,
 	return (1);
 }
 
+static failover_conf_t *
+dup_failover_config(failover_conf_t *config)
+{
+	failover_conf_t *f;
+
+	f = malloc(sizeof(failover_conf_t));
+	if (f)
+		memcpy(f, config, sizeof(failover_conf_t));
+	return (f);
+}
+
+/*
+ * @flag: =0 normal ip failover
+ *        =1 restore ip failover from clusterd crash
+ *        =2 restore ip failover from link down
+ */
 static int 
-do_ip_failover(failover_conf_t *conf, int restore_flag)
+do_ip_failover(failover_conf_t *conf, int flag)
 {
 	char cmd[BUFSIZ];
 	char alias[IFALIASZ];
@@ -5019,6 +5110,8 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 	struct link_list *node;
 	int err = 0;
 
+	syslog(LOG_WARNING, "%s: conf=(pool=%s, eth=%s, ip=%s), flag=%d",
+		__func__, conf->zpool_name, conf->eth, conf->ip_addr, flag);
 	if (!conf || strlen(conf->eth) == 0 || strlen(conf->ip_addr) == 0)
 		return (EINVAL);
 
@@ -5028,14 +5121,23 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 			ifp = list_next(&failover_ip_list, ifp)) {
 		if (strcmp(ifp->ip_addr, conf->ip_addr) == 0) {
 			syslog(LOG_WARNING, "ip %s is exist on host", ifp->ip_addr);
+			if (flag == 2)
+				break;
 			ifp->refs++;
 			goto add_zpool;
 		}
 	}
 
+	if (flag == 2 && ifp == NULL) {
+		err = ENOENT;
+		goto exit_func;
+	}
+
 	if (check_ip_exist(conf->af, conf->eth, conf->ip_addr)) {
 		syslog(LOG_WARNING, "ip %s is exist on if %s", conf->ip_addr, conf->eth);
 		ip_on_link = 1;
+		if (flag == 2)
+			goto exit_func;
 	}
 
 	if (!ip_on_link) {
@@ -5057,6 +5159,9 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 		}
 	}
 
+	if (flag == 2)
+		goto exit_func;
+
 	if ((err = add_monitor_ifs(conf->eth)) != 0) {
 		syslog(LOG_WARNING, "add_monitor_ifs() failed: %s",
 			strerror(-err));
@@ -5076,9 +5181,10 @@ do_ip_failover(failover_conf_t *conf, int restore_flag)
 	 * if restore_flag is set and ip_on_link == 1,
 	 * so the ip may set by clusterd
 	 */
-	ifp->refs = ip_on_link && !restore_flag ? 2 : 1;
+	ifp->refs = (ip_on_link && flag == 0) ? 2 : 1;
 	ifp->zpool_list = NULL;
 	ifp->flag = 0;
+	ifp->failover_config = dup_failover_config(conf);
 
 	list_insert_head(&failover_ip_list, ifp);
 
@@ -5182,6 +5288,8 @@ do_ip_restore(failover_conf_t *conf)
 			if (ifp->zpool_list == NULL) {
 				tmp = list_prev(&failover_ip_list, ifp);
 				list_remove(&failover_ip_list, ifp);
+				if (ifp->failover_config)
+					free(ifp->failover_config);
 				free(ifp);
 				ifp = tmp;
 
@@ -5358,6 +5466,25 @@ cluster_link_down_timer_del(const char *linkname)
 }
 
 static void
+cluster_link_down_failover_restore(const char *linkname)
+{
+	service_if_t *ifp;
+
+	syslog(LOG_WARNING, "%s: linkname=%s", __func__, linkname);
+	pthread_mutex_lock(&failover_list_lock);
+	for (ifp = list_head(&failover_ip_list); 
+			ifp; 
+			ifp = list_next(&failover_ip_list, ifp)) {
+		if (strcmp(ifp->eth, linkname) == 0) {
+			pthread_mutex_unlock(&failover_list_lock);
+			(void) do_ip_failover(ifp->failover_config, 2);
+			pthread_mutex_lock(&failover_list_lock);
+		}
+	}
+	pthread_mutex_unlock(&failover_list_lock);
+}
+
+static void
 cluster_monitor_dev_state_change(const char *dev,
 	unsigned state, unsigned oldstate)
 {
@@ -5365,8 +5492,10 @@ cluster_monitor_dev_state_change(const char *dev,
 		__func__, dev, state, oldstate);
 	if (state == ils_down && oldstate != ils_down)
 		cluster_link_down_timer_add(dev);
-	else if (state == ils_up && oldstate != ils_up)
+	else if (state == ils_up && oldstate != ils_up) {
 		cluster_link_down_timer_del(dev);
+		cluster_link_down_failover_restore(dev);
+	}
 }
 
 static void
@@ -6123,6 +6252,61 @@ warn_hup(int i)
 
 static int daemon_disable = 0;
 
+static void
+fix_command_path(void)
+{
+	char cmd[32];
+	char which[] = "/usr/bin/which";
+	struct stat sb;
+	char *result;
+
+	if (stat(which, &sb) == -1) {
+		if (stat("/bin/which", &sb) == -1) {
+			syslog(LOG_ERR, "No 'which' command");
+			return;
+		} else
+			sprintf(which, "/bin/which");
+	}
+
+	if (stat(ip_cmd, &sb) == -1) {
+		sprintf(cmd, "%s ip", which);
+		if (excute_cmd_result(cmd, &result) == 0 && result != NULL) {
+			if (stat(result, &sb) == 0) {
+				strcpy(ip_cmd, result);
+				c_log(LOG_WARNING, "ip_cmd=%s", ip_cmd);
+			}
+		}
+		if (result)
+			free(result);
+	}
+
+	if (stat(zpool_cmd, &sb) == -1) {
+		sprintf(cmd, "%s zpool", which);
+		if (excute_cmd_result(cmd, &result) == 0 && result != NULL) {
+			if (stat(result, &sb) == 0) {
+				strcpy(zpool_cmd, result);
+				sprintf(zpool_import_cmd, "%s import -bfi", zpool_cmd);
+				sprintf(zpool_export_cmd, "%s export -f", zpool_cmd);
+				c_log(LOG_WARNING, "zpool_cmd=%s", zpool_cmd);
+			}
+		}
+		if (result)
+			free(result);
+	}
+
+	if (stat(clusterd_cmd, &sb) == -1) {
+		sprintf(cmd, "%s clusterd", which);
+		if (excute_cmd_result(cmd, &result) == 0 && result != NULL) {
+			if (stat(result, &sb) == 0) {
+				strcpy(clusterd_cmd, result);
+				c_log(LOG_WARNING, "clusterd_cmd=%s", clusterd_cmd);
+			}
+		}
+		if (result)
+			free(result);
+	}
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -6199,6 +6383,8 @@ main(int argc, char *argv[])
 		strlcpy(ipmi_passwd, ipmi_user, 16);
 	c_log(LOG_ERR, "ipmi_use_lanplus=%d, ipmi_user=%s, ipmi_passwd=%s",
 		ipmi_use_lanplus, ipmi_user, ipmi_passwd);
+
+	fix_command_path();
 
 	while ((c = getopt(argc, argv, "dv")) != EOF) {
 		switch (c) {

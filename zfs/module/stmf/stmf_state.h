@@ -84,6 +84,11 @@ typedef struct stmf_state {
 	kcondvar_t			stmf_task_checker_cv;
 	uint32_t			stmf_task_checker_flag;
 	taskq_t				*stmf_task_checker_tq;
+
+	kmutex_t			stmf_iops_mtx;
+	kcondvar_t			stmf_iops_cv;
+	taskq_t				*stmf_iops_tq;
+	uint32_t			stmf_iops_tq_flags;	
 } stmf_state_t;
 
 /*
@@ -99,6 +104,14 @@ typedef struct stmf_state {
 #define	STMF_CHECKER_STARTED	1
 #define	STMF_CHECKER_ACTIVE		2
 #define	STMF_CHECKER_TERMINATE	4
+
+/*
+ * iops checker flags
+ */
+#define	STMF_IOPS_CHECKER_STARTED		1
+#define	STMF_IOPS_CHECKER_ACTIVE		2
+#define	STMF_IOPS_CHECKER_TERMINATE		4
+
 
 /*
  * svc request. We probably have to modify it once more services (and probably

@@ -109,7 +109,7 @@ fanpsu_node_create(fanpsu_t *cp, void *arg){
 			break;
 	}
 
-	status = strcmp(cp->state, "ok") ? FANPSU_STATE_OK : FANPSU_STATE_NO;
+	status = !strcmp(cp->state, "ok") ? FANPSU_STATE_OK : FANPSU_STATE_CR;
 
     len = strlen(label);
     snprintf(label + len, sizeof (label) - len, "%s %d", labelname, data->ed_instance);
@@ -380,7 +380,7 @@ ipmi_sdr_get_sensor_fc(struct ipmi_intf *intf,
 					if(atoi(sr->s_a_str) > 0){
 						strncpy(sval, "ok", strlen("ok"));
 					}else{
-						strncpy(sval, "not ok", strlen("not ok"));
+						strncpy(sval, "critical", strlen("critical"));
 
 					}
 			} else {

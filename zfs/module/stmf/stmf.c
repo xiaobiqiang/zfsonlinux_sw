@@ -177,6 +177,17 @@ void stmf_task_lu_killall(stmf_lu_t *lu, scsi_task_t *tm_task, stmf_status_t s, 
 void stmf_transition_redo_worker(void *arg);
 void stmf_task_lu_printall(stmf_lu_t *lu);
 void stmf_free_holdtask(scsi_task_t *task);
+int stmf_set_task_limit_ioctl(stmf_lu_task_limit_t *task_limit,
+	uint32_t *err_ret);
+int stmf_get_task_info_ioctl(stmf_lu_task_info_t *task_info,
+	uint32_t *err_ret);
+int stmf_set_iops_limit_ioctl(stmf_iops_limit_t *iops_limit,
+	uint32_t *err_ret);
+int stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
+	uint32_t *err_ret);
+static void stmf_init_iops_checker(void);
+static stmf_status_t stmf_fini_iops_checker(void);
+
 
 /* pppt modhandle */
 /* ddi_modhandle_t pppt_mod; */
@@ -315,6 +326,8 @@ static int stmf_worker_scale_down_qd = 0;
 
 stmf_transition_worker_t stmf_transtion_worker;
 
+uint32_t stmf_iops_polltime = 1;	/* s */
+
 /*
  *	for avs mode
  */
@@ -323,7 +336,7 @@ int avs_local_host  = 0;
 int stmf_avs_enable_flag = 0;
 int stmf_avs_debug = 0;
 
-static boolean_t stmf_client_is_vm = B_TRUE;
+static int stmf_client_is_vm = 1;
 module_param(stmf_client_is_vm, int, S_IRUGO|S_IWUSR);
 
 #define	STMF_NAME			"COMSTAR STMF"
@@ -405,6 +418,7 @@ stmf_init(void)
 	stmf_svc_init();
 	stmf_dlun_init();
 	stmf_init_task_checker();
+	stmf_init_iops_checker();
 	stmf_proxy_msg_id &= ~STMF_HOST_NUM_MASK;
 	stmf_proxy_msg_id |= hostid & STMF_HOST_NUM_MASK;
 	return (ret);
@@ -422,6 +436,7 @@ stmf_fini(void)
 	stmf_worker_fini();
 	stmf_svc_fini();
 	stmf_fini_task_checker();
+	stmf_fini_iops_checker();
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,
@@ -575,6 +590,11 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	stmf_set_props_t *stmf_set_props;
 	stmf_alua_state_desc_t *alua_state;
 	uint32_t	veid;
+	stmf_lu_task_limit_t *task_limit;
+	stmf_lu_task_info_t *task_info;
+	stmf_iops_limit_t *iops_limit;
+	stmf_iops_info_t *iops_info;
+	
 	if ((cmd & 0xff000000) != STMF_IOCTL) {
 		return (ENOTTY);
 	}
@@ -1408,6 +1428,55 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		mutex_enter(&trace_buf_lock);
 		bcopy(stmf_trace_buf + i, obuf, iocd->stmf_obuf_size);
 		mutex_exit(&trace_buf_lock);
+		break;
+
+	case STMF_IOCTL_SET_LU_TASK_LIMIT:
+		if (iocd->stmf_ibuf_size < sizeof(stmf_lu_task_limit_t) ||
+			!ibuf) {
+			ret = EINVAL;
+			break;
+		}
+
+		task_limit = (stmf_lu_task_limit_t *)(ibuf);
+		ret = stmf_set_task_limit_ioctl(task_limit, &iocd->stmf_error);
+		bcopy(task_limit, obuf, iocd->stmf_obuf_size);
+		break;
+
+	case STMF_IOCTL_GET_LU_TASK_INFO:
+		if (iocd->stmf_ibuf_size != sizeof(stmf_lu_task_info_t) ||
+			iocd->stmf_obuf_size != sizeof(stmf_lu_task_info_t) ||
+			!ibuf) {
+			ret = EINVAL;
+			break;
+		}
+
+		task_info = (stmf_lu_task_info_t *)(ibuf);
+		ret = stmf_get_task_info_ioctl(task_info, &iocd->stmf_error);
+		bcopy(task_info, obuf, iocd->stmf_obuf_size);
+		break;
+
+	case STMF_IOCTL_SET_IOPS_LIMIT:
+		if (iocd->stmf_ibuf_size < sizeof(stmf_iops_limit_t) ||
+			!ibuf) {
+			ret = EINVAL;
+			break;
+		}
+		
+		iops_limit = (stmf_iops_limit_t *)(ibuf);
+		ret = stmf_set_iops_limit_ioctl(iops_limit, &iocd->stmf_error);
+		break;
+
+	case STMF_IOCTL_GET_IOPS_INFO:
+		if (iocd->stmf_ibuf_size != sizeof(stmf_iops_info_t) ||
+			iocd->stmf_obuf_size != sizeof(stmf_iops_info_t) ||
+			!ibuf) {
+			ret = EINVAL;
+			break;
+		}
+
+		iops_info = (stmf_iops_info_t *)(ibuf);
+		ret = stmf_get_iops_info_ioctl(iops_info, &iocd->stmf_error);
+		bcopy(iops_info, obuf, iocd->stmf_obuf_size);
 		break;
 
 	default:
@@ -3629,6 +3698,150 @@ stmf_delete_all_ppds()
 	}
 }
 
+int
+stmf_set_task_limit_ioctl(stmf_lu_task_limit_t *task_limit,
+	uint32_t *err_ret)
+{
+	stmf_i_lu_t *ilu;
+	boolean_t found = B_FALSE;
+	int ret = 0;
+
+	if (task_limit->task_limit < 1 ||
+		task_limit->task_limit > stmf_max_cur_task) {
+		cmn_err(CE_WARN, "%s task limit %d invalid, "
+			"should in [1, %d]", __func__,
+			task_limit->task_limit, stmf_max_cur_task);
+		task_limit->stmf_task_limit = stmf_max_cur_task;
+		*err_ret = STMF_IOCERR_INVALID_TASK_LIMIT;
+		return (EINVAL);
+	}
+
+	mutex_enter(&stmf_state.stmf_lock);
+
+	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
+		if (bcmp(task_limit->lu_guid,
+			ilu->ilu_lu->lu_id->ident, 16) == 0) {
+			ilu->ilu_ntasks_limit = task_limit->task_limit;
+			cmn_err(CE_NOTE, "%s set task limit %d", __func__,
+				ilu->ilu_ntasks_limit);
+			found = B_TRUE;
+			break;
+		}
+	}
+
+	if (!found) {
+		cmn_err(CE_WARN, "%s can't find lu", __func__);
+		*err_ret = STMF_IOCERR_INVALID_LU_ID;
+		ret = ENOENT;
+	}
+
+	task_limit->stmf_task_limit = stmf_max_cur_task;
+	mutex_exit(&stmf_state.stmf_lock);
+	return (ret);
+}
+
+int
+stmf_get_task_info_ioctl(stmf_lu_task_info_t *task_info,
+	uint32_t *err_ret)
+{
+	stmf_i_lu_t *ilu;
+	boolean_t found = B_FALSE;
+	int ret = 0;
+
+	mutex_enter(&stmf_state.stmf_lock);
+
+	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
+		if (bcmp(task_info->lu_guid,
+			ilu->ilu_lu->lu_id->ident, 16) == 0) {
+			task_info->cur_task = ilu->ilu_ntasks_cur;
+			task_info->task_limit = ilu->ilu_ntasks_limit;
+			cmn_err(CE_NOTE, "%s cur task %d, task limit %d",
+				__func__, task_info->cur_task, task_info->task_limit);
+			found = B_TRUE;
+			break;
+		}
+	}
+
+	if (!found) {
+		cmn_err(CE_WARN, "%s can't find lu", __func__);
+		*err_ret = STMF_IOCERR_INVALID_LU_ID;
+		ret = ENOENT;
+	}
+
+	mutex_exit(&stmf_state.stmf_lock);
+	return (ret);
+}
+
+int
+stmf_set_iops_limit_ioctl(stmf_iops_limit_t *iops_limit,
+	uint32_t *err_ret)
+{
+	stmf_i_lu_t *ilu;
+	boolean_t found = B_FALSE;
+	int ret = 0;
+
+	if (iops_limit->iops_limit < 0) {
+		cmn_err(CE_WARN, "%s iops limit %d invalid, ", 
+			__func__, iops_limit->iops_limit);
+		*err_ret = STMF_IOCERR_INVALID_IOPS_LIMIT;
+		return (EINVAL);
+	}
+
+	mutex_enter(&stmf_state.stmf_lock);
+
+	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
+		if (bcmp(iops_limit->lu_guid,
+			ilu->ilu_lu->lu_id->ident, 16) == 0) {
+			ilu->ilu_iops_limit = iops_limit->iops_limit;
+			cmn_err(CE_NOTE, "%s set iops limit %d", __func__,
+				ilu->ilu_iops_limit);
+			found = B_TRUE;
+			break;
+		}
+	}
+
+	if (!found) {
+		cmn_err(CE_WARN, "%s can't find lu", __func__);
+		*err_ret = STMF_IOCERR_INVALID_LU_ID;
+		ret = ENOENT;
+	}
+
+	mutex_exit(&stmf_state.stmf_lock);
+	return (ret);
+}
+
+int
+stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
+	uint32_t *err_ret)
+{
+	stmf_i_lu_t *ilu;
+	boolean_t found = B_FALSE;
+	int ret = 0;
+
+	mutex_enter(&stmf_state.stmf_lock);
+
+	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
+		if (bcmp(iops_info->lu_guid,
+			ilu->ilu_lu->lu_id->ident, 16) == 0) {
+			iops_info->iops_limit = ilu->ilu_iops_limit;
+			iops_info->cur_iops = ilu->ilu_cur_iops;
+			cmn_err(CE_NOTE, "%s cur iops %d, iops limit %d", __func__,
+				iops_info->cur_iops, iops_info->iops_limit);
+			found = B_TRUE;
+			break;
+		}
+	}
+
+	if (!found) {
+		cmn_err(CE_WARN, "%s can't find lu", __func__);
+		*err_ret = STMF_IOCERR_INVALID_LU_ID;
+		ret = ENOENT;
+	}
+
+	mutex_exit(&stmf_state.stmf_lock);
+	return (ret);
+}
+
 /*
  * 16 is the max string length of a protocol_ident, increase
  * the size if needed.
@@ -4199,6 +4412,8 @@ stmf_register_lu(stmf_lu_t *lu, boolean_t proxy_reg)
 	ilu->ilu_cur_task_cntr = &ilu->ilu_task_cntr1;
 	STMF_EVENT_ALLOC_HANDLE(ilu->ilu_event_hdl);
 	stmf_create_kstat_lu(ilu);
+	ilu->ilu_ntasks_limit = stmf_max_cur_task;
+	ilu->ilu_ntasks_cur = 0;
 	/*
 	 * register with proxy module if available and logical unit
 	 * is in active state
@@ -4298,6 +4513,8 @@ stmf_deregister_lu(stmf_lu_t *lu)
 			ilu->ilu_tasks = ilu->ilu_free_tasks = NULL;
 			ilu->ilu_ntasks = ilu->ilu_ntasks_free = 0;
 		}
+		
+		ilu->ilu_ntasks_cur = 0;
 		/* de-register with proxy if available */
 		if (ilu->ilu_access == STMF_LU_ACTIVE &&
 		    stmf_state.stmf_alua_state == 1) {
@@ -5869,12 +6086,27 @@ stmf_task_alloc(struct stmf_local_port *lport, stmf_scsi_session_t *ss,
 		task->task_lu_itl_handle = NULL;
 	}
 
+	if (ilu->ilu_ntasks_cur >= ilu->ilu_ntasks_limit) {
+		/* cmn_err(CE_WARN, "%s tasks over lu(%s) uplimit %d %d",
+			__func__, lu->lu_alias, ilu->ilu_ntasks_cur, ilu->ilu_ntasks_limit); */
+		task->task_additional_flags |= TASK_AF_PORT_LOAD_HIGH;
+	}
+
+	if (ilu->ilu_iops_limit) {
+		if (ilu->ilu_cur_iops >= ilu->ilu_iops_limit) {
+			/* cmn_err(CE_WARN, "%s lu(%s) iops over uplimit %d %d", __func__,
+				lu->lu_alias, ilu->ilu_cur_iops, ilu->ilu_iops_limit); */
+			task->task_additional_flags |= TASK_AF_PORT_LOAD_HIGH;
+		}
+	}
+
 	if (stmf_cur_ntasks > stmf_max_cur_task) {
 		cmn_err(CE_WARN, "%s tasks over uplimit %d %d",
 			__func__, stmf_cur_ntasks, stmf_max_cur_task);
 		task->task_additional_flags |= TASK_AF_PORT_LOAD_HIGH;
 	}
 
+	atomic_add_32(&ilu->ilu_ntasks_cur, 1);	
 	atomic_add_32_nv(&stmf_cur_ntasks, 1);
 	rw_exit(iss->iss_lockp);
 	
@@ -5906,6 +6138,7 @@ stmf_task_lu_free(scsi_task_t *task, stmf_i_scsi_session_t *iss)
 	ilu->ilu_free_tasks = itask;
 	ilu->ilu_ntasks_free++;
 	atomic_add_32(itask->itask_ilu_task_cntr, -1);
+	atomic_add_32(&ilu->ilu_ntasks_cur, -1);
 
 	if (!mutex_ishold)
 		mutex_exit(&ilu->ilu_task_lock);
@@ -6299,7 +6532,6 @@ stmf_task_free(scsi_task_t *task)
 	rw_enter(iss->iss_lockp, RW_READER);
 	lport->lport_task_free(task);
 	if (itask->itask_worker) {
-		atomic_add_32(&stmf_cur_ntasks, -1);
 		atomic_add_32(&itask->itask_worker->worker_ref_count, -1);
 	}
 	/*
@@ -6307,6 +6539,7 @@ stmf_task_free(scsi_task_t *task)
 	 * be trusted.
 	 */
 	stmf_task_lu_free(task, iss);
+	atomic_add_32(&stmf_cur_ntasks, -1);
 	rw_exit(iss->iss_lockp);
 }
 
@@ -7064,12 +7297,26 @@ stmf_queue_task_for_abort(scsi_task_t *task, stmf_status_t s, uint32_t abort_typ
 	uint32_t old, new;
 	clock_t cur_time;
 
+	if ((w = itask->itask_worker) == NULL)
+		return;
+
+	mutex_enter(&w->worker_lock);
+	if (itask->itask_flags & ITASK_CHECKER_PROCESS) {
+		cmn_err(CE_NOTE, "%s: ITASK_CHECKER_PROCESS not to abort, task = %p, abort_type = %d,"
+			"itask_flags = 0x%x, cdb0 = %02x", __func__, (void *)task, abort_type, 
+			itask->itask_flags, task->task_cdb[0]);
+		mutex_exit(&w->worker_lock);
+		return;
+	}
+
+
 	stmf_task_audit(itask, TE_TASK_ABORT, CMD_OR_IOF_NA, NULL);
 	do {
 		old = new = itask->itask_flags;
 		if ((old & ITASK_BEING_ABORTED) ||
 		    ((old & (ITASK_KNOWN_TO_TGT_PORT |
 		    ITASK_KNOWN_TO_LU)) == 0)) {
+		    mutex_exit(&w->worker_lock);
 			return;
 		}
 		new |= ITASK_BEING_ABORTED;
@@ -7083,13 +7330,12 @@ stmf_queue_task_for_abort(scsi_task_t *task, stmf_status_t s, uint32_t abort_typ
 	task->task_completion_status = s;
 	itask->itask_start_time = ddi_get_lbolt();
 	
-	if (((w = itask->itask_worker) == NULL) ||
-	    (itask->itask_flags & ITASK_IN_TRANSITION)) {
+	if (itask->itask_flags & ITASK_IN_TRANSITION) {
+	    mutex_exit(&w->worker_lock);
 		return;
 	}
 
 	/* Queue it and get out */
-	mutex_enter(&w->worker_lock);
 	if (itask->itask_flags & ITASK_IN_WORKER_QUEUE) {
 		mutex_exit(&w->worker_lock);
 		return;
@@ -7933,7 +8179,8 @@ stmf_scsilib_send_status(scsi_task_t *task, uint8_t st, uint32_t saa)
 	uint8_t *sd;
 	
 	task->task_scsi_status = st;
-	if(st!=STATUS_GOOD) {
+	if((st != STATUS_GOOD) &&
+		(st != STATUS_QFULL)) {
 		cmn_err(CE_WARN, "%s task=%p cdb=%02x lun=%s status=%x saa=%x ",
 		__func__,task,task->task_cdb[0],task->task_lu->lu_alias,st,saa);
 	}
@@ -9351,6 +9598,8 @@ stmf_dlun_init()
 
 	ilu = (stmf_i_lu_t *)dlun0->lu_stmf_private;
 	ilu->ilu_cur_task_cntr = &ilu->ilu_task_cntr1;
+	ilu->ilu_ntasks_limit = stmf_max_cur_task;
+	ilu->ilu_ntasks_cur = 0;
 	mutex_init(&ilu->ilu_task_lock, NULL, MUTEX_DRIVER, 0);
 }
 
@@ -9374,6 +9623,8 @@ stmf_dlun_fini()
 		} while (nitask != NULL);
 
 	}
+
+	ilu->ilu_ntasks_cur = 0;
 	stmf_free(dlun0);
 	return (STMF_SUCCESS);
 }
@@ -9405,6 +9656,7 @@ stmf_worker_remove_task(stmf_worker_t *w)
 	boolean_t need_remove;
 	list_t itask_list;
 	stmf_task_node_t *task_node;
+	uint32_t old, new;
 
 	mutex_enter(&w->worker_lock);
 
@@ -9429,24 +9681,28 @@ stmf_worker_remove_task(stmf_worker_t *w)
 
 			if (curcmd == ITASK_CMD_NEW_TASK) {
 				waitq_time = stmf_task_waitq_time(itask);
-
+				mutex_enter(&itask->itask_transition_mutex);
 				if (waitq_time >= stmf_waitq_time_threshold) {
-					if (!(itask->itask_flags & ITASK_BEING_ABORTED)) {
+					if (!(itask->itask_flags & ITASK_BEING_ABORTED) &&
+						(itask->itask_transition_state == ITASK_TRANSITION_NORMAL)) {
 						stmf_debug_task(itask, waitq_time);
 						cmn_err(CE_NOTE, "%s need remove task = %p", __func__,
 							itask->itask_task);
 						need_remove = B_TRUE;
-					} else {
-						cmn_err(CE_NOTE, "%s being abort, not remove task = %p",
-							__func__, itask->itask_task);
 					}
-				}				
+				}
+				mutex_exit(&itask->itask_transition_mutex);
 			}
 		}
 
 		if (need_remove) {
-			stmf_i_scsi_task_t *itask_next = itask->itask_worker_next;
-			
+			stmf_i_scsi_task_t *itask_next;			
+			do {
+				old = new = itask->itask_flags;
+				new |= ITASK_CHECKER_PROCESS;
+			} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
+
+			itask_next = itask->itask_worker_next;
 			if (itask == w->worker_task_head) {
 				if (itask == w->worker_task_tail) {
 					w->worker_task_head = w->worker_task_tail = NULL;
@@ -9553,6 +9809,92 @@ stmf_fini_task_checker()
 	mutex_destroy(&stmf_state.stmf_task_checker_mtx);
 
 	return (STMF_SUCCESS);	
+}
+
+static void
+stmf_update_iops()
+{
+	stmf_i_lu_t *ilu;
+	kstat_io_t *kip;
+	uint_t cur_reads, cur_writes;
+	
+	mutex_enter(&stmf_state.stmf_lock);
+	
+	for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next) {
+		kip = KSTAT_IO_PTR(ilu->ilu_kstat_io);
+		if (!kip)
+			continue;
+
+		mutex_enter(ilu->ilu_kstat_io->ks_lock);
+		cur_reads = kip->reads - ilu->ilu_old_reads;
+		cur_writes = kip->writes - ilu->ilu_old_writes;
+		ilu->ilu_cur_iops = (cur_reads + cur_writes) / stmf_iops_polltime;
+		ilu->ilu_old_reads = kip->reads;
+		ilu->ilu_old_writes = kip->writes;
+		mutex_exit(ilu->ilu_kstat_io->ks_lock);
+	}
+
+	mutex_exit(&stmf_state.stmf_lock);
+}
+
+static void
+stmf_update_iops_thread(void *arg)
+{
+	mutex_enter(&stmf_state.stmf_iops_mtx);
+	stmf_state.stmf_iops_tq_flags |= STMF_IOPS_CHECKER_ACTIVE;
+	
+	while (!(stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_TERMINATE)) {
+		cv_timedwait(&stmf_state.stmf_iops_cv, &stmf_state.stmf_iops_mtx,
+			ddi_get_lbolt() + drv_usectohz(stmf_iops_polltime * 1000 * 1000));
+
+		if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_TERMINATE)
+			break;
+		
+		stmf_update_iops();
+	}
+
+	stmf_state.stmf_iops_tq_flags &= 
+		~(STMF_IOPS_CHECKER_STARTED | STMF_IOPS_CHECKER_ACTIVE);
+	mutex_exit(&stmf_state.stmf_iops_mtx);
+}
+
+static void
+stmf_init_iops_checker()
+{
+	mutex_init(&stmf_state.stmf_iops_mtx, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&stmf_state.stmf_iops_cv, NULL, CV_DRIVER, NULL);
+	stmf_state.stmf_iops_tq_flags = STMF_IOPS_CHECKER_STARTED;
+	stmf_state.stmf_iops_tq = taskq_create("stmf_iops_checker",
+		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
+	taskq_dispatch(stmf_state.stmf_iops_tq, stmf_update_iops_thread,
+		NULL, TQ_SLEEP);
+}
+
+static stmf_status_t
+stmf_fini_iops_checker()
+{
+	int i;
+	mutex_enter(&stmf_state.stmf_iops_mtx);
+	if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_STARTED) {
+		stmf_state.stmf_iops_tq_flags |= STMF_IOPS_CHECKER_TERMINATE;
+		cv_signal(&stmf_state.stmf_iops_cv);
+	}
+	mutex_exit(&stmf_state.stmf_iops_mtx);
+
+	/* Wait for 5 seconds */
+	for (i = 0; i < 500; i++) {
+		if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_STARTED)
+			delay(drv_usectohz(10000));
+		else
+			break;
+	}
+	if (i == 500)
+		return (STMF_BUSY);
+	
+	taskq_destroy(stmf_state.stmf_iops_tq);
+	mutex_destroy(&stmf_state.stmf_iops_mtx);
+	cv_destroy(&stmf_state.stmf_iops_cv);
+	return (STMF_SUCCESS);
 }
 
 void

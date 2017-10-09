@@ -70,6 +70,10 @@ extern "C" {
 #define	STMF_IOCTL_SET_ALUA_STATE		(STMF_IOCTL | 36)
 #define	STMF_IOCTL_GET_ALUA_STATE		(STMF_IOCTL | 37)
 #define	STMF_IOCTL_SET_STMF_PROPS		(STMF_IOCTL | 38)
+#define	STMF_IOCTL_SET_LU_TASK_LIMIT		(STMF_IOCTL | 39)
+#define	STMF_IOCTL_GET_LU_TASK_INFO		(STMF_IOCTL | 40)
+#define	STMF_IOCTL_SET_IOPS_LIMIT		(STMF_IOCTL | 41)
+#define	STMF_IOCTL_GET_IOPS_INFO		(STMF_IOCTL | 42)
 
 typedef	struct stmf_iocdata {
 	uint32_t	stmf_version;
@@ -154,6 +158,29 @@ typedef struct stmf_lu_state_desc {
 	void *lu_sess;
 } stmf_lu_state_desc_t;
 
+typedef struct stmf_lu_task_limit {
+	uint8_t		lu_guid[16];
+	uint32_t	task_limit;
+	uint32_t	stmf_task_limit;
+} stmf_lu_task_limit_t;
+
+typedef struct stmf_lu_task_info {
+	uint8_t		lu_guid[16];
+	uint32_t	task_limit;
+	uint32_t	cur_task;
+} stmf_lu_task_info_t;
+
+typedef struct stmf_iops_limit {
+	uint8_t		lu_guid[16];
+	uint32_t	iops_limit;
+} stmf_iops_limit_t;
+
+typedef struct stmf_iops_info {
+	uint8_t		lu_guid[16];
+	uint32_t	iops_limit;
+	uint32_t	cur_iops;
+} stmf_iops_info_t;
+
 /* Error definitions for group/view entry/provider dataioctls */
 #define	STMF_IOCERR_NONE			0
 #define	STMF_IOCERR_HG_EXISTS			1
@@ -176,7 +203,8 @@ typedef struct stmf_lu_state_desc {
 #define	STMF_IOCERR_PPD_UPDATED			18
 #define	STMF_IOCERR_INSUFFICIENT_BUF		19
 #define	STMF_IOCERR_TG_NEED_TG_OFFLINE		20
-
+#define	STMF_IOCERR_INVALID_TASK_LIMIT		21
+#define	STMF_IOCERR_INVALID_IOPS_LIMIT		22
 
 typedef struct stmf_group_name {
 	uint16_t	name_size;	/* in bytes */
