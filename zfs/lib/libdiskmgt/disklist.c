@@ -1263,6 +1263,7 @@ void disk_get_slot_map(slot_map_t *sm)
 				slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
 				sr->sr_enclosure = enclosure;
 				sr->sr_slot = slot;
+				sr->sr_next = NULL;
 				memcpy(sr->sr_serial, value_sn, strlen(value_sn));
 				slot_map_insert(sm, sr);
 				slot = 0;
