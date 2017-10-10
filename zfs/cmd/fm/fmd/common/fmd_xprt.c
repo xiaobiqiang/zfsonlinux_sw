@@ -1469,9 +1469,10 @@ fmd_xprt_recv(fmd_xprt_t *xp, nvlist_t *nvl, hrtime_t hrt, boolean_t logonly)
 	(void) pthread_mutex_unlock(&xip->xi_stats_lock);
 
 	if (nvlist_lookup_string(nvl, FM_CLASS, &class) != 0) {
+#if 0
 		fmd_error(EFMD_XPRT_PAYLOAD, "discarding nvlist: missing "
 		    "required \"%s\" payload element", FM_CLASS);
-
+#endif
 		(void) pthread_mutex_lock(&xip->xi_stats_lock);
 		xip->xi_stats->xs_discarded.fmds_value.ui64++;
 		(void) pthread_mutex_unlock(&xip->xi_stats_lock);

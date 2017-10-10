@@ -145,7 +145,7 @@ fmd_verror(int err, const char *format, va_list ap)
 
 	if (fmd.d_fg || !fmd.d_running) {
 		(void) fprintf(stderr, "%s: ", fmd.d_pname);
-		(void) fprintf(stderr, format);
+		(void) fprintf(stderr, "%s", format);
 
 		if (strchr(format, '\n') == NULL)
 			(void) fprintf(stderr, ": %s\n", fmd_strerror(oserr));
