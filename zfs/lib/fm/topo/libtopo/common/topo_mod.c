@@ -132,7 +132,7 @@ topo_mod_load(topo_mod_t *pmod, const char *name,
 		return (mod);
 	}
 
-	(void) snprintf(file, PLUGIN_PATH_LEN, "%s/%s.so",
+	(void) snprintf(file, PLUGIN_PATH_LEN, "%s/lib%s.so",
 	    PLUGIN_PATH, name);
 	path = topo_search_path(pmod, thp->th_rootdir, (const char *)file);
 	if (path == NULL ||
@@ -908,7 +908,8 @@ topo_fru_hash_lookup(const char *name)
 }
 
 topo_fru_t *
-topo_fru_setime(const char *name, int status)
+topo_fru_setime(const char *name, int status, char *diskname,
+	char *slotid, char *encid, char *product)
 {
 	topo_fru_t *fru;
 	uint_t h;
@@ -916,7 +917,7 @@ topo_fru_setime(const char *name, int status)
 	if ((fru = topo_fru_hash_lookup(name)) != NULL) {
 		if (fru->tf_time == 0) {
 			fru->tf_time = time(NULL);
-			fru->tf_status = status;
+			fru->tf_status |= status;
 			fru->nor_count = 0;
 			fru->err_count++;
 			return fru;
@@ -936,8 +937,17 @@ topo_fru_setime(const char *name, int status)
 	fru = topo_zalloc(sizeof (topo_fru_t), 1);
 	fru->tf_name = topo_fru_strdup(name, 1);
 	fru->tf_time = time(NULL);
+	fru->tf_status |= status;
 	fru->err_count = 1;
 	fru->nor_count = 0;
+
+	if (diskname != NULL && slotid !=NULL &&
+		encid != NULL && product != NULL) {
+		fru->diskname = topo_fru_strdup(diskname, 1);
+		fru->slotid = topo_fru_strdup(slotid, 1);
+		fru->encid = topo_fru_strdup(encid, 1);
+		fru->product = topo_fru_strdup(product, 1);
+	}
 
 	h = topo_strhash(name) % tp_fruhash.fh_hashlen;
 	fru->tf_next = tp_fruhash.fh_hash[h];
@@ -949,15 +959,17 @@ topo_fru_setime(const char *name, int status)
 }
 
 topo_fru_t *
-topo_fru_cleartime(const char *name)
+topo_fru_cleartime(const char *name, int status)
 {
 	topo_fru_t *fru;
 
 	if ((fru = topo_fru_hash_lookup(name)) != NULL) {
 		if (fru->tf_time != 0) {
-			fru->tf_time = 0;
 			fru->err_count = 0;
 			fru->nor_count++;
+			fru->tf_status &= (~status);
+			if (fru->tf_status == 0)
+				fru->tf_time = 0;
 			return fru;
 		} else if (fru->nor_count < 3) {
 			fru->nor_count++;
@@ -996,6 +1008,14 @@ topo_fru_hash_destroy(void)
 			*pp = fp->tf_next;
 			if (fp->tf_name != NULL)
 				topo_fru_strfree(fp->tf_name);
+			if (fp->diskname != NULL)
+				topo_fru_strfree(fp->diskname);
+			if (fp->slotid != NULL)
+				topo_fru_strfree(fp->slotid);
+			if (fp->encid != NULL)
+				topo_fru_strfree(fp->encid);
+			if (fp->product != NULL)
+				topo_fru_strfree(fp->product);
 			topo_free(fp, sizeof (topo_fru_t));
 			fp = *pp;
 

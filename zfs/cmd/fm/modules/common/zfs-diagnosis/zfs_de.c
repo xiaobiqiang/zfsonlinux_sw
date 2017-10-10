@@ -28,7 +28,7 @@
 #include <strings.h>
 #include <libuutil.h>
 #include <libzfs.h>
-//#include <fm/libtopo.h>
+#include <libtopo.h>
 #include <sys/fs/zfs.h>
 #include <sys/fm/protocol.h>
 #include <sys/fm/fs/zfs.h>

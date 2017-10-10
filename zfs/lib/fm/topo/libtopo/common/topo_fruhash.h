@@ -18,6 +18,10 @@ struct topo_fru {
 	int		tf_ignore;
 	uint32_t	err_count;
 	uint32_t	nor_count;
+	char		*slotid;
+	char		*encid;
+	char		*diskname;
+	char		*product;
 };
 
 struct topo_fruhash {
@@ -31,9 +35,10 @@ typedef struct topo_fru topo_fru_t;
 typedef struct topo_fruhash topo_fruhash_t;
 
 topo_fruhash_t *topo_get_fruhash(void);
-topo_fru_t *topo_fru_setime(const char *name, int status);
+topo_fru_t *topo_fru_setime(const char *name, int status, char *diskname,
+		char *slotid, char *encid, char *product);
 topo_fru_t *topo_fru_hash_lookup(const char *name);
-topo_fru_t *topo_fru_cleartime(const char *name);
+topo_fru_t *topo_fru_cleartime(const char *name, int status);
 void topo_fru_hash_create(void);
 void topo_fru_hash_destroy(void);
 

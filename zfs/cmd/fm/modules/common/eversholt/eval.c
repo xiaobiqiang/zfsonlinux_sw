@@ -1208,7 +1208,7 @@ check_expr_args(struct evalue *lp, struct evalue *rp, enum datatype dtype,
 		/* NOTREACHED */
 		return (1);
 	}
-
+#if 0
 	if (rp != NULL && lp->t != rp->t) {
 		outfl(O_DIE, np->file, np->line,
 		    "mismatch in datatype of arguments for operation %s",
@@ -1216,7 +1216,7 @@ check_expr_args(struct evalue *lp, struct evalue *rp, enum datatype dtype,
 		/* NOTREACHED */
 		return (1);
 	}
-
+#endif
 	return (0);
 }
 

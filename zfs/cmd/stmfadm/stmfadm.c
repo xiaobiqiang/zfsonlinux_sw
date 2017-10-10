@@ -76,6 +76,10 @@ static int getTraceFunc(int, char **, cmdOptions_t *, void *);
 static int stmfadm_send_cmd(char * cmd_name);
 static void stmfadm_no_receive(int recv);
 
+static int setTaskLimitFunc(int, char **, cmdOptions_t *, void *);
+static int getTaskInfoFunc(int, char **, cmdOptions_t *, void *);
+static int setIopsLimitFunc(int, char **, cmdOptions_t *, void *);
+static int getIopsInfoFunc(int, char **, cmdOptions_t *, void *);
 
 
 
@@ -238,6 +242,14 @@ subCommandProps_t subcommands[] = {
 		OPERAND_MANDATORY_SINGLE, OPERANDSTRING_LU, NULL},
 	{"clear-trace", clearTraceFunc, NULL, NULL, NULL, OPERAND_NONE, NULL},
 	{"get-trace", getTraceFunc, NULL, NULL, NULL, OPERAND_NONE, NULL},
+	{"set-task-limit", setTaskLimitFunc, "lnc", "ln", NULL,
+		OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},	
+	{"get-task-info", getTaskInfoFunc, NULL, NULL, NULL,
+		OPERAND_MANDATORY_SINGLE, OPERANDSTRING_LU, NULL},
+	{"set-iops-limit", setIopsLimitFunc, "lnc", "ln", NULL,
+		OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},	
+	{"get-iops-info", getIopsInfoFunc, NULL, NULL, NULL,
+		OPERAND_MANDATORY_SINGLE, OPERANDSTRING_LU, NULL},
 	{NULL, 0, NULL, NULL, 0, 0, 0, NULL}
 };
 
@@ -3869,6 +3881,378 @@ getTraceFunc(int operandLen, char *operands[], cmdOptions_t *options,
 {
 	return stmfGetTrace();
 }
+
+static int
+setTaskLimitFunc(int operandLen, char *operands[], cmdOptions_t *options,
+    void *args)
+{
+	int ret, i;
+	stmfState state;
+	char sGuid[GUID_INPUT + 1] = {0};
+	uint32_t limit;
+	boolean_t luInput = B_FALSE;
+	boolean_t limitInput = B_FALSE;
+	boolean_t isCluster = B_FALSE;
+	stmfGuid inGuid;
+	unsigned int guid[sizeof (stmfGuid)];
+	uint32_t stmf_max_cur_task;
+
+	ret = getStmfState(&state);
+	if (ret != STMF_STATUS_SUCCESS)
+		return (ret);
+	if (state.operationalState == STMF_SERVICE_STATE_OFFLINE ||
+	    state.operationalState == STMF_SERVICE_STATE_OFFLINING) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("STMF service is offline"));
+		return (1);
+	}
+
+	for (; options->optval; options++) {
+		switch (options->optval) {
+			case 'l':
+				if (strlen(options->optarg) != GUID_INPUT) {
+					(void) fprintf(stderr,
+					    "%s: %s: %s %d %s\n",
+					    cmdName, options->optarg,
+					    gettext("must be"), GUID_INPUT,
+					    gettext("hexadecimal digits long"));
+					return (1);
+				}
+				bcopy(options->optarg, sGuid, GUID_INPUT);
+				luInput = B_TRUE;
+				break;
+			case 'n':
+				limit = atoi(options->optarg);
+				limitInput = B_TRUE;
+				break;
+			case 'c':
+				isCluster = B_TRUE;
+				break;
+			default:
+				(void) fprintf(stderr, "%s: %c: %s\n",
+				    cmdName, options->optval,
+				    "unknown option");
+				return (1);
+		}
+	}
+
+	if (!luInput) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("no lu specified"));
+		return (1);
+	}
+
+	if (!limitInput) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("no task limit specified"));
+		return (1);
+	}
+
+	for (i = 0; i < GUID_INPUT; i++)
+		sGuid[i] = tolower(sGuid[i]);
+	sGuid[i] = 0;
+
+	(void) sscanf(sGuid, "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &guid[0], &guid[1], &guid[2], &guid[3], &guid[4], &guid[5],
+	    &guid[6], &guid[7], &guid[8], &guid[9], &guid[10], &guid[11],
+	    &guid[12], &guid[13], &guid[14], &guid[15]);
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		inGuid.guid[i] = guid[i];
+	}
+
+	ret = stmfSetLuTaskLimit(&inGuid, limit, &stmf_max_cur_task);
+
+	if (ret == STMF_STATUS_SUCCESS) {
+		if (isCluster == B_TRUE)
+			stmfadm_send_cmd(cmdfullName);
+	} else {
+		switch (ret) {
+		case STMF_ERROR_BUSY:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("STMF is busy"));
+			break;
+		case STMF_ERROR_PERM:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("permission denied"));
+			break;
+		case STMF_ERROR_NOT_FOUND:
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
+			    sGuid, gettext("not found"));
+			break;
+		case STMF_ERROR_INVALID_TASK_LIMIT:
+			(void) fprintf(stderr, "%s: limit %d is invalid, "
+				"should in [1, %d]\n",
+				cmdName, limit, stmf_max_cur_task);
+			break;
+		default:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("unknown error"));
+			break;
+		}
+	}
+
+	return (ret);
+}
+
+
+static int
+getTaskInfoFunc(int operandLen, char *operands[], cmdOptions_t *options,
+    void *args)
+{
+	int ret, i;
+	stmfState state;
+	char sGuid[GUID_INPUT + 1] = {0};
+	uint32_t cur_task, task_limit;
+	stmfGuid inGuid;
+	unsigned int guid[sizeof (stmfGuid)];
+
+	ret = getStmfState(&state);
+	if (ret != STMF_STATUS_SUCCESS)
+		return (ret);
+	if (state.operationalState == STMF_SERVICE_STATE_OFFLINE ||
+	    state.operationalState == STMF_SERVICE_STATE_OFFLINING) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("STMF service is offline"));
+		return (1);
+	}
+
+	if (strlen(operands[0]) != GUID_INPUT) {
+		(void) fprintf(stderr,
+			"%s: %s: %s %d %s\n",
+			cmdName, operands[0],
+			gettext("must be"), GUID_INPUT,
+			gettext("hexadecimal digits long"));
+		return (1);
+	}
+
+	bcopy(operands[0], sGuid, GUID_INPUT);
+
+	for (i = 0; i < GUID_INPUT; i++)
+		sGuid[i] = tolower(sGuid[i]);
+	sGuid[i] = 0;
+
+	(void) sscanf(sGuid, "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &guid[0], &guid[1], &guid[2], &guid[3], &guid[4], &guid[5],
+	    &guid[6], &guid[7], &guid[8], &guid[9], &guid[10], &guid[11],
+	    &guid[12], &guid[13], &guid[14], &guid[15]);
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		inGuid.guid[i] = guid[i];
+	}
+
+	ret = stmfGetLuTaskInfo(&inGuid, &cur_task, &task_limit);
+
+	if (ret == STMF_STATUS_SUCCESS) {
+		printf("cur task: %d, task limit: %d\n", cur_task, task_limit);
+	} else {
+		switch (ret) {
+		case STMF_ERROR_BUSY:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("STMF is busy"));
+			break;
+		case STMF_ERROR_PERM:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("permission denied"));
+			break;
+		case STMF_ERROR_NOT_FOUND:
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
+			    sGuid, gettext("not found"));
+			break;
+		default:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("unknown error"));
+			break;
+		}
+	}
+
+	return (ret);
+}
+
+static int
+setIopsLimitFunc(int operandLen, char *operands[], cmdOptions_t *options,
+    void *args)
+{
+	int ret, i;
+	stmfState state;
+	char sGuid[GUID_INPUT + 1] = {0};
+	uint32_t iopsLimit;
+	boolean_t luInput = B_FALSE;
+	boolean_t iopsInput = B_FALSE;
+	boolean_t isCluster = B_FALSE;
+	stmfGuid inGuid;
+	unsigned int guid[sizeof (stmfGuid)];
+
+	ret = getStmfState(&state);
+	if (ret != STMF_STATUS_SUCCESS)
+		return (ret);
+	if (state.operationalState == STMF_SERVICE_STATE_OFFLINE ||
+	    state.operationalState == STMF_SERVICE_STATE_OFFLINING) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("STMF service is offline"));
+		return (1);
+	}
+
+	for (; options->optval; options++) {
+		switch (options->optval) {
+			case 'l':
+				if (strlen(options->optarg) != GUID_INPUT) {
+					(void) fprintf(stderr,
+					    "%s: %s: %s %d %s\n",
+					    cmdName, options->optarg,
+					    gettext("must be"), GUID_INPUT,
+					    gettext("hexadecimal digits long"));
+					return (1);
+				}
+				bcopy(options->optarg, sGuid, GUID_INPUT);
+				luInput = B_TRUE;
+				break;
+			case 'n':
+				iopsLimit = atoi(options->optarg);
+				iopsInput = B_TRUE;
+				break;
+			case 'c':
+				isCluster = B_TRUE;
+				break;
+			default:
+				(void) fprintf(stderr, "%s: %c: %s\n",
+				    cmdName, options->optval,
+				    "unknown option");
+				return (1);
+		}
+	}
+
+	if (!luInput) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("no lu specified"));
+		return (1);
+	}
+
+	if (!iopsInput) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("no iops limit specified"));
+		return (1);
+	}
+
+	for (i = 0; i < GUID_INPUT; i++)
+		sGuid[i] = tolower(sGuid[i]);
+	sGuid[i] = 0;
+
+	(void) sscanf(sGuid, "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &guid[0], &guid[1], &guid[2], &guid[3], &guid[4], &guid[5],
+	    &guid[6], &guid[7], &guid[8], &guid[9], &guid[10], &guid[11],
+	    &guid[12], &guid[13], &guid[14], &guid[15]);
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		inGuid.guid[i] = guid[i];
+	}
+
+	ret = stmfSetIopsLimit(&inGuid, iopsLimit);
+
+	if (ret == STMF_STATUS_SUCCESS) {
+		if (isCluster == B_TRUE)
+			stmfadm_send_cmd(cmdfullName);
+	} else {
+		switch (ret) {
+		case STMF_ERROR_BUSY:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("STMF is busy"));
+			break;
+		case STMF_ERROR_PERM:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("permission denied"));
+			break;
+		case STMF_ERROR_NOT_FOUND:
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
+			    sGuid, gettext("not found"));
+			break;
+		case STMF_ERROR_INVALID_IOPS_LIMIT:
+			(void) fprintf(stderr, "%s: iops limit %d is invalid",
+				cmdName, iopsLimit);
+			break;
+		default:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("unknown error"));
+			break;
+		}
+	}
+
+	return (ret);
+}
+
+static int
+getIopsInfoFunc(int operandLen, char *operands[], cmdOptions_t *options,
+    void *args)
+{
+	int ret, i;
+	stmfState state;
+	char sGuid[GUID_INPUT + 1] = {0};
+	uint32_t cur_iops, iops_limit;
+	stmfGuid inGuid;
+	unsigned int guid[sizeof (stmfGuid)];
+
+	ret = getStmfState(&state);
+	if (ret != STMF_STATUS_SUCCESS)
+		return (ret);
+	if (state.operationalState == STMF_SERVICE_STATE_OFFLINE ||
+	    state.operationalState == STMF_SERVICE_STATE_OFFLINING) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("STMF service is offline"));
+		return (1);
+	}
+
+	if (strlen(operands[0]) != GUID_INPUT) {
+		(void) fprintf(stderr,
+			"%s: %s: %s %d %s\n",
+			cmdName, operands[0],
+			gettext("must be"), GUID_INPUT,
+			gettext("hexadecimal digits long"));
+		return (1);
+	}
+
+	bcopy(operands[0], sGuid, GUID_INPUT);
+
+	for (i = 0; i < GUID_INPUT; i++)
+		sGuid[i] = tolower(sGuid[i]);
+	sGuid[i] = 0;
+
+	(void) sscanf(sGuid, "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &guid[0], &guid[1], &guid[2], &guid[3], &guid[4], &guid[5],
+	    &guid[6], &guid[7], &guid[8], &guid[9], &guid[10], &guid[11],
+	    &guid[12], &guid[13], &guid[14], &guid[15]);
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		inGuid.guid[i] = guid[i];
+	}
+
+	ret = stmfGetIopsInfo(&inGuid, &cur_iops, &iops_limit);
+
+	if (ret == STMF_STATUS_SUCCESS) {
+		printf("cur iops: %d, iops limit: %d\n", cur_iops, iops_limit);
+	} else {
+		switch (ret) {
+		case STMF_ERROR_BUSY:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("STMF is busy"));
+			break;
+		case STMF_ERROR_PERM:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("permission denied"));
+			break;
+		case STMF_ERROR_NOT_FOUND:
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
+			    sGuid, gettext("not found"));
+			break;
+		default:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("unknown error"));
+			break;
+		}
+	}
+
+	return (ret);
+}
+
 
 /*
  * input:

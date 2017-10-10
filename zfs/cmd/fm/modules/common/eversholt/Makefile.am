@@ -1,5 +1,9 @@
 include $(top_srcdir)/config/Rules.am
 
+SUBDIRS=files
+
+libeversholt_ladir=/usr/local/lib/fmd
+
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
 	-I$(top_srcdir)/lib/libspl/include	\
@@ -7,7 +11,7 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/cmd/fm/fmd/common/		\
 	-I$(top_srcdir)/lib/fm/topo/libtopo/common/
 
-lib_LTLIBRARIES = libeversholt.la
+libeversholt_la_LTLIBRARIES = libeversholt.la
 
 USER_C = \
 	eft.c		\

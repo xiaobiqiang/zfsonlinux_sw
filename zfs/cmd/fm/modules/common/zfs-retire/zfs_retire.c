@@ -36,7 +36,7 @@
 //#include <zfs.h>
 //#include <sys/fm/fs/zfs.h>
 #include <libzfs.h>
-//#include <fm/libtopo.h>
+#include <libtopo.h>
 //#include <fm/topo_hc.h>
 //#include <fm/topo_list.h>
 #include <string.h>

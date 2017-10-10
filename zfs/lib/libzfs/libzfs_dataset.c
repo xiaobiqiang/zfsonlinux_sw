@@ -4663,6 +4663,7 @@ zvol_volsize_to_reservation(uint64_t volsize, nvlist_t *props)
 	    &volblocksize) != 0)
 		volblocksize = ZVOL_DEFAULT_BLOCKSIZE;
 	nblocks = volsize/volblocksize;
+	
 	/* start with metadnode L0-L6 */
 	numdb = 7;
 	/* calculate number of indirects */
@@ -4680,6 +4681,7 @@ zvol_volsize_to_reservation(uint64_t volsize, nvlist_t *props)
 	 */
 	numdb *= 1ULL << DN_MAX_INDBLKSHIFT;
 	volsize += numdb;
+	
 	return (volsize);
 }
 

@@ -1527,7 +1527,7 @@ fmd_case_tryhold(fmd_case_impl_t *cip)
 	 * If the case's "deleting" bit is unset, hold and return case,
 	 * otherwise, return NULL.
 	 */
-	(void) pthread_mutex_lock(&cip->ci_lock);
+	(void) pthread_mutex_trylock(&cip->ci_lock);
 	if (cip->ci_flags & FMD_CF_DELETING) {
 		(void) pthread_mutex_unlock(&cip->ci_lock);
 		cip = NULL;

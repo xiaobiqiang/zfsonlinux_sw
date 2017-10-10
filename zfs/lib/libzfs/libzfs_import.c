@@ -2579,7 +2579,7 @@ zpool_used_index_changed(spa_quantum_index_t *last_index, uint64_t nquantum,
 int
 zpool_remove_partner(libzfs_handle_t *hdl, char *name, uint32_t remote_hostid)
 {
-	zfs_cmd_t zc;
+	zfs_cmd_t zc = {"\0"};
 	int err;
 	if (name != NULL) {
 		strcpy(zc.zc_name, name);

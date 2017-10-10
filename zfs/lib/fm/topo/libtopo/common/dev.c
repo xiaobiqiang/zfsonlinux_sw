@@ -33,7 +33,7 @@
 #include <devid.h>
 #include <sys/stat.h>
 #include <libnvpair.h>
-//#include <fm/fmd_fmri.h>
+#include <fmd_fmri.h>
 #include <sys/fm/protocol.h>
 
 #include "topo_method.h"
@@ -52,7 +52,6 @@
 #include <sys/fs/zfs.h>
 
 #include <libdiskmgt.h>
-#include <disks_private.h>
 
 static int dev_enum(topo_mod_t *, tnode_t *, const char *, topo_instance_t,
     topo_instance_t, void *, void *);
@@ -294,71 +293,12 @@ static int
 dev_fmri_present(topo_mod_t *mod, tnode_t *node, topo_version_t version,
     nvlist_t *in, nvlist_t **out)
 {
-	uint8_t fmversion;
-	char *devpath = NULL;
 	uint32_t present;
-	char *devid = NULL, *path;
-	ddi_devid_t id;
-	ddi_devid_t matchid;
-	di_node_t dnode;
-	struct stat sb;
-	int len;
-
+	
 	if (version > TOPO_METH_PRESENT_VERSION)
 		return (topo_mod_seterrno(mod, EMOD_VER_NEW));
 
-	if (nvlist_lookup_uint8(in, FM_VERSION, &fmversion) != 0 ||
-	    fmversion > FM_DEV_SCHEME_VERSION ||
-	    nvlist_lookup_string(in, FM_FMRI_DEV_PATH, &devpath) != 0)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	(void) nvlist_lookup_string(in, FM_FMRI_DEV_ID, &devid);
-
-	if (devpath == NULL || strlen(devpath) == 0)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	/*
-	 * stat() the device node in devfs. This will tell us if the device is
-	 * present or not. Don't stat the minor,  just the whole device.
-	 * If the device is present and there is a devid, it must also match.
-	 * so di_init that one node. No need for DINFOFORCE.
-	 */
-	len = strlen(devpath) + strlen("/devices") + 1;
-	path = topo_mod_alloc(mod, len);
-	(void) snprintf(path, len, "/devices%s", devpath);
-	if (devid == NULL) {
-		if (stat(path, &sb) != -1)
-			present = 1;
-		else if ((dnode = di_init("/", DINFOCACHE)) == DI_NODE_NIL)
-			present = 0;
-		else {
-			if (di_lookup_node(dnode, devpath) == DI_NODE_NIL)
-				present = 0;
-			else
-				present = 1;
-			di_fini(dnode);
-		}
-	} else {
-		if (stat(path, &sb) == -1)
-			present = 0;
-		else if ((dnode = di_init(devpath, DINFOCPYONE)) == DI_NODE_NIL)
-			present = 0;
-		else {
-			if ((id = di_devid(dnode)) == NULL ||
-			    devid_str_decode(devid, &matchid, NULL) != 0)
-				present = 0;
-			else {
-				if (devid_compare(id, matchid) != 0)
-					present = 0;
-				else
-					present = 1;
-				devid_free(matchid);
-			}
-			di_fini(dnode);
-		}
-	}
-	topo_mod_free(mod, path, len);
-
+	present = 1;
 	if (topo_mod_nvalloc(mod, out, NV_UNIQUE_NAME) != 0)
 		return (topo_mod_seterrno(mod, EMOD_NVL_INVAL));
 	if (nvlist_add_uint32(*out, TOPO_METH_PRESENT_RET, present) != 0) {
@@ -374,70 +314,12 @@ static int
 dev_fmri_replaced(topo_mod_t *mod, tnode_t *node, topo_version_t version,
     nvlist_t *in, nvlist_t **out)
 {
-	uint8_t fmversion;
-	char *devpath = NULL;
 	uint32_t rval;
-	char *devid = NULL, *path;
-	ddi_devid_t id;
-	ddi_devid_t matchid;
-	di_node_t dnode;
-	struct stat sb;
-	int len;
-
+	
 	if (version > TOPO_METH_REPLACED_VERSION)
 		return (topo_mod_seterrno(mod, EMOD_VER_NEW));
 
-	if (nvlist_lookup_uint8(in, FM_VERSION, &fmversion) != 0 ||
-	    fmversion > FM_DEV_SCHEME_VERSION ||
-	    nvlist_lookup_string(in, FM_FMRI_DEV_PATH, &devpath) != 0)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	(void) nvlist_lookup_string(in, FM_FMRI_DEV_ID, &devid);
-
-	if (devpath == NULL || strlen(devpath) == 0)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	/*
-	 * stat() the device node in devfs. This will tell us if the device is
-	 * present or not. Don't stat the minor,  just the whole device.
-	 * If the device is present and there is a devid, it must also match.
-	 * so di_init that one node. No need for DINFOFORCE.
-	 */
-	len = strlen(devpath) + strlen("/devices") + 1;
-	path = topo_mod_alloc(mod, len);
-	(void) snprintf(path, len, "/devices%s", devpath);
-	if (devid == NULL) {
-		if (stat(path, &sb) != -1)
-			rval = FMD_OBJ_STATE_UNKNOWN;
-		else if ((dnode = di_init("/", DINFOCACHE)) == DI_NODE_NIL)
-			rval = FMD_OBJ_STATE_NOT_PRESENT;
-		else {
-			if (di_lookup_node(dnode, devpath) == DI_NODE_NIL)
-				rval = FMD_OBJ_STATE_NOT_PRESENT;
-			else
-				rval = FMD_OBJ_STATE_UNKNOWN;
-			di_fini(dnode);
-		}
-	} else {
-		if (stat(path, &sb) == -1)
-			rval = FMD_OBJ_STATE_NOT_PRESENT;
-		else if ((dnode = di_init(devpath, DINFOCPYONE)) == DI_NODE_NIL)
-			rval = FMD_OBJ_STATE_NOT_PRESENT;
-		else {
-			if ((id = di_devid(dnode)) == NULL ||
-			    devid_str_decode(devid, &matchid, NULL) != 0)
-				rval = FMD_OBJ_STATE_UNKNOWN;
-			else {
-				if (devid_compare(id, matchid) != 0)
-					rval = FMD_OBJ_STATE_REPLACED;
-				else
-					rval = FMD_OBJ_STATE_STILL_PRESENT;
-				devid_free(matchid);
-			}
-			di_fini(dnode);
-		}
-	}
-	topo_mod_free(mod, path, len);
+	rval = FMD_OBJ_STATE_REPLACED;
 
 	if (topo_mod_nvalloc(mod, out, NV_UNIQUE_NAME) != 0)
 		return (topo_mod_seterrno(mod, EMOD_NVL_INVAL));
@@ -454,37 +336,12 @@ static int
 dev_fmri_unusable(topo_mod_t *mod, tnode_t *node, topo_version_t version,
     nvlist_t *in, nvlist_t **out)
 {
-	di_node_t dnode;
-	uint8_t fmversion;
-	char *devpath = NULL;
 	uint32_t unusable;
-	uint_t state;
 
 	if (version > TOPO_METH_UNUSABLE_VERSION)
 		return (topo_mod_seterrno(mod, EMOD_VER_NEW));
 
-	if (nvlist_lookup_uint8(in, FM_VERSION, &fmversion) != 0 ||
-	    fmversion > FM_DEV_SCHEME_VERSION ||
-	    nvlist_lookup_string(in, FM_FMRI_DEV_PATH, &devpath) != 0)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	if (devpath == NULL)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	if ((dnode = di_init(devpath, DINFOCPYONE)) == DI_NODE_NIL) {
-		if (errno != ENXIO)
-			return (topo_mod_seterrno(mod, EMOD_UKNOWN_ENUM));
-		unusable = 1;
-	} else {
-		uint_t retired = di_retired(dnode);
-		state = di_state(dnode);
-		if (retired || (state & (DI_DEVICE_OFFLINE | DI_DEVICE_DOWN |
-		    DI_BUS_QUIESCED | DI_BUS_DOWN)))
-			unusable = 1;
-		else
-			unusable = 0;
-		di_fini(dnode);
-	}
+	unusable = 0;
 
 	if (topo_mod_nvalloc(mod, out, NV_UNIQUE_NAME) != 0)
 		return (topo_mod_seterrno(mod, EMOD_NVL_INVAL));
@@ -501,39 +358,12 @@ static int
 dev_fmri_service_state(topo_mod_t *mod, tnode_t *node, topo_version_t version,
     nvlist_t *in, nvlist_t **out)
 {
-	di_node_t dnode;
-	uint8_t fmversion;
-	char *devpath = NULL;
 	uint32_t service_state;
-	uint_t state;
 
 	if (version > TOPO_METH_SERVICE_STATE_VERSION)
 		return (topo_mod_seterrno(mod, EMOD_VER_NEW));
 
-	if (nvlist_lookup_uint8(in, FM_VERSION, &fmversion) != 0 ||
-	    fmversion > FM_DEV_SCHEME_VERSION ||
-	    nvlist_lookup_string(in, FM_FMRI_DEV_PATH, &devpath) != 0)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	if (devpath == NULL)
-		return (topo_mod_seterrno(mod, EMOD_FMRI_MALFORM));
-
-	if ((dnode = di_init(devpath, DINFOCPYONE)) == DI_NODE_NIL) {
-		if (errno != ENXIO)
-			return (topo_mod_seterrno(mod, EMOD_UKNOWN_ENUM));
-		service_state = FMD_SERVICE_STATE_UNUSABLE;
-	} else {
-		uint_t retired = di_retired(dnode);
-		state = di_state(dnode);
-		if (retired || (state & (DI_DEVICE_OFFLINE | DI_DEVICE_DOWN |
-		    DI_BUS_QUIESCED | DI_BUS_DOWN)))
-			service_state = FMD_SERVICE_STATE_UNUSABLE;
-		else if (state & DI_DEVICE_DEGRADED)
-			service_state = FMD_SERVICE_STATE_DEGRADED;
-		else
-			service_state = FMD_SERVICE_STATE_OK;
-		di_fini(dnode);
-	}
+	service_state = FMD_SERVICE_STATE_OK;
 
 	if (topo_mod_nvalloc(mod, out, NV_UNIQUE_NAME) != 0)
 		return (topo_mod_seterrno(mod, EMOD_NVL_INVAL));

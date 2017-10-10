@@ -115,6 +115,7 @@ static int zpool_do_release(int, char **);
 
 /* add for zpool cluster cmd */
 static int zpool_do_cluster(int argc, char **argv);
+static int zpool_do_scanthin(int argc, char **argv);
 static void zpool_init_efi(char *path);
 
 xmlDocPtr pool_doc;
@@ -226,6 +227,7 @@ static zpool_command_t command_table[] = {
 	{ NULL },
 	{ "release",	zpool_do_release,		HELP_RELEASE		},
 	{ "cluster",	zpool_do_cluster,		HELP_CLUSTER		},
+	{ "scanthin",	zpool_do_scanthin,	HELP_RELEASE	},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -7175,6 +7177,26 @@ static int zpool_do_cluster(int argc, char **argv)
 	}
 	zpool_cluster_set_disks(g_zfs, para.pool_name, para.cid, para.rid,
 		para.progress, cluster_switch, remote_hostid);
+	return (0);
+}
+
+static int
+zpool_do_scanthin(int argc, char **argv)
+{
+	int i;
+	zfs_thinluns_t *statp = NULL;
+	zpool_check_thin_luns(&statp);
+	if (statp != NULL) {
+		for (i = 0; i < statp->pool_number; i ++) {
+			pool_thinluns_stat_t *thinlun_stat = &statp->pools[i];
+			syslog(LOG_ERR, "lun_size = %d, pool_name = %s", 
+				thinlun_stat->pool_thinlun_size, thinlun_stat->pool_name);
+		}
+
+		free(statp->pools);
+		free(statp);
+	}
+
 	return (0);
 }
 

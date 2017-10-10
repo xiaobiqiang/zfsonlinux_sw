@@ -30,13 +30,14 @@
 #include <sys/systeminfo.h>
 #include <sys/fm/util.h>
 
-//#include <smbios.h>
 #include <limits.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+
+#include <topo_fruhash.h>
 
 #include "fmd_conf.h"
 #include "fmd_subr.h"
@@ -61,9 +62,9 @@
 #include "fmd.h"
 #include "fmd_api.h"
 #include "fmd_topo.h"
+#include "fmd_rpc.h"
 
 #if 0
-#include <fmd_rpc.h>
 #include <fmd_dr.h>
 #include <sys/openpromio.h>
 #include <libdevinfo.h>
@@ -259,7 +260,7 @@ static const fmd_conf_formal_t _fmd_conf[] = {
 { "dictdir", &fmd_conf_string, "var/fm/dict" }, /* default diagcode dir */
 { "domain", &fmd_conf_string, NULL },		/* domain id for de auth */
 { "fakenotpresent", &fmd_conf_uint32, "0" },	/* simulate rsrc not present */
-{ "fg", &fmd_conf_bool, "false" },		/* run daemon in foreground */
+{ "fg", &fmd_conf_bool, "true" },		/* run daemon in foreground */
 { "gc_interval", &fmd_conf_time, "1d" },	/* garbage collection intvl */
 { "ids.avg", &fmd_conf_uint32, "4" },		/* desired idspace chain len */
 { "ids.max", &fmd_conf_uint32, "1024" },	/* maximum idspace buckets */
@@ -364,56 +365,53 @@ fmd_cleanup_auth_str(char *buf, const char *begin)
 	buf[i] = 0;
 }
 
+static void
+fmd_get_hardware_info(void){
+	char tmp[MAXNAMELEN];
+	FILE *fp = NULL;	
+
+	uname(&_fmd_uts);
+
+	/*get platform string.*/
+	fp = popen("uname -p", "r");
+	if(NULL != fgets(tmp, MAXNAMELEN, fp)){
+		strncpy(_fmd_plat, tmp, strlen(tmp));
+	}
+	pclose(fp);
+
+	/*get chassis-serial-number string.*/
+	fp = popen("dmidecode -s chassis-serial-number", "r");
+	if(NULL != fgets(tmp, MAXNAMELEN, fp)){
+		strncpy(_fmd_csn, tmp, strlen(tmp) - 1);
+	}
+	pclose(fp);
+	
+	/*get system-product-name string.*/
+	fp = popen("dmidecode -s system-product-name", "r");
+	if(NULL != fgets(tmp, MAXNAMELEN, fp)){
+		strncpy(_fmd_prod, tmp, strlen(tmp) - 1);
+	}
+	pclose(fp);
+
+	/*get system-serial-number string.*/
+	fp = popen("dmidecode -s system-serial-number", "r");
+	if(NULL != fgets(tmp, MAXNAMELEN, fp)){
+		strncpy(_fmd_psn, tmp, strlen(tmp) - 1);
+	}
+	pclose(fp);
+
+}
+
 void
 fmd_create(fmd_t *dp, const char *arg0, const char *root, const char *conf)
 {
 	fmd_conf_path_t *pap;
 	char file[PATH_MAX];
 	const char *name;
-//	const char *name, *psn, *csn;
 	fmd_stat_t *sp;
 	int i;
 
-#if 0
-	smbios_hdl_t *shp;
-	smbios_system_t s1;
-	smbios_info_t s2;
-	id_t id;
-
-	di_prom_handle_t promh = DI_PROM_HANDLE_NIL;
-	di_node_t rooth = DI_NODE_NIL;
-	char *bufp;
-
-	(void) sysinfo(SI_PLATFORM, _fmd_plat, sizeof (_fmd_plat));
-	(void) sysinfo(SI_ARCHITECTURE, _fmd_isa, sizeof (_fmd_isa));
-	(void) uname(&_fmd_uts);
-
-	if ((shp = smbios_open(NULL, SMB_VERSION, 0, NULL)) != NULL) {
-		if ((id = smbios_info_system(shp, &s1)) != SMB_ERR &&
-		    smbios_info_common(shp, id, &s2) != SMB_ERR)
-			fmd_cleanup_auth_str(_fmd_prod, s2.smbi_product);
-
-		if ((psn = smbios_psn(shp)) != NULL)
-			fmd_cleanup_auth_str(_fmd_psn, psn);
-
-		if ((csn = smbios_csn(shp)) != NULL)
-			fmd_cleanup_auth_str(_fmd_csn, csn);
-
-		smbios_close(shp);
-	} else if ((rooth = di_init("/", DINFOPROP)) != DI_NODE_NIL &&
-	    (promh = di_prom_init()) != DI_PROM_HANDLE_NIL) {
-		if (di_prom_prop_lookup_bytes(promh, rooth, "chassis-sn",
-		    (unsigned char **)&bufp) != -1) {
-			fmd_cleanup_auth_str(_fmd_csn, bufp);
-		}
-	}
-
-	if (promh != DI_PROM_HANDLE_NIL)
-		di_prom_fini(promh);
-	if (rooth != DI_NODE_NIL)
-		di_fini(rooth);
-#endif
-
+	fmd_get_hardware_info();
 	dp->d_version = _fmd_version;
 	dp->d_pname = fmd_strbasename(arg0);
 	dp->d_pid = getpid();
@@ -446,6 +444,7 @@ fmd_create(fmd_t *dp, const char *arg0, const char *root, const char *conf)
 	dp->d_rootdir = root ? root : "";
 	dp->d_platform = _fmd_plat;
 	dp->d_machine = _fmd_uts.machine;
+
 	dp->d_isaname = _fmd_isa;
 
 	dp->d_conf = fmd_conf_open(conf, sizeof (_fmd_conf) /
@@ -560,9 +559,7 @@ fmd_destroy(fmd_t *dp)
 
 	(void) fmd_conf_getprop(fmd.d_conf, "core", &core);
 
-#if 0
 	fmd_rpc_fini();
-#endif
 
 	if (dp->d_xprt_ids != NULL)
 		fmd_xprt_suspend_all();
@@ -849,7 +846,7 @@ fmd_run(fmd_t *dp, int pfd)
 	 */
 	dp->d_clockptr = dp->d_clockops->fto_init();
 
-	//topo_fru_hash_create();
+	topo_fru_hash_create();
 	fmd_topo_init();
 
 	dp->d_xprt_ids = fmd_idspace_create("xprt_ids", 1, INT_MAX);
@@ -892,6 +889,10 @@ fmd_run(fmd_t *dp, int pfd)
 
 	(void) sigemptyset(&act.sa_mask);
 	(void) sigaction(dp->d_thr_sig, &act, NULL);
+	
+	if (access("/var/fm/fmd", F_OK) != 0) {
+		mkdir("/var/fm/fmd", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+	}
 
 	(void) fmd_conf_getprop(dp->d_conf, "schemedir", &name);
 	dp->d_schemes = fmd_scheme_hash_create(dp->d_rootdir, name);
@@ -963,8 +964,10 @@ fmd_run(fmd_t *dp, int pfd)
 			(void) fmd_conf_setprop(dp->d_conf, "updatecode",
 			    code_str);
 	}
+	if (fmd_thread_create(fmd.d_rmod, (fmd_thread_f *)fmd_rpc_init, NULL) == NULL)
+		fmd_error(EFMD_EXIT, "failed to create rpc server thread");
 
-	//fmd_rpc_init();
+//	fmd_rpc_init();
 	dp->d_running = 1; /* we are now officially an active fmd */
 
 	/*

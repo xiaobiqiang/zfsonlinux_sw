@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <diagcode.h>
+#include <sys/stat.h>
 
 #include "fmd_string.h"
 #include "fmd_alloc.h"
@@ -182,6 +183,7 @@ fmd_module_create(const char *path, const fmd_modops_t *ops)
 	fmd_module_t *mp = fmd_zalloc(sizeof (fmd_module_t), FMD_SLEEP);
 
 	char buf[PATH_MAX], *p;
+	char tmp[PATH_MAX];
 	const char *dir;
 	uint32_t limit;
 	int err;
@@ -200,6 +202,12 @@ fmd_module_create(const char *path, const fmd_modops_t *ops)
 	mp->mod_ustat = fmd_ustat_create();
 
 	(void) fmd_conf_getprop(fmd.d_conf, "ckpt.dir", &dir);
+	(void) sprintf(tmp,"%s/%s", fmd.d_rootdir, dir);
+	if (access(tmp, F_OK) != 0) {
+		if(mkdir(tmp, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0)
+			return NULL;
+	}
+
 	(void) snprintf(buf, sizeof (buf),
 	    "%s/%s/%s", fmd.d_rootdir, dir, mp->mod_name);
 
