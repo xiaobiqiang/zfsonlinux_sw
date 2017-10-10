@@ -638,7 +638,7 @@ disk_node_create(disk_enum_data_t *data, tnode_t *pnode)
 		syslog(LOG_ERR, "get disk info failed\n");
 		return (-1);
 	}
-	printf("node num:%d\n", data->ded_disk.total);
+	
 	if (topo_node_range_create(mod, pnode,
 		"bay", 0, 1024) != 0) {
 		topo_mod_dprintf(mod,
