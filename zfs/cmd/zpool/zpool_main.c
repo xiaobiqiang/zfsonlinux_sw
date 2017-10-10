@@ -3817,7 +3817,7 @@ zpool_do_list(int argc, char **argv)
 	    "dedupratio,health,altroot";
 	static char default_clus_props[] =
 	    "name,size,allocated,free,expandsize,fragmentation,capacity,"
-	    "dedupratio,health,altroot, clusnodename";
+	    "dedupratio,health,altroot,clusnodename";
 	char *props = clumgt_flag ? default_clus_props : default_props;
 	unsigned long interval = 0, count = 0;
 	zpool_list_t *list;
