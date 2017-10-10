@@ -46,6 +46,7 @@ static const struct topo_builtin _topo_builtins[] = {
 	{ "dev", DEV_VERSION, dev_init, dev_fini },
 #endif
 	{ "fmd", FMD_VERSION, fmd_init, fmd_fini },
+	{ "dev", DEV_VERSION, dev_init, dev_fini },
 	{ "mem", MEM_VERSION, mem_init, mem_fini },
 	{ "pkg", PKG_VERSION, pkg_init, pkg_fini },
 	{ "zfs", ZFS_VERSION, zfs_init, zfs_fini },

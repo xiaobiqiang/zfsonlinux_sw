@@ -9812,7 +9812,7 @@ stmf_fini_task_checker()
 }
 
 static void
-stmf_update_iops()
+stmf_update_iops(void)
 {
 	stmf_i_lu_t *ilu;
 	kstat_io_t *kip;

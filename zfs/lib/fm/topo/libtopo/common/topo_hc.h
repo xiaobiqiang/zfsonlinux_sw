@@ -101,6 +101,8 @@ extern "C" {
  * Allowable hc node property group and property names
  */
 #define	TOPO_PGROUP_IO		"io"
+#define	TOPO_FMRI_AUTHORITY		"authority"
+#define	TOPO_PGROUP_STORAGE		"storage"
 #define	TOPO_IO_DEVTYPE		"devtype"
 #define	TOPO_IO_DRIVER		"driver"
 #define	TOPO_IO_MODULE		"module"

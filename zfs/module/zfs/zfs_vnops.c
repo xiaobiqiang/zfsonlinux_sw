@@ -892,10 +892,10 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 		
 		write_direct = dmu_tx_sync_log(tx);
-#if 0
+
 		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag,
 		    NULL, NULL);
-#endif
+
 		dmu_tx_commit(tx);
 
 		if (error != 0)
@@ -919,8 +919,9 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		return (error);
 	}
 
-	if (ioflag & (FSYNC | FDSYNC) ||
-	    zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct)
+	if ((ioflag & (FSYNC | FDSYNC)) ||
+	    (zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct) ||
+	    (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS))
 		zil_commit(zilog, zp->z_id);
 
 	ZFS_EXIT(zsb);

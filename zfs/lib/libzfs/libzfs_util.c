@@ -3316,3 +3316,107 @@ zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled)
 	zfs_iter_root(hdl, zfs_enable_avs_iter_pool, (void *)&ctx);
 }
 
+#define MAX_POOl_NUM    1024
+typedef struct check_pool_thinlun_data {
+        uint64_t        index;
+		pool_thinluns_stat_t *thinluns_stat;
+}check_pool_thinlun_data_t;
+
+static int
+zfs_check_thinlun(zfs_handle_t *zhp, void *data)
+{
+        uint64_t reserver_size;
+	pool_thinluns_stat_t *stat = (pool_thinluns_stat_t *)data;
+	reserver_size = zfs_prop_get_int(zhp, ZFS_PROP_REFRESERVATION);
+
+        if (strcmp(zhp->zpool_hdl->zpool_name, (char *)stat->pool_name) == 0 &&
+                reserver_size == 0) {
+                        char used[12];
+                        uint64_t thin_size = zfs_prop_get_int(zhp, ZFS_PROP_USED);
+                        zfs_nicenum(thin_size, used, sizeof(used));
+                        stat->pool_thinlun_size += thin_size;
+        }
+		zfs_close(zhp);
+        return (0);
+}
+
+int zfs_check_thinluns_call_back(zfs_handle_t *zhp, void *data)
+{
+	int ret;
+	ret = zfs_iter_filesystems(zhp, zfs_check_thinlun, data);
+	zfs_close(zhp);
+	return (ret);
+}
+
+int zpool_check_thinluns(libzfs_handle_t *hdl, void *data)
+{
+	int ret;
+	ret = zfs_iter_root(hdl, zfs_check_thinluns_call_back, data);
+
+	return (ret);
+}
+
+static int
+zfs_check_pools_thinlun(zpool_handle_t *zhp, void *data)
+{
+    char used[12];
+    pool_thinluns_stat_t thin_stat;
+    pool_thinluns_stat_t *tmp_statp;
+	check_pool_thinlun_data_t *cbdata;
+
+    cbdata = (check_pool_thinlun_data_t *)data;
+
+    bzero(&thin_stat, sizeof(pool_thinluns_stat_t));
+    strcpy(thin_stat.pool_name, zpool_get_name(zhp));
+    thin_stat.pool_size = zpool_get_prop_int(zhp, ZPOOL_PROP_SIZE, NULL);
+
+    zpool_check_thinluns(zpool_get_handle(zhp),&thin_stat); 
+    zfs_nicenum(thin_stat.pool_thinlun_size, used, sizeof(used));
+    if (thin_stat.pool_size < (thin_stat.pool_thinlun_size * 2)) {
+            tmp_statp = &cbdata->thinluns_stat[cbdata->index];
+            bcopy(&thin_stat, tmp_statp, sizeof(pool_thinluns_stat_t));
+            cbdata->index ++;
+    }
+        
+	zpool_close(zhp);
+	return (0);
+}
+
+
+
+
+void zpool_check_thin_luns(zfs_thinluns_t **statpp)
+{
+        int number;
+        size_t size;
+        libzfs_handle_t *tmp_gzfs;
+        check_pool_thinlun_data_t *cbdata;
+        zfs_thinluns_t *luns_stat;
+        
+        tmp_gzfs = libzfs_init();
+        cbdata  = calloc(1, sizeof(check_pool_thinlun_data_t));
+        bzero(cbdata, sizeof(check_pool_thinlun_data_t));
+        cbdata->thinluns_stat = calloc(MAX_POOl_NUM, sizeof(pool_thinluns_stat_t));
+
+        (void) zpool_iter(tmp_gzfs, zfs_check_pools_thinlun, cbdata);
+
+        number = cbdata->index;
+
+        if (number > 0) {
+                luns_stat = calloc(1, sizeof(zfs_thinluns_t));
+                luns_stat->pools = calloc(number, sizeof(pool_thinluns_stat_t));
+                luns_stat->pool_number = number;
+                bcopy(cbdata->thinluns_stat, luns_stat->pools,
+                  sizeof(pool_thinluns_stat_t)*number);
+                *statpp = luns_stat;
+                
+        }else {
+                *statpp = NULL;
+        }
+
+        free(cbdata->thinluns_stat);
+        free(cbdata);
+
+        libzfs_fini(tmp_gzfs);
+}
+
