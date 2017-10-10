@@ -571,6 +571,7 @@ void zfs_group_znode_reset_phys(znode_t *zp, zfs_group_phys_t *src_phys)
 	zp->z_dirquota = src_phys->zp_dirquota;
 	zp->z_dirlowdata = src_phys->zp_dirlowdata;
 	zp->z_old_gen = src_phys->zp_old_gen;
+	zp->z_bquota = src_phys->zp_bquota ;
 	bcopy(src_phys->zp_atime, zp->z_atime, sizeof(uint64_t) *2);
 	bcopy(src_phys->zp_ctime, zp->z_ctime, sizeof(uint64_t) *2);
 	bcopy(src_phys->zp_mtime, zp->z_mtime, sizeof(uint64_t) *2);

@@ -1624,7 +1624,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		return (SET_ERROR(EFBIG));
 	}
 
-	if ((zp->z_bquota || zp->z_dirquota > 0) && NOTIFY_FILE_SIZE) {
+	if ((old_zp->z_bquota || zp->z_bquota || zp->z_dirquota > 0) && NOTIFY_FILE_SIZE) {
 		if (zp->z_overquota == B_TRUE || zfs_get_overquota(zsb, zp->z_dirquota)) {
 			old_zp->z_overquota = B_TRUE;
 			bover = B_TRUE;
@@ -1849,9 +1849,13 @@ tx_again:
 		 * account for possible concurrent updates.
 		 */
 		while ((end_size = zp->z_size) < uio->uio_loffset) {
-			update_size = 0 ;
-			update_size = uio->uio_loffset - atomic_cas_64(&zp->z_size, end_size,
-			    uio->uio_loffset);
+			uint64_t is_size_changed ;
+			is_size_changed = atomic_cas_64(&zp->z_size, end_size, uio->uio_loffset);
+			if( is_size_changed == end_size ) {
+				update_size = uio->uio_loffset - is_size_changed ;
+			}else {
+				update_size = 0 ;
+			}
 			ASSERT(error == 0);
 		}
 		if (update_size >= 0)
@@ -1873,7 +1877,7 @@ tx_again:
 			zsb->z_os->os_is_master > 0)) && (zp->z_bquota || zp->z_dirquota > 0)) {
 	/*		if (update_size > 0) { */
 			/*	zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE, tx); */
-			if( !( zp->z_pflags & ZFS_XATTR ) )
+			if( !( zp->z_pflags & ZFS_XATTR )  && total_update_size>0 )
 				zfs_update_quota_used( zsb, zp, total_update_size, EXPAND_SPACE, tx ) ;
 /*			}*/
 		}

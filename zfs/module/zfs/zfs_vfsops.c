@@ -770,7 +770,7 @@ __zfs_fuid_overspacequota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	if (err != 0)
 		return (B_FALSE);
 
-	return ( used >= quota ) ;
+	return ( used > quota ) ;
 }
 
 static boolean_t
@@ -794,7 +794,7 @@ __zfs_fuid_overobjquota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	if (err != 0)
 		return (B_FALSE);
 
-	return ( used>=quota ) ;
+	return ( used>= quota ) ;
 
 }
 
@@ -841,8 +841,7 @@ __zfs_fuid_inobjquota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 int
 zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
 {
-	int err ;
-	if( ( err = __zfs_fuid_inspacequota(zsb, isgroup, fuid) ) == 0 ) return 0 ;
+	if( __zfs_fuid_inspacequota(zsb, isgroup, fuid) == 0 ) return 0 ;
 	return __zfs_fuid_inobjquota( zsb, isgroup, fuid ) ;
 }
 
@@ -2611,10 +2610,10 @@ zfs_fuid_oversoftquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
 
 	currenttime = gethrestime_sec();
 	delta = currenttime - zsb->z_overquota;
-	if (used >= quota && zsb->z_overquota == 0) {
+	if (used > quota && zsb->z_overquota == 0) {
 		zsb->z_overquota = gethrestime_sec();
 		return SOFTQUOTA_OVER;
-	} else if (used >= quota && delta >= SOFTQUOTA_OVER_TIME) 
+	} else if (used > quota && delta > SOFTQUOTA_OVER_TIME)
 		return SOFTQUOTA_OVER_HARD;
 
 	return (SOFTQUOTA_NO);
