@@ -412,7 +412,7 @@ static void get_check_conf(void)
 
 	memset(s1, 0, 32);
 	memset(s2, 0, 32);
-	if ((cfg = fopen("/usr/local/lib/fmd/liblink_transport.conf", "r")) != NULL) {
+	if ((cfg = fopen("/etc/link_transport.conf", "r")) != NULL) {
 		while (fscanf(cfg, "%31s%31s", s1, s2) != EOF) {
 			if (s1[0] == '\0' || s2[0] == '\0')
 				continue;
