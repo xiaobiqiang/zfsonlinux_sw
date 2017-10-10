@@ -3106,6 +3106,7 @@ zfs_prop_get_group_userquota(libzfs_handle_t *hdl, zfs_handle_t *zhp, zprop_list
 	rpctype = ZFS_RPC_GET_USERQUOTA;
 	rpcarg.bufcnt = 1;
 	rpcarg.flag = 0;
+	rpcarg.value = "-";
 	memset(backinfo, 0, rpcarg.bufcnt*ZFS_MAXPROPLEN);
 	//printf("---Get userspace--------0---[%s]-----\n", pl->pl_user_prop); 
 	
