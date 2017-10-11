@@ -1,0 +1,12 @@
+[Unit]
+Description=Probe pppt module
+DefaultDependencies=no
+After=stmf-boot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe zpppt
+
+[Install]
+WantedBy=zfs.target

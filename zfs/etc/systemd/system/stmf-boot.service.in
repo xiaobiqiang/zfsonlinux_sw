@@ -1,0 +1,12 @@
+[Unit]
+Description=Probe stmf module
+DefaultDependencies=no
+After=zfs-boot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe zstmf_sbd
+
+[Install]
+WantedBy=zfs.target
