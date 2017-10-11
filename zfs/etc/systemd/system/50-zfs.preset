@@ -7,6 +7,7 @@ enable pppt-boot.service
 enable configd.service
 enable stmf-svc.service
 enable zfs-clusterd.service
+enable fmd.service
 disable zfs-mount.service
 disable zfs-share.service
 enable zfs-zed.service
