@@ -407,37 +407,20 @@ int zfs_group_process_remove_data_file(zfs_sb_t *zsb, znode_t *dzp,
     uint64_t object, uint64_t dirquota)
 {
 	int err, err_meta_tx;
-	boolean_t b_delete;
 	boolean_t waited = B_FALSE;
 
 	struct inode *ip;
 	znode_t *zp;
 	dmu_tx_t *tx;
-	uint64_t acl_obj;
 
 	err = zfs_zget(zsb, object, &zp);
 	if (err != 0)
 		return (err);
 
 	ip = ZTOI(zp);
-	top:
-/*
-	mutex_enter(&vp->v_lock);
-	b_delete = vp->v_count == 1 && !vn_has_cached_data(vp);
-	mutex_exit(&vp->v_lock);
-*/
-	b_delete = (atomic_read(&ip->i_count) == 1);
+top:
 
 	tx = dmu_tx_create(zsb->z_os);
-
-	if (b_delete) {
-		dmu_tx_hold_free(tx, zp->z_id, 0,DMU_OBJECT_END);
-	}
-
-	mutex_enter(&zp->z_lock);
-	if ((acl_obj = zfs_external_acl(zp)) != 0 && b_delete)
-		dmu_tx_hold_free(tx, acl_obj, 0, DMU_OBJECT_END);
-	mutex_exit(&zp->z_lock);
 
 	dmu_tx_hold_zap(tx, zsb->z_unlinkedobj, FALSE, NULL);
 
@@ -465,37 +448,24 @@ int zfs_group_process_remove_data_file(zfs_sb_t *zsb, znode_t *dzp,
 		}
 	}
 
-//	b_delete = vp->v_count == 1 && !vn_has_cached_data(vp);
-	b_delete = (atomic_read(&ip->i_count) == 1);
-
-//	vp->v_count--;
-	atomic_dec(&ip->i_count);
-
 	zp->z_unlinked = B_TRUE;
 	zp->z_links = 0;
-	sa_update(zp->z_sa_hdl,SA_ZPL_LINKS(zsb),
-		&zp->z_links, sizeof (zp->z_links), tx);
-	if (b_delete) {
-//		ASSERT3U(vp->v_count, ==, 0);
-		
-//		mutex_exit(&vp->v_lock);
-		mutex_exit(&zp->z_lock);
-		zfs_znode_delete(zp, tx);
-	}else {
-		cmn_err(CE_WARN, "file is using, adding delete queue");
-		if( ENOENT == zap_lookup_int(zsb->z_os, zsb->z_unlinkedobj, zp->z_id)){
-			zfs_unlinked_add(zp, tx);
-		}
-//		mutex_exit(&vp->v_lock);
-		mutex_exit(&zp->z_lock);
+	sa_update(zp->z_sa_hdl,SA_ZPL_LINKS(zsb), &zp->z_links, sizeof (zp->z_links), tx);
+
+	if( ENOENT == zap_lookup_int(zsb->z_os, zsb->z_unlinkedobj, zp->z_id)){
+		zfs_unlinked_add(zp, tx);
 	}
-//	err_meta_tx = zfs_log_remove(zfsvfs->z_log, tx, TX_REMOVE, dzp, ZIL_LOG_DATA_FILE_NAME, object);
+
+	mutex_exit(&zp->z_lock);
+
 	err_meta_tx = zfs_log_remove(zsb->z_log, tx, TX_REMOVE, dzp, ZIL_LOG_DATA_FILE_NAME, object);
 	dmu_tx_commit(tx);
 	if ( err_meta_tx ){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 
+	zfs_inode_update(zp);
+	iput( ip ) ;
 	return (err);
 }
 
