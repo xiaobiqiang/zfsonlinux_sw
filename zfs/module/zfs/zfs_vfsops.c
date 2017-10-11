@@ -79,6 +79,7 @@
 int vget_repeat_times = 1000;
 int vget_failover_time = 210;
 int vget_slow_retry_time = 10;
+int group_get_fsstat = 0;
 
 extern int ZFS_GROUP_DTL_ENABLE;
 
@@ -1455,8 +1456,18 @@ zfs_statvfs(struct dentry *dentry, struct kstatfs *statp)
 
 	ZFS_ENTER(zsb);
 
-	dmu_objset_space(zsb->z_os,
-	    &refdbytes, &availbytes, &usedobjs, &availobjs);
+	if (zsb->z_os->os_is_group){
+		if (group_get_fsstat) {
+			zfs_client_master_get_group_fsstat(zsb,
+			    &refdbytes, &availbytes, &usedobjs, &availobjs);
+		} else {
+			zfs_client_get_fictitious_group_fsstat(zsb,
+			    &refdbytes, &availbytes, &usedobjs, &availobjs);
+		}
+	} else {
+		dmu_objset_space(zsb->z_os,
+		    &refdbytes, &availbytes, &usedobjs, &availobjs);
+	}
 
 	fsid = dmu_objset_fsid_guid(zsb->z_os);
 	/*
