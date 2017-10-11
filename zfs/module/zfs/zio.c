@@ -39,6 +39,7 @@
 #include <sys/ddt.h>
 #include <sys/blkptr.h>
 #include <sys/zfeature.h>
+#include <sys/metaslab_impl.h>
 
 /*
  * ==========================================================================
