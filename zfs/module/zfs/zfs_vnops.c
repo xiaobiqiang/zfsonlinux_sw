@@ -4620,8 +4620,8 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 		bcopy(&(ZTOI(zp)->i_atime), &(sp->atime), sizeof(struct timespec));
 		bcopy(&(ZTOI(zp)->i_mtime), &(sp->mtime), sizeof(struct timespec));
 		bcopy(&(ZTOI(zp)->i_ctime), &(sp->ctime), sizeof(struct timespec));
-		sp->size = (loff_t)zp->z_size;
 	}
+	sp->size = (loff_t)zp->z_size;
 	
 	if (zsb->z_os->os_is_group) {
 		if (zp->z_group_role != GROUP_VIRTUAL) {

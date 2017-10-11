@@ -1066,7 +1066,7 @@ zfs_proc_data(zfs_sb_t *zsb, znode_t *zp,
 	case DATA_READ: {
 			zfs_group_data_read_t *read;
 			msg_len = sizeof (zfs_group_data_msg_t);
-			data_msg = kmem_zalloc(msg_len, KM_SLEEP);
+			data_msg = vmem_zalloc(msg_len, KM_SLEEP);
 			msg_heade = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 			data = &data_msg->call.data;
 			data->io_flags = io_flags;
@@ -1086,7 +1086,7 @@ zfs_proc_data(zfs_sb_t *zsb, znode_t *zp,
 			uiop = (uio_t *)(uintptr_t)write->addr;
 			write_len = (write->len + (8 -1)) & (~(8 -1));
 			msg_len = sizeof(zfs_group_data_msg_t) + write_len - 8;
-			data_msg = kmem_zalloc(msg_len, KM_SLEEP);
+			data_msg = vmem_zalloc(msg_len, KM_SLEEP);
 			msg_heade = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 			data = &data_msg->call.data;
 			addr = &data_msg->call.data.data;
@@ -1134,7 +1134,7 @@ zfs_proc_data(zfs_sb_t *zsb, znode_t *zp,
 	}
 	
 	if (data_msg != NULL) {
-		kmem_free(data_msg, msg_len);
+		vmem_free(data_msg, msg_len);
 	}
 	if (msg_heade) {
 		kmem_free(msg_heade, sizeof(zfs_group_header_t));
@@ -1166,7 +1166,7 @@ zfs_proc_data2(zfs_sb_t *zsb, znode_t *zp,
 	case DATA_READ: {
 			zfs_group_data_read_t *read;
 			msg_len = sizeof (zfs_group_data_msg_t);
-			data_msg = kmem_zalloc(msg_len, KM_SLEEP);
+			data_msg = vmem_zalloc(msg_len, KM_SLEEP);
 			data = &data_msg->call.data;
 			data->io_flags = io_flags;
 			read = (zfs_group_data_read_t *)ptr;
@@ -4903,100 +4903,97 @@ zfs_client_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr,
 	return (error);
 }
 
-// int zfs_client_get_fictitious_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
-//     uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs)
-// {
-// 	int i, num = 0;
-// 	zfs_multiclus_group_record_t *group_record;
-// 	zfs_multiclus_group_t *group = NULL;
-// 	uint64_t ref = 0;
-// 	uint64_t avail = 0;
-// 	uint64_t refob = 0;
-// 	uint64_t availob = 0;
+int zfs_client_get_fictitious_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
+    uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs)
+{
+	int i, num = 0;
+	zfs_multiclus_group_record_t *group_record;
+	zfs_multiclus_group_t *group = NULL;
+	uint64_t ref = 0;
+	uint64_t avail = 0;
+	uint64_t refob = 0;
+	uint64_t availob = 0;
 
-// 	if (!zfs_multiclus_enable()) {
-// 		cmn_err(CE_WARN, "%s, %d, multiclus is disabled!", __func__, __LINE__);
-// 		return (-1);
-// 	}
-// //	if(zfs_multiclus_get_group(zfsvfs->z_os->os_group_name, &group) >= ZFS_MULTICLUS_GROUP_TABLE_SIZE 
-// 	if(zfs_multiclus_get_group(zsb->z_os->os_group_name, &group) >= ZFS_MULTICLUS_GROUP_TABLE_SIZE 
-// 		|| group == NULL){
-// 		cmn_err(CE_WARN, "%s, %d, fail in finding group %s!", __func__, __LINE__, zsb->z_os->os_group_name);
-// 		return (-1);
-// 	}
+	if (!zfs_multiclus_enable()) {
+		cmn_err(CE_WARN, "%s, %d, multiclus is disabled!", __func__, __LINE__);
+		return (-1);
+	}
+	if(zfs_multiclus_get_group(zsb->z_os->os_group_name, &group) >= ZFS_MULTICLUS_GROUP_TABLE_SIZE 
+		|| group == NULL){
+		cmn_err(CE_WARN, "%s, %d, fail in finding group %s!", __func__, __LINE__, zsb->z_os->os_group_name);
+		return (-1);
+	}
 
-// //	dmu_objset_space(zfsvfs->z_os,
-// 	dmu_objset_space(zsb->z_os,
-// 		    &ref, &avail, &refob, &availob);
+	dmu_objset_space(zsb->z_os,
+		    &ref, &avail, &refob, &availob);
 
-// 	for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
-// 		group_record = &group->multiclus_group[i];
-// 		if (group_record->used && group_record->node_status.status == ZFS_MULTICLUS_NODE_ONLINE){
-// 		    num++;
-// 			continue;
-// 		}
-// 	}
-// 	*refbytes = (ref*num);
-// 	*availbytes = (avail*num);
-// 	*refobjs = (refob*num);
-// 	*availobjs = (availob*num);
+	ref = 0;
+	avail = 0;
+	for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
+		group_record = &group->multiclus_group[i];
+		if (group_record->used && group_record->node_status.status == ZFS_MULTICLUS_NODE_ONLINE){
+		    num++;
+			ref+=group_record->used_size;
+			avail+=group_record->avail_size;
+			continue;
+		}
+	}
+	*refbytes = ref;
+	*availbytes = avail;
+	*refobjs = (refob*num);
+	*availobjs = (availob*num);
 
-// 	return (0);
-// }
+	return (0);
+}
 
-// //int zfs_client_master_get_group_fsstat(zfsvfs_t *zfsvfs, uint64_t *refbytes,
-// int zfs_client_master_get_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
-//     uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs)
-// {
-// 	int i;
-// 	int err;
-// 	fs_stat_t *fsstat;
-// 	zfs_multiclus_group_record_t *group_record;
-// 	zfs_multiclus_group_t *group = NULL;
 
-// 	if (!zfs_multiclus_enable()) {
-// 		cmn_err(CE_WARN, "%s, %d, multiclus is disabled!", __func__, __LINE__);
-// 		return (-1);
-// 	}
-// //	if(zfs_multiclus_get_group(zfsvfs->z_os->os_group_name, &group) >= ZFS_MULTICLUS_GROUP_TABLE_SIZE 
-// 	if(zfs_multiclus_get_group(zsb->z_os->os_group_name, &group) >= ZFS_MULTICLUS_GROUP_TABLE_SIZE 
-// 		|| group == NULL){
-// 		cmn_err(CE_WARN, "%s, %d, fail in finding group %s!", __func__, __LINE__, zsb->z_os->os_group_name);
-// 		return (-1);
-// 	}
-// 	fsstat = kmem_zalloc(sizeof(fs_stat_t), KM_SLEEP);
+int zfs_client_master_get_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
+    uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs)
+{
+	int i;
+	int err;
+	fs_stat_t *fsstat;
+	zfs_multiclus_group_record_t *group_record;
+	zfs_multiclus_group_t *group = NULL;
 
-// //	dmu_objset_space(zfsvfs->z_os,
-// 	dmu_objset_space(zsb->z_os,
-// 		    refbytes, availbytes, refobjs, availobjs);
-// 	for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
-// 		zfs_group_cmd_arg_t cmd_arg;
-// 		group_record = &group->multiclus_group[i];
-// 		if (!group_record->used || group_record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE || 
-// 			(group_record->os_id == dmu_objset_id(zsb->z_os)
-// 		    && group_record->spa_id == spa_guid(dmu_objset_spa(zsb->z_os)))){
-// //		    (group_record->os_id == dmu_objset_id(zfsvfs->z_os)
-// //		    && group_record->spa_id == spa_guid(dmu_objset_spa(zfsvfs->z_os)))){
-// 			continue;
-// 		}
-// 		bzero(&cmd_arg, sizeof(zfs_group_cmd_arg_t));
-// 		cmd_arg.return_ptr = (uintptr_t)fsstat;
-// 		cmd_arg.return_size = sizeof(fs_stat_t);
-// //		err = zfs_proc_cmd(zfsvfs, SC_FS_STAT, SHARE_WAIT, &cmd_arg,
-// 		err = zfs_proc_cmd(zsb, SC_FS_STAT, SHARE_WAIT, &cmd_arg,
-// 		    group_record->spa_id, group_record->os_id, group_record->root, APP_GROUP);
-// 		if (err == 0) {
-// 			*refbytes += fsstat->refdbytes;
-// 			*availbytes += fsstat->availbytes;
-// 			*refobjs += fsstat->usedobjs;
-// 			*availobjs += fsstat->availobjs;
-// 		}
-// 		bzero(fsstat, sizeof(fs_stat_t));
-// 	}
-// 	kmem_free(fsstat, sizeof(fs_stat_t));
+	if (!zfs_multiclus_enable()) {
+		cmn_err(CE_WARN, "%s, %d, multiclus is disabled!", __func__, __LINE__);
+		return (-1);
+	}
+	if(zfs_multiclus_get_group(zsb->z_os->os_group_name, &group) >= ZFS_MULTICLUS_GROUP_TABLE_SIZE 
+		|| group == NULL){
+		cmn_err(CE_WARN, "%s, %d, fail in finding group %s!", __func__, __LINE__, zsb->z_os->os_group_name);
+		return (-1);
+	}
+	fsstat = kmem_zalloc(sizeof(fs_stat_t), KM_SLEEP);
 
-// 	return (0);
-// }
+	dmu_objset_space(zsb->z_os,
+		    refbytes, availbytes, refobjs, availobjs);
+	for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
+		zfs_group_cmd_arg_t cmd_arg;
+		group_record = &group->multiclus_group[i];
+		if (!group_record->used || group_record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE || 
+		    (group_record->os_id == dmu_objset_id(zsb->z_os)
+		    && group_record->spa_id == spa_guid(dmu_objset_spa(zsb->z_os)))){
+			continue;
+		}
+		bzero(&cmd_arg, sizeof(zfs_group_cmd_arg_t));
+		cmd_arg.return_ptr = (uintptr_t)fsstat;
+		cmd_arg.return_size = sizeof(fs_stat_t);
+		err = zfs_proc_cmd(zsb, SC_FS_STAT, SHARE_WAIT, &cmd_arg,
+		    group_record->spa_id, group_record->os_id, group_record->root, APP_GROUP);
+		if (err == 0) {
+			*refbytes += fsstat->refdbytes;
+			*availbytes += fsstat->availbytes;
+			*refobjs += fsstat->usedobjs;
+			*availobjs += fsstat->availobjs;
+		}
+		bzero(fsstat, sizeof(fs_stat_t));
+	}
+	kmem_free(fsstat, sizeof(fs_stat_t));
+
+	return (0);
+}
 
 
 // //int zfs_client_get_fsstat(zfsvfs_t *zfsvfs, uint64_t *refbytes,
