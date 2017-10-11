@@ -241,9 +241,9 @@ sync_changed_cb(void *arg, uint64_t newval)
 	 * Inheritance and range checking should have been done by now.
 	 */
 	ASSERT(newval == ZFS_SYNC_STANDARD || newval == ZFS_SYNC_DISK ||
-        newval == ZFS_SYNC_MIRROR);
+        newval == ZFS_SYNC_MIRROR || newval == ZFS_SYNC_ALWAYS);
 
-    if (dmu_objset_type(os) != DMU_OST_ZVOL){
+    if (dmu_objset_type(os) != DMU_OST_ZVOL && dmu_objset_type(os) != DMU_OST_ZFS){
         if ( sync_mirror_en == 0 || newval != ZFS_SYNC_MIRROR){
             newval = ZFS_SYNC_STANDARD;
         }
@@ -322,7 +322,7 @@ dmu_objset_appmetaprop(objset_t *os)
 
 boolean_t
 dmu_objset_sync_check(objset_t *os) {
-    if (os->os_sync == ZFS_SYNC_STANDARD || os->os_breplaying)
+    if (os->os_sync == ZFS_SYNC_STANDARD || os->os_sync == ZFS_SYNC_ALWAYS || os->os_breplaying)
         return (B_FALSE);
     else
         return (B_TRUE);

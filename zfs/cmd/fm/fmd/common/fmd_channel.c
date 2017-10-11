@@ -335,8 +335,9 @@ fmd_msg_handle(void *arg)
 		}
 	}
 	nvlist_lookup_string(nvl, "class", &class);
+	#if 0
 	printf("class is %s. \n", class);
-	
+	#endif
 	pthread_mutex_lock(&channel_mutex);
 	if (channel_exiting == 1) {
 		while (channel_xprt_refcnt > 0)

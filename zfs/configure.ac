@@ -45,6 +45,14 @@ AC_CONFIG_HEADERS([zfs_config.h], [
 	awk -f ${ac_srcdir}/config/config.awk zfs_config.h.tmp >zfs_config.h &&
 	rm zfs_config.h.tmp) || exit 1])
 
+AC_ARG_ENABLE(hengwei, 
+		AS_HELP_STRING([--enable-hengwei],
+			[use hengwei platform]))
+if test "$enable_hengwei" = yes; then
+	echo "use hengwei platform"
+	AC_DEFINE([USE_HENGWEI], [], [Use hengwei platform])
+fi
+
 AC_PROG_INSTALL
 AC_PROG_CC
 AC_PROG_LIBTOOL

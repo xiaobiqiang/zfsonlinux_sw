@@ -1,12 +1,17 @@
 include $(top_srcdir)/config/Rules.am
 
+VPATH = \
+	$(top_srcdir)/cmd/common
+
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include \
+	-I$(top_srcdir)/cmd/common
 
 sbin_PROGRAMS = configd
 
 configd_SOURCES = \
+	systemd_util.c \
 	configd.c \
 	configd_stmf.c \
 	store.c \

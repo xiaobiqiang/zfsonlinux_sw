@@ -8,6 +8,7 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/lib/libspl/include
 
 libzfs_etf_la_LTLIBRARIES = libzfs_etf.la
+libzfs_etf_la_DATA = libzfs_etf.conf
 
 USER_C = \
 	zfs_de.c

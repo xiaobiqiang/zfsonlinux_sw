@@ -56,7 +56,8 @@ fmd_SOURCES =		\
 	fmd_xdr_adm.c	\
 	fmd_xdr_api.c 	\
 	fmd_rpc_adm.c	\
-	fmd_rpc_api.c
+	fmd_rpc_api.c	\
+	fmd_systemd.c
 
 fmd_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la			\

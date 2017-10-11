@@ -25,7 +25,11 @@ int cn_hbx_msg_send(const char *buf, size_t len)
 
 	memcpy(m + 1, buf, m->len);
 
+#ifdef USE_HENGWEI
+	err = cn_netlink_send(m, 0, CN_IDX_HBX, GFP_ATOMIC);
+#else
 	err = cn_netlink_send(m, CN_IDX_HBX, GFP_ATOMIC);
+#endif
 	if (err < 0)
 		printk(KERN_ERR "cn_netlink_send error %d\n", err);
 	kfree(m);

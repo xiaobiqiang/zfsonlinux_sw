@@ -11,8 +11,7 @@
 #include <sys/fs/zfs.h>
 #include "zfs_mirror_debug.h"
 
-#ifndef	netdev_notifier_info_to_dev
-#define	netdev_notifier_info_to_dev(x)	(x)
+#ifdef USE_HENGWEI
 #define	register_netdevice_notifier_rh	register_netdevice_notifier
 #define	unregister_netdevice_notifier_rh	unregister_netdevice_notifier
 #endif
@@ -51,7 +50,11 @@ uint32_t cluster_target_mac_nrxworker = 4;
 #ifndef SOLARIS
 #define	ETHERTYPE_CLUSTERSAN	(0x8908)	/* cluster san */
 
-#define NET_IP_ALIGN_C	2
+#ifdef USE_HENGWEI
+	#define NET_IP_ALIGN_C	0
+#else
+	#define NET_IP_ALIGN_C	2
+#endif
 struct ether_header
 {
 	unsigned char	h_dest[ETH_ALEN];	/* destination eth addr	*/
@@ -66,12 +69,6 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
                    struct packet_type *pt, struct net_device *orig_dev);
 static int cluster_inetdev_event(struct notifier_block *this, unsigned long event,
                          void *ptr);
-
-#ifndef	netdev_notifier_info_to_dev
-#define	netdev_notifier_info_to_dev(x)	(x)
-#define	register_netdevice_notifier_rh	register_netdevice_notifier
-#define	unregister_netdevice_notifier_rh	unregister_netdevice_notifier
-#endif
 
 static struct notifier_block cluster_netdev_notifier = {
 	.notifier_call = cluster_inetdev_event,

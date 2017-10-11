@@ -205,7 +205,8 @@ zfs_prop_init(void)
 	static zprop_index_t sync_table[] = {
 		{ "mirror",	ZFS_SYNC_MIRROR },
 		{ "disk",	ZFS_SYNC_DISK},
-		{ "standard",	ZFS_SYNC_STANDARD },		
+		{ "standard",	ZFS_SYNC_STANDARD },
+        { "always",	ZFS_SYNC_ALWAYS },
 		/*
 		{ "standard",	ZFS_SYNC_STANDARD },
 		{ "always",	ZFS_SYNC_ALWAYS },

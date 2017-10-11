@@ -778,7 +778,7 @@ zvol_write(struct bio *bio)
 	
 	zfs_range_unlock(rl);
 
-	if (bio_is_fua(bio))
+	if (bio_is_fua(bio) || zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS)
 		zil_commit(zv->zv_zilog, ZVOL_OBJ);
 out:
 	return (error);
@@ -2376,7 +2376,7 @@ zvol_get_volume_wce(void *minor_hdl)
 {
 	zvol_state_t *zv = minor_hdl;
 
-	return ((zv->zv_objset->os_sync == ZFS_SYNC_STANDARD) ? 1 : 0);
+	return ((zv->zv_objset->os_sync == ZFS_SYNC_STANDARD || zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS) ? 1 : 0);
 }
 EXPORT_SYMBOL(zvol_get_volume_wce);
 

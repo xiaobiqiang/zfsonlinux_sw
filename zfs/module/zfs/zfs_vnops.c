@@ -1911,7 +1911,8 @@ tx_again:
 	}
 
 	if ((ioflag & (FSYNC | FDSYNC)) ||
-	    (zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct))
+	    (zsb->z_os->os_sync != ZFS_SYNC_STANDARD && write_direct) ||
+	    (zsb->z_os->os_sync == ZFS_SYNC_ALWAYS))
 		zil_commit(zilog, zp->z_id);
 
 	if (error == 0 && (zp->z_bquota || zp->z_dirquota > 0) && (zp->z_overquota == B_TRUE)) {

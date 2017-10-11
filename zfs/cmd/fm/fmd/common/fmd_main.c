@@ -41,7 +41,7 @@
 #include "fmd_error.h"
 #include "fmd_string.h"
 #include "fmd_conf.h"
-
+#include "fmd_systemd.h"
 
 #ifdef LHL_DBG
 #include <fm/LHL_DEBUG.h>
@@ -315,6 +315,7 @@ main(int argc, char *argv[])
 	(void) sigdelset(&set, SIGTERM);
 
 	if (fmd.d_fg) {
+	#if 0
 		(void) sigaction(SIGHUP, &act, NULL);
 		(void) sigdelset(&set, SIGHUP);
 		(void) sigaction(SIGINT, &act, NULL);
@@ -323,11 +324,16 @@ main(int argc, char *argv[])
 		(void) sigdelset(&set, SIGTSTP);
 		(void) sigdelset(&set, SIGTTIN);
 		(void) sigdelset(&set, SIGTTOU);
-
+	#endif
+		
+		write_pid();
 		(void) printf("%s: [ loading modules ... ", fmd.d_pname);
 		(void) fflush(stdout);
 	} else {
+		systemd_daemonize();
+	#if 0
 		pfd = daemonize_init();
+	#endif
 	}
 #ifdef LHL_DBG
 	if((log_file = fopen("/var/log/fmd.log", "a")) == NULL)
