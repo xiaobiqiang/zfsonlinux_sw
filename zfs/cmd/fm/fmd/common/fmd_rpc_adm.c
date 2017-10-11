@@ -214,10 +214,15 @@ fmd_adm_modgstat_1_svc(struct fmd_rpc_modstat *rms, struct svc_req *req)
 }
 
 bool_t
-fmd_adm_genxml_1_svc(int *rvp, struct svc_req *req)
+fmd_adm_genxml_1_svc(const int *warning, int *rvp, struct svc_req *req)
 {
 	int err = 0;
 	fmd_topo_t * ftp;
+	fmd_event_t *e;
+
+	#if 0
+	printf("in fmd genxml 1 svc: %d.\n", warning);
+	#endif
 	if ((ftp = fmd_list_next(&fmd.d_topo_list)) == NULL) {
 		syslog(LOG_ERR, "get topo handle failed.\n");
 		*rvp = FMD_ADM_ERR_MODFAIL;
@@ -229,10 +234,22 @@ fmd_adm_genxml_1_svc(int *rvp, struct svc_req *req)
 		return (TRUE);
 	}
 #endif	
-	if (topo_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
-		*rvp = FMD_ADM_ERR_MODFAIL;
-		return (TRUE);
+	if (warning == 1) {
+		if (topo_warning_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
+			*rvp = FMD_ADM_ERR_MODFAIL;
+			fmd_topo_rele(ftp);
+			return (TRUE);
+		}
+	} else if (warning == 0) { 
+		if (topo_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
+			*rvp = FMD_ADM_ERR_MODFAIL;
+			fmd_topo_rele(ftp);
+			return (TRUE);
+		}
 	}
+
+	e = fmd_event_create(FMD_EVT_TOPO, ftp->ft_time_end, NULL, ftp);
+	fmd_modhash_dispatch(fmd.d_mod_hash, e);
 
 	*rvp = err;
 	return (TRUE);

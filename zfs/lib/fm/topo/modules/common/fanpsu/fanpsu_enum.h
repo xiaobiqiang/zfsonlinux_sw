@@ -34,8 +34,8 @@
 #define TOPO_FANPSU_STATE_DESC "state_desc"
 #define TOPO_FANPSU_LASTED_STATE "lasted_state"
 
-#define FANPSU_STATE_OK 0x2
-#define FANPSU_STATE_NO 0x3
+#define FANPSU_STATE_OK 0x1 /*value refered from 'ses_element_status_string' in topo_2xml.c.*/
+#define FANPSU_STATE_CR 0x2
 
 #define FANPSU_GET_NODE 0
 #define FANPSU_ITER_NODE 1

@@ -26,6 +26,8 @@
 #include <strings.h>
 #include <fmadm.h>
 
+extern int g_warning;/*global variable in fmadm.c*/
+
 int
 cmd_load(fmd_adm_t *adm, int argc, char *argv[])
 {
@@ -61,10 +63,9 @@ cmd_unload(fmd_adm_t *adm, int argc, char *argv[])
 int
 cmd_genxml(fmd_adm_t *adm, int argc, char *argv[])
 {
-	if (argc != 1)
-		return (FMADM_EXIT_USAGE);
+	int only_warning = g_warning;
 
-	if (fmd_adm_module_genxml(adm) != 0)
+	if (fmd_adm_module_genxml(adm, only_warning) != 0)
 		die("failed to generate the xml of topology");
 
 	return (FMADM_EXIT_SUCCESS);

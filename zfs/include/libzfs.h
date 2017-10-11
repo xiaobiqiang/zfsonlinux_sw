@@ -245,6 +245,17 @@ typedef struct zfs_allow {
 	avl_tree_t z_everyone;
 } zfs_allow_t;
 
+typedef struct pool_thinluns_stat {
+	char		pool_name[MAXNAMELEN];
+	uint64_t	pool_size;
+	uint64_t	pool_thinlun_size;
+} pool_thinluns_stat_t;
+
+typedef struct zfs_thinluns_stat {
+	uint32_t pool_number;
+	pool_thinluns_stat_t *pools;
+} zfs_thinluns_t;
+
 /*
  * Basic handle types
  */
