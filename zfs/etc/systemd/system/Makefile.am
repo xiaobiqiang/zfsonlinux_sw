@@ -9,8 +9,12 @@ systemdunit_DATA = \
 	zfs-clusterd.service \
 	zfs-mount.service \
 	zfs-share.service \
-	zfs.target	\
-	fmd.service
+	zfs.target \
+	fmd.service \
+	stmf-boot.service \
+	pppt-boot.service \
+	configd.service \
+	stmf-svc.service
 
 EXTRA_DIST = \
 	$(top_srcdir)/etc/systemd/system/zfs-zed.service.in \
@@ -21,8 +25,12 @@ EXTRA_DIST = \
 	$(top_srcdir)/etc/systemd/system/zfs-mount.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs-share.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs.target.in \
-	$(top_srcdir)/etc/systemd/system/50-zfs.preset.in \
-	$(top_srcdir)/etc/systemd/system/fmd.service.in
+	$(top_srcdir)/etc/systemd/system/fmd.service.in \
+	$(top_srcdir)/etc/systemd/system/stmf-boot.service.in \
+	$(top_srcdir)/etc/systemd/system/pppt-boot.service.in \
+	$(top_srcdir)/etc/systemd/system/configd.service.in \
+	$(top_srcdir)/etc/systemd/system/stmf-svc.service.in \
+	$(top_srcdir)/etc/systemd/system/50-zfs.preset.in
 
 $(systemdunit_DATA):
 	-$(SED) -e 's,@bindir\@,$(bindir),g' \

@@ -1,0 +1,13 @@
+# ZFS is enabled by default
+disable zfs-import-cache.service
+disable zfs-import-scan.service
+enable zfs-boot.service
+enable stmf-boot.service
+enable pppt-boot.service
+enable configd.service
+enable stmf-svc.service
+enable zfs-clusterd.service
+disable zfs-mount.service
+disable zfs-share.service
+enable zfs-zed.service
+enable zfs.target
