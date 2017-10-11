@@ -214,7 +214,7 @@ fmd_adm_modgstat_1_svc(struct fmd_rpc_modstat *rms, struct svc_req *req)
 }
 
 bool_t
-fmd_adm_genxml_1_svc(const int *warning, int *rvp, struct svc_req *req)
+fmd_adm_genxml_1_svc(const int warning, int *rvp, struct svc_req *req)
 {
 	int err = 0;
 	fmd_topo_t * ftp;
