@@ -739,7 +739,7 @@ int ethernet_link_walk(conn_handle_t *chp){/*{{{*/
 			status = ETH_STATE_UNKNOWN;
 		}
 
-		chp->ret_status |= conn_node_creat(chp, "ethernet_link", linkname, status);
+		chp->ret_status |= conn_node_creat(chp, "ethernet_link", linkname, HT_STATE_UP);
 	}
 
 	pclose(fp1);
