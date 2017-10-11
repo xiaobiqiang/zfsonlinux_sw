@@ -1320,7 +1320,7 @@ static void  create_lun_node(disk_info_t *di)
 	node = xmlNewChild(disk_root_node, NULL, (xmlChar *)"lun", NULL);
 
 	name_node=xmlNewChild(node, NULL, (xmlChar *)"name", NULL);
-	xmlNodeSetContent(name_node, (xmlChar *)di->dk_name);
+	xmlNodeSetContent(name_node, (xmlChar *)di->dk_scsid);
 /*
 	saswwid_node =xmlNewChild(node, NULL, (xmlChar *)"sas_wwid", NULL);
 	sprintf(buf, "%llx", luns->sas_wwn);
