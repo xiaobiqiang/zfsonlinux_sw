@@ -9,6 +9,7 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/lib/libspl/include
 
 libzfs_retire_la_LTLIBRARIES = libzfs_retire.la
+libzfs_retire_la_DATA = libzfs_retire.conf
 
 USER_C = \
 	make_vdev.c	\

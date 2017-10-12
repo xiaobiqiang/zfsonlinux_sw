@@ -1,0 +1,13 @@
+[Unit]
+Description=faulty management service
+DefaultDependencies=no
+Requires=NetworkManager.service
+After=zfs.target
+After=rpcbind.service
+
+[Service]
+ExecStart=@sbindir@/fmd
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
