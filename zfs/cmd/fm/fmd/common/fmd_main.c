@@ -41,7 +41,7 @@
 #include "fmd_error.h"
 #include "fmd_string.h"
 #include "fmd_conf.h"
-#include "fmd_systemd.h"
+#include "systemd_util.h"
 
 #ifdef LHL_DBG
 #include <fm/LHL_DEBUG.h>
@@ -54,6 +54,8 @@ void log_null(FILE *file, const char *str){}
 #include <sys/types.h>
 #include <dirent.h>
 /* END ADD */
+
+#define	PID_FILE	RUNSTATEDIR "/fmd.pid"
 
 fmd_t fmd;
 extern pthread_t main_tid;
@@ -326,11 +328,11 @@ main(int argc, char *argv[])
 		(void) sigdelset(&set, SIGTTOU);
 	#endif
 		
-		write_pid();
+		write_pid(PID_FILE);
 		(void) printf("%s: [ loading modules ... ", fmd.d_pname);
 		(void) fflush(stdout);
 	} else {
-		systemd_daemonize();
+		systemd_daemonize(PID_FILE);
 	#if 0
 		pfd = daemonize_init();
 	#endif
@@ -351,8 +353,11 @@ main(int argc, char *argv[])
 	if (fmd.d_fg) {
 		(void) printf("done ]\n");
 		(void) printf("%s: [ awaiting events ]\n", fmd.d_pname);
-	} else
+	} 
+#if 0
+	else
 		daemonize_fini(pfd);
+#endif
 
 	while (!fmd.d_signal)
 		(void) sigsuspend(&set);

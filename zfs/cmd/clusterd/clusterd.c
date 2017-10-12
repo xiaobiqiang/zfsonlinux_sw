@@ -37,6 +37,8 @@
 #include "clusterd.h"
 
 #define	CLUSTERD_CONF	"/etc/default/clusterd"
+#define	PID_FILE	RUNSTATEDIR "/clusterd.pid"
+
 int clusterd_log_lvl = 0;
 
 #define	c_log(lvl, fmt, ...)	if (lvl <= clusterd_log_lvl) {	\
@@ -6400,9 +6402,9 @@ main(int argc, char *argv[])
 	}
 
 	if (!daemon_disable)
-		systemd_daemonize();
+		systemd_daemonize(PID_FILE);
 	else
-		write_pid();
+		write_pid(PID_FILE);
 
 	host_id = get_system_hostid();
 
