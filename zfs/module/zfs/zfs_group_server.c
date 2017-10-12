@@ -3110,6 +3110,7 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			sa_bulk_attr_t	bulk[7];
 			int count;
 			zfs_group_notify_file_space_t *file_notify;
+			uint64_t end_size = 0;
 
 			file_notify = &notify->arg.p.file_space;
 			count = 0;
@@ -3154,9 +3155,16 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			ZFS_TIME_DECODE(&ZTOI(zp)->i_atime, file_notify->atime);
 			ZFS_TIME_DECODE(&ZTOI(zp)->i_ctime, file_notify->ctime);
 			ZFS_TIME_DECODE(&ZTOI(zp)->i_mtime, file_notify->mtime);
-			if ((file_notify->file_updateop==EXPAND_SPACE &&  zp->z_size < file_notify->file_size) 
-				|| (file_notify->file_updateop==REDUCE_SPACE &&  zp->z_size > file_notify->file_size))
-				zp->z_size = file_notify->file_size;
+	
+			if (file_notify->file_updateop==EXPAND_SPACE){
+				while ((end_size = zp->z_size) < file_notify->file_size) {
+					atomic_cas_64(&zp->z_size, end_size, file_notify->file_size);
+				}
+			}else if (file_notify->file_updateop==REDUCE_SPACE){
+				while ((end_size = zp->z_size) > file_notify->file_size) {
+					atomic_cas_64(&zp->z_size, end_size, file_notify->file_size);
+				}
+			}
 
 			SA_ADD_BULK_AMCTIME(bulk, count, zsb, zp);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
@@ -3167,6 +3175,8 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			    &file_notify->file_blksz, 8);
 			zp->z_nblks = file_notify->file_nblks;
 			zp->z_blksz = file_notify->file_blksz;
+			ZTOI(zp)->i_blocks = file_notify->file_nblks;
+			
 			if (zp->z_group_id.data_spa == file_notify->group_id.data_spa &&
 				zp->z_group_id.data_objset == file_notify->group_id.data_objset &&
 				zp->z_group_id.data_object == file_notify->group_id.data_object &&

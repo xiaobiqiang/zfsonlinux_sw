@@ -2353,8 +2353,8 @@ int zfs_client_notify_file_space(znode_t *zp, uint64_t update_size, uint64_t use
 	file_notify.file_updatesize = update_size;
 	file_notify.file_updateop = used_op;
 	file_notify.file_size = zp->z_size;
-	file_notify.file_nblks = zp->z_nblks;
-	file_notify.file_blksz = zp->z_blksz;
+	file_notify.file_nblks = (uint64_t)ZTOI(zp)->i_blocks;
+	file_notify.file_blksz = (uint64_t)(1 <<(ZTOI(zp)->i_blkbits));
 	file_notify.file_low = zp->z_low;
 	file_notify.update_quota = update_quota;
 	file_notify.group_id = zp->z_group_id;
