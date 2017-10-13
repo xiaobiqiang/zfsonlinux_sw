@@ -2136,6 +2136,24 @@ int zfs_cluster_rdma_rpc_clnt_ioc(libzfs_handle_t *hdl, int cmd, void *arg)
 	return (err);
 }
 
+int zfs_cluster_socket_do (libzfs_handle_t *hdl,
+	char *hostname, uint32_t hostid, char *ip,
+	int pri, int port)
+{
+    zfs_cmd_t zc = {"\0"};
+    int err;
+
+    zc.zc_cookie = ZFS_CLUSTERSAN_IOC_SOCKET;
+    strcpy(zc.zc_value, hostname);
+    strcpy(zc.zc_string, ip);
+    zc.zc_guid = hostid;
+    zc.zc_obj = pri;
+    zc.zc_iflags = port;
+    err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
+
+	return (err);
+}
+
 nvlist_t *zfs_clustersan_sync_cmd(libzfs_handle_t *hdl, uint64_t cmd_id,
 	char *cmd_str, int timeout, int remote_hostid)
 {

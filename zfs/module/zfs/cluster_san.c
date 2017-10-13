@@ -13,6 +13,7 @@
 #include <sys/fs/zfs.h>
 #include <sys/cluster_san.h>
 #include <sys/cluster_target_mac.h>
+#include <sys/cluster_target_socket.h>
 /*#include <sys/cluster_target_ntb.h>
 #include <sys/cluster_target_rpc_rdma.h>
 #include <sys/cluster_target_rpc_rdma_svc.h>
@@ -214,8 +215,17 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 		csh_rx_data_free(cs_data, B_TRUE);
 		if (ret == 0)
 			printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
-		else
+		else {
 			printk("%s failed len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
+			for(i=0; i<cs_data->data_len; i++) {
+				printk("%x ", *((unsigned char*)cs_data->data+i));
+			}
+			printk("exdata\n");
+			for(i=0; i<cs_data->ex_len; i++) {
+				printk("%x ", *((unsigned char*)cs_data->ex_head+i));
+			}
+			printk("\n");
+		}
 	}
 }
 int cluster_comm_test(int hostid, int datalen, int headlen)
@@ -582,6 +592,7 @@ static cs_rx_data_t *cts_rx_data_alloc(uint64_t len)
 		}
 	}
 #else
+    //printk("%s %p %d\n", __func__, cs_data->data, len);
 	cs_data->data = cs_kmem_alloc(len);
 #endif
 	return (cs_data);
@@ -2335,6 +2346,7 @@ static void cts_fragment_insert_by_sort (cts_fragments_t *ctsfs, cts_fragment_da
 		list_insert_after(&ctsfs->data_list, prev, fragment);
 	}
 	if (fragment->len != 0) {
+        //printk("%s %p %p %d %d \n", __func__, fragment->data, cs_data->data, fragment->offset, fragment->len);
 		bcopy(fragment->data, cs_data->data + fragment->offset, fragment->len);
 		cluster_target_rxmsg_free(fragment);
 	}
@@ -3846,6 +3858,9 @@ cluster_target_session_t *cluster_target_session_add(
 		cts->sess_id = atomic_inc_32_nv(&cluster_target_session_count);
 		if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
 			/* cts_rpc_rdma_hb_init(cts); */
+		} else if (ctp->target_type == CLUSTER_TARGET_SOCKET) {
+		    /* todo: heart beat */
+            cts_socket_hb_init(cts);
 		} else {
 			cts_tran_worker_init(cts);
 			cluster_target_session_worker_init(cts);
@@ -4290,6 +4305,11 @@ cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
 		ctp->pri = CLUSTER_TARGET_PRI_RPC_RDMA;
 		/* ret = cluster_target_rpc_rdma_port_init(ctp, name, nvl_conf); */
 		is_rdma_rpc = B_TRUE;
+	} else if (strncmp(name, "socket", 6) == 0) {
+	    ctp->target_type = CLUSTER_TARGET_SOCKET;
+		ctp->pri = CLUSTER_TARGET_PRI_SOCKET;
+        ret = cluster_target_socket_port_init(ctp, name, nvl_conf);
+        is_rdma_rpc = B_TRUE;
 	} else {
 		/* default is ixgbe */
 		ctp->target_type = CLUSTER_TARGET_MAC;
@@ -4643,6 +4663,12 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 			cts_reply_notify(cts->sess_host_private, origin_data->index);
 		}
 		return (ret);
+	} else if (ctp->target_type == CLUSTER_TARGET_SOCKET) {
+	    ret = ctp->f_session_tran_start(cts, origin_data);
+		if ((ret == 0) && (origin_data->need_reply != 0)) {
+			cts_reply_notify(cts->sess_host_private, origin_data->index);
+		}
+        return (ret);
 	}
 
 	/* fragmentation */

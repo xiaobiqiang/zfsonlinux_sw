@@ -1085,7 +1085,8 @@ typedef  enum {
 	/* rpc rdma ioc */
 	ZFS_CLUSTERSAN_IOC_RPC_SVC			= 0x10,
 	ZFS_CLUSTERSAN_IOC_RPC_CLNT			= 0x11,
-	ZFS_CLUSTERSAN_COMM_TEST			= 0x14
+	ZFS_CLUSTERSAN_COMM_TEST			= 0x14,
+	ZFS_CLUSTERSAN_IOC_SOCKET           = 0x15
 }zfs_clustersan_ioc_t;
 
 #define	ZFS_CLUSTER_SESSION_LIST_FLAG		0x01

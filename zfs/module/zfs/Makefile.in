@@ -108,5 +108,6 @@ $(MODULE)-objs += dsl_destroy.o
 $(MODULE)-objs += dsl_userhold.o
 $(MODULE)-objs += cluster_san.o
 $(MODULE)-objs += cluster_target_mac.o
+$(MODULE)-objs += cluster_target_socket.o
 $(MODULE)-objs += zfs_hbx.o
 $(MODULE)-objs += zfs_mirror.o

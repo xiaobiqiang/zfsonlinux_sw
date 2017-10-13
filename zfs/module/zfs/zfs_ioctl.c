@@ -189,6 +189,7 @@
 #include <linux/miscdevice.h>
 #include <sys/zfs_mirror.h>
 #include <sys/cluster_san.h>
+#include <sys/cluster_target_socket.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -5073,6 +5074,55 @@ static int zfs_ioc_do_clustersan_sync_cmd(zfs_cmd_t *zc)
 	}
 	return (ret);
 }
+extern krwlock_t clustersan_rwlock;
+int cluster_socket_config(zfs_cmd_t *zc)
+{
+    cluster_target_port_t *ctp;
+    cluster_target_session_t *cts;
+	cts_list_pri_t *cts_list;
+    char *portstr = NULL;
+	int ret = 0;
+
+    rw_enter(&clustersan_rwlock, RW_WRITER);
+	ctp = list_head(&clustersan->cs_target_list);
+	while (ctp != NULL) {
+		if (strncmp("socket", ctp->link_name, 8) == 0) {
+			break;
+		}
+		ctp = list_next(&clustersan->cs_target_list,
+			ctp);
+	}
+	if (ctp == NULL) {
+		rw_exit(&clustersan_rwlock);
+		cmn_err(CE_WARN, "%s: socket not init", __func__);
+		return (-1);
+	}
+    cluster_target_socket_param_t *param = kmalloc(
+        sizeof(cluster_target_socket_param_t), GFP_KERNEL);
+    param->hostid = zc->zc_guid;
+    strcpy(param->hostname, zc->zc_value);
+
+    param->port = zc->zc_iflags;
+    strcpy(param->ipaddr, zc->zc_string);
+    param->priority = zc->zc_obj;
+
+	cts = cluster_target_session_add(ctp, zc->zc_value, zc->zc_guid,
+		param, NULL);
+	if (cts == NULL) {
+		ret = -1;
+	}
+	rw_exit(&clustersan_rwlock);
+
+	return (ret);
+}
+static int zfs_ioc_do_clustersan_socket(zfs_cmd_t *zc)
+{
+    int ret = -1;
+
+    ret = cluster_socket_config(zc);
+
+    return (ret);
+}
 
 static int
 zfs_ioc_do_clustersan(zfs_cmd_t *zc)
@@ -5131,6 +5181,9 @@ zfs_ioc_do_clustersan(zfs_cmd_t *zc)
 			ret = cluster_comm_test(((uint32_t)zc->zc_pad[0]), zc->zc_sendobj, zc->zc_fromobj);
 			break;
 #endif
+        case ZFS_CLUSTERSAN_IOC_SOCKET:
+            ret = zfs_ioc_do_clustersan_socket(zc);
+            break;
 		default:
 			break;
 	}
