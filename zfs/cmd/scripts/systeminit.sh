@@ -534,7 +534,7 @@ _CLUSTERINIT_
 function setipaddress
 {
 	cat /dev/null > /tmp/inittmp
-	if [ "Ubuntu" == ${osversion:0:6} ]||[ "Debian" == ${osversion:0:6} ];then
+	if [ "Ubuntu" == ${osversion:0:6} ] || [ "Debian" == ${osversion:0:6} ] || [ "Kylin" == ${osversion:0:5} ]; then
 		echo "/etc/network/interfaces" > /tmp/nicpath
 		ifconfig -a|grep Link|awk '{print $1}' >/tmp/inittmp
 	else
@@ -590,7 +590,7 @@ function setipaddress
 		MASK=`cat /tmp/inittmp1`
 		nicpath=`cat /tmp/nicpath`
 
-		if [ "Ubuntu" == ${osversion:0:6} ]||[ "Debian" == ${osversion:0:6} ];then
+		if [ "Ubuntu" == ${osversion:0:6} ] || [ "Debian" == ${osversion:0:6} ] || [ "Kylin" == ${osversion:0:5} ];then
 			echo "CREATING $dst config file."
 			cat >> $nicpath << _HSTNAME_
 auto $dst

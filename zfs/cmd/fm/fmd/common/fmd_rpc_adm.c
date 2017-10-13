@@ -234,6 +234,7 @@ fmd_adm_genxml_1_svc(const int warning, int *rvp, struct svc_req *req)
 		return (TRUE);
 	}
 #endif	
+	ftp = fmd_topo_hold();
 	if (warning == 1) {
 		if (topo_warning_xml_print(ftp->ft_hdl, stdout, FM_FMRI_SCHEME_HC, &err) < 0) {
 			*rvp = FMD_ADM_ERR_MODFAIL;
