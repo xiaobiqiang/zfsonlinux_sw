@@ -2148,7 +2148,7 @@ int zfs_cluster_socket_do (libzfs_handle_t *hdl,
     strcpy(zc.zc_string, ip);
     zc.zc_guid = hostid;
     zc.zc_obj = pri;
-    zc.zc_iflags = port;
+    zc.zc_history_offset = port;
     err = ioctl(hdl->libzfs_fd, ZFS_IOC_CLUSTERSAN, &zc);
 
 	return (err);

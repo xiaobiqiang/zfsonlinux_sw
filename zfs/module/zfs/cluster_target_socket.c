@@ -224,8 +224,11 @@ static void cluster_target_socket_session_init(cluster_target_session_t *cts, vo
     memset(&sess_socket->s_addr,0,sizeof(sess_socket->s_addr));  
     sess_socket->s_addr.sin_family=AF_INET;  
     sess_socket->s_addr.sin_port=htons(param->port);  
+
    
     sess_socket->s_addr.sin_addr.s_addr=in_aton(param->ipaddr);
+    
+    printk("%s port=%d ip=%s\n", __func__, param->port, param->ipaddr);
 
     cts->sess_target_private = sess_socket;
     /* create receive thread */
@@ -421,6 +424,7 @@ int cluster_target_socket_port_init(
     port_socket->port = port;
     strcpy(port_socket->ipaddr, ipaddr);
 
+    printk("%s port=%d ip=%s\n", __func__, port, port_socket->ipaddr);
 
     ret=sock_create(AF_INET, SOCK_STREAM,0,&(port_socket->srv_socket));
     if(ret){
