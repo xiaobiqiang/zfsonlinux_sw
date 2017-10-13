@@ -146,8 +146,13 @@ do_each_vdev( disk_table_t *dtb_p, zpool_handle_t *zhp, nvlist_t *vdev, const ch
 RETURN :
 		i=0 ;
 		while( (i++) < dtb_p->total ) {
+			/* when createing a pool,
+			 * user may use /dev/sda or /dev/disk/by-id/scsi-35000cca0734383d0
+			 * so, take care of both two cases here
+			 */
 			assert( strncmp( diskp->dk_name, "/dev/", 5 ) == 0 ) ;
-			if( strcmp( diskp->dk_name+5, dev_name ) == 0 ) {
+			assert( strncmp( diskp->dk_scsid, "/dev/disk/by-id/", 16 ) == 0 ) ;
+			if( strcmp( diskp->dk_name+5, dev_name ) == 0 || strcmp( diskp->dk_scsid+16, dev_name ) == 0 ) {
 				strcpy( diskp->dk_pool, pool_name ) ;
 				diskp->dk_role = disk_role ;
 
@@ -198,6 +203,8 @@ do_each_pool( zpool_handle_t *zhp, void *data ) {
 			do_each_vdev( dtb_p, zhp, l2cache[i], DISK_ROLE_CACHE ) ;
 		}
 	}
+
+	zpool_close( zhp ) ;
 
 	return 0 ;
 }
