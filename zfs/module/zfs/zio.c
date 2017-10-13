@@ -39,6 +39,7 @@
 #include <sys/ddt.h>
 #include <sys/blkptr.h>
 #include <sys/zfeature.h>
+#include <sys/metaslab_impl.h>
 
 /*
  * ==========================================================================
@@ -2601,7 +2602,7 @@ zio_dva_allocate(zio_t *zio)
 	    METASLAB_GANG_CHILD : 0;
 	flags |= (zio->io_flags & ZIO_FLAG_FASTWRITE) ? METASLAB_FASTWRITE : 0;
 
-    if (spa_log_class(spa) &&
+    if ( spa->spa_log_class->mc_rotor &&
 		((prop_p->zp_type != DMU_OT_PLAIN_FILE_CONTENTS && prop_p->zp_type !=DMU_OT_ZVOL ) 
 		|| prop_p->zp_level > 0)) {
 		mc = spa_log_class(spa);

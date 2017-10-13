@@ -1,14 +1,18 @@
 include $(top_srcdir)/config/Rules.am
 
+VPATH = \
+	$(top_srcdir)/cmd/common
+
 DEFAULT_INCLUDES += 					\
         -I$(top_srcdir)/include 			\
         -I$(top_srcdir)/lib/libspl/include 		\
-	-I$(top_srcdir)/lib/libipmi			\
+		-I$(top_srcdir)/lib/libipmi			\
         -I$(top_srcdir)/cmd/fm/fmd/common 		\
         -I$(top_srcdir)/lib/fm/topo/libtopo/common	\
         -I$(top_srcdir)/lib/fm/libexacct/common		\
         -I$(top_srcdir)/lib/fm/libdiagcode/common	\
-        -I$(top_srcdir)/lib/fm/libfmd_msg/common
+        -I$(top_srcdir)/lib/fm/libfmd_msg/common	\
+		-I$(top_srcdir)/cmd/common
 
 sbin_PROGRAMS = fmd
 
@@ -56,7 +60,8 @@ fmd_SOURCES =		\
 	fmd_xdr_adm.c	\
 	fmd_xdr_api.c 	\
 	fmd_rpc_adm.c	\
-	fmd_rpc_api.c
+	fmd_rpc_api.c	\
+	systemd_util.c
 
 fmd_LDADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la			\

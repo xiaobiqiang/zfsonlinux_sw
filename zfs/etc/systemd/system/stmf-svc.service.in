@@ -1,0 +1,13 @@
+[Unit]
+Description=Start stmf service
+DefaultDependencies=no
+After=zfs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=sleep 2
+ExecStart=@sbindir@/stmfsvc start
+
+[Install]
+WantedBy=multi-user.target

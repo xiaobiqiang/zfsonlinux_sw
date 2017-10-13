@@ -1,8 +1,12 @@
 include $(top_srcdir)/config/Rules.am
 
+VPATH = \
+	$(top_srcdir)/cmd/common
+
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include \
+	-I$(top_srcdir)/cmd/common
 
 sbin_PROGRAMS = clusterd
 
@@ -14,7 +18,6 @@ clusterd_SOURCES = \
 	deflt.c \
 	deflt.h \
 	systemd_util.c \
-	systemd_util.h \
 	if_util/dnet_ntop.c \
 	if_util/dnet_pton.c \
 	if_util/hlist.h \

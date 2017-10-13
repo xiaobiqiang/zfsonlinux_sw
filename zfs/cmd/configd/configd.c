@@ -25,10 +25,12 @@
 #include <fcntl.h>
 #include <syslog.h>
 #include <libcomm.h>
+#include "systemd_util.h"
 #include "store.h"
 
 #define	CONFIGD_CMD_OPTS	"n"
 #define	CONFIGD_MSG_QUEUE	"/configd_msgq"
+#define	PID_FILE	RUNSTATEDIR "/configd.pid"
 
 extern cfg_store_t db_store;
 extern msg_handler_t stmf_msg_handler_table[];
@@ -38,41 +40,6 @@ volatile sig_atomic_t running = 1;
 void sigterm_handler(int arg)  
 {  
     running = 0;  
-}
-
-/*
- * Processing for daemonization
- */
-static void
-daemonize_start(void)
-{
-   	pid_t pid;
-	
-    pid = fork();  
-    if(pid < 0)  
-    {  
-        perror("fork error!");  
-        exit(1);  
-    }  
-    else if(pid > 0)  
-    {  
-        exit(0);  
-    }  
-  
-    setsid();	
-	(void) chdir("/");
-	umask(0);
-
-	/*
-	 * Close stdin, stdout, and stderr.
-	 * Open again to redirect input+output
-	 */
-	(void) close(0);
-	(void) close(1);
-	(void) close(2);
-	(void) open("/dev/null", O_RDONLY);
-	(void) open("/dev/null", O_WRONLY);
-	(void) dup(1);
 }
 
 int
@@ -93,7 +60,7 @@ main(int argc, char *argv[])
 	}
 
 	if (daemonize)
-		daemonize_start();
+		write_pid(PID_FILE);
 
 	/* init comm service */
 	comm_register_msg_handler(stmf_msg_handler_table);

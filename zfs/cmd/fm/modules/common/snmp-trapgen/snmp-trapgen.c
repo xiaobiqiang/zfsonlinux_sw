@@ -238,7 +238,6 @@ snmp_recv(fmd_hdl_t *hdl, fmd_event_t *ep,
 		nvlist_lookup_uint32(nvl, TOPO_LINK_STATE, &state);
 		nvlist_lookup_string(nvl, TOPO_LINK_STATE_DESC, &state_desc);
 		ceresdata_send_trap(hdl, get_warning_level(type, state), type, name, state_desc);
-		printf("ceresdata send trap\n");
 	}
 #endif
 }

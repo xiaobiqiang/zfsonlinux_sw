@@ -69,6 +69,7 @@
 
 #include "statcommon.h"
 
+#define SCANBUFLEN 1024
 #ifndef	SPA_NUM_OF_QUANTUM
 #define	SPA_NUM_OF_QUANTUM	2
 #endif
@@ -3819,7 +3820,7 @@ zpool_do_list(int argc, char **argv)
 	    "dedupratio,health,altroot";
 	static char default_clus_props[] =
 	    "name,size,allocated,free,expandsize,fragmentation,capacity,"
-	    "dedupratio,health,altroot, clusnodename";
+	    "dedupratio,health,altroot,clusnodename";
 	char *props = clumgt_flag ? default_clus_props : default_props;
 	unsigned long interval = 0, count = 0;
 	zpool_list_t *list;
@@ -4634,11 +4635,22 @@ typedef struct status_cbdata {
 	boolean_t	cb_dedup_stats;
 } status_cbdata_t;
 
+xmlNodePtr create_scan_item_node(xmlNodePtr parent_node, const char *buf)
+{
+	xmlNodePtr node;
+
+	node = xmlNewChild(parent_node, NULL, (xmlChar *)"scan", NULL);
+
+	xmlSetProp(node, (xmlChar *)"description", (xmlChar *) buf);
+
+	return (node);
+}
+
 /*
  * Print out detailed scrub status.
  */
 void
-print_scan_status(pool_scan_stat_t *ps)
+print_scan_status(pool_scan_stat_t *ps, xmlNodePtr parent_node)
 {
 	time_t start, end;
 	uint64_t elapsed, mins_left, hours_left;
@@ -4646,13 +4658,21 @@ print_scan_status(pool_scan_stat_t *ps)
 	uint_t rate;
 	double fraction_done;
 	char processed_buf[7], examined_buf[7], total_buf[7], rate_buf[7];
+	char migrated_buf[64],	to_migrate_buf[64];
+	xmlNodePtr node =NULL;
+	char buf[SCANBUFLEN];
+	int n = 0;
 
-	(void) printf(gettext("  scan: "));
+	(void) printf(gettext(" scan: "));
 
 	/* If there's never been a scan, there's not much to say. */
 	if (ps == NULL || ps->pss_func == POOL_SCAN_NONE ||
 	    ps->pss_func >= POOL_SCAN_FUNCS) {
 		(void) printf(gettext("none requested\n"));
+		if (parent_node != NULL) {
+			memset(buf, 0, SCANBUFLEN);
+			node = create_scan_item_node(parent_node, "none requested");
+		}
 		return;
 	}
 
@@ -4661,7 +4681,18 @@ print_scan_status(pool_scan_stat_t *ps)
 	zfs_nicenum(ps->pss_processed, processed_buf, sizeof (processed_buf));
 
 	assert(ps->pss_func == POOL_SCAN_SCRUB ||
-	    ps->pss_func == POOL_SCAN_RESILVER);
+	    ps->pss_func == POOL_SCAN_RESILVER || ps->pss_func == POOL_SCAN_LOW);
+
+	/*
+	 * Check Low data migration.
+	 */
+	if (ps->pss_func == POOL_SCAN_LOW) {
+		zfs_nicenum(ps->pss_wrc_total_migrated, migrated_buf, sizeof (migrated_buf));
+		zfs_nicenum(ps->pss_wrc_total_to_migrate, to_migrate_buf, sizeof (to_migrate_buf));
+		printf(gettext("process low data %s of %s. \n"), migrated_buf, to_migrate_buf);
+	}
+
+	
 	/*
 	 * Scan is finished or canceled.
 	 */
@@ -4675,13 +4706,27 @@ print_scan_status(pool_scan_stat_t *ps)
 		} else if (ps->pss_func == POOL_SCAN_RESILVER) {
 			fmt = gettext("resilvered %s in %lluh%um with "
 			    "%llu errors on %s");
+		} else if (ps->pss_func == POOL_SCAN_LOW) {
+			fmt = gettext("migrate low data %s in %lluh%um with "
+			    "%llu errors on %s");
 		}
+		
 		/* LINTED */
 		(void) printf(fmt, processed_buf,
 		    (u_longlong_t)(minutes_taken / 60),
 		    (uint_t)(minutes_taken % 60),
 		    (u_longlong_t)ps->pss_errors,
 		    ctime((time_t *)&end));
+		if (parent_node != NULL ) {
+			memset(buf, 0, SCANBUFLEN);
+			n =  sprintf(buf, fmt, processed_buf,
+				(u_longlong_t)(minutes_taken / 60),
+				(uint_t)(minutes_taken % 60),
+				(u_longlong_t)ps->pss_errors,
+				ctime((time_t *)&end));
+			memset(buf+n-1, 0, 1);
+			node = create_scan_item_node(parent_node, buf);
+		}
 		return;
 	} else if (ps->pss_state == DSS_CANCELED) {
 		if (ps->pss_func == POOL_SCAN_SCRUB) {
@@ -4690,6 +4735,17 @@ print_scan_status(pool_scan_stat_t *ps)
 		} else if (ps->pss_func == POOL_SCAN_RESILVER) {
 			(void) printf(gettext("resilver canceled on %s"),
 			    ctime(&end));
+		} else if (ps->pss_func == POOL_SCAN_LOW) {
+			(void) printf(gettext("migrating low data canceled on %s"),
+			    ctime(&end));
+		}
+		if (parent_node != NULL) {
+			memset(buf, 0, SCANBUFLEN);
+			n = sprintf(buf, "%s canceled on %s",
+				(ps->pss_func == POOL_SCAN_RESILVER) ? "scrub" : "resilver",
+				ctime(&end));
+			memset(buf+n-1, 0, 1);
+			node = create_scan_item_node(parent_node, buf);
 		}
 		return;
 	}
@@ -4705,10 +4761,23 @@ print_scan_status(pool_scan_stat_t *ps)
 	} else if (ps->pss_func == POOL_SCAN_RESILVER) {
 		(void) printf(gettext("resilver in progress since %s"),
 		    ctime(&start));
+	} else if (ps->pss_func == POOL_SCAN_LOW) {
+		(void) printf(gettext("migrating low data in progress since %s"),
+		    ctime(&start));
+	}
+	if (parent_node != NULL) {
+		memset(buf, 0, SCANBUFLEN);
+		n = sprintf(buf, "%s in progress since %s",
+			(ps->pss_func == POOL_SCAN_SCRUB) ? "scrub" : "resilver",
+			 ctime(&start));
+		memset(buf+n-1, 32, 1);
 	}
 
 	examined = ps->pss_examined ? ps->pss_examined : 1;
 	total = ps->pss_to_examine;
+	if (ps->pss_func == POOL_SCAN_LOW) {
+		examined += ps->pss_wrc_total_to_migrate;
+	}
 	fraction_done = (double)examined / total;
 
 	/* elapsed time for this pass */
@@ -4729,20 +4798,46 @@ print_scan_status(pool_scan_stat_t *ps)
 	 */
 	(void) printf(gettext("    %s scanned out of %s at %s/s"),
 	    examined_buf, total_buf, rate_buf);
+	if (parent_node != NULL) {
+		n += sprintf(buf+n, ", %s scanned out of %s at %s/s",
+			examined_buf, total_buf, rate_buf);
+	}
+	
 	if (hours_left < (30 * 24)) {
 		(void) printf(gettext(", %lluh%um to go\n"),
 		    (u_longlong_t)hours_left, (uint_t)(mins_left % 60));
+		if (parent_node != NULL) {
+			n += sprintf(buf+n, ", %lluh%um to go.",
+				(u_longlong_t)hours_left, (uint_t)(mins_left % 60));
+		}
 	} else {
 		(void) printf(gettext(
 		    ", (scan is slow, no estimated time)\n"));
+		if (parent_node != NULL) {
+			n += sprintf(buf+n, ", (scan is slow, no estimated time).");
+		}
 	}
 
 	if (ps->pss_func == POOL_SCAN_RESILVER) {
 		(void) printf(gettext("    %s resilvered, %.2f%% done\n"),
 		    processed_buf, 100 * fraction_done);
+		if (parent_node != NULL) {
+			n += sprintf(buf+n, " %s resilvered, %.2f%% done.",
+				processed_buf, 100 * fraction_done);
+		}
 	} else if (ps->pss_func == POOL_SCAN_SCRUB) {
 		(void) printf(gettext("    %s repaired, %.2f%% done\n"),
 		    processed_buf, 100 * fraction_done);
+		if (parent_node != NULL) {
+			n += sprintf(buf+n, " %s repaired, %.2f%% done.",
+				processed_buf, 100 * fraction_done);
+		}
+	} else if (ps->pss_func == POOL_SCAN_LOW) {
+		(void) printf(gettext("    %.2f%% done\n"),
+		    migrated_buf, 100 * fraction_done);
+	}
+	if (parent_node != NULL) {
+		node = create_scan_item_node(parent_node, buf);
 	}
 }
 
@@ -5330,7 +5425,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 
 		(void) nvlist_lookup_uint64_array(nvroot,
 		    ZPOOL_CONFIG_SCAN_STATS, (uint64_t **)&ps, &c);
-		print_scan_status(ps);
+		print_scan_status(ps,node);
 
 		namewidth = max_width(zhp, nvroot, 0, 0, cbp->cb_name_flags);
 		if (namewidth < 10)

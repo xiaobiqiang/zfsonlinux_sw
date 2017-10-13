@@ -10,6 +10,7 @@ DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/lib/fm/topo/modules/common/link_transport
 
 liblink_transport_la_LTLIBRARIES = liblink_transport.la
+liblink_transport_la_DATA = liblink_transport.conf
 
 USER_C = \
 	link_transport.c

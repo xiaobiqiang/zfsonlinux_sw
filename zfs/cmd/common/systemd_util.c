@@ -12,8 +12,6 @@
 #include <libgen.h>
 #include "systemd_util.h"
 
-#define	PID_FILE	RUNSTATEDIR "/clusterd.pid"
-
 static void
 _die(const char *fmt, ...)
 {
@@ -229,7 +227,7 @@ _file_write_n(int fd, void *buf, size_t n)
 }
 
 static int
-_write_pid(void)
+_write_pid(char *pid_file)
 {
 	const mode_t dirmode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
 	const mode_t filemode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
@@ -242,7 +240,7 @@ _write_pid(void)
 	/*
 	 * Create PID file directory if needed.
 	 */
-	n = strlcpy(buf, PID_FILE, sizeof (buf));
+	n = strlcpy(buf, pid_file, sizeof (buf));
 	if (n >= sizeof (buf)) {
 		errno = ENAMETOOLONG;
 		syslog(LOG_ERR, "Failed to create PID file: %s",
@@ -263,32 +261,32 @@ _write_pid(void)
 	 */
 	mask = umask(0);
 	umask(mask | 022);
-	_ctx.pid_fd = open(PID_FILE, (O_RDWR | O_CREAT), filemode);
+	_ctx.pid_fd = open(pid_file, (O_RDWR | O_CREAT), filemode);
 	umask(mask);
 	if (_ctx.pid_fd < 0) {
 		syslog(LOG_ERR, "Failed to open PID file \"%s\": %s",
-		    PID_FILE, strerror(errno));
+		    pid_file, strerror(errno));
 		goto err;
 	}
 	rv = _file_lock(_ctx.pid_fd);
 	if (rv < 0) {
 		syslog(LOG_ERR, "Failed to lock PID file \"%s\": %s",
-		    PID_FILE, strerror(errno));
+		    pid_file, strerror(errno));
 		goto err;
 	} else if (rv > 0) {
 		pid_t pid = _file_is_locked(_ctx.pid_fd);
 		if (pid < 0) {
 			syslog(LOG_ERR,
 			    "Failed to test lock on PID file \"%s\"",
-			    PID_FILE);
+			    pid_file);
 		} else if (pid > 0) {
 			syslog(LOG_ERR,
 			    "Found PID %d bound to PID file \"%s\"",
-			    pid, PID_FILE);
+			    pid, pid_file);
 		} else {
 			syslog(LOG_ERR,
 			    "Inconsistent lock state on PID file \"%s\"",
-			    PID_FILE);
+			    pid_file);
 		}
 		goto err;
 	}
@@ -299,13 +297,13 @@ _write_pid(void)
 	if ((n < 0) || (n >= sizeof (buf))) {
 		errno = ERANGE;
 		syslog(LOG_ERR, "Failed to write PID file \"%s\": %s",
-		    PID_FILE, strerror(errno));
+		    pid_file, strerror(errno));
 	} else if (_file_write_n(_ctx.pid_fd, buf, n) != n) {
 		syslog(LOG_ERR, "Failed to write PID file \"%s\": %s",
-		    PID_FILE, strerror(errno));
+		    pid_file, strerror(errno));
 	} else if (fdatasync(_ctx.pid_fd) < 0) {
 		syslog(LOG_ERR, "Failed to sync PID file \"%s\": %s",
-		    PID_FILE, strerror(errno));
+		    pid_file, strerror(errno));
 	} else {
 		return (0);
 	}
@@ -319,7 +317,7 @@ err:
 }
 
 void
-systemd_daemonize(void)
+systemd_daemonize(char *pid_file)
 {
 	(void) umask(0);
 
@@ -328,15 +326,15 @@ systemd_daemonize(void)
 
 	_start_daemonize();
 
-	if (_write_pid() < 0)
+	if (_write_pid(pid_file) < 0)
 		exit(EXIT_FAILURE);
 
 	_finish_daemonize();
 }
 
 void
-write_pid(void)
+write_pid(char *pid_file)
 {
-	if (_write_pid() < 0)
+	if (_write_pid(pid_file) < 0)
 		exit(EXIT_FAILURE);
 }
