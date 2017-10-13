@@ -234,7 +234,7 @@ zpl_unlink(struct inode *dir, struct dentry *dentry)
 	 * For a CI FS we must invalidate the dentry to prevent the
 	 * creation of negative entries.
 	 */
-	if (error == 0 && zsb->z_case == ZFS_CASE_INSENSITIVE)
+	if (error == 0 && (zsb->z_case == ZFS_CASE_INSENSITIVE || zsb->z_os->os_is_group))
 		d_invalidate(dentry);
 
 	spl_fstrans_unmark(cookie);
@@ -294,7 +294,7 @@ zpl_rmdir(struct inode * dir, struct dentry *dentry)
 	 * For a CI FS we must invalidate the dentry to prevent the
 	 * creation of negative entries.
 	 */
-	if (error == 0 && zsb->z_case == ZFS_CASE_INSENSITIVE)
+	if (error == 0 && (zsb->z_case == ZFS_CASE_INSENSITIVE || zsb->z_os->os_is_group))
 		d_invalidate(dentry);
 
 	spl_fstrans_unmark(cookie);
