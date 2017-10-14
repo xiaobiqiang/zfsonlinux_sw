@@ -6088,7 +6088,7 @@ void zfs_group_free_data(zfs_group_header_t *msg_header, void *data, uint64_t da
 		bcopy(write_data->call.data.data, &datavps, sizeof(uint64_t));
 
 		for (i = 0; i < datavps->vector_num; i ++) {
-			kmem_free(datavps->iovps[i].iov_base, datavps->iovps[i].iov_len);
+			vmem_free(datavps->iovps[i].iov_base, datavps->iovps[i].iov_len);
 		}
 
 		kmem_free(datavps->iovps, sizeof(struct iovec) * datavps->vector_num);

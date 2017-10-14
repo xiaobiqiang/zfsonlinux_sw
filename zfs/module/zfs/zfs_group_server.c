@@ -1466,6 +1466,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 		    cred, NULL, get_rpn ? &rpn : NULL);
 
 		if (error != 0) {
+			vmem_free(gpn, sizeof(zfs_group_pathname_t));
 //			pn_free(&rpn);
 			vmem_free(rpn.pn_buf, rpn.pn_bufsize);
 			rpn.pn_path = rpn.pn_buf = NULL;
