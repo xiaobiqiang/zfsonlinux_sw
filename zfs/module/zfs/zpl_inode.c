@@ -234,7 +234,7 @@ zpl_unlink(struct inode *dir, struct dentry *dentry)
 	 * For a CI FS we must invalidate the dentry to prevent the
 	 * creation of negative entries.
 	 */
-	if (error == 0 && (zsb->z_case == ZFS_CASE_INSENSITIVE || zsb->z_os->os_is_group))
+	if (error == 0 && zsb->z_case == ZFS_CASE_INSENSITIVE )
 		d_invalidate(dentry);
 
 	spl_fstrans_unmark(cookie);
@@ -294,7 +294,7 @@ zpl_rmdir(struct inode * dir, struct dentry *dentry)
 	 * For a CI FS we must invalidate the dentry to prevent the
 	 * creation of negative entries.
 	 */
-	if (error == 0 && (zsb->z_case == ZFS_CASE_INSENSITIVE || zsb->z_os->os_is_group))
+	if (error == 0 && zsb->z_case == ZFS_CASE_INSENSITIVE )
 		d_invalidate(dentry);
 
 	spl_fstrans_unmark(cookie);
@@ -657,7 +657,9 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 			return (0);
 	}
 
-	if (dentry->d_inode) {
+	if( dentry->d_inode && zsb->z_os->os_is_group ) {
+		return 0 ;
+/*	if (dentry->d_inode) {
 		node_type = zpl_vn_type(dentry->d_inode);
 		if (node_type == VN_OP_CLIENT) {
 			error = 0;
@@ -670,7 +672,7 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 			}
 			zfs_update_inode_info(ZTOI(tmp_zp), ZTOI(zp));
 			iput(ZTOI(tmp_zp));
-		}
+		} */
 	}
 
 	/*
