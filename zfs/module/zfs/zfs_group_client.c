@@ -4780,10 +4780,10 @@ zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_co
 		if (ddi_taskq_dispatch(zfsvfs->notify_taskq, zfs_client_notify_data_file_dirty_tq,
 				(void*)notify_para, DDI_NOSLEEP) != DDI_SUCCESS) {
 */
-		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, TQ_NOSLEEP) == 0) {
+//		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+//				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-		}
+//		}
 	}
 
 	return (error);
@@ -4839,10 +4839,10 @@ zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_c
 		if (ddi_taskq_dispatch(zfsvfs->notify_taskq, zfs_client_notify_data_file_dirty_tq,
 				(void*)notify_para, DDI_NOSLEEP) != DDI_SUCCESS) {
 */
-		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, TQ_NOSLEEP) == 0) {
+//		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+//				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-		}
+//		}
 	}
 
 	return (error);

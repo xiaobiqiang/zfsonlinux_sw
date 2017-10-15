@@ -53,8 +53,8 @@ uint64_t	zfs_multiclus_slave_wait_time = ZFS_MULTICLUS_CVWAIT_TIME;
 uint64_t	zfs_multiclus_master_update_wait_time = ZFS_MULTICLUS_CVWAIT_TIME * 2;
 
 /* task num */
-uint32_t	zfs_multiclus_server_action_max_tasks = INT_MAX;
-uint32_t	zfs_multiclus_mp_post_action_max_tasks = INT_MAX;
+uint32_t	zfs_multiclus_server_action_max_tasks = 256;
+uint32_t	zfs_multiclus_mp_post_action_max_tasks = 256;
 
 /* server rx process frames taskq variables */
 volatile int	zfs_multiclus_server_nworkers = 512;
