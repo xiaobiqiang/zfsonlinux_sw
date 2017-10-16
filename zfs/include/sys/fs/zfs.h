@@ -71,6 +71,10 @@ typedef enum dmu_objset_type {
 #define	ZAP_OLDMAXVALUELEN 1024
 #define	ZFS_MAX_DATASET_NAME_LEN 256
 
+
+#define	ZFS_ADDR_LEN 16
+#define	ZFS_PORT_LEN 8
+
 /*
  * Dataset properties are identified by these constants and must be added to
  * the end of this list to ensure that external consumers are not affected
@@ -157,14 +161,28 @@ typedef enum {
 	ZFS_PROP_REDUNDANT_METADATA,
 	ZFS_PROP_OVERLAY,
 	ZFS_PROP_CLUSTER_NODE_NAME,
-	ZFS_NUM_PROPS
+	ZFS_PROP_GROUP,
+	ZFS_PROP_MASTER,
+	ZFS_PROP_GROUP_NAME,
+	ZFS_PROP_MASTER_SPA,
+	ZFS_PROP_MASTER_OS,
+	ZFS_PROP_MASTER_ROOT,
+	ZFS_PROP_SELF_ROOT,
+	ZFS_PROP_NODE_TYPE,
+	ZFS_NUM_PROPS,
 } zfs_prop_t;
 
 typedef enum {
 	ZFS_PROP_USERUSED,
+	ZFS_PROP_USEROBJUSED,
 	ZFS_PROP_USERQUOTA,
+	ZFS_PROP_USEROBJQUOTA,
+	ZFS_PROP_SOFTUSERQUOTA,
 	ZFS_PROP_GROUPUSED,
+	ZFS_PROP_GROUPOBJUSED,
 	ZFS_PROP_GROUPQUOTA,
+	ZFS_PROP_GROUPOBJQUOTA,
+	ZFS_PROP_SOFTGROUPQUOTA,
 	ZFS_NUM_USERQUOTA_PROPS
 } zfs_userquota_prop_t;
 
@@ -244,6 +262,26 @@ typedef enum {
 	ZPROP_ERR_NORESTORE = 0x2 /* failure to restore props on error */
 } zprop_errflags_t;
 
+
+typedef enum {
+	ZPROP_SET_RECEIVED = 0x1, /* received properties */
+	/*
+	 * If we're setting recursively, we want to explicitly inherit in all
+	 * but the top level dataset so the setting is in one place. However, if
+	 * the property is not inheritable, we still want to apply the setting
+	 * recursively. This flag indicates:
+	 *
+	 * 1. We are setting properties recursively
+	 * 2. This is not a top-level dataset
+	 */
+	ZPROP_SET_DESCENDANT = 0x2,
+	/*
+	 * Indicates that regardless of what is updated in a property's stack of
+	 * values, the effective value of the property must not change.
+	 */
+	ZPROP_SET_PRESERVE = 0x4
+} zprop_setflags_t;
+
 typedef int (*zprop_func)(int, void *);
 
 /*
@@ -265,6 +303,7 @@ const char *zfs_prop_to_name(zfs_prop_t);
 zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
 boolean_t zfs_prop_userquota(const char *);
+boolean_t zfs_prop_dirquota(const char *name);
 boolean_t zfs_prop_written(const char *);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
@@ -382,6 +421,26 @@ typedef enum {
 	ZFS_REDUNDANT_METADATA_ALL,
 	ZFS_REDUNDANT_METADATA_MOST
 } zfs_redundant_metadata_type_t;
+
+
+typedef enum {
+	ZFS_LOWDATA_OFF = 0,
+	ZFS_LOWDATA_MIGRATE = 1,
+	ZFS_LOWDATA_DELETE = 2,
+	ZFS_LOWDATA_END
+} zfs_lowdata_type_t;
+
+typedef enum {
+	ZFS_LOWDATA_PERIOD_SEC = 0,
+	ZFS_LOWDATA_PERIOD_MIN = 1,
+	ZFS_LOWDATA_PERIOD_HR = 2,
+	ZFS_LOWDATA_PERIOD_DAY = 3
+} zfs_lowdata_period_unit_t;
+
+typedef enum {
+	ZFS_LOWDATA_CRITERIA_ATIME = 0,
+	ZFS_LOWDATA_CRITERIA_CTIME = 1
+} zfs_lowdata_criteria_t;
 
 /*
  * On-disk version number.
@@ -550,6 +609,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_ERRCOUNT		"error_count"
 #define	ZPOOL_CONFIG_NOT_PRESENT	"not_present"
 #define	ZPOOL_CONFIG_SPARES		"spares"
+#define	ZPOOL_CONFIG_IS_META		"is_meta"
+#define	ZPOOL_CONFIG_IS_LOW			"is_low"
 #define	ZPOOL_CONFIG_IS_SPARE		"is_spare"
 #define	ZPOOL_CONFIG_NPARITY		"nparity"
 #define	ZPOOL_CONFIG_HOSTID		"hostid"
@@ -586,6 +647,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_FEATURE_STATS	"feature_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ERRATA		"errata"	/* not stored on disk */
 #define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
+#define	ZPOOL_CONFIG_METASPARES		"metaspares"
+#define	ZPOOL_CONFIG_LOWSPARES		"lowspares"
 /*
  * The persistent vdev state is stored as separate values rather than a single
  * 'vdev_state' entry.  This is because a device can be in multiple states, such
@@ -621,6 +684,23 @@ typedef struct zpool_rewind_policy {
 #define	VDEV_TYPE_SPARE			"spare"
 #define	VDEV_TYPE_LOG			"log"
 #define	VDEV_TYPE_L2CACHE		"l2cache"
+
+
+#define	ZPOOL_CONFIG_MULTICLUS_GNAME		"multiclus_gname"
+#define	ZPOOL_CONFIG_MULTICLUS_MASTER		"multiclus_master"
+#define	ZPOOL_CONFIG_MULTICLUS_GNUM		"multiclus_gnum"
+#define	ZPOOL_CONFIG_MULTICLUS_VDEV		"multiclus_vdev"
+#define	ZPOOL_CONFIG_MULTICLUS_CHILD	"multiclus_child"
+#define	ZPOOL_CONFIG_MULTICLUS_FSNAME	"multiclus_fsname"
+#define	ZPOOL_CONFIG_MULTICLUS		"multiclus_stats"
+
+#define	ZFS_RPC_GROUP_IP		"group_ipaddr"
+#define	ZFS_RPC_MASTER_IP		"master_ipaddr"
+#define	ZFS_RPC_MASTER_FS		"master_fsname"
+#define	ZFS_RPC_MASTER_TYPE		"master_type"
+
+#define	ZPOOL_CONFIG_SPARES_STATUS		"spares_status"
+#define	ZPOOL_CONFIG_SPARES_AUX		"spares_aux"
 
 /*
  * This is needed in userland to report the minimum necessary device size.
@@ -789,6 +869,26 @@ typedef struct vdev_stat {
 	uint64_t	vs_fragmentation;	/* device fragmentation */
 } vdev_stat_t;
 
+
+/* for pool or filesystem name max length */
+#define	MAX_FSNAME_LEN	64
+
+/*
+ * Multiclus group info.
+ */
+typedef struct zfs_group_info {
+	char gi_fsname[MAX_FSNAME_LEN];	/* group name */
+
+	/* master/master2/master3/master4/slave */
+	char node_type[MAX_FSNAME_LEN];
+	uint64_t spa_id;
+	uint64_t gnode_id;	/* group node id */
+	uint64_t avail_size;	/* available size */
+	uint64_t used_size;	/* used size */
+	uint64_t load_ios;	/* load io state */
+	int node_status; /* node status */
+}zfs_group_info_t;
+
 /*
  * DDT statistics.  Note: all fields should be 64-bit because this
  * is passed between kernel and userland as an nvlist uint64 array.
@@ -913,9 +1013,13 @@ typedef enum zfs_ioc {
     ZFS_IOC_START_MIRROR,
     ZFS_IOC_GET_MIRROR_STATE,
 	ZFS_IOC_CLUSTERSAN,
+	ZFS_IOC_START_MULTICLUS,
+	ZFS_IOC_GET_RPC_INFO,
 	ZFS_IOC_HBX,
 	ZFS_IOC_MIRROR_SPEED_TEST,
 	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
+	ZFS_IOC_GET_DIRQUOTA,
+	ZFS_IOC_SET_DIRQUOTA,
 	
 	/*
 	 * Linux - 3/64 numbers reserved.
@@ -1002,8 +1106,9 @@ typedef  enum {
 #define	ZFS_IMPORT_ANY_HOST	0x2
 #define	ZFS_IMPORT_MISSING_LOG	0x4
 #define	ZFS_IMPORT_ONLY		0x8
-#define	ZFS_IMPORT_IGNORE_CLUSTER	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x10
+#define	ZFS_IMPORT_IGNORE_CLUSTER		0x20
+#define	ZFS_IMPORT_MULTICLUS_UPDATE		0x40
 
 #define	ZFS_SINGLE_DATA		"zfs:single_data"
 
@@ -1119,14 +1224,51 @@ typedef  enum {
 #define	CLUSTER_PROP_FAILOVER		"failover"
 #define	CLUSTER_PROP_IPMI_SWITCH	"ipmi"
 
-
-
 #define COMM_TEST
-
 
 /* cluster end */
 
 #define	ZFS_QUANTUM_INTERVAL_TICK	5
+
+typedef  enum {
+	ENABLE_MULTICLUS = 1,
+	DISABLE_MULTICLUS,
+	SHOW_MULTICLUS,
+	XML_MULTICLUS,
+	ZFS_RPC_CALL_SERVER,
+	ZFS_RPC_CALL_TEST,
+	CREATE_MULTICLUS,
+	ADD_MULTICLUS,
+	SET_MULTICLUS_SLAVE,
+	SET_MULTICLUS_MASTER4,
+	SET_MULTICLUS_MASTER3,
+	SET_MULTICLUS_MASTER2,
+	SET_MULTICLUS_MASTER,
+	GET_MULTICLUS_DTLSTATUS,
+	CLEAN_MULTICLUS_DTLTREE,
+	SYNC_MULTICLUS_GROUP,
+	SYNC_MULTICLUS_GROUP_DATA,
+	ZNODE_INFO,
+	DOUBLE_DATA,
+	MULTICLUS_CMD_MAX
+}MULTICLUS_OP;
+
+typedef  enum {
+	REMOTE_CMD = 1,
+	REMOTE_FILE,
+	TYPE_MAX
+}RPC_REMOTE_CMD;
+
+typedef enum zfs_msg_type {
+	ZFS_MSG_SET,
+	ZFS_MSG_GET,
+	ZFS_MSG_USERSPACE
+} zfs_msg_type_t;
+
+typedef  enum {
+	GET_GROUP_IP = 1,
+	GET_MASTER_IPFS    /* Get master ipaddress and fsname */
+}RPC_INFO_OP;
 
 #ifdef	__cplusplus
 }

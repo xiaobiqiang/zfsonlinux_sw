@@ -575,6 +575,17 @@ void cs_kmem_free(void *buf, size_t size)
 #endif
 }
 
+int cs_addr_valid(void *addr, const char *name)
+{
+	int ok = virt_addr_valid(addr);
+
+	if (!ok) {
+		cmn_err(CE_WARN, "invalid addr %s=%p", name, addr);
+		dump_stack();
+	}
+	return (ok);
+}
+
 static cs_rx_data_t *cts_rx_data_alloc(uint64_t len)
 {
 	cs_rx_data_t *cs_data;
@@ -595,6 +606,7 @@ static cs_rx_data_t *cts_rx_data_alloc(uint64_t len)
     //printk("%s %p %d\n", __func__, cs_data->data, len);
 	cs_data->data = cs_kmem_alloc(len);
 #endif
+	(void) cs_addr_valid(cs_data, "cs_data");
 	return (cs_data);
 }
 
@@ -4044,6 +4056,8 @@ void cts_reply_notify(cluster_san_hostinfo_t *cshi, uint64_t index)
 		reply_val->is_replyed = B_TRUE;
 		cv_broadcast(&reply_val->reply_cv);
 		mutex_exit(&reply_val->reply_mtx);
+	} else {
+		cmn_err(CE_WARN, "reply notify: mod hash find error %d, index=%x", ret, index);
 	}
 }
 

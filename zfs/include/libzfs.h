@@ -80,6 +80,19 @@ extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 #define	VDEV_PAD_SIZE		(8 << 10)
 #define	ZPOOL_STAMP_SIZE	(VDEV_PAD_SIZE / 2)
 
+#define	GROUP_NODE_NUM		32
+#define	ZFS_NAME_LEN			256
+
+typedef struct zfs_group_sync_param
+{
+	boolean_t	check_only;
+	boolean_t	stop_sync;
+	boolean_t	all_member_online;
+	boolean_t  	double_data;
+	char		*output_file;
+	char		*target_dir;
+} zfs_grp_sync_param_t;
+
 typedef struct zpool_stamp_para {
 	uint32_t pool_magic;
 	uint32_t pool_real_owener;
@@ -94,6 +107,27 @@ typedef struct zpool_stamp {
 } zpool_stamp_t;
 
 /* solaris stamp write end */
+
+
+typedef struct zfs_rpc_arg {
+	uint_t	flag;
+	uint_t	bufcnt;	/* param counter */
+	uint_t	backoffset;
+	uint_t	filelen;
+	char		*filebuf;
+	char		*propname;
+	char		*value;
+	char		*buf[ZFS_NAME_LEN];	 /* param pointer */
+}zfs_rpc_arg_t;
+
+typedef struct zfs_rpc_ret {
+	uint_t	flag;
+	uint_t	backlen;
+	char		*backbuf;
+}zfs_rpc_ret_t;
+
+#define	RPC_DISK_CNT_MAX	(RPC_SEND_RECV_SIZE/sizeof (zfs_rpc_lun_t))
+
 
 /*
  * libzfs errors
@@ -170,6 +204,8 @@ typedef enum zfs_error {
 	EZFS_DIFF,		/* general failure of zfs diff */
 	EZFS_DIFFDATA,		/* bad zfs diff data */
 	EZFS_POOLREADONLY,	/* pool is in read-only mode */
+	EZFS_DQUOTA,
+	EZFS_NDIR,
 	EZFS_UNKNOWN
 } zfs_error_t;
 
@@ -226,6 +262,56 @@ typedef struct zfs_thinluns_stat {
 typedef struct zfs_handle zfs_handle_t;
 typedef struct zpool_handle zpool_handle_t;
 typedef struct libzfs_handle libzfs_handle_t;
+
+
+/*
+ *	Define the ZFS RPC communication type
+ */
+#define	ZFS_RPC_DISK_LIST		1
+#define	ZFS_RPC_SET_USERQUOTA	2
+#define	ZFS_RPC_GET_USERQUOTA	3
+#define	ZFS_RPC_USERSPACE		4
+#define	ZFS_RPC_ZPOOL_STATUS	5
+#define	ZFS_RPC_REMOTE_CMD		6
+#define	ZFS_RPC_DISK_TEST		7
+#define	ZFS_RPC_MAX				8
+
+#define	RPC_ADDR_SIZE			16
+#define	GROUP_NODE_NUM		32
+#define	ZFS_NAME_LEN			256
+#define	MAX_PATH_LEN			1024
+#define	RPC_SEND_RECV_SIZE	65536	/* 64*1024=65536 */
+#define	RPC_BUF_SIZE_MAX	64512	/* 63*1024=64512 */
+#define	RPC_USERSPACE_SIZE	32768
+/* 32*1024=32768 ,max entrys=	32768/64=512 */
+#define	ENTRY_USERSAPCE	64
+
+/* disk logical unit info */
+typedef struct zfs_rpc_lu {
+	char portID[256];
+	char osDeviceFile[256];
+} zfs_rpc_lu_t;
+
+typedef struct zfs_rpc_lun {
+	char		name[128];
+	char		vendor[128];
+	char		model[128];
+	char		status[128];
+	uint64_t	en_no;
+	uint64_t	lun_no;
+	uint64_t	sas_wwn;
+	uint64_t	lu_flag;
+	uint64_t	blocks;
+	uint32_t	rpm;
+	uint32_t	dev_sys;
+	uint32_t	slice_count;
+	uint32_t	bytes_per_block;
+	uint32_t	gsize;
+	uint32_t 	lu_num;
+	char 	dim[24];
+	zfs_rpc_lu_t	lu_info;
+} zfs_rpc_lun_t;
+
 
 /*
  * Library initialization
@@ -503,6 +589,8 @@ extern nvlist_t *zfs_valid_proplist(libzfs_handle_t *, zfs_type_t,
     nvlist_t *, uint64_t, zfs_handle_t *, const char *);
 
 extern const char *zfs_prop_to_name(zfs_prop_t);
+extern int zfs_prop_set_extended(zfs_handle_t *, const char *, const char *,
+    zprop_setflags_t);
 extern int zfs_prop_set(zfs_handle_t *, const char *, const char *);
 extern int zfs_prop_get(zfs_handle_t *, zfs_prop_t, char *, size_t,
     zprop_source_t *, char *, size_t, boolean_t);
@@ -538,6 +626,9 @@ typedef struct zprop_list {
 	size_t		pl_recvd_width;
 	boolean_t	pl_fixed;
 } zprop_list_t;
+
+extern int zfs_prop_get_group_userquota(libzfs_handle_t *hdl, zfs_handle_t *zhp, 
+	zprop_list_t *pl, char *userquota_value);
 
 extern int zfs_expand_proplist(zfs_handle_t *, zprop_list_t **, boolean_t,
     boolean_t);
@@ -693,6 +784,8 @@ extern uint64_t zvol_volsize_to_reservation(uint64_t, nvlist_t *);
 
 typedef int (*zfs_userspace_cb_t)(void *arg, const char *domain,
     uid_t rid, uint64_t space);
+typedef int (*zfs_remote_userspace_cb_t)(void *arg, const char *domain,
+    uid_t rid, uint64_t space, char **back);
 
 extern int zfs_userspace(zfs_handle_t *, zfs_userquota_prop_t,
     zfs_userspace_cb_t, void *);
@@ -907,6 +1000,25 @@ void zfs_import_all_lus(libzfs_handle_t *hdl, char *data);
 void zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name);
 void zfs_destroy_all_lus(libzfs_handle_t *hdl, char *pool_name);
 void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
+/*
+ * multiclus functions. 
+ */
+extern void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
+    char *fs_name, uint64_t flags, void* param);
+
+extern int get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags,
+	char *groupip, uint_t *num);
+extern int zfs_rpc_back_proc(uint_t rtype, char **backbuf, zfs_rpc_arg_t *recvarg,
+	zfs_rpc_ret_t *backarg);
+
+
+typedef struct zfs_pathname {
+	char	*pn_buf;		/* underlying storage */
+	char	*pn_path;		/* remaining pathname */
+	size_t	pn_pathlen;		/* remaining length */
+	size_t	pn_bufsize;		/* total size of pn_buf */
+} zfs_pathname_t;
+
 
 #ifdef	__cplusplus
 }

@@ -563,6 +563,8 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	mutex_init(&spa->spa_suspend_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_vdev_top_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_feat_stats_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_iokstat_lock, NULL, MUTEX_DEFAULT, NULL);
+
 
 	cv_init(&spa->spa_async_cv, NULL, CV_DEFAULT, NULL);
 	cv_init(&spa->spa_evicting_os_cv, NULL, CV_DEFAULT, NULL);
@@ -710,6 +712,8 @@ spa_remove(spa_t *spa)
 	mutex_destroy(&spa->spa_suspend_lock);
 	mutex_destroy(&spa->spa_vdev_top_lock);
 	mutex_destroy(&spa->spa_feat_stats_lock);
+
+	mutex_destroy(&spa->spa_iokstat_lock);
 
     cv_destroy(&spa->spa_do_zvol_cv);
     mutex_destroy(&spa->spa_do_zvol_lock);
@@ -2161,6 +2165,38 @@ spa_quantum_stop_all(spa_t *spa)
 		spa_quantum_stop(quantum);
 	}
 }
+
+uint64_t 
+spa_get_ios(spa_t *spa)
+{
+    int i = 0;
+    uint64_t total_ios = 0;
+    mutex_enter(&spa->spa_iokstat_lock);
+    for (i = 0; i < ZIO_PRIORITY_NUM_QUEUEABLE; i ++) {
+            if (i == ZIO_PRIORITY_SCRUB)
+                continue;
+            total_ios += spa->spa_queue_stats[i].spa_active + 
+                spa->spa_queue_stats[i].spa_queued;
+    }
+    mutex_exit(&spa->spa_iokstat_lock);
+
+    return (total_ios);
+}
+
+uint64_t
+spa_import_flags(spa_t *spa)
+{
+
+	return (spa->spa_import_flags);
+}
+
+boolean_t
+spa_get_group_flags(spa_t *spa)
+{
+
+	return (spa->spa_disable_group);
+}
+
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 /* Namespace manipulation */

@@ -85,7 +85,7 @@ zpl_iterate(struct file *filp, struct dir_context *ctx)
 
 	crhold(cr);
 	cookie = spl_fstrans_mark();
-	error = -zfs_readdir(dentry->d_inode, ctx, cr);
+	error = -zfs_readdir(dentry->d_inode, ctx, cr, 0);
 	spl_fstrans_unmark(cookie);
 	crfree(cr);
 	ASSERT3S(error, <=, 0);

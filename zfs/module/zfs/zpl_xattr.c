@@ -83,12 +83,13 @@
 #include <sys/zap.h>
 #include <sys/vfs.h>
 #include <sys/zpl.h>
+#include <sys/zfs_group.h>
 
 typedef struct xattr_filldir {
 	size_t size;
 	size_t offset;
 	char *buf;
-	struct dentry *dentry;
+	struct inode *ip;
 } xattr_filldir_t;
 
 static const struct xattr_handler *zpl_xattr_handler(const char *);
@@ -97,7 +98,10 @@ static int
 zpl_xattr_permission(xattr_filldir_t *xf, const char *name, int name_len)
 {
 	static const struct xattr_handler *handler;
-	struct dentry *d = xf->dentry;
+	struct inode *ip = xf->ip;
+	/* a face dentry just for handle prototype */
+	struct dentry d;
+	d.d_inode = ip ;
 
 	handler = zpl_xattr_handler(name);
 	if (!handler)
@@ -105,16 +109,16 @@ zpl_xattr_permission(xattr_filldir_t *xf, const char *name, int name_len)
 
 	if (handler->list) {
 #if defined(HAVE_XATTR_LIST_SIMPLE)
-		if (!handler->list(d))
+		if (!handler->list(&d))
 			return (0);
 #elif defined(HAVE_XATTR_LIST_DENTRY)
-		if (!handler->list(d, NULL, 0, name, name_len, 0))
+		if (!handler->list(&d, NULL, 0, name, name_len, 0))
 			return (0);
 #elif defined(HAVE_XATTR_LIST_HANDLER)
-		if (!handler->list(handler, d, NULL, 0, name, name_len))
+		if (!handler->list(handler, &d, NULL, 0, name, name_len))
 			return (0);
 #elif defined(HAVE_XATTR_LIST_INODE)
-		if (!handler->list(d->d_inode, NULL, 0, name, name_len))
+		if (!handler->list( &d, NULL, 0, name, name_len))
 			return (0);
 #endif
 	}
@@ -185,7 +189,7 @@ zpl_xattr_readdir(struct inode *dxip, xattr_filldir_t *xf)
 static ssize_t
 zpl_xattr_list_dir(xattr_filldir_t *xf, cred_t *cr)
 {
-	struct inode *ip = xf->dentry->d_inode;
+	struct inode *ip = xf->ip ;
 	struct inode *dxip = NULL;
 	int error;
 
@@ -207,7 +211,7 @@ zpl_xattr_list_dir(xattr_filldir_t *xf, cred_t *cr)
 static ssize_t
 zpl_xattr_list_sa(xattr_filldir_t *xf)
 {
-	znode_t *zp = ITOZ(xf->dentry->d_inode);
+	znode_t *zp = ITOZ(xf->ip ) ;
 	nvpair_t *nvp = NULL;
 	int error = 0;
 
@@ -236,23 +240,44 @@ zpl_xattr_list_sa(xattr_filldir_t *xf)
 ssize_t
 zpl_xattr_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 {
-	znode_t *zp = ITOZ(dentry->d_inode);
-	zfs_sb_t *zsb = ZTOZSB(zp);
-	xattr_filldir_t xf = { buffer_size, 0, buffer, dentry };
 	cred_t *cr = CRED();
+	int error = 0;
+
+	error = zfs_xattr_list( dentry->d_inode, buffer, buffer_size, cr ) ;
+
+	return (error);
+}
+
+ssize_t
+zfs_xattr_list(struct inode *ip, void *buffer, size_t buffer_size, cred_t *cr)
+{
+	znode_t *zp = ITOZ( ip );
+	zfs_sb_t *zsb = ZTOZSB(zp);
+	xattr_filldir_t xf = { buffer_size, 0, buffer, ip };
 	fstrans_cookie_t cookie;
 	int error = 0;
+
+	vn_op_type_t optype ;
+	int maxbytes = 0 ;
+	optype = zfs_vn_dir_type( zp, 0 ) ;
+	if( optype == VN_OP_CLIENT ) {
+		ZFS_ENTER( zsb ) ;
+		error = zfs_client_xattr_list( ip, buffer, buffer_size, cr ) ;
+		ZFS_EXIT( zsb ) ;
+
+		return error ;
+	}
 
 	crhold(cr);
 	cookie = spl_fstrans_mark();
 	rrm_enter_read(&(zsb)->z_teardown_lock, FTAG);
 	rw_enter(&zp->z_xattr_lock, RW_READER);
-
+/*
 	if (zsb->z_use_sa && zp->z_is_sa) {
 		error = zpl_xattr_list_sa(&xf);
 		if (error)
 			goto out;
-	}
+	} */
 
 	error = zpl_xattr_list_dir(&xf, cr);
 	if (error)
@@ -353,13 +378,13 @@ __zpl_xattr_get(struct inode *ip, const char *name, void *value, size_t size,
 	int error;
 
 	ASSERT(RW_LOCK_HELD(&zp->z_xattr_lock));
-
+/*
 	if (zsb->z_use_sa && zp->z_is_sa) {
 		error = zpl_xattr_get_sa(ip, name, value, size);
 		if (error != -ENOENT)
 			goto out;
 	}
-
+*/
 	error = zpl_xattr_get_dir(ip, name, value, size, cr);
 out:
 	if (error == -ENOENT)
@@ -465,30 +490,29 @@ zpl_xattr_set_dir(struct inode *ip, const char *name, const void *value,
 	/* Remove a specific name xattr when value is set to NULL. */
 	if (value == NULL) {
 		if (xip)
-			error = -zfs_remove(dxip, (char *)name, cr);
+			error = -zfs_remove(dxip, (char *)name, cr, 0);
 
 		goto out;
 	}
 
-	/* Lookup failed create a new xattr. */
-	if (xip == NULL) {
-		vap = kmem_zalloc(sizeof (vattr_t), KM_SLEEP);
-		vap->va_mode = xattr_mode;
-		vap->va_mask = ATTR_MODE;
-		vap->va_uid = crgetfsuid(cr);
-		vap->va_gid = crgetfsgid(cr);
+	/* create a new xattr. */
+	vap = kmem_zalloc(sizeof (vattr_t), KM_SLEEP);
+	vap->va_mode = xattr_mode;
+	vap->va_mask = ATTR_MODE | ATTR_SIZE ;
+	vap->va_uid = crgetfsuid(cr);
+	vap->va_gid = crgetfsgid(cr);
+	vap->va_size = 0 ;
 
-		error = -zfs_create(dxip, (char *)name, vap, 0, 0644, &xip,
-		    cr, 0, NULL);
-		if (error)
-			goto out;
-	}
+	error = -zfs_create(dxip, (char *)name, vap, 0, 0644, &xip,
+	    cr, 0, NULL, NULL);
+	if (error)
+		goto out;
 
 	ASSERT(xip != NULL);
 
-	error = -zfs_freesp(ITOZ(xip), 0, 0, xattr_mode, TRUE);
+/*	error = -zfs_freesp(ITOZ(xip), 0, 0, xattr_mode, TRUE);
 	if (error)
-		goto out;
+		goto out; */
 
 	wrote = zpl_write_common(xip, value, size, &pos, UIO_SYSSPACE, 0, cr);
 	if (wrote < 0)
@@ -597,14 +621,14 @@ zpl_xattr_set(struct inode *ip, const char *name, const void *value,
 	 * We also want to know if it resides in sa or dir, so we can make
 	 * sure we don't end up with duplicate in both places.
 	 */
-	error = __zpl_xattr_where(ip, name, &where, cr);
+/*	error = __zpl_xattr_where(ip, name, &where, cr);
 	if (error < 0) {
 		if (error != -ENODATA)
 			goto out;
 		if (flags & XATTR_REPLACE)
 			goto out;
 
-		/* The xattr to be removed already doesn't exist */
+		/\* The xattr to be removed already doesn't exist *\/
 		error = 0;
 		if (value == NULL)
 			goto out;
@@ -612,29 +636,29 @@ zpl_xattr_set(struct inode *ip, const char *name, const void *value,
 		error = -EEXIST;
 		if (flags & XATTR_CREATE)
 			goto out;
-	}
+	} */
 
 	/* Preferentially store the xattr as a SA for better performance */
-	if (zsb->z_use_sa && zp->z_is_sa &&
+/*	if (zsb->z_use_sa && zp->z_is_sa &&
 	    (zsb->z_xattr_sa || (value == NULL && where & XATTR_IN_SA))) {
 		error = zpl_xattr_set_sa(ip, name, value, size, flags, cr);
 		if (error == 0) {
-			/*
+			/\*
 			 * Successfully put into SA, we need to clear the one
 			 * in dir.
-			 */
+			 *\/
 			if (where & XATTR_IN_DIR)
 				zpl_xattr_set_dir(ip, name, NULL, 0, 0, cr);
 			goto out;
 		}
-	}
+	}*/
 
 	error = zpl_xattr_set_dir(ip, name, value, size, flags, cr);
 	/*
 	 * Successfully put into dir, we need to clear the one in SA.
 	 */
-	if (error == 0 && (where & XATTR_IN_SA))
-		zpl_xattr_set_sa(ip, name, NULL, 0, 0, cr);
+/*	if (error == 0 && (where & XATTR_IN_SA))
+		zpl_xattr_set_sa(ip, name, NULL, 0, 0, cr); */
 out:
 	rw_exit(&ITOZ(ip)->z_xattr_lock);
 	rrm_exit(&(zsb)->z_teardown_lock, FTAG);
@@ -834,7 +858,7 @@ __zpl_xattr_security_get(struct inode *ip, const char *name,
 	if (strcmp(name, "") == 0)
 		return (-EINVAL);
 #endif
-	xattr_name = kmem_asprintf("%s%s", XATTR_SECURITY_PREFIX, name);
+       xattr_name = kmem_asprintf("%s%s", XATTR_SECURITY_PREFIX, name);
 	error = zpl_xattr_get(ip, xattr_name, value, size);
 	strfree(xattr_name);
 

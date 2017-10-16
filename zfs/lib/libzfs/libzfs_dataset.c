@@ -41,6 +41,7 @@
 #include <stddef.h>
 #include <zone.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/mntent.h>
 #include <sys/mount.h>
 #include <priv.h>
@@ -63,11 +64,16 @@
 #include "zfs_prop.h"
 #include "libzfs_impl.h"
 #include "zfs_deleg.h"
+#include <syslog.h>
 
 #define FAILOVER_PROP_PREFIX	"failover"
 
 static int userquota_propname_decode(const char *propname, boolean_t zoned,
     zfs_userquota_prop_t *typep, char *domain, int domainlen, uint64_t *ridp);
+static char *zfs_prop_set_dir_quota(zfs_handle_t *zhp,
+    const char *propname, uint64_t *object, uint64_t dquota) ;
+
+const char *zfs_dirquota_prefixex = "dirquota@";
 
 /*
  * Given a single type (not a mask of types), return the type in a human
@@ -948,7 +954,11 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			}
 
 			if (uqtype != ZFS_PROP_USERQUOTA &&
-			    uqtype != ZFS_PROP_GROUPQUOTA) {
+			    uqtype != ZFS_PROP_GROUPQUOTA &&
+			    uqtype != ZFS_PROP_SOFTUSERQUOTA &&
+			    uqtype != ZFS_PROP_SOFTGROUPQUOTA &&
+			    uqtype != ZFS_PROP_USEROBJQUOTA &&
+			    uqtype != ZFS_PROP_GROUPOBJQUOTA ) {
 				zfs_error_aux(hdl,
 				    dgettext(TEXT_DOMAIN, "'%s' is readonly"),
 				    propname);
@@ -1006,6 +1016,64 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			    propname);
 			(void) zfs_error(hdl, EZFS_PROPREADONLY, errbuf);
 			goto error;
+		}
+
+		if (prop == ZPROP_INVAL && zfs_prop_dirquota(propname)) {
+			uint64_t object;
+			char *path;
+			uint64_t valary[3];
+			char newpropname[1024];
+
+
+			if (nvpair_type(elem) == DATA_TYPE_STRING) {
+				(void) nvpair_value_string(elem, &strval);
+				if (strcmp(strval, "none") == 0) {
+					intval = 0;
+				} else if (zfs_nicestrtonum(hdl,
+				    strval, &intval) != 0) {
+					(void) zfs_error(hdl,
+					    EZFS_BADPROP, errbuf);
+					goto error;
+				}
+			} else if (nvpair_type(elem) ==
+			    DATA_TYPE_UINT64) {
+				(void) nvpair_value_uint64(elem, &intval);
+				if (intval == 0) {
+					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+					    "use 'none' to disable "
+					    "userquota/groupquota"));
+					goto error;
+				}
+			} else {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "'%s' must be a number"), propname);
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+
+			path = zfs_prop_set_dir_quota(zhp, propname, &object, intval);
+			if (path == NULL) {				
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "'%s' '%s' invalid value"), propname, strval);
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+			/*
+			 * Encode the prop name as
+			 * dirquota@path, to make it easy
+			 * for the kernel to decode.
+			 */
+			(void) snprintf(newpropname, sizeof (newpropname),
+			    "%s%s", zfs_dirquota_prefixex, path);
+			free(path);
+			valary[0] = object;
+			valary[1] = intval;
+			if (nvlist_add_uint64_array(ret, newpropname,
+			    valary, 2) != 0) {
+				(void) no_memory(hdl);
+				goto error;
+			}
+			continue;
 		}
 
 		if (prop == ZPROP_INVAL) {
@@ -2655,8 +2723,10 @@ userquota_propname_decode(const char *propname, boolean_t zoned,
 		return (EINVAL);
 	*typep = type;
 
-	isuser = (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_USERUSED);
-	isgroup = (type == ZFS_PROP_GROUPQUOTA || type == ZFS_PROP_GROUPUSED);
+	isuser = (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_USERUSED \
+		|| type == ZFS_PROP_USEROBJQUOTA || type == ZFS_PROP_USEROBJUSED );
+	isgroup = (type == ZFS_PROP_GROUPQUOTA || type == ZFS_PROP_GROUPUSED \
+		|| type == ZFS_PROP_GROUPOBJQUOTA || type == ZFS_PROP_GROUPOBJUSED);
 
 	cp = strchr(propname, '@') + 1;
 
@@ -2737,6 +2807,216 @@ userquota_propname_decode(const char *propname, boolean_t zoned,
 	return (0);
 }
 
+int
+zfs_prop_get_dirquota_common(zfs_handle_t *zhp, uint64_t obj,
+    zfs_dirquota_t *dirquota)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+	struct stat statb;
+
+	zc.zc_obj = obj;
+	zc.zc_nvlist_dst = (uintptr_t)dirquota;
+	zc.zc_nvlist_dst_size = sizeof(zfs_dirquota_t);
+	(void) strncpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
+
+	err = ioctl(zhp->zfs_hdl->libzfs_fd, ZFS_IOC_GET_DIRQUOTA, &zc);
+
+	return (err);
+}
+
+
+int
+zfs_getpath(zfs_pathname_t *pnp, char *component)
+{
+	char c, *cp, *path, saved;
+	size_t pathlen;
+
+	path = pnp->pn_path;
+	pathlen = pnp->pn_pathlen;
+	if (pathlen >= MAXNAMELEN) {
+		saved = path[MAXNAMELEN];
+		path[MAXNAMELEN] = '/';	/* guarantees loop termination */
+		for (cp = path; (c = *cp) != '/'; cp++)
+			*component++ = c;
+		path[MAXNAMELEN] = saved;
+		if (cp - path == MAXNAMELEN)
+			return (ENAMETOOLONG);
+	} else {
+		path[pathlen] = '/';	/* guarantees loop termination */
+		for (cp = path; (c = *cp) != '/'; cp++)
+			*component++ = c;
+		path[pathlen] = '\0';
+	}
+
+	pnp->pn_path = cp;
+	pnp->pn_pathlen = pathlen - (cp - path);
+	*component = '\0';
+	return (0);
+}
+
+static char *zfs_prop_set_dir_quota(zfs_handle_t *zhp, 
+    const char *propname, uint64_t *object, uint64_t dquota)
+{
+	int err;
+	int fd;
+	boolean_t b_create;
+	char *return_path;
+	const char *fs_name;
+	char *path;
+	char *ab_path;
+
+	uint64_t self_size;
+	uint64_t parent_dquota;
+	zfs_dirquota_t dir_quota;
+
+
+	char *tmp_path;
+	zfs_pathname_t *path_name;
+	char component[MAXNAMELEN];
+
+	struct stat64 statb;
+
+	b_create = B_TRUE;
+	self_size = 0;
+	parent_dquota = 0;
+	return_path = NULL;
+	ab_path = malloc(MAXPATHLEN);
+	tmp_path = malloc(MAXPATHLEN);
+	bzero(tmp_path, MAXPATHLEN);
+
+	fs_name = zfs_get_name(zhp);
+	path = strchr(propname, '@') + 1;
+	path_name = malloc(sizeof(zfs_pathname_t));
+	path_name->pn_buf = path_name->pn_path = malloc(strlen(path));
+	path_name->pn_bufsize = path_name->pn_pathlen = strlen(path);
+	strcpy(path_name->pn_buf, path);
+
+	sprintf(tmp_path, "/%s/%s", fs_name, path); 
+	err = stat64(tmp_path, &statb);
+	if (err == 0) {
+		err = zfs_prop_get_dirquota_common(zhp, statb.st_ino, &dir_quota);
+		if (err == 0 && dir_quota.zq_value > 0) {
+			if (dquota > dir_quota.zq_used || dquota == 0) { 
+				return_path = tmp_path;
+				*object = statb.st_ino;
+				b_create = B_FALSE;
+			}
+		} 
+	}
+
+	if (b_create) {
+		bzero(tmp_path, MAXPATHLEN);
+		for (; path_name->pn_pathlen > 0; ) {
+			bzero(&dir_quota, sizeof(zfs_dirquota_t));
+			err = zfs_getpath(path_name, component);
+			if (err != 0 ) {
+				break;
+			}
+			if (strlen(tmp_path) == 0) 
+				sprintf(tmp_path, "/%s/%s", fs_name, component);
+			else
+				sprintf(tmp_path, "%s/%s", tmp_path, component);
+			err = stat64(tmp_path, &statb);
+			if (err != 0) {
+				syslog(LOG_ERR, "can not find the path(%s), err=%s", 
+				    tmp_path, strerror(errno));
+				goto dquoat_exit;
+			}
+
+			if (!S_ISDIR(statb.st_mode)) {
+				syslog(LOG_ERR, "the path(%s) is not directory", 
+				    tmp_path);
+				err = EZFS_NDIR;
+				goto dquoat_exit;
+			}
+
+			err = zfs_prop_get_dirquota_common(zhp, statb.st_ino, &dir_quota);
+			if (parent_dquota == 0 && dir_quota.zq_value > 0) {
+				parent_dquota = dir_quota.zq_value;
+			}
+
+		if (path_name->pn_path[0] == '/') {
+			do {
+				path_name->pn_path++;
+				path_name->pn_pathlen--;
+			} while (path_name->pn_path[0] == '/');
+		}
+
+			if (path_name->pn_pathlen == 0)
+				self_size = statb.st_size;
+
+
+		}
+
+		if (self_size > 2 || parent_dquota > 0) {
+			err = EZFS_DQUOTA;
+			if (parent_dquota)
+				syslog(LOG_ERR, "parent has directory quota(%lld)", 
+				(longlong_t)parent_dquota);
+			if (self_size > 2) {
+				syslog(LOG_ERR, "Directory(%s) has sub directories", 
+				tmp_path);
+			}
+			goto dquoat_exit;
+		}
+
+		err = stat64(tmp_path, &statb);
+		*object = statb.st_ino;
+		return_path = tmp_path;
+	}
+	dquoat_exit:
+	free(ab_path);
+	free(path_name->pn_buf);
+	free(path_name);
+
+	if (return_path == NULL){
+		free(tmp_path);
+	}
+	return (return_path);
+}
+
+
+int
+zfs_prop_get_dirquota(zfs_handle_t *zhp, const char *propname,
+    char *propbuf, int proplen)
+{
+	int err;
+	char *path;
+	char tmp_path[MAXPATHLEN];
+	char quota_buf[MAXNAMELEN];
+	char used_buf[MAXNAMELEN];
+	struct stat64 statb;
+	zfs_dirquota_t *dirquota;
+
+	bzero(quota_buf, MAXNAMELEN);
+	bzero(used_buf, MAXNAMELEN);
+	dirquota = malloc(sizeof(zfs_dirquota_t));
+	path = strchr(propname, '@') + 1;
+	sprintf(tmp_path, "/%s/%s", zfs_get_name(zhp), path);
+	err = stat64(tmp_path, &statb);
+	if (err != 0) {
+		free(dirquota);
+		return (err);
+	}
+
+
+	if (!S_ISDIR(statb.st_mode)) {
+		err = EZFS_NDIR;
+		free(dirquota);
+		return (err);
+	}
+	err = zfs_prop_get_dirquota_common(zhp, statb.st_ino, dirquota);
+	if (err == 0) {
+		zfs_nicenum(dirquota->zq_value, quota_buf, MAXNAMELEN);
+		zfs_nicenum(dirquota->zq_used, used_buf, MAXNAMELEN);
+		sprintf(propbuf, "%s          %s", quota_buf, used_buf);
+	}
+	free(dirquota);
+	return (err);
+}
+
+
 static int
 zfs_prop_get_userquota_common(zfs_handle_t *zhp, const char *propname,
     uint64_t *propvalue, zfs_userquota_prop_t *typep)
@@ -2789,12 +3069,76 @@ zfs_prop_get_userquota(zfs_handle_t *zhp, const char *propname,
 		(void) snprintf(propbuf, proplen, "%llu",
 		    (u_longlong_t)propvalue);
 	} else if (propvalue == 0 &&
-	    (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_GROUPQUOTA)) {
+	    (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_GROUPQUOTA || \
+	     type == ZFS_PROP_SOFTUSERQUOTA || type == ZFS_PROP_SOFTGROUPQUOTA || \
+	     type == ZFS_PROP_USEROBJQUOTA || type == ZFS_PROP_GROUPOBJQUOTA )) {
 		(void) strlcpy(propbuf, "none", proplen);
 	} else {
 		zfs_nicenum(propvalue, propbuf, proplen);
 	}
 	return (0);
+}
+
+int
+zfs_prop_get_group_userquota(libzfs_handle_t *hdl, zfs_handle_t *zhp, zprop_list_t *pl, char *userquota_value)
+{
+	int ret = 0;
+	char host[MAX_FSNAME_LEN] = {0};
+	char rfsname[MAX_FSNAME_LEN] = {0};
+	char mastertype[MAX_FSNAME_LEN] = {0};
+	zfs_rpc_arg_t rpcarg = {0};
+	char *propptr = NULL;
+	char propbuf[ZFS_NAME_LEN] = {0};
+	int ismaster = 0;
+	uint32_t rpctype = 0;
+	zfs_rpc_ret_t backarg = {0};
+	char *backinfo = userquota_value;
+	char groupip[12*MAX_FSNAME_LEN]	= {0}; 
+	uint_t num = 0;
+
+	strcpy(groupip, zhp->zfs_name);
+	ret = get_rpc_addr(hdl, GET_MASTER_IPFS, groupip, &num);
+	if (ret){
+		return -1;
+	}
+
+	rpcarg.propname = pl->pl_user_prop;
+	rpctype = ZFS_RPC_GET_USERQUOTA;
+	rpcarg.bufcnt = 1;
+	rpcarg.flag = 0;
+	rpcarg.value = "-";
+	memset(backinfo, 0, rpcarg.bufcnt*ZFS_MAXPROPLEN);
+	//printf("---Get userspace--------0---[%s]-----\n", pl->pl_user_prop); 
+	
+	strcpy(propbuf, pl->pl_user_prop);
+	
+	memset(host, 0, MAX_FSNAME_LEN);
+	memset(rfsname, 0, MAX_FSNAME_LEN);
+	memset(mastertype, 0, MAX_FSNAME_LEN);
+	strcpy(host, groupip);
+	strcpy(rfsname, groupip+num*MAX_FSNAME_LEN);
+	strcpy(mastertype, groupip+(num*2)*MAX_FSNAME_LEN);
+	if(0 == strcmp(mastertype, "master")) {
+		if(0 == strcmp(rfsname, zhp->zfs_name)){
+			ismaster = 1;
+		}
+	}
+	//printf("The remote IP is:[%s], fsname:[%s]\n", host, rfsname); 
+	
+	rpcarg.buf[0] = rfsname;
+
+	if (!ismaster){
+		backarg.backbuf = backinfo;
+		ret = zfs_rpc_call(host, rpctype, &rpcarg, &backarg);
+		if(ret){
+			syslog(LOG_ERR, "%s: Fail to call rpc!!!\n", __func__);
+			return -1;
+		}
+		return 0;
+	}else{
+		syslog(LOG_ERR, "%s: Current fs is Master!!!\n", __func__);
+		return 1;
+	}
 }
 
 int
@@ -4693,3 +5037,119 @@ zfs_is_failover_prop(const char *prop)
 		return (0);
 	return (1);
 }
+
+
+int
+zfs_prop_set_extended(zfs_handle_t *zhp, const char *propname,
+    const char *propval, zprop_setflags_t flags)
+{
+	zfs_cmd_t zc = { 0 };
+	int ret = -1;
+	prop_changelist_t *cl = NULL;
+	char errbuf[1024];
+	libzfs_handle_t *hdl = zhp->zfs_hdl;
+	nvlist_t *nvl = NULL, *realprops;
+	zfs_prop_t prop;
+	boolean_t do_prefix;
+	uint64_t idx;
+	int added_resv = 0;
+
+
+	(void) snprintf(errbuf, sizeof (errbuf),
+	    dgettext(TEXT_DOMAIN, "cannot set property for '%s'"),
+	    zhp->zfs_name);
+
+
+	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0 ||
+	    nvlist_add_string(nvl, propname, propval) != 0) {
+		(void) no_memory(hdl);
+		goto error;
+	}
+
+	if ((realprops = zfs_valid_proplist(hdl, zhp->zfs_type, nvl,
+	    zfs_prop_get_int(zhp, ZFS_PROP_ZONED), zhp, errbuf)) == NULL)
+		goto error;
+
+	nvlist_free(nvl);
+	nvl = realprops;
+
+	prop = zfs_name_to_prop(propname);
+
+	if (prop == ZFS_PROP_VOLSIZE) {
+		if ((added_resv = zfs_add_synthetic_resv(zhp, nvl)) == -1)
+			goto error;
+	}
+
+	if ((cl = changelist_gather(zhp, prop, 0, 0)) == NULL)
+		goto error;
+
+	if (prop == ZFS_PROP_MOUNTPOINT && changelist_haszonedchild(cl)) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+		    "child dataset with inherited mountpoint is used "
+		    "in a non-global zone"));
+		ret = zfs_error(hdl, EZFS_ZONED, errbuf);
+		goto error;
+	}
+
+	/*
+	 * If the dataset's canmount property is being set to noauto,
+	 * then we want to prevent unmounting & remounting it.
+	 */
+	do_prefix = !((prop == ZFS_PROP_CANMOUNT) &&
+	    (zprop_string_to_index(prop, propval, &idx,
+	    ZFS_TYPE_DATASET) == 0) && (idx == ZFS_CANMOUNT_NOAUTO));
+
+	if (do_prefix && (ret = changelist_prefix(cl)) != 0)
+		goto error;
+
+	/*
+	 * Execute the corresponding ioctl() to set this property.
+	 */
+	(void) strlcpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
+
+	if (zcmd_write_src_nvlist(hdl, &zc, nvl) != 0)
+		goto error;
+
+	zc.zc_cookie = flags;
+
+	ret = zfs_ioctl(hdl, ZFS_IOC_SET_PROP, &zc);
+	if (ret != 0) {
+		zfs_setprop_error(hdl, prop, errno, errbuf);
+		if (added_resv && errno == ENOSPC) {
+			/* clean up the volsize property we tried to set */
+			uint64_t old_volsize = zfs_prop_get_int(zhp,
+			    ZFS_PROP_VOLSIZE);
+			nvlist_free(nvl);
+			zcmd_free_nvlists(&zc);
+			if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0)
+				goto error;
+			if (nvlist_add_uint64(nvl,
+			    zfs_prop_to_name(ZFS_PROP_VOLSIZE),
+			    old_volsize) != 0)
+				goto error;
+			if (zcmd_write_src_nvlist(hdl, &zc, nvl) != 0)
+				goto error;
+			(void) zfs_ioctl(hdl, ZFS_IOC_SET_PROP, &zc);
+		}
+	} else {
+		if (do_prefix)
+			ret = changelist_postfix(cl);
+
+		/*
+		 * Refresh the statistics so the new property value
+		 * is reflected.
+		 */
+		if (ret == 0)
+			(void) get_stats(zhp);
+	}
+
+error:
+	nvlist_free(nvl);
+	zcmd_free_nvlists(&zc);
+	if (cl)
+		changelist_free(cl);
+	return (ret);
+}
+
+
+

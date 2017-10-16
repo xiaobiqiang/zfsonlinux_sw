@@ -135,6 +135,19 @@ groupmember(gid_t gid, const cred_t *cr)
 	return rc;
 }
 
+/*
+ * The reference count is of interest when you want to check
+ * whether it is ok to modify the credential in place.
+ */
+uint_t
+crgetref(const cred_t *cr)
+{
+	int ref;
+	ref = atomic_read(&cr->usage);
+	return (uint_t)ref;
+}
+
+
 /* Return the effective user id */
 uid_t
 crgetuid(const cred_t *cr)
@@ -191,6 +204,91 @@ crgetfsgid(const cred_t *cr)
 	return KGID_TO_SGID(cr->fsgid);
 }
 
+
+
+int
+crsetresuid(cred_t *cr, uid_t r, uid_t e, uid_t s)
+{
+	ASSERT(cr->usage <= 2);
+
+	if (r != -1)
+		cr->uid = SUID_TO_KUID(r);
+	if (e != -1)
+		cr->euid = SUID_TO_KUID(e);
+	if (s != -1)
+		cr->suid = SUID_TO_KUID(s);
+
+	return (0);
+}
+
+int
+crsetresgid(cred_t *cr, gid_t r, gid_t e, gid_t s)
+{
+	ASSERT(cr->usage <= 2);
+
+	if (r != -1)
+		cr->gid = SGID_TO_KGID(r);
+	if (e != -1)
+		cr->egid = SGID_TO_KGID(e);
+	if (s != -1)
+		cr->sgid = SGID_TO_KGID(s);
+
+	return (0);
+}
+
+int
+crsetugid(cred_t *cr, uid_t uid, gid_t gid)
+{
+	ASSERT(cr->usage <= 2);
+
+	cr->euid = cr->uid = cr->suid = SUID_TO_KUID(uid);
+	cr->egid = cr->gid = cr->sgid = SGID_TO_KGID(gid);
+
+	return (0);
+}
+
+int
+gidcmp(const void *v1, const void *v2)
+{
+	gid_t g1 = *(gid_t *)v1;
+	gid_t g2 = *(gid_t *)v2;
+
+	if (g1 < g2)
+		return (-1);
+	else if (g1 > g2)
+		return (1);
+	else
+		return (0);
+}
+
+int	ngroups_max = 16;
+
+int
+crsetgroups(cred_t *cr, int n, gid_t *grp)
+{
+	int i, ret=0;
+	struct group_info *gi = NULL;
+	
+	ASSERT(cr->usage <= 2);
+
+	if (n > ngroups_max || n < 0)
+		return (-1);
+
+	gi = groups_alloc(n);
+	if (!gi)
+		return (ENOMEM);
+	
+	for (i = 0 ; i < n ; i++) {
+		GROUP_AT(gi, i) = SGID_TO_KGID(*grp);
+		grp++;
+	}
+
+	set_groups(cr, gi);
+	put_group_info(gi);
+
+	return (ret);
+}
+
 EXPORT_SYMBOL(crhold);
 EXPORT_SYMBOL(crfree);
 EXPORT_SYMBOL(crgetuid);
@@ -204,3 +302,9 @@ EXPORT_SYMBOL(crgetfsgid);
 EXPORT_SYMBOL(crgetngroups);
 EXPORT_SYMBOL(crgetgroups);
 EXPORT_SYMBOL(groupmember);
+EXPORT_SYMBOL(crgetref);
+EXPORT_SYMBOL(crsetresuid);
+EXPORT_SYMBOL(crsetresgid);
+EXPORT_SYMBOL(gidcmp);
+EXPORT_SYMBOL(crsetgroups);
+EXPORT_SYMBOL(crsetugid);

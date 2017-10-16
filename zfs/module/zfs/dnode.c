@@ -1083,22 +1083,36 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag,
 	    (spa_is_root(os->os_spa) &&
 	    spa_config_held(os->os_spa, SCL_STATE, RW_WRITER)));
 
-	if (object == DMU_USERUSED_OBJECT || object == DMU_GROUPUSED_OBJECT) {
-		dn = (object == DMU_USERUSED_OBJECT) ?
-		    DMU_USERUSED_DNODE(os) : DMU_GROUPUSED_DNODE(os);
-		if (dn == NULL)
-			return (SET_ERROR(ENOENT));
-		type = dn->dn_type;
-		if ((flag & DNODE_MUST_BE_ALLOCATED) && type == DMU_OT_NONE)
-			return (SET_ERROR(ENOENT));
-		if ((flag & DNODE_MUST_BE_FREE) && type != DMU_OT_NONE)
-			return (SET_ERROR(EEXIST));
-		DNODE_VERIFY(dn);
-		(void) refcount_add(&dn->dn_holds, tag);
-		*dnp = dn;
-		return (0);
+	switch( object ) {
+		case DMU_USERUSED_OBJECT :
+			dn = DMU_USERUSED_DNODE( os ) ;
+			break ;
+		case DMU_GROUPUSED_OBJECT :
+			dn = DMU_GROUPUSED_DNODE( os ) ;
+			break ;
+		case DMU_USEROBJUSED_OBJECT :
+			dn = DMU_USEROBJUSED_DNODE( os ) ;
+			break ;
+		case DMU_GROUPOBJUSED_OBJECT :
+			dn = DMU_GROUPOBJUSED_DNODE( os ) ;
+			break ;
+		default :
+			goto ELSE ;
 	}
 
+	if (dn == NULL)
+		return (SET_ERROR(ENOENT));
+	type = dn->dn_type;
+	if ((flag & DNODE_MUST_BE_ALLOCATED) && type == DMU_OT_NONE)
+		return (SET_ERROR(ENOENT));
+	if ((flag & DNODE_MUST_BE_FREE) && type != DMU_OT_NONE)
+		return (SET_ERROR(EEXIST));
+	DNODE_VERIFY(dn);
+	(void) refcount_add(&dn->dn_holds, tag);
+	*dnp = dn;
+	return (0);
+
+ELSE :
 	if (object == 0 || object >= DN_MAX_OBJECT)
 		return (SET_ERROR(EINVAL));
 

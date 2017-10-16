@@ -192,6 +192,13 @@ typedef enum dmu_object_type {
 	DMU_OT_DEADLIST_HDR,		/* UINT64 */
 	DMU_OT_DSL_CLONES,		/* ZAP */
 	DMU_OT_BPOBJ_SUBOBJ,		/* UINT64 */
+	
+	DMU_OT_DIRQUOTA,
+	DMU_OT_DIRLOWDATA,
+	DMU_OT_GROUP_DTL,			/* ZFS Group DTL */
+	DMU_OT_GROUP_DTL_HEADER,
+	DMU_OT_GROUP_MAP,
+	DMU_OT_NAS_GROUP_MASTER_NODE,
 	/*
 	 * Do not allocate new object types here. Doing so makes the on-disk
 	 * format incompatible with any other format that uses the same object
@@ -249,8 +256,10 @@ void zfs_znode_byteswap(void *buf, size_t size);
 #define	DMU_MAX_ACCESS (64 * 1024 * 1024) /* 64MB */
 #define	DMU_MAX_DELETEBLKCNT (20480) /* ~5MB of indirect blocks */
 
-#define	DMU_USERUSED_OBJECT	(-1ULL)
-#define	DMU_GROUPUSED_OBJECT	(-2ULL)
+#define	DMU_USERUSED_OBJECT	(-1ULL) /* for User quota */
+#define	DMU_GROUPUSED_OBJECT	(-2ULL) /* for Group quota */
+#define	DMU_USEROBJUSED_OBJECT ( -3ULL ) /* for User file number quota */
+#define	DMU_GROUPOBJUSED_OBJECT	(-4ULL )  /* for Group file number quota */
 
 /*
  * artificial blkids for bonus buffer and spill blocks

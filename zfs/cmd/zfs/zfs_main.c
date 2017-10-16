@@ -73,6 +73,7 @@
 #include "zfs_util.h"
 #include "zfs_comutil.h"
 #include "libzfs_impl.h"
+#include <syslog.h>
 
 libzfs_handle_t *g_zfs;
 
@@ -111,7 +112,7 @@ static int zfs_do_bookmark(int argc, char **argv);
 static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
 static int zfs_do_speed_test(int arc, char **argv);
-
+static int zfs_do_multiclus(int argc, char **argv);
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -161,7 +162,8 @@ typedef enum {
 	HELP_BOOKMARK,
     HELP_MIRROR,
 	HELP_CLUSTERSAN,
-	HELP_SPEEDTEST
+	HELP_SPEEDTEST,
+	HELP_MULTICLUS
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -218,6 +220,7 @@ static zfs_command_t command_table[] = {
     { "mirror",	zfs_do_mirror,	HELP_MIRROR		},
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
 	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
+	{ "multiclus",	zfs_do_multiclus,	HELP_MULTICLUS		},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -358,6 +361,16 @@ get_usage(zfs_help_t idx)
 	case HELP_SPEEDTEST:
 		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
 			
+	case HELP_MULTICLUS:
+		return (gettext("\n"
+		    "\tmulticlus -e <portname>\n"
+		    "\tmulticlus -vd\n"
+		    "\tmulticlus create/add <groupname> <zfsname>\n"
+		    "\tmulticlus set slave/master/master2/master3/master4 <groupname> <zfsname>\n"
+		    "\tmulticlus get dtlstatus <zfsname> [count]\n"
+		    "\tmulticlus clean dtl <zfsname>\n"
+		    "\tmulticlus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]\n"
+		    "\tmulticlus sync-data <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s | -a]\n"));			
 	}
 
 	abort();
@@ -1561,6 +1574,17 @@ get_callback(zfs_handle_t *zhp, void *data)
 
 			zprop_print_one_property(zfs_get_name(zhp), cbp,
 			    pl->pl_user_prop, buf, sourcetype, source, NULL);
+		} else if (zfs_prop_dirquota(pl->pl_user_prop)) {
+			sourcetype = ZPROP_SRC_LOCAL;
+
+			if (zfs_prop_get_dirquota(zhp, pl->pl_user_prop,
+			    buf, sizeof (buf)) != 0) {
+				sourcetype = ZPROP_SRC_NONE;
+				(void) strlcpy(buf, "-", sizeof (buf));
+			}
+
+			zprop_print_one_property(zfs_get_name(zhp), cbp,
+			    pl->pl_user_prop, buf, sourcetype, source, NULL);
 		} else if (zfs_prop_written(pl->pl_user_prop)) {
 			sourcetype = ZPROP_SRC_LOCAL;
 
@@ -1829,6 +1853,19 @@ zfs_do_get(int argc, char **argv)
 	}
 
 	cb.cb_first = B_TRUE;
+
+	if (zfs_prop_userquota(fields)){
+		/* Get info from remote RPC */
+		ret = zfs_group_userquota_send(flags, ZFS_MSG_GET, argc, argv, &cb);
+		if(0 == ret)
+		{
+			if (cb.cb_proplist == &fake_name)
+				zprop_free_list(fake_name.pl_next);
+			else
+				zprop_free_list(cb.cb_proplist);
+			return (ret);
+		}
+	}
 
 	/* run for each object */
 	ret = zfs_for_each(argc, argv, flags, types, NULL,
@@ -2606,7 +2643,8 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 		(void) snprintf(sizebuf, sizeof (sizebuf), "%llu",
 		    (u_longlong_t)space);
 	sizelen = strlen(sizebuf);
-	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED) {
+	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED \
+		|| prop == ZFS_PROP_USEROBJUSED || prop == ZFS_PROP_GROUPOBJUSED ) {
 		propname = "used";
 		if (!nvlist_exists(props, "quota"))
 			(void) nvlist_add_uint64(props, "quota", 0);
@@ -2911,9 +2949,11 @@ zfs_do_userspace(int argc, char **argv)
 		cb.cb_width[i] = strlen(gettext(us_field_hdr[i]));
 
 	for (p = 0; p < ZFS_NUM_USERQUOTA_PROPS; p++) {
-		if (((p == ZFS_PROP_USERUSED || p == ZFS_PROP_USERQUOTA) &&
+		if (((p == ZFS_PROP_USERUSED || p == ZFS_PROP_USERQUOTA || \
+			p == ZFS_PROP_USEROBJUSED || p == ZFS_PROP_USEROBJQUOTA ) &&
 		    !(types & (USTYPE_PSX_USR | USTYPE_SMB_USR))) ||
-		    ((p == ZFS_PROP_GROUPUSED || p == ZFS_PROP_GROUPQUOTA) &&
+		    ((p == ZFS_PROP_GROUPUSED || p == ZFS_PROP_GROUPQUOTA || \
+		    p == ZFS_PROP_GROUPOBJUSED || p == ZFS_PROP_GROUPOBJQUOTA ) &&
 		    !(types & (USTYPE_PSX_GRP | USTYPE_SMB_GRP))))
 			continue;
 		cb.cb_prop = p;
@@ -3051,9 +3091,12 @@ print_dataset(zfs_handle_t *zhp, list_cbdata_t *cb)
 	char property[ZFS_MAXPROPLEN];
 	nvlist_t *userprops = zfs_get_user_props(zhp);
 	nvlist_t *propval;
-	char *propstr;
+	char *propstr = NULL;
 	boolean_t right_justify;
+	int err = 0;
 
+	propstr = (char *)malloc(ZFS_MAXPROPLEN);
+	memset(propstr, 0, ZFS_MAXPROPLEN);
 	for (; pl != NULL; pl = pl->pl_next) {
 		if (!first) {
 			if (cb->cb_scripted)
@@ -3067,34 +3110,37 @@ print_dataset(zfs_handle_t *zhp, list_cbdata_t *cb)
 		if (pl->pl_prop == ZFS_PROP_NAME) {
 			(void) strlcpy(property, zfs_get_name(zhp),
 			    sizeof (property));
-			propstr = property;
+			strcpy(propstr, property);
 			right_justify = zfs_prop_align_right(pl->pl_prop);
 		} else if (pl->pl_prop != ZPROP_INVAL) {
 			if (zfs_prop_get(zhp, pl->pl_prop, property,
 			    sizeof (property), NULL, NULL, 0,
 			    cb->cb_literal) != 0)
-				propstr = "-";
+				strcpy(propstr, "-");
 			else
-				propstr = property;
+				strcpy(propstr, property);
 			right_justify = zfs_prop_align_right(pl->pl_prop);
 		} else if (zfs_prop_userquota(pl->pl_user_prop)) {
 			if (zfs_prop_get_userquota(zhp, pl->pl_user_prop,
-			    property, sizeof (property), cb->cb_literal) != 0)
-				propstr = "-";
+			    property, sizeof (property), B_FALSE) != 0){
+			    err = zfs_prop_get_group_userquota(g_zfs, zhp, pl, propstr);
+				if (err < 0)
+					strcpy(propstr, "-");
+			}
 			else
-				propstr = property;
+				strcpy(propstr, property);
 			right_justify = B_TRUE;
 		} else if (zfs_prop_written(pl->pl_user_prop)) {
 			if (zfs_prop_get_written(zhp, pl->pl_user_prop,
 			    property, sizeof (property), cb->cb_literal) != 0)
-				propstr = "-";
+				strcpy(propstr, "-");
 			else
-				propstr = property;
+				strcpy(propstr, property);
 			right_justify = B_TRUE;
 		} else {
 			if (nvlist_lookup_nvlist(userprops,
 			    pl->pl_user_prop, &propval) != 0)
-				propstr = "-";
+				strcpy(propstr, "-");
 			else
 				verify(nvlist_lookup_string(propval,
 				    ZPROP_VALUE, &propstr) == 0);
@@ -3115,6 +3161,7 @@ print_dataset(zfs_handle_t *zhp, list_cbdata_t *cb)
 	}
 
 	(void) printf("\n");
+	free(propstr);
 }
 
 /*
@@ -3593,6 +3640,189 @@ typedef struct set_cbdata {
 	char		*cb_value;
 } set_cbdata_t;
 
+int zfs_group_userquota_send(int flags, zfs_msg_type_t settype, int argc, char **argv, void *data)
+{
+	int ret = 0;
+	char host[4][MAX_FSNAME_LEN] = {0};
+	char rfsname[4][MAX_FSNAME_LEN] = {0};
+	char mastertype[4][MAX_FSNAME_LEN] = {0};
+	zfs_rpc_arg_t rpcarg = {0};
+	char propbuf[ZFS_NAME_LEN] = {0};
+	int ii=0;
+	int ismaster = 0;
+	uint32_t rpctype = 0;
+	zfs_rpc_ret_t backarg = {0};
+	char *backinfo = NULL;
+	char groupip[12*MAX_FSNAME_LEN]	= {0}; 
+	uint_t num = 0;
+	if(1 != argc){
+		return (1);
+	}
+
+	if(ZFS_MSG_SET == settype ){
+		set_cbdata_t *cb = data;
+
+		rpctype = ZFS_RPC_SET_USERQUOTA;
+		rpcarg.bufcnt = argc;
+		rpcarg.flag = flags;
+		rpcarg.propname = cb->cb_propname;
+		rpcarg.value = cb->cb_value;
+		strcpy(propbuf, cb->cb_propname);
+		backarg.backbuf = (char *)malloc(ZFS_MAXPROPLEN);
+		memset(backarg.backbuf, 0, ZFS_MAXPROPLEN);
+
+		if(argc>ZFS_NAME_LEN){
+			printf("Arg is too many, cannot send to remote!!!");
+			if(backarg.backbuf)
+			{
+				free(backarg.backbuf);
+				backarg.backbuf = NULL;
+			}
+			return (1);
+		}
+		for(ii=0; ii<argc; ii++){
+			rpcarg.buf[ii] = argv[ii];
+		}
+	}else if(ZFS_MSG_GET == settype){
+		zprop_get_cbdata_t *cb = data;
+		zprop_list_t *pl = cb->cb_proplist;
+		for (; pl != NULL; pl = pl->pl_next) {
+			/*
+			 * Skip the special fake placeholder.  This will also skip over
+			 * the name property when 'all' is specified.
+			 */
+			if (pl->pl_prop == ZFS_PROP_NAME &&
+			    pl == cb->cb_proplist){
+				continue;
+			}
+			rpcarg.propname = pl->pl_user_prop;
+			rpctype = ZFS_RPC_GET_USERQUOTA;
+			rpcarg.bufcnt = argc;
+			rpcarg.flag = flags;
+			rpcarg.value = "-";
+			backinfo = (char *)malloc(rpcarg.bufcnt*ZFS_MAXPROPLEN);
+			memset(backinfo, 0, rpcarg.bufcnt*ZFS_MAXPROPLEN);
+			/* printf("---Get userspace--------0---[%s]-----\n", 
+			pl->pl_user_prop); */
+			
+			strcpy(propbuf, pl->pl_user_prop);
+
+			if(argc>ZFS_NAME_LEN) {
+				printf("Arg is too many, cannot send to remote!!!");
+				if(backinfo) {
+					free(backinfo);
+					backinfo = NULL;
+				}
+				return (1);
+			}
+			for(ii=0; ii<argc; ii++) {
+				rpcarg.buf[ii] = argv[ii];
+			}
+		}
+	}
+
+	if(ZFS_MSG_GET == settype || ZFS_MSG_SET == settype )	{
+		strcpy(groupip, rpcarg.buf[0]);
+	}
+	ret = get_rpc_addr(g_zfs, GET_MASTER_IPFS, groupip, &num);
+	if(ret){
+		/* printf("Fail to get the rpc IP, ret: <%d>\n", ret); */
+		if(backinfo) {
+			free(backinfo);
+			backinfo = NULL;
+		}
+		return (1);
+	}
+	for(ii=0; ii<num; ii++) {
+		memset(host[ii], 0, MAX_FSNAME_LEN);
+		memset(rfsname[ii], 0, MAX_FSNAME_LEN);
+		memset(mastertype[ii], 0, MAX_FSNAME_LEN);
+		strcpy(host[ii], groupip+ii*MAX_FSNAME_LEN);
+		strcpy(rfsname[ii], groupip+(num+ii)*MAX_FSNAME_LEN);
+		strcpy(mastertype[ii], groupip+(num*2+ii)*MAX_FSNAME_LEN);
+		if(0 == strcmp(mastertype[ii], "master")) {
+			if(0 == strcmp(rfsname[ii], argv[0])){
+				ismaster = 1;
+				if(ZFS_MSG_GET == settype){
+					break;
+				}else{
+					continue;
+				}
+			}
+		}else{
+			if(ZFS_MSG_GET == settype) {
+				continue;
+			}
+			if(0 == strcmp(rfsname[ii], argv[0])){
+				ismaster = 1;
+				continue;
+			}
+		}
+		
+		/* printf("The remote IP is:[%s], fsname:[%s]\n", host, rfsname ); */
+		if(ZFS_MSG_GET == settype || ZFS_MSG_SET == settype ) 	{
+			rpcarg.buf[0] = rfsname[ii];
+		}
+	
+		rpcarg.flag = 0;
+		rpcarg.backoffset = 0;
+		backarg.backbuf = backinfo;
+		do{
+			ret = zfs_rpc_call(host[ii], rpctype, &rpcarg, &backarg);
+			if(ret){
+				syslog(LOG_ERR, "%s: Fail to call rpc!!!\n", __func__);
+				if(backinfo) {
+					free(backinfo);
+					backinfo = NULL;
+				}
+				return (1);
+			}
+			rpcarg.flag = 1;
+			rpcarg.backoffset += backarg.backlen;
+			backarg.backbuf = backinfo +backarg.backlen;
+		}while(backarg.flag);
+		if(ZFS_MSG_GET == settype) {
+			break;
+		}
+	}
+	if(ismaster) {
+		syslog(LOG_ERR, "%s: Current fs is Master!!!\n", __func__);
+		if(backinfo){
+			free(backinfo);
+			backinfo = NULL;
+		}
+		return (1);
+	}
+	/*printf("[zfs_group_userquota_send]: the remote disk info: %s\n", 
+		backinfo);*/
+
+	if(ZFS_MSG_GET == settype ){
+		zprop_get_cbdata_t *cb = data;
+		char *bufptr = NULL;
+		/*cb->cb_first = B_TRUE; */
+		char source[ZFS_MAXNAMELEN];
+		
+		/* printf("---Get 
+		userspace--------1----bufcnt:%d----\n",rpcarg.bufcnt); */
+		bufptr = backinfo;
+		for(ii=0; ii<rpcarg.bufcnt; ii++) {
+			/* printf("----[%s]----\n", argv[ii]);
+			printf("----[%s]----\n", rpcarg.propname);
+			printf("----[%s]----\n", bufptr); */
+			zprop_print_one_property(argv[ii], cb,
+			    rpcarg.propname, bufptr, ZPROP_SRC_LOCAL, source, NULL);
+			bufptr += ZFS_MAXPROPLEN;
+		}
+	}
+	/* printf("------------get userspace--------2--------\n"); */
+	if(backinfo){
+		free(backinfo);
+		backinfo = NULL;
+	}
+	
+	return (0);
+}
+
 int 
 zfs_is_single_data_prop(const char *prop)
 {
@@ -3755,6 +3985,15 @@ zfs_do_set(int argc, char **argv)
 		(check_failover_set(cb.cb_propname, cb.cb_value) == -1)) {
 		(void) fprintf(stderr, gettext("invalid failover property\n"));
 		usage(B_FALSE);
+	}
+
+	if( zfs_prop_userquota(cb.cb_propname) ) {
+		/* Set to remote by RPC */
+		ret = zfs_group_userquota_send(0, ZFS_MSG_SET, argc-2, argv+2, &cb);
+		if(0 == ret)
+		{
+			return (ret);
+		}
 	}
 
 	ret = zfs_for_each(argc - 2, argv + 2, 0,
@@ -4158,7 +4397,12 @@ zfs_do_receive(int argc, char **argv)
 #define	ZFS_DELEG_PERM_USERPROP		"userprop"
 #define	ZFS_DELEG_PERM_VSCAN		"vscan" /* ??? */
 #define	ZFS_DELEG_PERM_USERQUOTA	"userquota"
+#define	ZFS_DELEG_PERM_USEROBJQUOTA "userobjquota"
 #define	ZFS_DELEG_PERM_GROUPQUOTA	"groupquota"
+#define	ZFS_DELEG_PERM_GROUPOBJQUOTA "groupobjquota"
+#define	ZFS_DELEG_PERM_USEROBJUSED		"userobjused"
+#define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
+#define	ZFS_DELEG_PERM_GROUPOBJUSED	"groupobjused"
 #define	ZFS_DELEG_PERM_USERUSED		"userused"
 #define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
 #define	ZFS_DELEG_PERM_HOLD		"hold"
@@ -4187,10 +4431,14 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_BOOKMARK, ZFS_DELEG_NOTE_BOOKMARK },
 
 	{ ZFS_DELEG_PERM_GROUPQUOTA, ZFS_DELEG_NOTE_GROUPQUOTA },
+	{ ZFS_DELEG_PERM_GROUPOBJQUOTA, ZFS_DELEG_NOTE_GROUPOBJQUOTA},
 	{ ZFS_DELEG_PERM_GROUPUSED, ZFS_DELEG_NOTE_GROUPUSED },
+	{ ZFS_DELEG_PERM_GROUPOBJUSED, ZFS_DELEG_NOTE_GROUPOBJUSED },
 	{ ZFS_DELEG_PERM_USERPROP, ZFS_DELEG_NOTE_USERPROP },
 	{ ZFS_DELEG_PERM_USERQUOTA, ZFS_DELEG_NOTE_USERQUOTA },
+	{ ZFS_DELEG_PERM_USEROBJQUOTA, ZFS_DELEG_NOTE_USEROBJQUOTA },
 	{ ZFS_DELEG_PERM_USERUSED, ZFS_DELEG_NOTE_USERUSED },
+	{ ZFS_DELEG_PERM_USEROBJUSED, ZFS_DELEG_NOTE_USEROBJUSED },
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
 
@@ -6761,6 +7009,306 @@ zfs_do_diff(int argc, char **argv)
 
 	return (err != 0);
 }
+
+
+static int
+zfs_do_multiclus(int argc, char **argv)
+{
+	int flags = 0;
+	char *group_name = NULL;
+	char *portname[2];
+	char *fs_name = NULL;
+	int c;
+
+	void* param = NULL;	
+	zfs_grp_sync_param_t sync_param = { B_FALSE, B_FALSE, B_FALSE, B_FALSE};
+
+	while ((c = getopt(argc, argv, "vedxrt")) != -1) {
+		switch (c) {
+		case 'v':
+			flags = SHOW_MULTICLUS;
+			break;
+		case 'e':
+			flags = ENABLE_MULTICLUS;
+			break;
+		case 'd':
+			flags = DISABLE_MULTICLUS;
+			break;
+		case 'x':
+			flags = XML_MULTICLUS;
+			break;
+		case 'r':
+			flags = ZFS_RPC_CALL_SERVER;
+			break;
+		case 't':
+			flags = ZFS_RPC_CALL_TEST;
+			break;
+		default:
+			(void) fprintf(stderr,
+			    gettext("invalid option '%c'\n"), optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	if(argc){
+		if(!strcmp(argv[0], "create")){
+			flags = CREATE_MULTICLUS;
+			group_name = argv[1];
+			fs_name = argv[2];
+		}
+		else if(!strcmp(argv[0], "z_info")) {
+			flags = ZNODE_INFO;
+			sync_param.target_dir = argv[1];
+			param = (void*)(&sync_param);
+		}
+		else if(!strcmp(argv[0], "double_data")) {
+			flags = DOUBLE_DATA;
+			sync_param.double_data = (boolean_t)(atoi(argv[1]));
+			param = (void*)(&sync_param);
+		}
+		else if(!strcmp(argv[0], "add")){
+			flags = ADD_MULTICLUS;
+			group_name = argv[1];
+			fs_name = argv[2];
+		}
+		else if(!strcmp(argv[0], "set")){
+			/*
+			 * master node is specified by "create" command,
+			 * this command can specify only slave/master2/3/4 nodes:
+			 *
+			 * 1. zfs multiclus set slave group_name zfs_name
+			 * set file system 'zfs_name' in group 'group_name' as a slave node;
+			 *
+			 * 2. zfs multiclus set master2/3/4 group_name zfs_name
+			 * set file system 'zfs_name' in group 'group_name' as the master-backup node.
+			 */
+			if (strcmp(argv[1], "slave") == 0){
+		 		flags = SET_MULTICLUS_SLAVE;
+		 	} else if (strcmp(argv[1], "master4") == 0){
+				flags = SET_MULTICLUS_MASTER4;
+		 	} else if (strcmp(argv[1], "master3") == 0){
+				flags = SET_MULTICLUS_MASTER3;
+		 	} else if (strcmp(argv[1], "master2") == 0){
+				flags = SET_MULTICLUS_MASTER2;
+			} else if (strcmp(argv[1], "master") == 0){
+				flags = SET_MULTICLUS_MASTER;
+			} else{
+				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
+				usage(B_FALSE);
+
+				return -1;
+			}
+
+			group_name = argv[2];
+			fs_name = argv[3];
+		}
+		else if(!strcmp(argv[0], "get")){
+			/*
+			 * this command can get the basic information in multiclus dtl trees:
+			 *
+			 * 1. zfs multiclus get dtlstatus fs_name
+			 * display the current dtl tree status (node number in tree) with 'fs_name';
+			 *
+			 * 2. zfs multiclus get dtlstatus fs_name x(interval second)
+			 * display the current dtl tree status (node number in tree) with 'fs_name'
+			 * every x second.
+			 */
+			if (strcmp(argv[1], "dtlstatus") == 0){
+		 		flags = GET_MULTICLUS_DTLSTATUS;
+		 	} else{
+				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
+				usage(B_FALSE);
+
+				return -1;
+			}
+
+			group_name = argv[3];
+			fs_name = argv[2];
+		}
+		else if(!strcmp(argv[0], "clean")){
+			/*
+			 * this command clean the node in multiclus dtl trees:
+			 *
+			 * 1. zfs multiclus clean dtlstatus fs_name
+			 * clean the current dtl tree node with 'fs_name';
+			 */
+			if (strcmp(argv[1], "dtl") == 0){
+		 		flags = CLEAN_MULTICLUS_DTLTREE;
+		 	} else{
+				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
+				usage(B_FALSE);
+
+				return -1;
+			}
+
+			fs_name = argv[2];
+		}
+		else if (strcmp(argv[0], "sync") == 0) {
+			char* output_file = NULL;
+
+			/*
+			 * zfs multiclus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]
+			 *
+			 * "-d dir_path": start sync/check from the specified target dir
+			 * "-c": check only, do not sync
+			 * "-s": stop current sync/check
+			 */
+			if (argc < 4) {
+				usage(B_FALSE);
+				return -1;
+			}
+
+			group_name = argv[1];
+			fs_name = argv[2];
+			output_file = argv[3];
+
+			argc -= 4;
+			argv += 4;
+
+			sync_param.check_only = B_FALSE;
+			sync_param.stop_sync = B_FALSE;
+			sync_param.output_file = output_file;
+			sync_param.target_dir = NULL;
+
+			if (argc == 0) {
+				;
+			} else if (argc == 1) {
+				if (strcmp(argv[0], "-c") == 0) {
+					sync_param.check_only = B_TRUE;
+				} else if (strcmp(argv[0], "-s") == 0) {
+					sync_param.stop_sync = B_TRUE;
+				} else {
+					usage(B_FALSE);
+					return -1;
+				}
+			} else if (argc == 2) {
+				if (strcmp(argv[0], "-d") != 0) {
+					usage(B_FALSE);
+					return -1;
+				} else {
+					sync_param.target_dir = argv[1];
+				}
+			} else if (argc == 3) {
+				if (strcmp(argv[0], "-d") != 0) {
+					usage(B_FALSE);
+					return -1;
+				}
+				sync_param.target_dir = argv[1];
+
+				if (strcmp(argv[2], "-c") == 0) {
+					sync_param.check_only = B_TRUE;
+				} else if (strcmp(argv[2], "-s") == 0) {
+					sync_param.stop_sync = B_TRUE;
+				} else {
+					usage(B_FALSE);
+					return -1;
+				}
+			} else {
+				usage(B_FALSE);
+				return -1;
+			}
+
+			flags = SYNC_MULTICLUS_GROUP;
+			param = (void*)(&sync_param);
+		}
+		else if (strcmp(argv[0], "sync-data") == 0) { 
+		
+		char* output_file = NULL;
+		
+		/*
+		 * zfs multiclus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]
+		 *
+		 * "-d dir_path": start sync/check from the specified target dir
+		 * "-c": check only, do not sync
+		 * "-s": stop current sync/check
+		 */
+		if (argc < 4) {
+			usage(B_FALSE);
+			return -1;
+		}
+		
+		group_name = argv[1];
+		fs_name = argv[2];
+		output_file = argv[3];
+		
+		argc -= 4;
+		argv += 4;
+		
+		sync_param.check_only = B_FALSE;
+		sync_param.stop_sync = B_FALSE;
+		sync_param.output_file = output_file;
+		sync_param.target_dir = NULL;
+		sync_param.all_member_online = B_FALSE;
+		
+		if (argc == 0) {
+			;
+		} else if (argc == 1) {
+			if (strcmp(argv[0], "-c") == 0) {
+				sync_param.check_only = B_TRUE;
+			} else if (strcmp(argv[0], "-s") == 0) {
+				sync_param.stop_sync = B_TRUE;
+			} else if (strcmp(argv[0], "-a") == 0) {
+				sync_param.all_member_online = B_TRUE;
+			} else {
+				usage(B_FALSE);
+				return -1;
+			}
+		} else if (argc == 2) {
+			if (strcmp(argv[0], "-d") != 0) {
+				usage(B_FALSE);
+				return -1;
+			} else {
+				sync_param.target_dir = argv[1];
+			}
+		} else if (argc == 3) {
+			if (strcmp(argv[0], "-d") != 0) {
+				usage(B_FALSE);
+				return -1;
+			}
+			sync_param.target_dir = argv[1];
+		
+			if (strcmp(argv[2], "-c") == 0) {
+				sync_param.check_only = B_TRUE;
+			} else if (strcmp(argv[2], "-s") == 0) {
+				sync_param.stop_sync = B_TRUE;
+			} else if (strcmp(argv[0], "-a") == 0) {
+				sync_param.all_member_online = B_TRUE;
+			} else {
+				usage(B_FALSE);
+				return -1;
+			}
+		} else {
+			usage(B_FALSE);
+			return -1;
+		}
+		
+		flags = SYNC_MULTICLUS_GROUP_DATA;
+		param = (void*)(&sync_param);
+		
+		}
+		else{
+			(void) fprintf(stderr, gettext("missing property "
+			    "argument\n"));
+			usage(B_FALSE);
+		}
+
+		zfs_start_multiclus(g_zfs, group_name, fs_name, flags, param);
+	}else{
+		if(flags && flags < CREATE_MULTICLUS){
+			zfs_start_multiclus(g_zfs, portname[0], portname[1], flags, param);
+		}else{
+			(void) fprintf(stderr, gettext("missing property "
+			    "argument\n"));
+			usage(B_FALSE);
+		}
+	}
+
+	return (0);
+}
+
 
 /*
  * zfs bookmark <fs@snap> <fs#bmark>

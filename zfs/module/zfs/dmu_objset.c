@@ -301,6 +301,8 @@ dmu_objset_byteswap(void *buf, size_t size)
 	if (size == sizeof (objset_phys_t)) {
 		dnode_byteswap(&osp->os_userused_dnode);
 		dnode_byteswap(&osp->os_groupused_dnode);
+		dnode_byteswap(&osp->os_userobjused_dnode);
+		dnode_byteswap(&osp->os_groupobjused_dnode);
 	}
 }
 
@@ -712,6 +714,82 @@ dmu_objset_rewrite_worker_fini(objset_t *os)
 }
 #endif
 
+
+static int dmu_objset_get_group_parameters(dsl_dataset_t *ds, objset_t *os)
+{
+    int err;
+    dsl_dir_t *dd = ds->ds_dir;
+	dsl_pool_t *dp = dd->dd_pool;
+	uint64_t value;
+	int need_rwlock;
+
+	need_rwlock = !RRW_WRITE_HELD(&dp->dp_config_rwlock);
+	if (need_rwlock)
+		rrw_enter(&dp->dp_config_rwlock, RW_READER, FTAG);
+    
+ 
+    err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
+        1, sizeof(os->os_group_name), os->os_group_name, NULL);
+
+    if (err == 0) {
+        dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_GROUP),
+            sizeof(uint64_t), 1, &os->os_is_group, NULL);
+    }
+
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER),
+            sizeof(uint64_t), 1, &os->os_is_master, NULL);
+    }
+
+	if (err == 0)
+	{
+		err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
+			sizeof(uint64_t), 1, &(os->os_node_type), NULL);
+		if (err != 0)
+		{
+			os->os_node_type = OS_NODE_TYPE_SLAVE;
+		}
+
+		err = 0;
+	}
+	
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
+            sizeof(uint64_t), 1, &os->os_master_spa, NULL);
+		#if 0
+        cmn_err(CE_WARN, "get master spa = %llx", (longlong_t)os->os_master_spa);
+		#endif
+    }
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
+            sizeof(uint64_t), 1, &os->os_master_os, NULL);
+		#if 0
+        cmn_err(CE_WARN, "ZFS_PROP_MASTER_OS = %lld", (longlong_t)os->os_master_os);
+		#endif
+    }
+
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
+            sizeof(uint64_t), 1, &os->os_master_root, NULL);
+		#if 0
+        cmn_err(CE_WARN, "ZFS_PROP_MASTER_ROOT = %lld", (longlong_t)os->os_master_root);
+		#endif
+    }
+    if (err == 0) {
+        err = dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
+            sizeof(uint64_t), 1, &os->os_self_root, NULL);
+		#if 0
+        cmn_err(CE_WARN, "ZFS_PROP_SELF_ROOT = %lld", (longlong_t)os->os_master_root);
+		#endif
+    }
+
+    if (need_rwlock)
+        rrw_exit(&dp->dp_config_rwlock, FTAG);
+
+    return (0);
+}
+
+
 int
 dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
     objset_t **osp)
@@ -830,6 +908,7 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 				    zfs_prop_to_name(ZFS_PROP_RECORDSIZE),
 				    recordsize_changed_cb, os);
 			}
+			dmu_objset_get_group_parameters(ds, os);
 		}
 		if (err != 0) {
 			VERIFY(arc_buf_remove_ref(os->os_phys_buf,
@@ -887,6 +966,10 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 		    DMU_USERUSED_OBJECT, &os->os_userused_dnode);
 		dnode_special_open(os, &os->os_phys->os_groupused_dnode,
 		    DMU_GROUPUSED_OBJECT, &os->os_groupused_dnode);
+		dnode_special_open( os, &os->os_phys->os_userobjused_dnode,
+		    DMU_USEROBJUSED_OBJECT, &os->os_userobjused_dnode ) ;
+		dnode_special_open( os, &os->os_phys->os_groupobjused_dnode,
+		    DMU_GROUPOBJUSED_OBJECT, &os->os_groupobjused_dnode ) ;
 	}
 
 	*osp = os;
@@ -1091,6 +1174,8 @@ dmu_objset_evict_dbufs(objset_t *os)
 	if (DMU_USERUSED_DNODE(os) != NULL) {
 		dnode_evict_dbufs(DMU_GROUPUSED_DNODE(os));
 		dnode_evict_dbufs(DMU_USERUSED_DNODE(os));
+		dnode_evict_dbufs(DMU_GROUPOBJUSED_DNODE(os));
+		dnode_evict_dbufs(DMU_USEROBJUSED_DNODE(os));
 	}
 	dnode_evict_dbufs(DMU_META_DNODE(os));
 }
@@ -1183,6 +1268,8 @@ dmu_objset_evict_done(objset_t *os)
 	if (DMU_USERUSED_DNODE(os)) {
 		dnode_special_close(&os->os_userused_dnode);
 		dnode_special_close(&os->os_groupused_dnode);
+		dnode_special_close( &os->os_userobjused_dnode ) ;
+		dnode_special_close( &os->os_groupobjused_dnode ) ;
 	}
 	zil_free(os->os_zil);
 
@@ -1594,6 +1681,10 @@ dmu_objset_sync(objset_t *os, zio_t *pio, dmu_tx_t *tx)
 		dnode_sync(DMU_USERUSED_DNODE(os), tx);
 		DMU_GROUPUSED_DNODE(os)->dn_zio = zio;
 		dnode_sync(DMU_GROUPUSED_DNODE(os), tx);
+		DMU_USEROBJUSED_DNODE(os)->dn_zio = zio;
+		dnode_sync(DMU_USEROBJUSED_DNODE(os), tx);
+		DMU_GROUPOBJUSED_DNODE(os)->dn_zio = zio;
+		dnode_sync(DMU_GROUPOBJUSED_DNODE(os), tx);
 	}
 
 	txgoff = tx->tx_txg & TXG_MASK;
@@ -1657,10 +1748,11 @@ do_userquota_update(objset_t *os, uint64_t used, uint64_t flags,
 		int64_t delta = DNODE_SIZE + used;
 		if (subtract)
 			delta = -delta;
-		VERIFY3U(0, ==, zap_increment_int(os, DMU_USERUSED_OBJECT,
+		/* Because we have done user/group used in zfs_update_quota_used, so no need for this now */
+/*		VERIFY3U(0, ==, zap_increment_int(os, DMU_USERUSED_OBJECT,
 		    user, delta, tx));
 		VERIFY3U(0, ==, zap_increment_int(os, DMU_GROUPUSED_OBJECT,
-		    group, delta, tx));
+		    group, delta, tx)); */
 	}
 }
 
@@ -1686,6 +1778,12 @@ dmu_objset_do_userquota_updates(objset_t *os, dmu_tx_t *tx)
 			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
 			VERIFY(0 == zap_create_claim(os,
 			    DMU_GROUPUSED_OBJECT,
+			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+			VERIFY(0 == zap_create_claim(os,
+			    DMU_USEROBJUSED_OBJECT,
+			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
+			VERIFY(0 == zap_create_claim(os,
+			    DMU_GROUPOBJUSED_OBJECT,
 			    DMU_OT_USERGROUP_USED, DMU_OT_NONE, 0, tx));
 		}
 
@@ -2543,6 +2641,21 @@ FINISH:
 }
 
 #endif
+
+void 
+dmu_objset_set_group(objset_t *os, uint64_t master_spa,
+    uint64_t master_os, uint64_t root)
+{
+    os->os_master_spa = master_spa;
+    os->os_master_os = master_os;
+    os->os_master_root = root; 
+}
+
+uint64_t objset_sec_reftime(objset_t *os)
+{
+	return (spa_syncing_txg(os->os_spa));
+}
+
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(dmu_objset_zil);
