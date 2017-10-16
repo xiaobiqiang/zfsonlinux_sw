@@ -4,6 +4,7 @@
 #include <linux/inet.h>  
 #include <linux/socket.h>  
 #include <net/sock.h>
+#include <asm/atomic.h>
 
 typedef struct cluster_target_port_socket {
     char ipaddr[16];
@@ -11,7 +12,7 @@ typedef struct cluster_target_port_socket {
     /* socket param */
     struct socket *srv_socket;
     taskq_t *accept_tq;
-    int accept_thread_stop;
+    atomic_t accept_thread_stop;
     kmutex_t    stop_lock;
     kmutex_t css_lock;
     kcondvar_t  css_cv;
@@ -35,7 +36,7 @@ typedef struct cluster_target_session_socket {
     kcondvar_t  socket_cv;
 	int socket_link_state;
     taskq_t *rcv_tq;
-    int rcv_thread_stop;
+    atomic_t rcv_thread_stop;
 } cluster_target_session_socket_t;
 
 int cluster_target_socket_port_init(

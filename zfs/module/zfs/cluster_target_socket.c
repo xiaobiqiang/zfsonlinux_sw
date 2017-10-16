@@ -86,7 +86,8 @@ static int cts_socket_tran_start(cluster_target_session_t *cts, void *fragmentat
         printk("%s link down\n", __func__);
         return ret;  
     } else if (ret != sizeof(cluster_target_msg_header_t) + origin_data->header_len + origin_data->data_len) {
-        printk("client: ret!=1024");  
+        printk("%s: ret=%d, should = %\n", __func__, ret, 
+            sizeof(cluster_target_msg_header_t) + origin_data->header_len + origin_data->data_len);  
         return ret;
     } else
         return 0;
@@ -133,7 +134,7 @@ static void cts_socket_rcv_thread(void *arg)
     struct kvec vec;
     char *recvbuf=NULL;  
 
-    while (sess_socket->rcv_thread_stop == 0) {
+    while (atomic_read(&sess_socket->rcv_thread_stop) == 0) {
         
         mutex_enter(&sess_socket->r_lock);
         if (sess_socket->r_socket == NULL) {
@@ -156,7 +157,7 @@ static void cts_socket_rcv_thread(void *arg)
         index = ret=kernel_recvmsg(r_socket ,&msg,&vec,1,sizeof(cluster_target_msg_header_t),0); 
         if (ret <= 0) {
             kfree(recvbuf);
-            printk("%s %d kernel_recvmsg error\n", __func__, __LINE__);
+            printk("%s %d kernel_recvmsg error. (ret = %d)\n", __func__, __LINE__, ret);
             continue;
         }
         fragment = cts_socket_rxframe_to_fragment(ctp, recvbuf);
@@ -237,12 +238,28 @@ static void cluster_target_socket_session_init(cluster_target_session_t *cts, vo
 		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
 
     cv_broadcast(&port_socket->css_cv);
-    sess_socket->rcv_thread_stop = 0;
+    atomic_set(&sess_socket->rcv_thread_stop ,0);
     taskq_dispatch(sess_socket->rcv_tq, cts_socket_rcv_thread, (void *)cts, TQ_SLEEP);
 }
 
 static void cluster_target_socket_session_fini(cluster_target_session_t *cts)
 {
+    cluster_target_session_socket_t *sess_socket = cts->sess_target_private;
+    
+    atomic_set(&sess_socket->rcv_thread_stop ,1);
+    taskq_destroy(sess_socket->rcv_tq);
+    
+    if (sess_socket->r_socket) {
+        kernel_sock_shutdown(sess_socket->r_socket, SHUT_RDWR);
+        sock_release(sess_socket->r_socket);
+    }
+
+    sock_release(sess_socket->s_socket);
+
+    cv_destroy(&sess_socket->socket_cv);
+    mutex_destroy(&sess_socket->r_lock);
+    mutex_destroy(&sess_socket->s_lock);
+    kfree(sess_socket);
 }
 
 static void cts_socket_fragment_free(cts_fragment_data_t *fragment)
@@ -294,8 +311,10 @@ static void cts_socket_set_client_socket(void *arg)
     cluster_target_port_socket_t *port_socket = ctp->target_private;
     
     int ret;
-    struct sockaddr addr;
 	int len=0;
+    int i = 0;
+    unsigned char tmp;
+    struct sockaddr addr;
     cluster_target_session_socket_t *sess_socket;
     cluster_target_session_t *cts;
 
@@ -306,10 +325,14 @@ static void cts_socket_set_client_socket(void *arg)
 	    printk("kernel_getpeername error!\n");
         sock_release(client_sock);
         return;
+    } else {
+        printk("client socket ip addr:%d.%d.%d.%d\n", addr.sa_data[2],
+            addr.sa_data[3],addr.sa_data[4],addr.sa_data[5]);
     }
     
+    
     mutex_enter(&port_socket->stop_lock);
-    while(port_socket->accept_thread_stop == 0) {
+    while(atomic_read(&port_socket->accept_thread_stop) == 0) {
         mutex_exit(&port_socket->stop_lock);
         
         mutex_enter(&ctp->ctp_lock);
@@ -334,12 +357,12 @@ static void cts_socket_set_client_socket(void *arg)
             printk("%s client ok \n", __func__);
             break;
         } else {
-            printk("%s wait\n", __func__);
             mutex_enter(&port_socket->css_lock);
             cv_timedwait(&port_socket->css_cv,&port_socket->css_lock,
                 ddi_get_lbolt() + drv_usectohz(1000 * 1000));
             mutex_exit(&port_socket->css_lock);
         }
+        mutex_enter(&port_socket->stop_lock);
     }
     mutex_exit(&port_socket->stop_lock);
 }
@@ -357,7 +380,7 @@ static void cts_socket_accept_thread(void *arg)
     cluster_target_session_socket_t *sess_socket;
 
     mutex_enter(&port_socket->stop_lock);
-    while (port_socket->accept_thread_stop == 0) {
+    while (atomic_read(&port_socket->accept_thread_stop) == 0) {
         mutex_exit(&port_socket->stop_lock);
         ret = kernel_accept(port_socket->srv_socket, &client_sock, 16);
         if(ret<0){  
@@ -369,12 +392,14 @@ static void cts_socket_accept_thread(void *arg)
         client_arg = kzalloc(sizeof(client_arg_t), GFP_KERNEL);
         client_arg->client_sock = client_sock;
         client_arg->ctp = ctp;
-        //ret = taskq_dispatch(port_socket->accept_tq, cts_socket_set_client_socket, (void *)client_arg, TQ_SLEEP);
-        //if (ret == NULL)
-        //    printk("%s taskq_dispatch %d\n", __func__, ret);
         tsk = kthread_create(cts_socket_set_client_socket, (void *)client_arg, "client_arg");
-    	printk("%s kthread_create %d\n", __func__, IS_ERR(tsk));
-        wake_up_process(tsk);
+        if (IS_ERR(tsk)) {
+            printk("%s kthread_create %d\n", __func__, IS_ERR(tsk));
+            kfree(client_arg);
+        } else {
+            wake_up_process(tsk);
+        }
+        mutex_enter(&port_socket->stop_lock);
     }
     mutex_exit(&port_socket->stop_lock);
 }
@@ -404,6 +429,9 @@ int cluster_target_socket_port_init(
 				ctp->pri = link_pri;
 			}
 		}
+    } else {
+        printk("must give ip addr!\n");
+        return (-1);
     }
 
     port_socket = kmem_zalloc(sizeof(cluster_target_port_socket_t),
@@ -413,14 +441,6 @@ int cluster_target_socket_port_init(
     mutex_init(&port_socket->css_lock, NULL, MUTEX_DRIVER, NULL);
     cv_init(&port_socket->css_cv, NULL, CV_DRIVER, NULL);
 
-    /*portstr = strchr(ipaddr, ':');
-    if (portstr != NULL) {
-        *portstr = '\0';
-        portstr++;
-        port_socket->port = atol(portstr);
-    } else {
-        port_socket->port = 1866;
-    }*/
     port_socket->port = port;
     strcpy(port_socket->ipaddr, ipaddr);
 
@@ -428,11 +448,10 @@ int cluster_target_socket_port_init(
 
     ret=sock_create(AF_INET, SOCK_STREAM,0,&(port_socket->srv_socket));
     if(ret){
-        printk("server:socket_create error!\n");
-        kmem_free(port_socket, sizeof(cluster_target_port_socket_t));
-        return (ret);
+        printk("server:socket_create error! (ret = %d)\n", ret);
+        goto err1;
     }
-    printk("server:socket_create ok!\n"); 
+    
     memset(&s_addr,0,sizeof(s_addr));  
     s_addr.sin_family=AF_INET;  
     s_addr.sin_port=htons(port_socket->port);  
@@ -441,20 +460,16 @@ int cluster_target_socket_port_init(
     ret = kernel_bind(port_socket->srv_socket,
         (struct sockaddr *)&s_addr,sizeof(struct sockaddr_in));  
     if(ret<0){  
-        printk("server: bind error\n");
-        kmem_free(port_socket, sizeof(cluster_target_port_socket_t));
-        return ret;  
+        printk("server: bind error. (ret = %d)\n");
+        goto err2;
     }  
-    printk("server:bind ok!\n");  
 
     
     ret = kernel_listen(port_socket->srv_socket, 16);
     if(ret<0){  
-        printk("server: listen error\n"); 
-        kmem_free(port_socket, sizeof(cluster_target_port_socket_t));
-        return ret;  
+        printk("server: listen error. (ret = %d)\n"); 
+        goto err2;
     }  
-    printk("server:listen ok!\n");
 
 	ctp->f_send_msg = cluster_target_socket_send;
 	ctp->f_tran_free = cluster_target_socket_tran_data_free;
@@ -476,13 +491,17 @@ int cluster_target_socket_port_init(
 
 	ctp->target_private = port_socket;
 
-    port_socket->accept_thread_stop = 0;
+    atomic_set(&port_socket->accept_thread_stop ,0);
     tsk = kthread_create(cts_socket_accept_thread, (void *)ctp, "accept_tq");
 	printk("%s kthread_create %d\n", __func__, IS_ERR(tsk));
     wake_up_process(tsk);
-    //taskq_dispatch(port_socket->accept_tq, cts_socket_accept_thread, (void *)ctp, TQ_SLEEP);
 
 	return (0);
+err2:
+    sock_release(port_socket->srv_socket);
+err1:
+    kmem_free(port_socket, sizeof(cluster_target_port_socket_t));
+    return (-1);
 }
 
 
@@ -508,19 +527,20 @@ static void cts_socket_hb_thread(void *arg)
 	cts->sess_hb_state |= CLUSTER_TARGET_TH_STATE_ACTIVE;
 	while ((cts->sess_hb_state & CLUSTER_TARGET_TH_STATE_STOP) == 0) {
         if (cts->sess_linkstate == CTS_LINK_DOWN) {
+            mutex_exit(&cts->sess_lock);
             ret = kernel_connect(sess_socket->s_socket,(struct sockaddr *)&(sess_socket->s_addr), sizeof(struct sockaddr),0);  
             if(ret==0){  
                     if (cluster_target_session_hold(cts, "down2up evt") == 0) {
+                        mutex_enter(&cts->sess_lock);
                         cts->sess_linkstate = CTS_LINK_UP;
+                        mutex_exit(&cts->sess_lock);
             			taskq_dispatch(clustersan->cs_async_taskq,
             				cts_link_down_to_up_handle, (void *)cts, TQ_SLEEP);
                     }
                     printk("%s link up\n", __func__);
             } else 
                 printk("%s connect error %d\n", __func__, ret);
-        }
-        if (cts->sess_linkstate == CTS_LINK_UP) {
-            
+        } else {
             mutex_exit(&cts->sess_lock);
             memset(&vec,0,sizeof(vec));  
             memset(&msg,0,sizeof(msg));  
@@ -529,11 +549,14 @@ static void cts_socket_hb_thread(void *arg)
             ret = kernel_sendmsg(sess_socket->s_socket, &msg, &vec, 1, 
                         sizeof(cluster_target_msg_header_t));
             if (ret != sizeof(cluster_target_msg_header_t));
-                printk("%s kernel_sendmsg return %d\n", __func__, ret);
-            mutex_enter(&cts->sess_lock);
+                printk("%s kernel_sendmsg return %d, should be %d\n", __func__, 
+                    ret, sizeof(cluster_target_msg_header_t));
+            
             if (ret == -104){
                 if (cluster_target_session_hold(cts, "up2down evt") == 0) {
+                    mutex_enter(&cts->sess_lock);
                     cts->sess_linkstate = CTS_LINK_DOWN;
+                    mutex_exit(&cts->sess_lock);
     				taskq_dispatch(clustersan->cs_async_taskq,
     					cts_link_up_to_down_handle, (void *)cts, TQ_SLEEP);
                 }
@@ -545,16 +568,21 @@ static void cts_socket_hb_thread(void *arg)
                 }
             } else if (ret < 0) {
                 if (cluster_target_session_hold(cts, "up2down evt") == 0) {
+                    mutex_enter(&cts->sess_lock);
                     cts->sess_linkstate = CTS_LINK_DOWN;
+                    mutex_exit(&cts->sess_lock);
     				taskq_dispatch(clustersan->cs_async_taskq,
     					cts_link_up_to_down_handle, (void *)cts, TQ_SLEEP);
                 }
-                printk("%s link down\n", __func__);
+                printk("%s link down. (ret = %d)\n", __func__, ret);
             }
+            
         }
         
         cv_timedwait(&cts->sess_cv, &cts->sess_lock,
 			ddi_get_lbolt() + drv_usectohz(1000 * 1000));
+        
+        mutex_enter(&cts->sess_lock);
 	}
 	mutex_exit(&cts->sess_lock);
 }
