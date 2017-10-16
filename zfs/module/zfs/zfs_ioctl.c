@@ -5806,8 +5806,11 @@ zfs_ioc_get_dirquota(zfs_cmd_t *zc)
 	}
 
 	error = zfs_sb_hold(zc->zc_name, FTAG, &zsb, B_FALSE);
-	if (error)
+	if (error) {
+		if(NULL != dirquota)
+			vmem_free(dirquota, sizeof(zfs_dirquota_t));
 		return (error);
+	}
 
 	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0){
 		error = zfs_client_get_dirquota(zsb, zc->zc_obj, dirquota);
