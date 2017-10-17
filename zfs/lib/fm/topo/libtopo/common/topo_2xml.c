@@ -834,7 +834,12 @@ topo_warning_xml_print(topo_hdl_t *thp,  FILE *fp, const char *scheme, int *err)
 					else
 						status = fru->tf_status;
 				} else {
-					goto out;
+					if (fru->tf_name != NULL) {
+						name = fru->tf_name;
+						status = fru->tf_status;
+					} else {
+						goto out;
+					}
 				}
 				(void) snprintf(buf, TIMEBUFLEN, "%s", ctime(&fru->tf_time));
 					buf[TIMEBUFVALlen] = '\0';
