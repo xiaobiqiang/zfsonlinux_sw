@@ -726,6 +726,68 @@ zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, uint64_t offset,
 	}
 }
 
+int
+zvol_write_lun_copy(lun_copy_t *lct, char *buf, offset_t off, size_t size)
+{
+	int error = 0;
+	uint64_t end = 0;
+	uint64_t write_flag = 0;
+	rl_t *rl = NULL;
+	dmu_tx_t *tx = NULL;
+	zvol_state_t *zv = NULL;
+    boolean_t sync;
+	struct uio uio;
+	struct iovec iov;
+
+	mutex_enter(&zvol_state_lock);
+	zv = zvol_find_by_name(lct->lun_zfs);
+
+	if (!zv) {
+		cmn_err(CE_WARN, "%s can't find %s", __func__, lct->lun_zfs);
+		mutex_exit(&zvol_state_lock);
+		return (-1);
+	}
+
+    sync = dmu_objset_sync_check(zv->zv_objset);
+    if (sync) {
+		write_flag |= WRITE_FLAG_APP_SYNC;
+    }
+
+	memset(&uio, 0, sizeof(struct uio));
+	memset(&iov, 0, sizeof(struct iovec));
+	iov.iov_base = buf;
+	iov.iov_len = size;
+	uio.uio_iov = &iov;
+	uio.uio_iovcnt = 1;
+	uio.uio_loffset = off;
+	uio.uio_segflg = (short)UIO_SYSSPACE;
+	uio.uio_resid = (uint64_t)size;
+	uio.uio_limit = RLIM64_INFINITY;
+	uio.uio_fmode = FWRITE;
+	end = off + size;
+
+	rl = zfs_range_lock(&zv->zv_range_lock, off, size, RL_WRITER);
+
+	tx = dmu_tx_create(zv->zv_objset);
+	dmu_tx_hold_write(tx, ZVOL_OBJ, off, size);
+	error = dmu_tx_assign(tx, TXG_WAIT);
+	if (error) {
+		dmu_tx_abort(tx);
+	} else {
+		dmu_write_uio(zv->zv_objset, ZVOL_OBJ, &uio, size, tx, write_flag);
+		zap_update(zv->zv_objset, ZVOL_ZAP_OBJ, "copy_position", 8, 1, &end, tx);
+		if (off == 0)
+			zap_update(zv->zv_objset, ZVOL_ZAP_OBJ, "copy_totalsize", 8, 1, &lct->lun_total_size, tx);
+
+		dmu_tx_commit(tx);
+	}
+
+	zfs_range_unlock(rl);
+	mutex_exit(&zvol_state_lock);
+
+	return (error == 0 ? 0 : 1);
+}
+
 static int
 zvol_write(struct bio *bio)
 {
@@ -1024,6 +1086,8 @@ zvol_first_open(zvol_state_t *zv)
 	uint64_t volsize;
 	int error;
 	uint64_t ro;
+	int ret = 0;
+	uint64_t position = 0;
 
 	ASSERT(MUTEX_HELD(&zv->zv_state_lock));
 	if (zv->zv_state == ZVOL_VALID) {
@@ -1070,6 +1134,12 @@ zvol_first_open(zvol_state_t *zv)
 	} else {
 		set_disk_ro(zv->zv_disk, 0);
 		zv->zv_flags &= ~ZVOL_RDONLY;
+	}
+
+	/* add from lun migrate */
+	ret = zap_lookup(os, ZVOL_ZAP_OBJ, "copy_position", 8, 1, &position);
+	if (ret == 0) {
+		(void) lun_migrate_recovery(zv->zv_name);
 	}
 
 out_owned:

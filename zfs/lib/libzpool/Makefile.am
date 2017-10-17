@@ -107,7 +107,8 @@ KERNEL_C = \
 	zio_compress.c \
 	zio_inject.c \
 	zle.c \
-	zrlock.c
+	zrlock.c \
+	lun_migrate.c
 
 nodist_libzpool_la_SOURCES = \
 	$(USER_C) \

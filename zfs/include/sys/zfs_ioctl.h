@@ -317,11 +317,14 @@ typedef enum zfs_case {
 
 typedef struct zfs_cmd {
 	char		zc_name[MAXPATHLEN];	/* name of pool or dataset */
+	char		zc_top_ds[MAXPATHLEN];
 	uint64_t	zc_nvlist_src;		/* really (char *) */
 	uint64_t	zc_nvlist_src_size;
 	uint64_t	zc_nvlist_dst;		/* really (char *) */
 	uint64_t	zc_nvlist_dst_size;
 	boolean_t	zc_nvlist_dst_filled;	/* put an nvlist in dst? */
+	uint64_t	zc_lunmigrate_total;		/* really (char *) */
+	uint64_t	zc_lunmigrate_cur;		/* really (char *) */
 	int		zc_pad2;
 
 	/*

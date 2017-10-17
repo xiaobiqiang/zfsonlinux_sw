@@ -907,6 +907,11 @@ void zfs_standby_all_lus(libzfs_handle_t *hdl, char *pool_name);
 void zfs_destroy_all_lus(libzfs_handle_t *hdl, char *pool_name);
 void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
 
+extern int zfs_start_lun_migrate(libzfs_handle_t *hdl, const char *dst, char *pool, char *guid);
+extern int zfs_stop_lun_migrate(libzfs_handle_t *hdl, const char *dst);
+extern int zfs_recovery_lun_migrate(libzfs_handle_t *hdl, char *fsname);
+extern int zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname);
+
 #ifdef	__cplusplus
 }
 #endif

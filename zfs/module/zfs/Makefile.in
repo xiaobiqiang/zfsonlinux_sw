@@ -110,3 +110,4 @@ $(MODULE)-objs += cluster_san.o
 $(MODULE)-objs += cluster_target_mac.o
 $(MODULE)-objs += zfs_hbx.o
 $(MODULE)-objs += zfs_mirror.o
+$(MODULE)-objs += lun_migrate.o
