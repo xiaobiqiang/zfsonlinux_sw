@@ -2279,7 +2279,7 @@ zfs_multiclus_refresh_nodes_status(char * group_name)
 							}
 						case ZFS_MULTICLUS_NODE_ONLINE:
 							{
-								if ((gethrtime() - node_record->node_status.last_update_time)/1000 > 5*ZFS_MULTICLUS_SECOND){
+								if ((gethrtime() - node_record->node_status.last_update_time)/1000 > 10*ZFS_MULTICLUS_SECOND){
 									node_record->node_status.status
 										= ZFS_MULTICLUS_NODE_CHECKING;
 								}
