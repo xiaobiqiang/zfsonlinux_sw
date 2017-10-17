@@ -53,8 +53,8 @@ uint64_t	zfs_multiclus_slave_wait_time = ZFS_MULTICLUS_CVWAIT_TIME;
 uint64_t	zfs_multiclus_master_update_wait_time = ZFS_MULTICLUS_CVWAIT_TIME * 2;
 
 /* task num */
-uint32_t	zfs_multiclus_server_action_max_tasks = INT_MAX;
-uint32_t	zfs_multiclus_mp_post_action_max_tasks = INT_MAX;
+uint32_t	zfs_multiclus_server_action_max_tasks = 256;
+uint32_t	zfs_multiclus_mp_post_action_max_tasks = 256;
 
 /* server rx process frames taskq variables */
 volatile int	zfs_multiclus_server_nworkers = 512;
@@ -2347,60 +2347,39 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 			cmn_err(CE_WARN, "%s, %d, Cannot get the record! will reinit!", __func__, __LINE__);
 		}
 	
-		if(dmu_objset_hold((char *)reg_data->fsname, FTAG, &os) != 0){
-			if (record != NULL){
-				record->node_status.status = ZFS_MULTICLUS_NODE_OFFLINE;
-				zfs_multiclus_destroy_reg_record((char*)(reg_data->group_name),
-					record->spa_id, record->os_id);
-			}
-			cmn_err(CE_WARN, "zfs_multiclus_register_tq exit:can't hold %s",
-					(char *)reg_data->fsname);
-			mutex_exit(&multiclus_mtx_update_record);
-			break;
-		}else{
-			node_type = zmc_get_node_type(os);
-			dmu_objset_space(os, &refdbytesp, &availbytesp, &usedobjsp, &availobjsp);
-			reg_data->avail_size = availbytesp;
-			reg_data->node_type = node_type;
-			if(record_reinit){
-				if (node_type != ZFS_MULTICLUS_SLAVE) {
-					tmp_record = zfs_multiclus_get_group_master((char*)(reg_data->group_name), node_type);
-					if (tmp_record != NULL) {
-						for (tmp_type = ZFS_MULTICLUS_MASTER; tmp_type < ZFS_MULTICLUS_NODE_TYPE_NUM; tmp_type++) {
-							if (NULL == zfs_multiclus_get_group_master((char*)(reg_data->group_name), tmp_type)) {
-								break;
-							}
+		node_type = record->node_type ;
+		reg_data->avail_size = record->avail_size;
+		reg_data->node_type = node_type;
+
+		if(record_reinit){
+			if (node_type != ZFS_MULTICLUS_SLAVE) {
+				tmp_record = zfs_multiclus_get_group_master((char*)(reg_data->group_name), node_type);
+				if (tmp_record != NULL) {
+					for (tmp_type = ZFS_MULTICLUS_MASTER; tmp_type < ZFS_MULTICLUS_NODE_TYPE_NUM; tmp_type++) {
+						if (NULL == zfs_multiclus_get_group_master((char*)(reg_data->group_name), tmp_type)) {
+							break;
 						}
-						if (tmp_type == ZFS_MULTICLUS_NODE_TYPE_NUM) {
-							tmp_type = ZFS_MULTICLUS_SLAVE;
-						}
-						zmc_change_objset_node_type((char*)(reg_data->group_name), (char *)reg_data->fsname, os, tmp_type);
-						node_type = tmp_type;
-						reg_data->node_type = node_type;
-					}else {
-						dmu_objset_rele(os, FTAG);
-					}	
-				}else {
-					dmu_objset_rele(os, FTAG);
+					}
+					if (tmp_type == ZFS_MULTICLUS_NODE_TYPE_NUM) {
+						tmp_type = ZFS_MULTICLUS_SLAVE;
+					}
+					node_type = tmp_type;
+					reg_data->node_type = node_type;
 				}
-				zfs_multiclus_group_record_init((char*)reg_data->group_name,
-					(char*)reg_data->fsname, reg_data->spa_id, 
-					reg_data->os_id, reg_data->root, 
-					node_type, reg_data->avail_size,
-					reg_data->used_size, reg_data->load_ios);
-				record_reinit = FALSE;
-				waitcount = 0;
-				cmn_err(CE_WARN, "zfs_multiclus_register_tq reinit record: %s, node_type:%d, cache_head->node_type: %d",
-					(char *)reg_data->fsname, node_type, reg_data->node_type);
-				mutex_exit(&multiclus_mtx_update_record);
-				continue;
-			} else if (os->os_will_be_master) {
-					waitcount = 20;
-					will_be_master = B_TRUE;
-					os->os_will_be_master = B_FALSE;
 			}
-			dmu_objset_rele(os, FTAG);
+			zfs_multiclus_group_record_init((char*)reg_data->group_name,
+				(char*)reg_data->fsname, reg_data->spa_id, 
+				reg_data->os_id, reg_data->root, 
+				node_type, reg_data->avail_size,
+				reg_data->used_size, reg_data->load_ios);
+			record_reinit = FALSE;
+			waitcount = 0;
+			cmn_err(CE_WARN, "zfs_multiclus_register_tq reinit record: %s, node_type:%d, cache_head->node_type: %d",
+				(char *)reg_data->fsname, node_type, reg_data->node_type);
+			mutex_exit(&multiclus_mtx_update_record);
+			continue;
 		}
+
 		err = zfs_multiclus_write_group_record((void *)reg_data, ZFS_MULTICLUS_GROUP_MSG, node_type);
 		mutex_exit(&multiclus_mtx_update_record);
 		mutex_enter(&reg_record->reg_timer_lock);

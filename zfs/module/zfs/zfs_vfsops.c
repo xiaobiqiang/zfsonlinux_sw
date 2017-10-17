@@ -1182,8 +1182,8 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 		mutex_init(&zsb->z_hold_locks[i], NULL, MUTEX_DEFAULT, NULL);
 	}
 
-	zsb->notify_taskq = taskq_create("ZFS_NOTIFY_TASQ", 512, TASKQ_DEFAULTPRI, 1, 512, 0);
-	zsb->overquota_taskq = taskq_create("ZFS_OVERQUOTA_TASKQ", 512, TASKQ_DEFAULTPRI, 1, 512, 0);
+//	zsb->notify_taskq = taskq_create("ZFS_NOTIFY_TASQ", 512, TASKQ_DEFAULTPRI, 1, 512, 0);
+//	zsb->overquota_taskq = taskq_create("ZFS_OVERQUOTA_TASKQ", 512, TASKQ_DEFAULTPRI, 1, 512, 0);
 	if (ZFS_GROUP_DTL_ENABLE) {
 		zfs_group_dtl_create(&zsb->z_group_dtl_tree);
 		zfs_group_dtl_create(&zsb->z_group_dtl_tree2);
@@ -1317,8 +1317,8 @@ zfs_sb_free(zfs_sb_t *zsb)
 {
 	int i, size = zsb->z_hold_size;
 
-	taskq_destroy(zsb->notify_taskq);
-	taskq_destroy(zsb->overquota_taskq);
+//	taskq_destroy(zsb->notify_taskq);
+//	taskq_destroy(zsb->overquota_taskq);
 	zfs_fuid_destroy(zsb);
 
 	mutex_destroy(&zsb->z_znodes_lock);

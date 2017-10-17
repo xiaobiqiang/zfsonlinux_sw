@@ -538,7 +538,7 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 		if (err != 0) {
 			cmn_err(CE_WARN, "Create (%s) fails(error:%lld) from user",
 			    name, (longlong_t)err);
-			goto error;
+			goto out;
 		}
 
 		zp = ITOZ(ip);
@@ -564,7 +564,7 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 		}
 	}
 	if (err != 0)
-		goto error;
+		goto out;
 
 	n2p->nrec.object_id = zp->z_group_id;
 	if(n2p->nrec.object_id.master_spa == 0 && n2p->nrec.object_id.master_objset == 0
@@ -576,7 +576,8 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 	zfs_group_znode_copy_phys(zp, &n2p->nrec.object_phy, B_FALSE);
 
 	iput(ip);
-	error:
+
+out:
 	kmem_free(xattrp, sizeof(xvattr_t));
 	kmem_free(dirlowdata, sizeof(uint64_t));
 	kmem_free(clientosinfo, sizeof(client_os_info_t));
@@ -835,7 +836,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		if (err != 0) {
 			cmn_err(CE_WARN, "Create (%s) fails(error:%lld) from user",
 			    name, (longlong_t)err);
-			goto error;
+			goto out;
 		}
 
 		zp = ITOZ(ip);
@@ -908,7 +909,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 			default:
 				iput(ip);
 				err = EINVAL;
-				goto error;
+				goto out;
 		}	
 
 		tx = dmu_tx_create(zsb->z_os);
@@ -917,7 +918,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		if(err != 0){
 			dmu_tx_abort(tx);
 			iput(ip);
-			goto error;
+			goto out;
 		}
 		mutex_enter(&zp->z_lock);
 		VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zsb),
@@ -954,7 +955,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 				dmu_tx_commit(tx);
 				iput(ip);
 				err = EINVAL;
-				goto error;
+				goto out;
 		}
 	
 		if(map_obj != 0){
@@ -979,7 +980,7 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		dmu_tx_commit(tx);
 	} else {
 		cmn_err(CE_WARN, "[Error] %s, %d, msg->hdr.orig_type is not APP_USER!", __func__, __LINE__);
-		goto error;
+		goto out;
 	}
 
 
@@ -1010,11 +1011,11 @@ static int zfs_group_process_create_backup(zfs_group_header_t *msg_header, zfs_m
 		default:
 			iput(ip);
 			err = EINVAL;
-			goto error;
+			goto out;
 	}
 	iput(ip);
 
-error:
+out:
 	kmem_free(xattrp, sizeof(xvattr_t));
 	kmem_free(dirlowdata, sizeof(uint64_t));
 	kmem_free(clientosinfo, sizeof(client_os_info_t));
@@ -1071,14 +1072,14 @@ static int zfs_group_process_mkdir(zfs_msg_t *msg_data, znode_t *dzp, cred_t *cr
 			    &ip, cred, flag, vsap);
 
 	if (err != 0)
-		goto error;
+		goto out;
 
 	zp = ITOZ(ip);
 	bcopy(&zp->z_group_id, &n2p->nrec.object_id, sizeof(zfs_group_object_t));
 	zfs_group_znode_copy_phys(zp, &n2p->nrec.object_phy, B_FALSE);
 	iput(ip);
 
-	error:
+out:
 	kmem_free(xattrp, sizeof(xvattr_t));
 	if (vsap != NULL) {
 		zfs_group_free_acl(vsap);
@@ -1141,7 +1142,7 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 	err = zfs_mkdir(ZTOI(dzp), name, (vattr_t *)xattrp,
 			    &ip, cred, flag, vsap);
 	if (err != 0)
-		goto error;
+		goto out;
 	
 	zp = ITOZ(ip);
 
@@ -1204,7 +1205,7 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 		default:
 			iput(ip);
 			err = EINVAL;
-			goto error;
+			goto out;
 	}
 
 	tx = dmu_tx_create(zsb->z_os);
@@ -1213,7 +1214,7 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 	if(err != 0){
 		dmu_tx_abort(tx);
 		iput(ip);
-		goto error;
+		goto out;
 	}
 	mutex_enter(&zp->z_lock);
 	VERIFY(0 == sa_update(zp->z_sa_hdl, SA_ZPL_REMOTE_OBJECT(zsb),
@@ -1247,7 +1248,7 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 			dmu_tx_commit(tx);
 			iput(ip);
 			err = EINVAL;
-			goto error;
+			goto out;
 	}
 	if(map_obj != 0){
 		err = zap_update(zsb->z_os, map_obj, buf, 8, 1, &zp->z_group_id.master_object, tx);
@@ -1284,12 +1285,12 @@ static int zfs_group_process_mkdir_backup(zfs_group_header_t *msg_header, zfs_ms
 		default:
 			iput(ip);
 			err = EINVAL;
-			goto error;
+			goto out;
 	}
 
 	iput(ip);
 
-error:
+out:
 	kmem_free(xattrp, sizeof(xvattr_t));
 	if (vsap != NULL) {
 		zfs_group_free_acl(vsap);
@@ -1641,7 +1642,7 @@ static int zfs_group_process_create_data(zfs_group_header_t *msg_header, zfs_msg
 	if (err == 0) {			
 		ip = ZTOI(zp);
 	} else {
-		goto error;
+		goto out;
 	}
 	
 	/* sync data's master info */
@@ -1674,7 +1675,7 @@ static int zfs_group_process_create_data(zfs_group_header_t *msg_header, zfs_msg
 	if (err != 0) {
 		dmu_tx_abort(tx);
 		iput(ZTOI(zp));
-		return err;
+		goto out;
 	}
 	
 	mutex_enter(&(zp->z_lock));
@@ -1694,8 +1695,7 @@ static int zfs_group_process_create_data(zfs_group_header_t *msg_header, zfs_msg
 	zfs_group_znode_copy_phys(zp, &n2p->nrec.object_phy, B_FALSE);
 
 	iput(ip);
-	
-	error:
+out:
 	kmem_free(xattrp, sizeof(xvattr_t));
 	kmem_free(dirlowdata, sizeof(uint64_t));
 	if (vsap != NULL) {
@@ -1846,7 +1846,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 				default:
 					cmn_err(CE_WARN, "[Error] %s %d", __func__, __LINE__);
 					error = EINVAL;
-					goto error;
+					goto out;
 			}
 		
 			if(object == 0){
@@ -1855,7 +1855,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 			}
 		
 			if ((error = zfs_zget(zsb, object,&tdzp)) != 0) {
-				goto error;
+				goto out;
 			}else if(gen != -1 && tdzp->z_gen != gen){
 				if(1 == debug_nas_group_dtl){
 					cmn_err(CE_WARN, "[Error] %s %d tdzp->gen 0x%llx, gen 0x%llx", 
@@ -1863,7 +1863,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 				}
 				iput(ZTOI(tdzp));
 				error = ENOENT;
-				goto error;
+				goto out;
 			}
 	//		VOP_RENAME(ZTOV(dzp), np->component, ZTOV(tdzp),
 	//		    &np->component[MAXNAMELEN], cred, NULL, flags);
@@ -1895,11 +1895,11 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 					break;
 				default:
 					error = EINVAL;
-					goto error;
+					goto out;
 			}
 			
 			if ((error = zfs_zget(zsb, object, &zp)) != 0) {
-				goto error;
+				goto out;
 			}else if(zp->z_gen != gen){
 				if(1 == debug_nas_group_dtl){
 					cmn_err(CE_WARN, "[Error] %s %d zp->gen 0x%llx, gen 0x%llx", 
@@ -1907,7 +1907,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 				}
 				error = ENOENT;
 				iput(ZTOI(zp));
-				goto error;
+				goto out;
 			}
 
 //			error = VOP_LINK(ZTOV(dzp), ZTOV(zp), np->component, cred, NULL, flags);
@@ -1965,7 +1965,7 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 		break;
 	}
 
-error:
+out:
 //	crfree(cred);
 	abort_creds(cred);
 	iput(ZTOI(dzp));
@@ -2250,7 +2250,10 @@ int zfs_remote_updata_node_dirty(znode_t* zp, uint64_t dirty_flag,
 
 	zsb = ZTOZSB(zp);
 	if (zsb == NULL) {
-		kmem_free(notify_msg, sizeof (zfs_group_notify_msg_t));
+		if (notify_msg != NULL)
+			kmem_free(notify_msg, sizeof (zfs_group_notify_msg_t));
+		if (msg_header != NULL)
+			kmem_free(msg_header, sizeof(zfs_group_header_t));
 		return EGHOLD;
 	}
 	
@@ -3656,9 +3659,14 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_iostat_t	*stat = &stat_msg->call.stat;
 
+	if(NULL == dl_info){
+		error = ENOMEM;
+		goto out;
+	}
 
 	if(NULL == dirld_carrier){
-		return (ENOMEM);
+		error = ENOMEM;
+		goto out;
 	}
 
 	server_spa = msg_header->server_spa;
@@ -3669,7 +3677,7 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 	
 	if ((error = zfs_multiclus_get_fsname(server_spa, server_os, dsname))){
 		cmn_err(CE_WARN, "%s: get master fsname FAIL !!!",__func__);
-		return (error);
+		goto out;
 	}
 
 	switch (msg_header->operation) {
@@ -3690,9 +3698,8 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 
 			zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
 			if (zsb == NULL){
-				if(NULL != dirld_carrier)
-					kmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
-				return (EGHOLD);
+				error = EGHOLD;
+				goto out;
 			}
 			
 			if (zsb->z_dirlowdata_obj == 0){
@@ -3716,9 +3723,8 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 			
 			zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
 			if (zsb == NULL){
-				if(NULL != dirld_carrier)
-					kmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
-				return (EGHOLD);
+				error = EGHOLD;
+				goto out;
 			}
 			
 			if (zsb->z_dirquota_obj== 0){
@@ -3745,8 +3751,9 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 			zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
 			if (zsb == NULL){	
 				if(NULL != dirquota)
-				kmem_free(dirquota, sizeof(zfs_dirquota_t));
-				return (EGHOLD);
+					kmem_free(dirquota, sizeof(zfs_dirquota_t));
+				error = EGHOLD;
+				goto out;
 			}
 			
 			if (zsb->z_dirquota_obj == 0){
@@ -3768,11 +3775,12 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 
 			break;
 	}
-
+	
+out:
 	if(NULL != dirld_carrier)
 		kmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
 	if(NULL != dl_info)
-		kmem_free(dirld_carrier, sizeof(dir_lowdata_t));
+		kmem_free(dl_info, sizeof(dir_lowdata_t));
 	return (error);
 }
 
