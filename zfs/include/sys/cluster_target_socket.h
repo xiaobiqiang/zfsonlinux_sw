@@ -42,5 +42,6 @@ typedef struct cluster_target_session_socket {
 int cluster_target_socket_port_init(
 	cluster_target_port_t *ctp, char *link_name, nvlist_t *nvl_conf);
 void cts_socket_hb_init(cluster_target_session_t *cts);
+void cluster_target_socket_port_fini(cluster_target_port_t *ctp);
 #endif
 

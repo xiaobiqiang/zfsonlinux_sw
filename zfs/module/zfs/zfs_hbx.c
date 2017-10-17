@@ -783,7 +783,7 @@ zfs_hbx_thr_work(void *arg)
 	
 	while (!zfs_hbx.hb_thr_exit) {
 		if (list_head(&event_list->event_list) == NULL) {
-			zfs_hbx_thr_wait(&cpr, &zfs_hbx.hb_thr_cv, 0);
+			zfs_hbx_thr_wait(&cpr, &zfs_hbx.hb_thr_cv, 1000*1000);
 		}
 		
 		if (zfs_hbx.hb_thr_exit) {

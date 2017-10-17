@@ -19,7 +19,7 @@
 #include <sys/cluster_target_rpc_rdma_svc.h>
 #include <sys/cluster_target_rpc_rdma_clnt.h>
 */
-
+void cluster_target_socket_port_fini(cluster_target_port_t *ctp);
 #define PRIx64	"llx"
 #define	PRId64	"lld"
 
@@ -175,7 +175,7 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 				ret = 1;
 		}
 		if (ret == 0)
-			printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
+			;//printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 		else {
 			printk("%s failed len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 			for(i=0; i<cs_data->data_len; i++) {
@@ -214,7 +214,7 @@ void cluster_comm_test_rx(cs_rx_data_t *cs_data, void *arg)
 		wake_up(&comm_st.wait_queue);
 		csh_rx_data_free(cs_data, B_TRUE);
 		if (ret == 0)
-			printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
+			;//printk("%s success len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 		else {
 			printk("%s failed len=%lld ex_len=%lld\n", __func__, cs_data->data_len, cs_data->ex_len);
 			for(i=0; i<cs_data->data_len; i++) {
@@ -241,12 +241,12 @@ int cluster_comm_test(int hostid, int datalen, int headlen)
 		goto out1;
 	}
 
-	if ((comm_st.databuf = kmem_alloc(datalen, KM_SLEEP)) == NULL) {
+	if ((comm_st.databuf = kzalloc(datalen, GFP_KERNEL)) == NULL) {
 		ret = -ENOMEM;
 		goto out2;
 	}
 
-	if ((comm_st.headbuf = kmem_alloc(headlen, KM_SLEEP)) == NULL) {
+	if ((comm_st.headbuf = kzalloc(headlen, GFP_KERNEL)) == NULL) {
 		ret = -ENOMEM;
 		goto out3;
 	}
@@ -268,10 +268,10 @@ int cluster_comm_test(int hostid, int datalen, int headlen)
 	wait_event_timeout(comm_st.wait_queue, comm_st.wait_flag == 1, 5 * HZ);
 	ret = comm_st.ret_value;
 
-	kmem_free(comm_st.headbuf, headlen);
+	kfree(comm_st.headbuf);
 	comm_st.headbuf = NULL;
 out3:
-	kmem_free(comm_st.databuf, datalen);
+	kfree(comm_st.databuf);
 	comm_st.databuf = NULL;
 out2:
 	cluster_san_hostinfo_rele(cshi);
@@ -3720,7 +3720,7 @@ static void cluster_target_session_destroy(cluster_target_session_t *cts)
 	cts->sess_flags |= CLUSTER_TARGET_SESS_FLAG_UINIT;
 	if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
 		/* cts_rpc_rdma_hb_fini(cts); */
-	} else {
+	} else if (ctp->target_type != CLUSTER_TARGET_SOCKET){
 		cts_hb_fini(cts);
 		cluster_target_session_worker_fini(cts);
 		cts_tran_worker_fini(cts);
@@ -4347,7 +4347,8 @@ cluster_target_port_init(char *name, nvlist_t *nvl_conf, uint32_t protocol)
 	}
 
 	ctp->ctp_state = CLUSTER_SAN_STATE_ENABLE;
-	if (ctp->target_type != CLUSTER_TARGET_RPC_RDMA) {
+	if (ctp->target_type != CLUSTER_TARGET_RPC_RDMA && 
+        ctp->target_type != CLUSTER_TARGET_SOCKET) {
 		mutex_init(&ctp->brosan_mtx, NULL, MUTEX_DEFAULT, NULL);
 		cv_init(&ctp->brosan_cv, NULL, CV_DRIVER, NULL);
 		temp_name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
@@ -4405,7 +4406,8 @@ void cluster_target_port_remove(
 	cmn_err(CE_NOTE, "clustersan: remove target port(%s)", ctp->link_name);
 	list_remove(&clustersan->cs_target_list, ctp);
 
-	if (ctp->target_type != CLUSTER_TARGET_RPC_RDMA) {
+	if (ctp->target_type != CLUSTER_TARGET_RPC_RDMA &&
+        ctp->target_type != CLUSTER_TARGET_SOCKET) {
 		mutex_enter(&ctp->brosan_mtx);
 		ctp->brosan_state |= CLUSTER_TARGET_TH_STATE_STOP;
 		cv_signal(&ctp->brosan_cv);
@@ -4428,6 +4430,8 @@ void cluster_target_port_remove(
 		/* cluster_target_ntb_port_fini(ctp); */
 	} else if (ctp->target_type == CLUSTER_TARGET_RPC_RDMA) {
 		/* cluster_target_rpc_rdma_port_fini(ctp); */
+	} else if (ctp->target_type == CLUSTER_TARGET_SOCKET) {
+	    cluster_target_socket_port_fini(ctp);
 	} else {
 		cmn_err(CE_WARN, "%s: unkonwn target: %d", __func__, ctp->target_type);
 	}
@@ -4446,7 +4450,8 @@ exit:
 static void cluster_target_port_destroy(cluster_target_port_t *ctp)
 {
 	cmn_err(CE_NOTE, "clustersan: destroy target port(%s)", ctp->link_name);
-	if (ctp->target_type != CLUSTER_TARGET_RPC_RDMA) {
+	if (ctp->target_type != CLUSTER_TARGET_RPC_RDMA &&
+        ctp->target_type != CLUSTER_TARGET_SOCKET) {
 		mutex_destroy(&ctp->brosan_mtx);
 		cv_destroy(&ctp->brosan_cv);
 	}
