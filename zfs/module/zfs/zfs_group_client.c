@@ -2495,6 +2495,8 @@ int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_ty
  	sys_space.space_spa = spa_guid(dmu_objset_spa(os));
  	sys_space.space_os = dmu_objset_id(os);
 
+	zfs_group_update_system_space(os, &sys_space);
+/*
  	if (os->os_is_master) {
  			zfs_group_update_system_space(os, &sys_space);
  	} else {
@@ -2502,6 +2504,7 @@ int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_ty
  		    os->os_master_root, NOTIFY_SYSTEM_SPACE,
  		    (zfs_group_notify_arg_t *)&sys_space);
  	}
+ */
  	return (error);
 }
 
@@ -2882,6 +2885,8 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 	create.mode = mode;
 	create.flag = flag;
 	if ((error = zfs_group_v_to_v32(vap, &create.vattr)) != 0) {
+		kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
+		kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 		return (error);
 	}
 
@@ -3070,6 +3075,8 @@ int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, vcexcl_t ex
 	create.mode = mode;
 	create.flag = flag;
 	if ((error = zfs_group_v_to_v32(vap, &create.vattr)) != 0) {
+		kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
+		kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 		return (error);
 	}
 	create.vattr.va_mask &= ~AT_SIZE;
@@ -3688,6 +3695,10 @@ int zfs_group_create_data_file(znode_t *zp, char *name, boolean_t bregual,
 		createp->mode = mode;
 		createp->flag = flag;
 		if ((err = zfs_group_v_to_v32(vap, &createp->vattr)) != 0) {
+			kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
+			kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
+			kmem_free(msg_header, sizeof(zfs_group_header_t));
+			kmem_free(data_msg, sizeof(zfs_group_name_msg_t));
 			return (err);
 		}
 		createp->vattr.va_mask &= ~AT_SIZE;
@@ -3868,6 +3879,10 @@ int zfs_group_create_data2_file(znode_t *zp, char *name, boolean_t bregual,
 		createp->mode = mode;
 		createp->flag = flag;
 		if ((err = zfs_group_v_to_v32(vap, &createp->vattr)) != 0) {
+			kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
+			kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
+			kmem_free(msg_header, sizeof(zfs_group_header_t));
+			kmem_free(data_msg, sizeof(zfs_group_name_msg_t));
 			return (err);
 		}
 		createp->vattr.va_mask &= ~AT_SIZE;
@@ -4031,6 +4046,8 @@ int zfs_client_mkdir(struct inode *pip, char *cp, vattr_t *vap, struct inode **i
 
 	pzp = ITOZ(pip);
 	if ((error = zfs_group_v_to_v32(vap, &mkdir.vattr)) != 0) {
+		kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
+		kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 		return (error);
 	}
 	nrec = kmem_alloc(sizeof (zfs_group_znode_record_t), KM_SLEEP);
@@ -4083,6 +4100,8 @@ int zfs_client_mkdir_backup(znode_t *pzp, char *cp, vattr_t *vap, znode_t *zp,
 	mkdir.acl_len = aclsize;
 
 	if ((error = zfs_group_v_to_v32(vap, &mkdir.vattr)) != 0) {
+		kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
+		kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 		return (error);
 	}
 	nrec = kmem_alloc(sizeof (zfs_group_znode_record_t), KM_SLEEP);
@@ -4516,6 +4535,7 @@ int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr,
 	setattrp = kmem_zalloc(sizeof(zfs_group_znode_setattr_t), KM_SLEEP);
 	setattrp->flags = flags;
 	if ((error = zfs_group_v_to_v32(vap, &setattrp->vattr)) != 0) {
+		kmem_free(setattrp, sizeof(zfs_group_znode_setattr_t));
 		return (error);
 	}
 	if (vap->va_mask & AT_XVATTR) {
@@ -4538,6 +4558,7 @@ int zfs_client_setattr_backup(znode_t *zp, vattr_t *vap, int flags, cred_t *cr,
 	setattrp = kmem_zalloc(sizeof(zfs_group_znode_setattr_t), KM_SLEEP);
 	setattrp->flags = flags;
 	if ((error = zfs_group_v_to_v32(vap, &setattrp->vattr)) != 0) {
+		kmem_free(setattrp, sizeof(zfs_group_znode_setattr_t));
 		return (error);
 	}
 	if (vap->va_mask & AT_XVATTR) {
@@ -4780,10 +4801,10 @@ zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_co
 		if (ddi_taskq_dispatch(zfsvfs->notify_taskq, zfs_client_notify_data_file_dirty_tq,
 				(void*)notify_para, DDI_NOSLEEP) != DDI_SUCCESS) {
 */
-		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, TQ_NOSLEEP) == 0) {
+//		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+//				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-		}
+//		}
 	}
 
 	return (error);
@@ -4839,10 +4860,10 @@ zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_c
 		if (ddi_taskq_dispatch(zfsvfs->notify_taskq, zfs_client_notify_data_file_dirty_tq,
 				(void*)notify_para, DDI_NOSLEEP) != DDI_SUCCESS) {
 */
-		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, TQ_NOSLEEP) == 0) {
+//		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+//				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-		}
+//		}
 	}
 
 	return (error);
@@ -5194,6 +5215,8 @@ int zfs_client_set_dirquota_backup(znode_t *zp, uint64_t object,
 		default:
 			cmn_err(CE_WARN, "%s, invalid node type, node_type = %d",
 				__func__, m_node_type);
+			if (NULL != dirquota)
+				kmem_free(dirquota, sizeof(zfs_cl_set_dirquota_t));
 			return (EPROTO);
 	}
 	strncpy(dirquota->path, path, strlen(path));
@@ -5945,6 +5968,8 @@ int zfs_client_set_dirlow_backup(znode_t *zp,
 	
 	record = zfs_multiclus_get_group_master(ZTOZSB(zp)->z_os->os_group_name, m_node_type);
 	if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
+		if (NULL != dl_info)
+			kmem_free(dl_info, sizeof(dir_lowdata_t));
 		return EPROTO;
 	}
 
@@ -5983,11 +6008,15 @@ int zfs_client_set_dirlow_backup(znode_t *zp,
 		default:
 			cmn_err(CE_WARN, "%s, invalid node type, node_type = %d",
 				__func__, m_node_type);
+			if (NULL != dl_info)
+				kmem_free(dl_info, sizeof(dir_lowdata_t));
 			return (EPROTO);
 	}
 	
 	if(dst_object == -1 || dst_object == 0){
 		cmn_err(CE_WARN, "%s dst_object is %llu", __func__, (u_longlong_t)dst_object);
+		if (NULL != dl_info)
+			kmem_free(dl_info, sizeof(dir_lowdata_t));
 		return (ENOENT);
 	}
 	

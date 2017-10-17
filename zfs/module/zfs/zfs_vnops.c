@@ -891,10 +891,10 @@ boolean_t zfs_write_overquota(zfs_sb_t *zsb, znode_t *zp)
 		overquota_para->object = zp->z_group_id.data_object;
 		bover = B_FALSE;
 		
-		if(taskq_dispatch(zsb->overquota_taskq, zfs_client_overquota_tq, 
-		    (void*)overquota_para, TQ_NOSLEEP) == 0){
+//		if(taskq_dispatch(zsb->overquota_taskq, zfs_client_overquota_tq, 
+//		    (void*)overquota_para, TQ_NOSLEEP) == 0){
 			zfs_client_overquota_tq((void*)overquota_para);
-		}
+//		}
 	}
 	
 	return (bover);
@@ -1333,10 +1333,10 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		notify_para->update_quota = (ioflag & F_DT2_NO_UP_QUOTA) ? B_FALSE : B_TRUE;
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
-		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
-		    (void*)notify_para, TQ_NOSLEEP) == 0){
+//		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
+//		    (void*)notify_para, TQ_NOSLEEP) == 0){
 			zfs_client_noify_file_space_tq((void*)notify_para);
-		}
+//		}
 	}
 
 	if ((zp->z_bquota || zp->z_dirquota > 0) && (zp->z_overquota == B_TRUE)) {
@@ -1364,10 +1364,10 @@ out :
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
 
-		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, TQ_NOSLEEP) == 0) {
+//		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+//				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-		}
+//		}
 	}
 
 	if (nzp != NULL) {
@@ -1951,10 +1951,10 @@ tx_again:
 		if( zp->z_pflags & ZFS_XATTR )
 			notify_para->update_quota = B_FALSE ;
 
-		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
-		    (void*)notify_para, TQ_NOSLEEP) == 0){
+//		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
+//		    (void*)notify_para, TQ_NOSLEEP) == 0){
 			zfs_client_noify_file_space_tq((void*)notify_para);
-		}
+//		}
 	}
 out:
 	if (zsb->z_os->os_is_group == 0) {
@@ -1998,10 +1998,10 @@ out:
 				notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 				notify_para->local_os = dmu_objset_id(zsb->z_os);
 
-				if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-						(void*)notify_para, TQ_NOSLEEP) == 0) {
+//				if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+//						(void*)notify_para, TQ_NOSLEEP) == 0) {
 					zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-				}
+//				}
 			}
 
 			if (nzp != NULL) {
