@@ -23,4 +23,4 @@ dist_libdisk_la_SOURCES = \
 	$(USER_C)
 
 install:
-        cp $(top_srcdir)/lib/fm/topo/modules/common/disk/.libs/libdisk.so.0.0.0 /usr/local/lib/topo/plugins/libdisk.so
+	cp $(top_srcdir)/lib/fm/topo/modules/common/disk/.libs/libdisk.so.0.0.0 /usr/local/lib/topo/plugins/libdisk.so
