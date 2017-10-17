@@ -5,11 +5,14 @@
 #include <libtopo.h>
 #include <topo_hc.h>
 #include <topo_mod.h>
+#include <topo_fruhash.h>
 #include <limits.h>
 #include <string.h>
 #include <libnvpair.h>
 #include <sys/fm/protocol.h>
 #include <libzfs.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 
 /*
  * there is some macro we need to run callback methods which in topo link nodes.
@@ -154,6 +157,115 @@ void avs_check(fmd_hdl_t *hdl, link_monitor_t *lmp)
 	nvlist_free(fmri);
 }
 #endif
+
+void
+send_trap(fmd_hdl_t *hdl, link_monitor_t *lmp,
+	char *hostname, char *stat)
+{
+	uint64_t ena;
+	nvlist_t *fmri, *nvl;
+	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0 ||
+		nvlist_alloc(&fmri, NV_UNIQUE_NAME, 0) != 0 )
+		return;
+
+	if (nvlist_add_string(fmri, "detector", "link transport") != 0 ||
+		nvlist_add_string(nvl, TOPO_LINK_TYPE, "node_warning") != 0 ||
+		nvlist_add_string(nvl, TOPO_LINK_NAME, hostname) != 0 ||
+		nvlist_add_uint32(nvl, TOPO_LINK_STATE, 4) != 0 ||
+		nvlist_add_string(nvl, TOPO_LINK_STATE_DESC, stat) != 0) {
+			nvlist_free(nvl);
+			nvlist_free(fmri);
+			return;
+	}
+	ena = fmd_event_ena_create(lmp->lm_hdl);
+	lt_post_ereport(lmp->lm_hdl, lmp->lm_xprt,
+		"ceresdata", "trapinfo", ena, fmri, nvl);
+	nvlist_free(nvl);
+	nvlist_free(fmri);
+}
+
+void node_state_check(fmd_hdl_t *hdl, link_monitor_t *lmp)
+{
+	xmlDocPtr doc;
+	xmlNodePtr sbbNode;
+	xmlNodePtr sysNode, syschildNode;
+	xmlChar *hostname, *stat;
+	int ret;
+	
+	ret = system("/usr/local/sbin/clumgt status -x > /dev/null");
+	doc = xmlReadFile("/tmp/clumgt_stat.xml", "UTF-8", XML_PARSE_RECOVER);
+	if (NULL == doc) {
+		fprintf(stderr, "open clumgt_stat.xml failed");
+		return;
+	}
+	if ((sbbNode = xmlDocGetRootElement(doc)) == NULL) {
+		printf("get root elem failed");
+	}
+	if (xmlStrcmp(sbbNode->name, BAD_CAST"Clumgt")) {
+		fprintf(stderr, "xml is not matched");
+		xmlFreeDoc(doc);
+		return;
+	}
+	sbbNode = sbbNode->xmlChildrenNode;
+	while(sbbNode != NULL) {
+		if (xmlStrcmp(sbbNode->name, (const xmlChar *)"sbb")) {
+			sbbNode = sbbNode->next;
+			continue;
+		}
+		sysNode = sbbNode->xmlChildrenNode;
+		while(sysNode != NULL) {
+			if (xmlStrcmp(sysNode->name, (const xmlChar *)"node")) {
+				sysNode = sysNode->next;
+				continue;
+			}
+			hostname = NULL;
+			stat = NULL;
+			syschildNode = sysNode->xmlChildrenNode;
+			while(syschildNode != NULL) {
+				if (!(xmlStrcmp(syschildNode->name, (const xmlChar *)"name"))) {
+					hostname = xmlNodeGetContent(syschildNode);
+					syschildNode = syschildNode->next;
+					continue;
+				}
+				if (!(xmlStrcmp(syschildNode->name,
+					(const xmlChar *)"node_stat"))) {
+					stat = xmlNodeGetContent(syschildNode);
+					syschildNode = syschildNode->next;
+					continue;
+				}
+				syschildNode = syschildNode->next;
+			}
+
+			if (hostname != NULL && stat != NULL) {
+				if (!(xmlStrcmp(stat, (xmlChar *)"online"))) {
+					topo_fru_cleartime((char *)hostname, 0xffffffff);
+				} else if (!(xmlStrcmp(stat, (xmlChar *)"offline"))) {
+					/* have found the abnormal node */
+					if (topo_fru_setime((char *)hostname, SXML_OFFLINE, 
+						NULL, NULL, NULL, NULL) != NULL)
+						send_trap(hdl, lmp, (char *)hostname, (char *)stat);
+				} else {
+					/* have found the abnormal node */
+					if (topo_fru_setime((char *)hostname, SXML_UNKNOWN, 
+						NULL, NULL, NULL, NULL) != NULL)
+						send_trap(hdl, lmp, (char *)hostname, (char *)stat);
+				}
+			}
+			/* printf("hostname:%s, stat:%s\n", (char *)hostname, (char *)stat); */
+			if (hostname)
+				xmlFree(hostname);
+			if (stat)
+				xmlFree(stat);
+			hostname = NULL;
+			stat = NULL;
+			sysNode = sysNode->next;
+		}
+		sbbNode = sbbNode->next;
+	}
+	xmlFreeDoc(doc);
+	return;
+}
+
 void zpool_thinlun_check(fmd_hdl_t *hdl, link_monitor_t *lmp)
 {
 	int i;
@@ -580,7 +692,7 @@ static void lt_timeout(fmd_hdl_t *hdl, id_t id, void *data){/*{{{*/
 			avs_check(hdl, lmp);
 #endif
 	}
-	
+	node_state_check(hdl, lmp);
 	fmd_hdl_topo_rele(hdl, thp);
 
 	lmp->lm_timer = fmd_timer_install(hdl, NULL, NULL, lmp->lm_interval);
