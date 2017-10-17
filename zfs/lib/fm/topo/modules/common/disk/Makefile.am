@@ -21,3 +21,6 @@ libdisk_la_LIBADD = $(top_builddir)/lib/libnvpair/libnvpair.la \
 
 dist_libdisk_la_SOURCES = \
 	$(USER_C)
+
+install:
+        cp $(top_srcdir)/lib/fm/topo/modules/common/disk/.libs/libdisk.so.0.0.0 /usr/local/lib/topo/plugins/libdisk.so
