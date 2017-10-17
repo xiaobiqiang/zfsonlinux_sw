@@ -1663,6 +1663,28 @@ err_blkid1:
 }
 #endif /* HAVE_LIBBLKID */
 
+static int
+scsi_disk_check(const char *name)
+{
+	char prefix[6] = "scsi-";
+	char suffix[7] = "-part1";
+	char *begin, *end, *p;
+
+	if (strncmp(name, prefix, 5) != 0)
+		return (0);
+
+	begin = name + 5;
+	if ((end = strstr(begin, suffix)) == NULL)
+		return (0);
+
+	for (p = begin; p < end; p++) {
+		if ((*p < '0' || *p > '9') && (*p <'a' || *p > 'f'))
+			return (0);
+	}
+
+	return (1);
+}
+
 char *
 zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE] = {
 	"/dev/disk/by-vdev",	/* Custom rules, use first if they exist */
@@ -1698,6 +1720,8 @@ zpool_find_import_impl(libzfs_handle_t *hdl, importargs_t *iarg)
 	vdev_entry_t *ve, *venext;
 	config_entry_t *ce, *cenext;
 	name_entry_t *ne, *nenext;
+	int scsi_disk;
+	int reopen_times;
 
 	verify(iarg->poolname == NULL || iarg->guid == 0);
 
@@ -1801,17 +1825,49 @@ dont_use_blkid:
 			    (strncmp(name, "core", 4) == 0))
 				continue;
 
+			scsi_disk = scsi_disk_check(name);
+
+			reopen_times = 0;
+reopen:
 			/*
 			 * Ignore failed stats.  We only want regular
 			 * files and block devices.
 			 */
-			if ((fstatat64(dfd, name, &statbuf, 0) != 0) ||
-			    (!S_ISREG(statbuf.st_mode) &&
-			    !S_ISBLK(statbuf.st_mode)))
+			if (fstatat64(dfd, name, &statbuf, 0) != 0) {
+				if (scsi_disk) {
+					syslog(LOG_DEBUG, "%s: scsi-disk %s fstat error %d",
+						__func__, name, errno);
+					if (reopen_times < 3) {
+						reopen_times++;
+						sleep(1);
+						goto reopen;
+					} else {
+						syslog(LOG_WARNING, "%s: fstat(%s) error %d",
+							__func__, name, errno);
+					}
+				}
 				continue;
+			}
 
-			if ((fd = openat64(dfd, name, O_RDONLY)) < 0)
+			if ( (!S_ISREG(statbuf.st_mode) &&
+			    !S_ISBLK(statbuf.st_mode)))
+			    continue;
+
+			if ((fd = openat64(dfd, name, O_RDONLY)) < 0) {
+				if (scsi_disk) {
+					syslog(LOG_DEBUG, "%s: scsi-disk %s open error %d",
+						__func__, name, errno);
+					if (reopen_times < 3) {
+						reopen_times++;
+						sleep(1);
+						goto reopen;
+					} else {
+						syslog(LOG_WARNING, "%s: open(%s) error %d",
+							__func__, name, errno);
+					}
+				}
 				continue;
+			}
 
 			if ((zpool_read_label(fd, &config, &num_labels))) {
 				(void) close(fd);
