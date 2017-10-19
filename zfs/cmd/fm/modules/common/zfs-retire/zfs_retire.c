@@ -896,7 +896,8 @@ zfs_retire_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl,
 	 * If this is a resource notifying us of device removal, then simply
 	 * check for an available spare and continue.
 	 */
-	if (strcmp(class, "resource.fs.zfs.removed") == 0) {
+	if (strcmp(class, "resource.fs.zfs.removed") == 0 ||
+		strcmp(class, "ereport.fs.zfs.vdev.unknown") == 0) {
 		if (nvlist_lookup_uint64(nvl, FM_EREPORT_PAYLOAD_ZFS_POOL_GUID,
 		    &pool_guid) != 0 ||
 		    nvlist_lookup_uint64(nvl, FM_EREPORT_PAYLOAD_ZFS_VDEV_GUID,
@@ -909,7 +910,7 @@ zfs_retire_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl,
 		
 		if (fmd_prop_get_int32(hdl, "spare_on_remove"))
 			replace_with_spare(hdl, zhp, vdev);
-		(void) zpool_vdev_clear(zhp, vdev_guid);
+		/* (void) zpool_vdev_clear(zhp, vdev_guid); */
 		zpool_close(zhp);
 		return;
 	}

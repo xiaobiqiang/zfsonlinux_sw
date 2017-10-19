@@ -942,12 +942,13 @@ topo_fru_setime(const char *name, int status, char *diskname,
 	fru->nor_count = 0;
 
 	if (diskname != NULL && slotid !=NULL &&
-		encid != NULL && product != NULL) {
+		encid != NULL) {
 		fru->diskname = topo_fru_strdup(diskname, 1);
 		fru->slotid = topo_fru_strdup(slotid, 1);
 		fru->encid = topo_fru_strdup(encid, 1);
-		fru->product = topo_fru_strdup(product, 1);
 	}
+	if (product != NULL)
+		fru->product = topo_fru_strdup(product, 1);
 
 	h = topo_strhash(name) % tp_fruhash.fh_hashlen;
 	fru->tf_next = tp_fruhash.fh_hash[h];

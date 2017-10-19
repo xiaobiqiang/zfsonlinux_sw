@@ -26,13 +26,13 @@
 #ifndef _FMD_DR_H
 #define	_FMD_DR_H
 
-#include <sys/sysevent.h>
+#include <sys/fmd_transport.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern void fmd_dr_event(sysevent_t *);
+extern void fmd_device_event(fmd_msg_t *);
 
 #ifdef __cplusplus
 }
