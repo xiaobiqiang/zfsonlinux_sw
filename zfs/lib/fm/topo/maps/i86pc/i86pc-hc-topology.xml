@@ -43,9 +43,6 @@
 			<range name='sas_link' min='0' max='24'>
 				<enum-method name='link' version='1' />
 			</range>
-			<range name='heart_link' min='0' max='24'>
-				<enum-method name='link' version='1' />
-			</range>
 		</dependents>
 	</range>
 </topology>
