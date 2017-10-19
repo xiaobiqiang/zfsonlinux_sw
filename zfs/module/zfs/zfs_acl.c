@@ -1883,8 +1883,8 @@ zfs_acl_ids_free(zfs_acl_ids_t *acl_ids)
 boolean_t
 zfs_acl_ids_overquota(zfs_sb_t *zsb, zfs_acl_ids_t *acl_ids)
 {
-	return (zfs_fuid_overquota(zsb, B_FALSE, acl_ids->z_fuid) ||
-	    zfs_fuid_overquota(zsb, B_TRUE, acl_ids->z_fgid));
+	return (zfs_fuid_overquota(zsb, B_FALSE, acl_ids->z_fuid, QUOTA_ALL) ||
+	    zfs_fuid_overquota(zsb, B_TRUE, acl_ids->z_fgid, QUOTA_ALL ));
 }
 
 /*

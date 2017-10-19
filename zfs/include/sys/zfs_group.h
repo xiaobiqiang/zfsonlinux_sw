@@ -400,6 +400,7 @@ typedef struct fs_quota {
 	uint64_t	master_object;
 	uint64_t	dirquota_index;
 	uint64_t	quota_over;
+	uint64_t	flag;
 }fs_quota_t;
 
 typedef struct fs_dir_lowdata {
@@ -906,7 +907,7 @@ void zfs_update_quota_used(zfs_sb_t *zsb, znode_t *zp,
 
 
 
-boolean_t zfs_client_overquota(zfs_sb_t *zsb, znode_t *zp);
+boolean_t zfs_client_overquota(zfs_sb_t *zsb, znode_t *zp, int flag);
 int zfs_client_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
     const char *domain, uint64_t rid, uint64_t quota);
 int zfs_client_set_dirquota(zfs_sb_t *zsb, uint64_t object,

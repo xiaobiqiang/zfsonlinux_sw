@@ -266,9 +266,9 @@ extern int zfs_userspace_many(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 extern int zfs_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
     const char *domain, uint64_t rid, uint64_t quota);
 extern boolean_t zfs_owner_overquota(zfs_sb_t *zsb, struct znode *,
-    boolean_t isgroup);
+    boolean_t isgroup, int flag);
 extern boolean_t zfs_fuid_overquota(zfs_sb_t *zsb, boolean_t isgroup,
-    uint64_t fuid);
+    uint64_t fuid, int flag);
 extern int zfs_set_version(zfs_sb_t *zsb, uint64_t newvers);
 extern int zfs_get_zplprop(objset_t *os, zfs_prop_t prop,
     uint64_t *value);
@@ -318,7 +318,7 @@ extern int zfs_set_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, char *path,
 extern int zfs_get_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirlowdata_t *dir_lowdata);
 extern int zfs_get_dir_lowdata_many(zfs_sb_t *zsb,  uint64_t *cookiep, void *vbuf, uint64_t *bufsizep);
 extern int zfs_del_dirlowdata(zfs_sb_t *zsb, uint64_t dir_obj);
-extern boolean_t zfs_overquota(zfs_sb_t *zsb, struct znode *zp, uint64_t dirquota_index);
+extern boolean_t zfs_overquota(zfs_sb_t *zsb, struct znode *zp, uint64_t dirquota_index, int flag);
 
 extern int zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid);
 
