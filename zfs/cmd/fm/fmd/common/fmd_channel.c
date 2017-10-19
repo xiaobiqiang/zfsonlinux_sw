@@ -32,6 +32,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <pthread.h>
+#include <fmd_dr.h>
 #include <sys/fmd_transport.h>
 
 #include "fmd_api.h"
@@ -312,8 +313,8 @@ fmd_msg_handle(void *arg)
 		return -1;	
 	}else{
 		if (FMD_HOTPLUG == msg->fm_type){
-			sprintf(tmp, "echo fm_type: %d fm_buf: %s >> /msg_type", msg->fm_type, msg->fm_buf);
-			system(tmp);
+			fmd_device_event(msg);
+			return;
 		}else if (FMD_DISK_ERR == msg->fm_type){
 			if (nvlist_unpack(msg->fm_buf, msg->fm_len, &nvl, KM_SLEEP)){
 					sprintf(tmp, "echo error 1 >> /msg_type");
