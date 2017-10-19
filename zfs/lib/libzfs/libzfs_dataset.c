@@ -3074,7 +3074,12 @@ zfs_prop_get_userquota(zfs_handle_t *zhp, const char *propname,
 	     type == ZFS_PROP_USEROBJQUOTA || type == ZFS_PROP_GROUPOBJQUOTA )) {
 		(void) strlcpy(propbuf, "none", proplen);
 	} else {
-		zfs_nicenum(propvalue, propbuf, proplen);
+		if (type == ZFS_PROP_USEROBJQUOTA || type == ZFS_PROP_GROUPOBJQUOTA || \
+			type == ZFS_PROP_USEROBJUSED || type == ZFS_PROP_GROUPOBJUSED){
+			(void) snprintf(propbuf, proplen, "%llu", (u_longlong_t) propvalue);
+		} else {
+			zfs_nicenum(propvalue, propbuf, proplen);
+		}
 	}
 	return (0);
 }
