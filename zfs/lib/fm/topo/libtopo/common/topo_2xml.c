@@ -49,6 +49,9 @@
 #define	OVERTEMPFAIL	0x02
 #define	PREDICTIVEFAIL	0x04
 #define SLOWDISK		0x08
+#define	DERRDISK	0x10
+#define	MERRDISK	0x20
+#define	NORESPDISK	0x40
 
 const char *ses_element_status_string[] = {
 	"UNSUPPORTED", /* SES_ESC_UNSUPPORTED = 0 */
@@ -841,6 +844,9 @@ topo_warning_xml_print(topo_hdl_t *thp,  FILE *fp, const char *scheme, int *err)
 						goto out;
 					}
 				}
+				if(status >= SXML_ERROR) {
+					status = SXML_CRITICAL;
+				}
 				(void) snprintf(buf, TIMEBUFLEN, "%s", ctime(&fru->tf_time));
 					buf[TIMEBUFVALlen] = '\0';
 				begin_element(filep, Node,
@@ -848,7 +854,7 @@ topo_warning_xml_print(topo_hdl_t *thp,  FILE *fp, const char *scheme, int *err)
 					"time", buf, NULL);
 				begin_end_element(filep, Propval, Name, "resource",
 					Type, "string",Value, name, NULL);
-				if(strstr(name, "disk") != NULL) {
+				if(strstr(name, "disk") != NULL || strstr(name, "bay") != NULL) {
 					if(fru->tf_status & SELFTESTFAIL)
 						begin_end_element(filep, Propval, Name, "type",
 							Type, "string",Value, "self-test-failure", NULL);
@@ -861,6 +867,28 @@ topo_warning_xml_print(topo_hdl_t *thp,  FILE *fp, const char *scheme, int *err)
 					if (fru->tf_status & SLOWDISK)
 						begin_end_element(filep, Propval, Name, "type",
 							Type, "string",Value, "slow-disk", NULL);
+					if (fru->tf_status & DERRDISK)
+						begin_end_element(filep, Propval, Name, "type",
+							Type, "string",Value, "derr-disk", NULL);
+					if (fru->tf_status & MERRDISK)
+						begin_end_element(filep, Propval, Name, "type",
+							Type, "string",Value, "merr-disk", NULL);
+					if (fru->tf_status & NORESPDISK)
+						begin_end_element(filep, Propval, Name, "type",
+							Type, "string",Value, "no-response-disk", NULL);
+					if (fru->product != NULL)
+						begin_end_element(filep, Propval, Name, "product",
+							Type, "string",Value, fru->product, NULL);
+					if (fru->diskname != NULL)
+						begin_end_element(filep, Propval, Name, "disk_name",
+							Type, "string",Value, fru->diskname, NULL);
+					if (fru->encid != NULL)
+						begin_end_element(filep, Propval, Name, "enc",
+							Type, "string",Value, fru->encid, NULL);
+					if (fru->slotid!= NULL)
+						begin_end_element(filep, Propval, Name, "slot",
+							Type, "string",Value, fru->slotid, NULL);
+
 				}
 				end_element(filep, Node);
 			}
