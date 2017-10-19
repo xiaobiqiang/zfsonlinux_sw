@@ -2349,6 +2349,7 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 	
 		node_type = record->node_type ;
 		reg_data->avail_size = record->avail_size;
+		reg_data->used_size = record->used_size;
 		reg_data->node_type = node_type;
 
 		if(record_reinit){

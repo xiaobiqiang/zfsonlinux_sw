@@ -657,7 +657,7 @@ zpl_revalidate(struct dentry *dentry, unsigned int flags)
 			return (0);
 	}
 
-	if( dentry->d_inode && zsb->z_os->os_is_group ) {
+	if( (dentry->d_inode == NULL) || (zsb->z_os->os_is_group) ) {
 		return 0 ;
 /*	if (dentry->d_inode) {
 		node_type = zpl_vn_type(dentry->d_inode);
