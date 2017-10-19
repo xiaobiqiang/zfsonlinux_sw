@@ -53,6 +53,7 @@ fmd_SOURCES =		\
 	fmd_serd.c	\
 	fmd_rtld.c	\
 	fmd_proc.c	\
+	fmd_dr.c	\
 	fmd_channel.c	\
 	fmd_rpc.c	\
 	fmd_svc_adm.c	\

@@ -55,7 +55,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-//#include <libsysevent.h>
+#include <sys/fmd_transport.h>
 
 #undef FMD_MUTEX_HELD
 #undef FMD_RW_READ_HELD
@@ -70,6 +70,51 @@
 #include "fmd_topo.h"
 #include "fmd.h"
 
+void
+fmd_device_event(fmd_msg_t *msg)
+{
+	uint64_t gen;
+	fmd_event_t *e;
+	hrtime_t evtime;
+	fmd_topo_t *ftp, *prev;
+	char *p = NULL;
+
+	if (msg == NULL || msg->fm_buf == NULL ||
+		strstr(msg->fm_buf, "add") == NULL)
+		return;
+
+	if ((p = strstr(msg->fm_buf, "sd")) != NULL) {
+		p = p + 3;
+		while (*p != '\0') {
+			if (*p > 0x2f || *p < 0x3a) {
+				return;
+			}
+			p = p + 1;
+		}
+	} else {
+		return;
+	}
+
+	evtime = fmd_time_gethrtime();
+	prev = fmd_topo_hold();
+
+	if (evtime <= prev->ft_time_begin &&
+	    fmd.d_clockops == &fmd_timeops_native) {
+		fmd_topo_rele(prev);
+		return;
+	}
+	fmd_topo_rele(prev);
+
+
+	printf("fmd topo update:%s\n", msg->fm_buf);
+	fmd_topo_update(B_FALSE, B_FALSE);
+
+	ftp = fmd_topo_hold();
+	e = fmd_event_create(FMD_EVT_TOPO, ftp->ft_time_end, NULL, ftp);
+	fmd_modhash_dispatch(fmd.d_mod_hash, e);
+}
+
+#if 0
 void
 fmd_dr_event(sysevent_t *sep)
 {
@@ -180,3 +225,4 @@ fmd_dr_event(sysevent_t *sep)
 	e = fmd_event_create(FMD_EVT_TOPO, ftp->ft_time_end, NULL, ftp);
 	fmd_modhash_dispatch(fmd.d_mod_hash, e);
 }
+#endif
