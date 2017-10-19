@@ -1478,7 +1478,7 @@ static int zfs_group_process_name_request(zfs_group_server_para_t *server_para)
 		zp = ITOZ(ip);
 
 		if (dzp->z_dirquota != 0 || dzp->z_bquota) {
-			zp->z_overquota = zfs_overquota(zsb, zp, dzp->z_dirquota);
+			zp->z_overquota = zfs_overquota(zsb, zp, dzp->z_dirquota, QUOTA_ALL );
 		}
 
 		zfs_group_znode_copy_phys(zp, &n2p->nrec.object_phy, B_FALSE);
@@ -2782,7 +2782,7 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 
 	if (error == 0 && zp != NULL) {
 		if (zp->z_dirquota != 0) {
-			zp->z_overquota = zfs_overquota(zsb, zp, zp->z_dirquota);
+			zp->z_overquota = zfs_overquota(zsb, zp, zp->z_dirquota, QUOTA_ALL);
 		}
 		zfs_group_znode_copy_phys(zp, &z2p->zrec.object_phy, B_FALSE);
 		z2p->inp.id = zp->z_group_id;
@@ -3377,7 +3377,7 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 						}
 					}
 				}
-				bover = zfs_overquota(zsb, zp, zp->z_dirquota);
+				bover = zfs_overquota(zsb, zp, zp->z_dirquota, quota->flag );
 				quota->quota_over = bover;
 				bcopy(quota, cmd_return, sizeof(fs_quota_t));
 				iput(ZTOI(zp));

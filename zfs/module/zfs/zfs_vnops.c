@@ -883,7 +883,7 @@ boolean_t zfs_write_overquota(zfs_sb_t *zsb, znode_t *zp)
 
 	if (zsb->z_os->os_is_group == 0 || (zsb->z_os->os_is_group &&
 		zsb->z_os->os_is_master)) {
-		bover = zfs_overquota(zsb, zp, zp->z_dirquota);
+		bover = zfs_overquota(zsb, zp, zp->z_dirquota, QUOTA_SPACE );
 	}else {
 		zfs_group_overquota_para_t * overquota_para = kmem_zalloc(sizeof(zfs_group_overquota_para_t), KM_SLEEP);
 		overquota_para->spa_id = spa_guid(dmu_objset_spa(zsb->z_os));
@@ -1632,7 +1632,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			bover = zfs_write_overquota(zsb, zp);
 		}
 		
-		if (bover) {
+		if ( bover || zp->z_overquota ) {
 			zp->z_overquota = B_TRUE;
 			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
 			zfs_range_unlock(rl);
@@ -5114,7 +5114,7 @@ top:
 			new_uid = zfs_fuid_create(zsb,
 			    (uint64_t)vap->va_uid, cr, ZFS_OWNER, &fuidp);
 			if (new_uid != zp->z_uid &&
-			    zfs_fuid_overquota(zsb, B_FALSE, new_uid)) {
+			    zfs_fuid_overquota(zsb, B_FALSE, new_uid, QUOTA_ALL) ) {
 				if (attrzp)
 					iput(ZTOI(attrzp));
 				err = EDQUOT;
@@ -5126,7 +5126,7 @@ top:
 			new_gid = zfs_fuid_create(zsb, (uint64_t)vap->va_gid,
 			    cr, ZFS_GROUP, &fuidp);
 			if (new_gid != zp->z_gid &&
-			    zfs_fuid_overquota(zsb, B_TRUE, new_gid)) {
+			    zfs_fuid_overquota(zsb, B_TRUE, new_gid, QUOTA_ALL)) {
 				if (attrzp)
 					iput(ZTOI(attrzp));
 				err = EDQUOT;

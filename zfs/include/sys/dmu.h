@@ -261,6 +261,11 @@ void zfs_znode_byteswap(void *buf, size_t size);
 #define	DMU_USEROBJUSED_OBJECT ( -3ULL ) /* for User file number quota */
 #define	DMU_GROUPOBJUSED_OBJECT	(-4ULL )  /* for Group file number quota */
 
+/*Used for check quota, check all quota or just QUOTA_SPACE/QUOTA_OBJ */
+#define QUOTA_SPACE (0x1)
+#define QUOTA_OBJ (0x2)
+#define QUOTA_ALL (0x3)
+
 /*
  * artificial blkids for bonus buffer and spill blocks
  */

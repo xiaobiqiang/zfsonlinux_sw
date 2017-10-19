@@ -5069,7 +5069,7 @@ int zfs_client_master_get_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
 // }
 
 
-boolean_t zfs_client_overquota(zfs_sb_t *zsb, znode_t *zp)
+boolean_t zfs_client_overquota(zfs_sb_t *zsb, znode_t *zp, int flag)
 {
 	int err = 0;
 	boolean_t bover;
@@ -5078,6 +5078,7 @@ boolean_t zfs_client_overquota(zfs_sb_t *zsb, znode_t *zp)
 
 	quota->master_object = zp->z_group_id.master_object;
 	quota->dirquota_index = zp->z_dirquota;
+	quota->flag = flag ;
 	cmd_arg.arg_ptr = (uintptr_t)quota;
 	cmd_arg.arg_size = (uintptr_t)sizeof(fs_quota_t);
 	cmd_arg.return_ptr = (uintptr_t)quota;
@@ -5109,7 +5110,7 @@ void zfs_client_overquota_tq(void* arg)
 		if (zsb != NULL) {
 			if (zfs_zget(zsb, overquota_para->object, &zp) == 0) {
 				if (zp->z_overquota != B_TRUE) {
-					zp->z_overquota = zfs_client_overquota(zsb, zp);
+					zp->z_overquota = zfs_client_overquota(zsb, zp, QUOTA_SPACE);
 				}
 				iput(ZTOI(zp));
 			}

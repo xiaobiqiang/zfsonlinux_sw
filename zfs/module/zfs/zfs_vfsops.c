@@ -795,15 +795,21 @@ __zfs_fuid_overobjquota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	if (err != 0)
 		return (B_FALSE);
 
-	return ( used>= quota ) ;
+	return ( used>=quota ) ;
 
 }
 
 boolean_t
-zfs_fuid_overquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
+zfs_fuid_overquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid, int flag)
 {
-	if( __zfs_fuid_overspacequota( zsb, isgroup, fuid ) ) return B_TRUE ;
-	return __zfs_fuid_overobjquota( zsb, isgroup, fuid ) ;
+	boolean_t res = 0 ;
+
+	if( flag & QUOTA_SPACE )
+		res |= __zfs_fuid_overspacequota( zsb, isgroup, fuid ) ;
+	if( flag & QUOTA_OBJ )
+		res |= __zfs_fuid_overobjquota( zsb, isgroup, fuid ) ;
+
+	return res ;
 }
 EXPORT_SYMBOL(zfs_fuid_overquota);
 
@@ -847,19 +853,16 @@ zfs_fuid_inquota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid)
 }
 
 boolean_t
-zfs_owner_overquota(zfs_sb_t *zsb, znode_t *zp, boolean_t isgroup)
+zfs_owner_overquota(zfs_sb_t *zsb, znode_t *zp, boolean_t isgroup, int flag)
 {
 	uint64_t fuid;
-	uint64_t quotaobj;
-
-	quotaobj = isgroup ? zsb->z_groupquota_obj : zsb->z_userquota_obj;
 
 	fuid = isgroup ? zp->z_gid : zp->z_uid;
 
-	if (quotaobj == 0 || zsb->z_replay)
+	if ( zsb->z_replay)
 		return (B_FALSE);
 
-	return (zfs_fuid_overquota(zsb, isgroup, fuid));
+	return (zfs_fuid_overquota(zsb, isgroup, fuid, flag ));
 }
 EXPORT_SYMBOL(zfs_owner_overquota);
 
@@ -2219,7 +2222,7 @@ reget:
 		zp->z_dirlowdata = dirlowdata;
 	}
 	if (zp->z_dirquota != 0 && (zsb->z_os->os_is_group && !zsb->z_os->os_is_master)) {
-		zp->z_overquota = zfs_client_overquota(zsb, zp);
+		zp->z_overquota = zfs_client_overquota(zsb, zp, QUOTA_ALL );
 	}
 	if (failover_down && retry < vget_repeat_times) {
 		zfs_failover_ctl(zsb->z_os, 0);
@@ -2664,7 +2667,7 @@ boolean_t zfs_dir_overquota(zfs_sb_t *zsb, znode_t *zp, uint64_t dirquota_index)
 
 }
 
-boolean_t zfs_overquota(zfs_sb_t *zsb, znode_t *zp, uint64_t dirquota_index)
+boolean_t zfs_overquota(zfs_sb_t *zsb, znode_t *zp, uint64_t dirquota_index, int flag)
 {
 	boolean_t bover;
 
@@ -2673,11 +2676,11 @@ boolean_t zfs_overquota(zfs_sb_t *zsb, znode_t *zp, uint64_t dirquota_index)
 		bover = zfs_dir_overquota(zsb, zp, dirquota_index);
 
 	if (!bover) {
-		bover = zfs_owner_overquota(zsb, zp, B_TRUE);
+		bover = zfs_owner_overquota(zsb, zp, B_TRUE, flag);
 	}
 
 	if (!bover) {
-		bover = zfs_owner_overquota(zsb, zp, B_FALSE);
+		bover = zfs_owner_overquota(zsb, zp, B_FALSE, flag );
 	}
 
 	return (bover);
