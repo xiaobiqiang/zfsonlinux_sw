@@ -886,8 +886,8 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
         } else {
             arc_buf_t *data;
             boolean_t b_woptimize;
-            /*b_woptimize = dmu_write_optimize(db);*/
-			b_woptimize = B_FALSE;
+            b_woptimize = dmu_write_optimize(db);
+			//b_woptimize = B_FALSE;
 			
             if (b_mirror && b_woptimize) {
                 data = dmu_request_arcbuf(db, tocpy);
@@ -1279,8 +1279,8 @@ dmu_write_bio(objset_t *os, uint64_t object, struct bio *bio, dmu_tx_t *tx,
             boolean_t b_woptimize;
             arc_buf_t *tmp_data = NULL;
             zfs_mirror_data_type_t type;
-            /*b_woptimize = dmu_write_optimize(db);*/
-			b_woptimize = B_FALSE;
+            b_woptimize = dmu_write_optimize(db);
+			//b_woptimize = B_FALSE;
 
             if (b_woptimize) {
                 type = MIRROR_DATA_UNALIGNED;
@@ -1538,8 +1538,8 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
             boolean_t b_woptimize;
             arc_buf_t *tmp_data = NULL;
             zfs_mirror_data_type_t type;
-            /*b_woptimize = dmu_write_optimize(db);*/
-			b_woptimize = B_FALSE;
+            b_woptimize = dmu_write_optimize(db);
+			//b_woptimize = B_FALSE;
 
             if (b_woptimize) {
                 type = MIRROR_DATA_UNALIGNED;
@@ -2579,8 +2579,8 @@ dmu_write_mirror(objset_t *os, dmu_buf_t *db,
         b_mirror = B_FALSE;
         mirror_success = 0;
 
-        /*b_woptimize = dmu_write_optimize(db);*/
-		b_woptimize = B_FALSE;
+        b_woptimize = dmu_write_optimize(db);
+		//b_woptimize = B_FALSE;
         if (b_woptimize) {
             type = MIRROR_DATA_UNALIGNED;
         } else {
