@@ -441,8 +441,6 @@ get_fanpsu_status_by_name(fanpsu_handle_t *chp, const char *name, char *state)
 	struct sdr_get_rs *header;
 	struct ipmi_intf *intf = &ipmi_open_intf;
 	struct ipmi_sdr_iterator *sdr_list_itr = NULL;
-	struct sdr_record_list *sdr_list_head = NULL;
-	struct sdr_record_list *sdr_list_tail = NULL;
 	fanpsu_nodeinfo_t nodeinfo;
 	int rc = 0;
 
@@ -462,8 +460,6 @@ get_fanpsu_status_by_name(fanpsu_handle_t *chp, const char *name, char *state)
 
 	while ((header = ipmi_sdr_get_next_header(intf, sdr_list_itr)) != NULL) {
 		uint8_t *rec;
-		struct sdr_record_list *sdrr;
-
 		rec = ipmi_sdr_get_record(intf, header, sdr_list_itr);
 		if (rec == NULL) {
 			syslog(LOG_ERR, "ipmitool: ipmi_sdr_get_record() failed\n");
@@ -471,87 +467,37 @@ get_fanpsu_status_by_name(fanpsu_handle_t *chp, const char *name, char *state)
 			continue;
 		}
 
-		sdrr = malloc(sizeof (struct sdr_record_list));
-		if (sdrr == NULL) {
-			syslog(LOG_ERR, "get fan and psu status : malloc failure\n");
-			if (rec != NULL) {
-				free(rec);
-				rec = NULL;
-			}
-			break;
-		}
-		memset(sdrr, 0, sizeof (struct sdr_record_list));
-		sdrr->id = header->id;
-		sdrr->type = header->type;
-
-		switch (header->type) {
-			case SDR_RECORD_TYPE_FULL_SENSOR:
-			case SDR_RECORD_TYPE_COMPACT_SENSOR:
-				sdrr->record.common =
-				(struct sdr_record_common_sensor *) rec;
-				break;
-			case SDR_RECORD_TYPE_EVENTONLY_SENSOR:
-				sdrr->record.eventonly =
-				(struct sdr_record_eventonly_sensor *) rec;
-				break;
-			case SDR_RECORD_TYPE_GENERIC_DEVICE_LOCATOR:
-				sdrr->record.genloc =
-				(struct sdr_record_generic_locator *) rec;
-				break;
-			case SDR_RECORD_TYPE_FRU_DEVICE_LOCATOR:
-				sdrr->record.fruloc =
-				(struct sdr_record_fru_locator *) rec;
-				break;
-			case SDR_RECORD_TYPE_MC_DEVICE_LOCATOR:
-				sdrr->record.mcloc =
-				(struct sdr_record_mc_locator *) rec;
-				break;
-			case SDR_RECORD_TYPE_ENTITY_ASSOC:
-				sdrr->record.entassoc =
-				(struct sdr_record_entity_assoc *) rec;
-				break;
-			default:
-				free(rec);
-				rec = NULL;
-				if (sdrr != NULL) {
-					free(sdrr);
-					sdrr = NULL;
-				}
-				continue;
-		}
-
 		if (type == header->type ||
 		(type == 0xfe &&
 		(header->type == SDR_RECORD_TYPE_FULL_SENSOR ||
 		header->type == SDR_RECORD_TYPE_COMPACT_SENSOR))) {
-		memset(&nodeinfo, 0, sizeof(fanpsu_nodeinfo_t));
-		if (ipmi_sdr_get_sensor_fc(intf,
-		                       (struct sdr_record_common_sensor *)rec,
-				   			   header->type,
-		                       NULL,
-		                       &nodeinfo,
-		                       FANPSU_GET_NODE)< 0)
-			continue;
-		else{
-		if(NULL != name && !strncmp(name, nodeinfo.name, strlen(name))){
-			strcpy(state, nodeinfo.value);
-			break;
-		}else{
-			continue;
+			memset(&nodeinfo, 0, sizeof(fanpsu_nodeinfo_t));
+			if (ipmi_sdr_get_sensor_fc(intf,
+							(struct sdr_record_common_sensor *)rec,
+							header->type,
+							NULL,
+							&nodeinfo,
+							FANPSU_GET_NODE)< 0){
+				free(rec);
+				rec = NULL;
+				continue;
+			}else{
+				if(NULL != name && !strncmp(name, nodeinfo.name, strlen(name))){
+					strcpy(state, nodeinfo.value);
+					free(rec);
+					rec = NULL;
+					break;
+				}else{
+					free(rec);
+					rec = NULL;
+					continue;
+				}
+				return rc = 0;
+			}
 		}
-		return rc = 0;
-		}
-		}
-
-		/* add to global record liset */
-		if (sdr_list_head == NULL)
-		sdr_list_head = sdrr;
-		else
-		sdr_list_tail->next = sdrr;
-
-		sdr_list_tail = sdrr;
-	}
-
+		free(rec);
+		rec = NULL;
+	}	
 	return rc;
 }
 
@@ -578,8 +524,6 @@ fanpsu_get_node_by_ipmi(topo_mod_t *mod, fanpsu_handle_t *fp_hdl)
 	struct sdr_get_rs *header;
 	struct ipmi_intf *intf = &ipmi_open_intf;
 	struct ipmi_sdr_iterator *sdr_list_itr = NULL;
-	struct sdr_record_list *sdr_list_head = NULL;
-	struct sdr_record_list *sdr_list_tail = NULL;
 	uint8_t type = 0xfe;
 
 	if (sdr_list_itr == NULL) {
@@ -592,7 +536,6 @@ fanpsu_get_node_by_ipmi(topo_mod_t *mod, fanpsu_handle_t *fp_hdl)
 
 	while ((header = ipmi_sdr_get_next_header(intf, sdr_list_itr)) != NULL) {
 		uint8_t *rec;
-		struct sdr_record_list *sdrr;
 
 		rec = ipmi_sdr_get_record(intf, header, sdr_list_itr);
 		if (rec == NULL) {
@@ -600,71 +543,20 @@ fanpsu_get_node_by_ipmi(topo_mod_t *mod, fanpsu_handle_t *fp_hdl)
 			continue;
 		}
 
-		sdrr = malloc(sizeof (struct sdr_record_list));
-		if (sdrr == NULL) {
-			syslog(LOG_ERR, "fanpsu: malloc failure");
-			if (rec != NULL) {
-				free(rec);
-				rec = NULL;
-			}
-			break;
-		}
-		memset(sdrr, 0, sizeof (struct sdr_record_list));
-		sdrr->id = header->id;
-		sdrr->type = header->type;
-
-		switch (header->type) {
-			case SDR_RECORD_TYPE_FULL_SENSOR:
-			case SDR_RECORD_TYPE_COMPACT_SENSOR:
-				sdrr->record.common =
-				(struct sdr_record_common_sensor *) rec;
-				break;
-			case SDR_RECORD_TYPE_EVENTONLY_SENSOR:
-				sdrr->record.eventonly =
-				(struct sdr_record_eventonly_sensor *) rec;
-				break;
-			case SDR_RECORD_TYPE_GENERIC_DEVICE_LOCATOR:
-				sdrr->record.genloc =
-				(struct sdr_record_generic_locator *) rec;
-				break;
-			case SDR_RECORD_TYPE_FRU_DEVICE_LOCATOR:
-				sdrr->record.fruloc =
-				(struct sdr_record_fru_locator *) rec;
-				break;
-			case SDR_RECORD_TYPE_MC_DEVICE_LOCATOR:
-				sdrr->record.mcloc =
-				(struct sdr_record_mc_locator *) rec;
-				break;
-			case SDR_RECORD_TYPE_ENTITY_ASSOC:
-				sdrr->record.entassoc =
-				(struct sdr_record_entity_assoc *) rec;
-				break;
-			default:
-				free(rec);
-				rec = NULL;
-				if (sdrr != NULL) {
-					free(sdrr);
-					sdrr = NULL;
-				}
-				continue;
-		}
-
 		if (type == header->type ||
-		(header->type == SDR_RECORD_TYPE_FULL_SENSOR ||
-		header->type == SDR_RECORD_TYPE_COMPACT_SENSOR)) {
+			(header->type == SDR_RECORD_TYPE_FULL_SENSOR ||
+			header->type == SDR_RECORD_TYPE_COMPACT_SENSOR)) {
 			if (fanpsu_node_iter_byipmi(intf, header->type,
-			                rec, header->length, fp_hdl) < 0){
+				rec, header->length, fp_hdl) < 0){
+				free(rec);
+				rec = NULL;
 				continue;
+			}
+		}else{
+			free(rec);
+			rec = NULL;
+			continue;
 		}
-		}
-
-		/* add to global record liset */
-		if (sdr_list_head == NULL)
-			sdr_list_head = sdrr;
-		else
-			sdr_list_tail->next = sdrr;
-
-		sdr_list_tail = sdrr;
 	}
 
 	return 0;
