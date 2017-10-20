@@ -135,6 +135,8 @@ static void *fmd_hotplug_thread(void *arg)
 		FD_ZERO(&fds);
 		FD_SET(sock, &fds);
 
+		tv.tv_sec = 0;
+		tv.tv_usec = 100 * 1000;
 		ret = select(sock + 1, &fds, NULL, NULL, &tv);
 		if (ret <= 0)
 			continue;
@@ -199,6 +201,8 @@ static void *fmd_getmsg_thread(void *arg)
 		FD_ZERO(&fds);
 		FD_SET(sock, &fds);
 
+		tv.tv_sec = 0;
+		tv.tv_usec = 100 * 1000;
 		ret = select(sock + 1, &fds, NULL, NULL, &tv);
 		if (ret <= 0)
 			continue;
