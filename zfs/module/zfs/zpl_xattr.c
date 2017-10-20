@@ -259,7 +259,7 @@ zfs_xattr_list(struct inode *ip, void *buffer, size_t buffer_size, cred_t *cr)
 
 	vn_op_type_t optype ;
 	int maxbytes = 0 ;
-	optype = zfs_vn_dir_type( zp, 0 ) ;
+	optype = zpl_vn_type( ip ) ;
 	if( optype == VN_OP_CLIENT ) {
 		ZFS_ENTER( zsb ) ;
 		error = zfs_client_xattr_list( ip, buffer, buffer_size, cr ) ;
@@ -1020,16 +1020,32 @@ zpl_set_acl(struct inode *ip, struct posix_acl *acl, int type)
 	}
 
 	error = zpl_xattr_set(ip, name, value, size, 0);
+	if( !error ) {
+		vn_op_type_t optype ;
+		optype = zpl_vn_type( ip ) ;
+		if( optype == VN_OP_CLIENT ) {
+			cred_t *cr = CRED();
+			vattr_t vap;
+			vap.va_mask = ATTR_MODE ;
+			vap.va_mode = ip->i_mode ;
+			crhold(cr);
+			error = -zfs_setattr(ip, &vap, 0, cr);
+			crfree(cr);
+		}
+	}
+
+
 	if (value)
 		kmem_free(value, size);
 
+/*
 	if (!error) {
 		if (acl)
 			zpl_set_cached_acl(ip, type, acl);
 		else
 			zpl_forget_cached_acl(ip, type);
 	}
-
+*/
 	return (error);
 }
 
@@ -1046,12 +1062,13 @@ zpl_get_acl(struct inode *ip, int type)
 	 * Also as of Linux 4.7, comparing against ACL_NOT_CACHED is wrong
 	 * as the kernel get_acl will set it to temporary sentinel value.
 	 */
+/*
 #ifndef HAVE_KERNEL_GET_ACL_HANDLE_CACHE
 	acl = get_cached_acl(ip, type);
 	if (acl != ACL_NOT_CACHED)
 		return (acl);
 #endif
-
+*/
 	switch (type) {
 	case ACL_TYPE_ACCESS:
 		name = XATTR_NAME_POSIX_ACL_ACCESS;
@@ -1081,9 +1098,11 @@ zpl_get_acl(struct inode *ip, int type)
 		kmem_free(value, size);
 
 	/* As of Linux 4.7, the kernel get_acl will set this for us */
+
 #ifndef HAVE_KERNEL_GET_ACL_HANDLE_CACHE
-	if (!IS_ERR(acl))
+/*	if (!IS_ERR(acl))
 		zpl_set_cached_acl(ip, type, acl);
+*/
 #endif
 
 	return (acl);
