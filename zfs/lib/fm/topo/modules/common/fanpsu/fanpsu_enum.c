@@ -441,8 +441,6 @@ get_fanpsu_status_by_name(fanpsu_handle_t *chp, const char *name, char *state)
 	struct sdr_get_rs *header;
 	struct ipmi_intf *intf = &ipmi_open_intf;
 	struct ipmi_sdr_iterator *sdr_list_itr = NULL;
-	struct sdr_record_list *sdr_list_head = NULL;
-	struct sdr_record_list *sdr_list_tail = NULL;
 	fanpsu_nodeinfo_t nodeinfo;
 	int rc = 0;
 
@@ -526,8 +524,6 @@ fanpsu_get_node_by_ipmi(topo_mod_t *mod, fanpsu_handle_t *fp_hdl)
 	struct sdr_get_rs *header;
 	struct ipmi_intf *intf = &ipmi_open_intf;
 	struct ipmi_sdr_iterator *sdr_list_itr = NULL;
-	struct sdr_record_list *sdr_list_head = NULL;
-	struct sdr_record_list *sdr_list_tail = NULL;
 	uint8_t type = 0xfe;
 
 	if (sdr_list_itr == NULL) {
