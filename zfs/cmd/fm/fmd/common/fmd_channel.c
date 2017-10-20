@@ -304,9 +304,6 @@ fmd_msg_handle(void *arg)
 	fmd_msg_t *msg = (fmd_msg_t *)arg;
 	nvlist_t *nvl;
 	hrtime_t hrt = 0;
-	int64_t *time;
-	char tmp[4096 * 2];
-	uint_t len;
 	fmd_thread_t *tp;
 	char *class;
 	if (NULL == msg){
@@ -314,25 +311,13 @@ fmd_msg_handle(void *arg)
 	}else{
 		if (FMD_HOTPLUG == msg->fm_type){
 			fmd_device_event(msg);
-			return;
+			return 0;
 		}else if (FMD_DISK_ERR == msg->fm_type){
 			if (nvlist_unpack(msg->fm_buf, msg->fm_len, &nvl, KM_SLEEP)){
-					sprintf(tmp, "echo error 1 >> /msg_type");
-					system(tmp);
+				syslog(LOG_ERR, "channel: nvlist_unpack failed.\n");				
 
-					return -1;
-			}else if(nvlist_lookup_int64_array(nvl, "time", &time, &len)){
-					sprintf(tmp, "echo error 2 >> /msg_type");
-					system(tmp);
-
-					return -1;
-			}else{
-				sprintf(tmp, "echo time: %ld ,%ld .>>/msg_type", time[0], time[1]);
-				system(tmp);
+				return -1;
 			}
-		}else{
-			sprintf(tmp, "echo unkown type >> /msg_type");
-			system(tmp);
 		}
 	}
 	nvlist_lookup_string(nvl, "class", &class);
@@ -369,6 +354,7 @@ fmd_msg_handle(void *arg)
 		pthread_cond_broadcast(&channel_cv);
 	pthread_mutex_unlock(&channel_mutex);
 
+	fmd_free(tp, sizeof(fmd_thread_t));
 	return 0;
 }
 
