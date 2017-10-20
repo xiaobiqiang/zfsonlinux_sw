@@ -2495,8 +2495,6 @@ int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_ty
  	sys_space.space_spa = spa_guid(dmu_objset_spa(os));
  	sys_space.space_os = dmu_objset_id(os);
 
-	zfs_group_update_system_space(os, &sys_space);
-/*
  	if (os->os_is_master) {
  			zfs_group_update_system_space(os, &sys_space);
  	} else {
@@ -2504,7 +2502,7 @@ int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_ty
  		    os->os_master_root, NOTIFY_SYSTEM_SPACE,
  		    (zfs_group_notify_arg_t *)&sys_space);
  	}
- */
+
  	return (error);
 }
 

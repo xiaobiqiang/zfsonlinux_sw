@@ -1165,7 +1165,6 @@ zfs_multiclus_update_reg_record(char *groupname, uint64_t spa_id, uint64_t os_id
 	return;
 }
 
-
 static void
 zfs_multiclus_update_record_by_head(zfs_group_reg_t *reg_msg,
 	zfs_multiclus_group_record_t *d_record)
@@ -1177,6 +1176,23 @@ zfs_multiclus_update_record_by_head(zfs_group_reg_t *reg_msg,
 	d_record->node_type = reg_msg->node_type;
 	d_record->avail_size = reg_msg->avail_size;
 	d_record->used_size = reg_msg->used_size;
+	d_record->load_ios = reg_msg->load_ios;
+	d_record->node_status.status = reg_msg->node_status.status;
+	if (reg_msg->root != 0)
+		d_record->root = reg_msg->root;
+	bcopy(reg_msg->fsname, d_record->fsname, MAX_FSNAME_LEN);
+	bcopy(reg_msg->rpc_addr, d_record->rpc_addr, ZFS_MULTICLUS_RPC_ADDR_SIZE);
+}
+
+static void
+zfs_multiclus_update_record_by_head_register(zfs_group_reg_t *reg_msg,
+	zfs_multiclus_group_record_t *d_record)
+{
+	d_record->used = B_TRUE;
+	d_record->spa_id = reg_msg->spa_id;
+	d_record->os_id = reg_msg->os_id;
+	d_record->hostid= reg_msg->hostid;
+	d_record->node_type = reg_msg->node_type;
 	d_record->load_ios = reg_msg->load_ios;
 	d_record->node_status.status = reg_msg->node_status.status;
 	if (reg_msg->root != 0)
@@ -1204,7 +1220,7 @@ zfs_multiclus_record_reg_and_update(zfs_group_header_t *msg_header, zfs_group_re
 				    (zfs_multiclus_table[i].multiclus_group[j].os_id == reg_msg->os_id)){
 				 
 				    zfs_multiclus_table[i].multiclus_group[j].node_status.last_update_time = gethrtime();
-					zfs_multiclus_update_record_by_head(reg_msg, &zfs_multiclus_table[i].multiclus_group[j]);
+					zfs_multiclus_update_record_by_head_register(reg_msg, &zfs_multiclus_table[i].multiclus_group[j]);
 					mutex_exit(&zfs_multiclus_table[i].multiclus_group_mutex);
 					mutex_exit(&multiclus_mtx);
 					zfs_multiclus_update_reg_record((char *)(reg_msg->group_name), reg_msg->spa_id, reg_msg->os_id);
