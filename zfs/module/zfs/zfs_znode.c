@@ -2536,18 +2536,22 @@ vn_op_type_t zfs_vn_lookup_type(znode_t *zp, char *name, uint64_t flag)
 	} else {
 		if (zsb->z_os->os_is_group &&
 			!zsb->z_os->os_is_master && ((flag & FCLUSTER) == 0)) {
-				if (zp->z_group_role == GROUP_VIRTUAL)
-					type = VN_OP_CLIENT;
-				else {
-					if (zp->z_group_role == GROUP_MASTER &&
-						zp->z_id == ZTOZSB(zp)->z_root) {
+				if( flag & LOOKUP_XATTR ) {
+					type = VN_OP_CLIENT ;
+				}else {
+					if (zp->z_group_role == GROUP_VIRTUAL)
 						type = VN_OP_CLIENT;
-						zp->z_group_id.master_spa = ZTOZSB(zp)->z_os->os_master_spa;
-						zp->z_group_id.master_objset = ZTOZSB(zp)->z_os->os_master_os;
-						zp->z_group_id.master_object = ZTOZSB(zp)->z_os->os_master_root;
+					else {
+						if (zp->z_group_role == GROUP_MASTER &&
+							zp->z_id == ZTOZSB(zp)->z_root) {
+							type = VN_OP_CLIENT;
+							zp->z_group_id.master_spa = ZTOZSB(zp)->z_os->os_master_spa;
+							zp->z_group_id.master_objset = ZTOZSB(zp)->z_os->os_master_os;
+							zp->z_group_id.master_object = ZTOZSB(zp)->z_os->os_master_root;
+						}
+						else
+							type = VN_OP_SERVER;
 					}
-					else
-						type = VN_OP_SERVER;
 				}
 			} else {
 				type = VN_OP_SERVER;
