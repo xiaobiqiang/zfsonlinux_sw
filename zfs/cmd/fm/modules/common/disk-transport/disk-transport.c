@@ -504,7 +504,7 @@ dt_topo_change(fmd_hdl_t *hdl, topo_hdl_t *thp)
 }
 
 static const fmd_prop_t fmd_props[] = {
-	{ "interval", FMD_TYPE_TIME, "1min" },
+	{ "interval", FMD_TYPE_TIME, "10min" },
 	{ "min-interval", FMD_TYPE_TIME, "1min" },
 	{ "simulate", FMD_TYPE_STRING, "" },
 	{ NULL, 0, NULL }

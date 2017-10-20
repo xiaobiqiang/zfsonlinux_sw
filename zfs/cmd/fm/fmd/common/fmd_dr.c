@@ -80,7 +80,8 @@ fmd_device_event(fmd_msg_t *msg)
 	char *p = NULL;
 
 	if (msg == NULL || msg->fm_buf == NULL ||
-		strstr(msg->fm_buf, "add") == NULL)
+		strstr(msg->fm_buf, "add") == NULL ||
+		strstr(msg->fm_buf, "remove") == NULL)
 		return;
 
 	if ((p = strstr(msg->fm_buf, "sd")) != NULL) {
@@ -105,9 +106,10 @@ fmd_device_event(fmd_msg_t *msg)
 	}
 	fmd_topo_rele(prev);
 
-
-	printf("fmd topo update:%s\n", msg->fm_buf);
-	fmd_topo_update(B_FALSE, B_FALSE);
+	if (strstr(msg->fm_buf, "add") != NULL) {
+		//printf("fmd topo update:%s\n", msg->fm_buf);
+		fmd_topo_update(B_FALSE, B_FALSE);
+	}
 
 	ftp = fmd_topo_hold();
 	e = fmd_event_create(FMD_EVT_TOPO, ftp->ft_time_end, NULL, ftp);
