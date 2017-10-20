@@ -114,6 +114,9 @@ static int zpool_do_set(int, char **);
 
 static int zpool_do_release(int, char **);
 
+static int disable_share_services(int *, int *);
+static void enable_share_services(int, int);
+
 /* add for zpool cluster cmd */
 static int zpool_do_cluster(int argc, char **argv);
 static int zpool_do_scanthin(int argc, char **argv);
@@ -1385,6 +1388,7 @@ zpool_do_destroy(int argc, char **argv)
 	char *pool;
 	zpool_handle_t *zhp;
 	int ret;
+	int sharenfs = 0, sharesmb = 0;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "f")) != -1) {
@@ -1412,6 +1416,13 @@ zpool_do_destroy(int argc, char **argv)
 		usage(B_FALSE);
 	}
 
+	if (force) {
+		if (disable_share_services(&sharenfs, &sharesmb) != 0) {
+			sharenfs = 0;
+			sharesmb = 0;
+		}
+	}
+
 	pool = argv[0];
 
 	zfs_destroy_all_lus(g_zfs, pool);
@@ -1423,13 +1434,15 @@ zpool_do_destroy(int argc, char **argv)
 		if (strchr(pool, '/') != NULL)
 			(void) fprintf(stderr, gettext("use 'zfs destroy' to "
 			    "destroy a dataset\n"));
-		return (1);
+		ret = 1;
+		goto out;
 	}
 
 	if (zpool_disable_datasets(zhp, force) != 0) {
 		(void) fprintf(stderr, gettext("could not destroy '%s': "
 		    "could not unmount datasets\n"), zpool_get_name(zhp));
-		return (1);
+		ret = 1;
+		goto out;
 	}
 
 	/* The history must be logged as part of the export */
@@ -1445,7 +1458,143 @@ zpool_do_destroy(int argc, char **argv)
 
 	zpool_close(zhp);
 
+out:
+	if (sharenfs || sharesmb)
+		enable_share_services(sharenfs, sharesmb);
 	return (ret);
+}
+
+static int
+excute_cmd_result(const char *cmd, char **result)
+{
+	int ret, fd;
+	char *buf = NULL;
+	size_t cmdlen;
+	pid_t pid;
+	struct stat sb;
+	ssize_t nread;
+
+	cmdlen = strlen(cmd);
+	pid = getpid();
+
+	if (result) {
+		buf = (char *) malloc(cmdlen + 64);
+		if (buf == NULL)
+			return (-1);
+
+		snprintf(buf, cmdlen + 64,
+			"%s > /tmp/zpool.%d.stderr", cmd, (int) pid);
+	}
+
+	if (result)
+		ret = system(buf);
+	else
+		ret = system(cmd);
+	if (ret < 0 || !WIFEXITED(ret)) {
+		if (result)
+			free(buf);
+		return (-1);
+	}
+
+	ret = WEXITSTATUS(ret);
+
+	if (result == NULL)
+		return (ret);
+
+	snprintf(buf, cmdlen + 64, "/tmp/zpool.%d.stderr", (int) pid);
+
+	fd = open(buf, O_RDONLY);
+	if (fd == -1) {
+		*result = NULL;
+		goto out;
+	}
+
+	if (fstat(fd, &sb) == -1) {
+		*result = NULL;
+		goto out;
+	}
+
+	*result = malloc(sb.st_size + 1);
+	if (*result) {
+		nread = read(fd, *result, sb.st_size);
+		if (nread == -1) {
+			free(*result);
+			*result = NULL;
+		} else {
+			if (nread > 0 && (*result)[nread-1] == '\n')
+				(*result)[nread-1] = '\0';
+			else
+				(*result)[nread] = '\0';
+		}
+	}
+
+out:
+	if (fd > 0)
+		close(fd);
+	(void) unlink(buf);
+
+	return (ret);
+}
+
+
+static int
+disable_share_services(int *sharenfs, int *sharesmb)
+{
+	int b_sharenfs = 0, b_sharesmb = 0;
+	char nfs_service_status[] = "/bin/systemctl is-active nfs-server";
+	char disable_nfs_service[] = "/bin/systemctl stop nfs-server";
+	char smb_service_status[] = "/bin/systemctl is-active smbd";
+	char disable_smb_service[] = "/bin/systemctl stop smbd";
+	char *result = NULL;
+	int ret;
+
+	ret = excute_cmd_result(nfs_service_status, &result);
+	if (ret == 0 && result != NULL) {
+		if (strncmp(result, "active", 6) == 0)
+			b_sharenfs = 1;
+	}
+	if (result)
+		free(result);
+
+	if (b_sharenfs) {
+		ret = excute_cmd_result(disable_nfs_service, NULL);
+		if (ret != 0)
+			goto out;
+	}
+
+	ret = excute_cmd_result(smb_service_status, &result);
+	if (ret == 0 && result != NULL) {
+		if (strncmp(result, "active", 6) == 0)
+			b_sharesmb = 1;
+	}
+	if (result)
+		free(result);
+
+	if (b_sharesmb) {
+		ret = excute_cmd_result(disable_smb_service, NULL);
+		if (ret != 0 && b_sharenfs)
+			enable_share_services(1, 0);
+	}
+
+out:
+	if (sharenfs)
+		*sharenfs = b_sharenfs;
+	if (sharesmb)
+		*sharesmb = b_sharesmb;
+
+	return (ret);
+}
+
+static void
+enable_share_services(int sharenfs, int sharesmb)
+{
+	char enable_nfs_service[] = "/bin/systemctl start nfs-server";
+	char enable_smb_service[] = "/bin/systemctl start smbd";
+
+	if (sharenfs)
+		(void) excute_cmd_result(enable_nfs_service, NULL);
+	if (sharesmb)
+		(void) excute_cmd_result(enable_smb_service, NULL);
 }
 
 typedef struct export_cbdata {
@@ -1497,6 +1646,7 @@ zpool_do_export(int argc, char **argv)
 	boolean_t force = B_FALSE;
 	boolean_t hardforce = B_FALSE;
 	int c, ret;
+	int sharenfs = 0, sharesmb = 0;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "afF")) != -1) {
@@ -1528,8 +1678,20 @@ zpool_do_export(int argc, char **argv)
 			usage(B_FALSE);
 		}
 
-		return (for_each_pool(argc, argv, B_TRUE, NULL,
-		    zpool_export_one, &cb));
+		if (force || hardforce) {
+			if (disable_share_services(&sharenfs, &sharesmb) != 0) {
+				sharenfs = 0;
+				sharesmb = 0;
+			}
+		}
+
+		ret = for_each_pool(argc, argv, B_TRUE, NULL,
+		    zpool_export_one, &cb);
+
+		if (sharenfs || sharesmb)
+			enable_share_services(sharenfs, sharesmb);
+
+		return (ret);
 	}
 
 	/* check arguments */
@@ -1538,7 +1700,17 @@ zpool_do_export(int argc, char **argv)
 		usage(B_FALSE);
 	}
 
+	if (force || hardforce) {
+		if (disable_share_services(&sharenfs, &sharesmb) != 0) {
+			sharenfs = 0;
+			sharesmb = 0;
+		}
+	}
+
 	ret = for_each_pool(argc, argv, B_TRUE, NULL, zpool_export_one, &cb);
+
+	if (sharenfs || sharesmb)
+		enable_share_services(sharenfs, sharesmb);
 
 	return (ret);
 }
@@ -7020,12 +7192,9 @@ zpool_do_release(int argc, char **argv)
 	int c;
 	int ret;
 	release_cbdata_t cb = { 0 };
-	/*char buf[256];*/
-	/*uint64_t cluster_enable;*/
-	/*int error;*/
-	/*cluster_state_t state;*/
 	uint32_t remote_hostid;
 	char *endptr;
+	int sharenfs = 0, sharesmb = 0;
 
 	/* check options */
 	bzero(&cb, sizeof(status_cbdata_t));
@@ -7070,22 +7239,18 @@ zpool_do_release(int argc, char **argv)
 	} else if (cb.cb_clusterd)
 		return (0);
 
-#if	0
-	memset(buf, 0, sizeof(buf));
-	error = sysinfo(SI_HW_CLUSTER_ENABLE, buf, sizeof(buf));
-	if (error == NULL)
-		return (NULL);
-	cluster_enable = strtoul(buf, NULL, 10);
-	if (cluster_enable != 0) {
-		printf("the command only works in cluster mode");
-		return (0);
+	if (disable_share_services(&sharenfs, &sharesmb) != 0) {
+		sharenfs = 0;
+		sharesmb = 0;
 	}
-#endif
 
 	todo_release_pools = NULL;		
 	ret = for_each_pool(argc, argv, B_TRUE, NULL, release_callback, &cb);
 	if (cb.cb_clusterd && ret == 0)
 		ret = release4clusterd(cb.cb_rid);
+
+	if (sharenfs || sharesmb)
+		enable_share_services(sharenfs, sharesmb);
 	
 	return (ret ? 1 : 0);
 }
