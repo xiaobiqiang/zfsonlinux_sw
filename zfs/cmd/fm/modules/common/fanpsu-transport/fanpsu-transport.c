@@ -59,9 +59,9 @@ static void fpt_post_ereport(fmd_hdl_t *hdl, fmd_xprt_t *xprt, const char *proto
 		if(e == 0){
 			fmd_xprt_post(hdl, xprt, nvl, 0);
 		}else{
-			nvlist_free(nvl);
 			fpt_stats.dropped.fmds_value.ui64++;
 		}
+		nvlist_free(nvl);
 	}else{
 		fpt_stats.dropped.fmds_value.ui64++;
 	}
@@ -99,6 +99,7 @@ static int fpt_check(topo_hdl_t *thp, tnode_t *node, void *arg){
 
 	if(resault){
 		fpt_post_ereport(fpmp->fpm_hdl, fpmp->fpm_xprt, "sensor", "failure", ena, fmri, resault);
+		nvlist_free(resault);
 	}else{
 		syslog(LOG_ERR, "There is no warning from fan and psu.\n");
 	}
