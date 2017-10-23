@@ -107,10 +107,6 @@ zpl_fh_to_dentry(struct super_block *sb, struct fid *fh,
 	rc = zfs_vget(sb, &ip, fid);
 	spl_fstrans_unmark(cookie);
 
-	zsb = ITOZSB(ip);
-	object = ITOZ(ip)->z_id;
-	object_is_dir = S_ISDIR(ip->i_mode);
-
 	if (rc) {
 		/*
 		 * If we see ENOENT it might mean that an NFSv4 * client
@@ -128,6 +124,10 @@ zpl_fh_to_dentry(struct super_block *sb, struct fid *fh,
 	}
 
 	ASSERT((ip != NULL) && !IS_ERR(ip));
+
+	zsb = ITOZSB(ip);
+	object = ITOZ(ip)->z_id;
+	object_is_dir = S_ISDIR(ip->i_mode);
 
 //	return (zpl_dentry_obtain_alias(ip));
 	dentry = zpl_dentry_obtain_alias(ip);
