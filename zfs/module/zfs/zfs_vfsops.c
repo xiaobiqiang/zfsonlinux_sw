@@ -2191,6 +2191,7 @@ reget:
 				}
 			}
 			zp = ITOZ(filp->f_path.dentry->d_inode);
+			dget(filp->f_path.dentry);
 			igrab(ZTOI(zp));
 			filp_close(filp, NULL);
 			vmem_free(fullpath, MAXPATHLEN);
