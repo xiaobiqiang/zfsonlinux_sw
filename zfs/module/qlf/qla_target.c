@@ -189,6 +189,24 @@ static struct qla_tgt_sess *qlt_find_sess_by_port_name(
 	return NULL;
 }
 
+static struct qla_tgt_sess *qlt_find_sess_by_sid(
+	struct qla_tgt *tgt,
+	uint8_t *s_id)
+{
+	struct qla_tgt_sess *sess;
+
+	list_for_each_entry(sess, &tgt->sess_list, sess_list_entry) {
+		if (sess->s_id.b.domain == s_id[0] &&
+			sess->s_id.b.area == s_id[1] &&
+			sess->s_id.b.al_pa == s_id[2]){
+			return sess;
+		}	
+	}
+
+	return NULL;
+}
+
+
 /* Might release hw lock, then reaquire!! */
 static inline int qlt_issue_marker(struct scsi_qla_host *vha, int vha_locked)
 {
@@ -2087,6 +2105,7 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	uint32_t full_req_cnt = 0;
 	unsigned long flags = 0;
 	int res;
+	uint8_t *cdbptr;
 
 	memset(&prm, 0, sizeof(prm));
 	qlt_check_srr_debug(cmd, &xmit_type);
@@ -2118,7 +2137,14 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 
 
 	pkt = (struct ctio7_to_24xx *)prm.pkt;
-
+	cdbptr = cmd->atio->u.isp24.fcp_cmnd.cdb;
+#if 0
+	if(cdbptr[0] == 0xa0){
+		pkt->u.status0.flags |= 0x8000;
+		printk("suwei test set flags 0x8000!\n");
+	}
+#endif
+	
 	if (qlt_has_data(cmd) && (xmit_type & QLA_TGT_XMIT_DATA)) {
 		pkt->u.status0.flags |=
 		    cpu_to_le16(CTIO7_FLAGS_DATA_IN |
@@ -3101,6 +3127,7 @@ qlt_do_abort(struct work_struct *abort_work)
 
 	kmem_cache_free(abort_msg_cachep, msg);
 }
+
 void
 qlt_handle_fct_event(scsi_qla_host_t *vha, uint8_t event)
 {
@@ -4075,7 +4102,8 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	unsigned char *cdb;
 	uint32_t data_length;
 	int fcp_task_attr, data_dir, bidi = 0;
-
+	struct qla_tgt_sess *sess;
+	
 	memset(cmd, 0, sizeof(struct qla_tgt_cmd));
 
 	INIT_LIST_HEAD(&cmd->cmd_list);
@@ -4085,8 +4113,12 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	cmd->tgt = ha->tgt.qla_tgt;
 	cmd->vha = vha;
 
-	/* TODO: */
-	cmd->loop_id = 0;
+	sess = qlt_find_sess_by_sid(ha->tgt.qla_tgt, atio_from->u.isp24.fcp_hdr.s_id);
+	if(sess == NULL) {
+		printk("can not find the session!\n");
+		return;
+	}
+	cmd->loop_id = sess->loop_id;
 	cdb = &atio->u.isp24.fcp_cmnd.cdb[0];
 	cmd->tag = atio->u.isp24.exchange_addr;
 	cmd->unpacked_lun = scsilun_to_int(
@@ -5363,12 +5395,12 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 
 /*********************************************************************************/
 
-#define	BUF_COUNT_2K		2048
-#define	BUF_COUNT_8K		512
-#define	BUF_COUNT_64K		256
-#define	BUF_COUNT_128K		1024
+#define	BUF_COUNT_2K		2	
+#define	BUF_COUNT_8K		2	
+#define	BUF_COUNT_64K		2	
+#define	BUF_COUNT_128K		16	
 /* merge alua_2w code to stable modified by zywang begin */
-#define	BUF_COUNT_256K		512
+#define	BUF_COUNT_256K		16	
 /* merge alua_2w code to stable modified by zywang end */
 
 #define	QLT_DMEM_MAX_BUF_SIZE	(4 * 65536)
@@ -5984,7 +6016,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	}
 	
 	li->port_topology = port_type;
-
+#if 0
 	/* Get list of logged in devices. */
 	memset(ha->gid_list, 0, qla2x00_gid_list_size(ha));
 	rval = qla2x00_get_id_list(vha, ha->gid_list, ha->gid_list_dma,
@@ -5998,6 +6030,8 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	ql_dump_buffer(ql_dbg_disc + ql_dbg_buffer, vha, 0x2075,
 		(uint8_t *)ha->gid_list,
 		entries * sizeof(struct gid_list_info));
+	
+ 	printk("suwei test area = %x, domain = %x\n", vha->d_id.b.area, vha->d_id.b.domain);
 
 	/* Add devices to port list. */
 	id_iter = (char *)ha->gid_list;
@@ -6019,6 +6053,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 			return (STMF_FAILURE);
 		}
 
+		printk("suwei test remote_area = %x, remote_domain = %x, area = %x, domain = %x\n", remote_area, remote_domain, vha->d_id.b.area, vha->d_id.b.domain);
 		/* Bypass if not same domain and area of adapter. */
 		if (remote_area && remote_domain &&
 		    (remote_area != vha->d_id.b.area || remote_domain != vha->d_id.b.domain)) {
@@ -6040,6 +6075,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 		bcopy(fcport->port_name, li->port_rpwwn, WWN_SIZE);
 		bcopy(fcport->node_name, li->port_rnwwn, WWN_SIZE);
 	}
+#endif
 
 	return (FCT_SUCCESS);
 }
@@ -6913,6 +6949,7 @@ int __init qlt_init(void)
 		ret = -ENOMEM;
 		goto out;
 	}
+
 
 	fct_shutdown_msg_cachep = kmem_cache_create("fct_shutdown_msg_cachep",
 	    sizeof(struct qla_fct_shutdown_msg), __alignof__(struct
