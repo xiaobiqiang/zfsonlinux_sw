@@ -4329,6 +4329,12 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 		!zsb->z_os->os_is_master) {
 		error = zfs_get_masterroot_attr(ip, &tmp_zp);
 		if (error == 0) {
+			if( ip->i_mode != ZTOI( tmp_zp ) ->i_mode ){
+				vattr_t vap;
+				vap.va_mask = ATTR_MODE ;
+				vap.va_mode = ZTOI(tmp_zp)->i_mode;
+				zfs_setattr(ip, &vap, 0, cr);
+			}
 			zp = tmp_zp;
 		} else {
 #if 0
@@ -4597,6 +4603,15 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 		!zsb->z_os->os_is_master) {
 		error = zfs_get_masterroot_attr(ip, &tmp_zp);
 		if (error == 0) {
+			if( ip->i_mode != ZTOI( tmp_zp ) ->i_mode ){
+				cred_t *cr = CRED();
+				vattr_t vap;
+				vap.va_mask = ATTR_MODE ;
+				vap.va_mode = ZTOI(tmp_zp)->i_mode;
+				crhold(cr);
+				zfs_setattr(ip, &vap, 0, cr);
+				crfree(cr);
+			}
 			zp = tmp_zp;
 		} else {
 #if 0
@@ -4769,6 +4784,23 @@ zfs_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 
 	ZFS_ENTER(zsb);
 	ZFS_VERIFY_ZP(zp);
+
+	/* For z_mode/i_mode change, take it for special */
+	/* Normally, a chmod for root directory in slave will get optype=VN_OP_SERVER,
+	  * and just chmod locally.
+	  * add a zfs_client_setattr here to chmod globally.
+	  */
+	if ( zsb->z_os->os_is_group && !zsb->z_os->os_is_master
+               && zp->z_id == ZTOZSB(zp)->z_root && (mask & ATTR_MODE ) ) {
+		vattr_t vap_mode_only ;
+		vap_mode_only.va_mode = vap->va_mode ;
+		vap_mode_only.va_mask = ATTR_MODE ;
+		error = zfs_client_setattr(ip, &vap_mode_only, flags, cr, NULL);
+		if( error ) {
+			ZFS_EXIT(zsb);
+			return error ;
+		}
+	}
 
 	zilog = zsb->z_log;
 
