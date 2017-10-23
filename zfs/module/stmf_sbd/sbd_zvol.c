@@ -204,7 +204,8 @@ sbd_zvol_rele_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	dmu_buf_t *dbp, **dbpp;
 	sbd_zvol_io_t *zvio = dbuf->db_lu_private;
 
-	if (zvio->zvio_is_migrate) {
+	if (lun_migrate_is_work(sl->sl_zvol_objset_hdl) == 1
+			&& zvio->zvio_is_migrate == 1) {
 		if (zvio->zvio_crypt_data[0] != NULL)
 			dmu_free_crypt_data(zvio->zvio_crypt_data[0], dbuf->db_data_size);
 
