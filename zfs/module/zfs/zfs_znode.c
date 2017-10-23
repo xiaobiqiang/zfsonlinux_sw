@@ -2592,7 +2592,7 @@ vn_op_type_t zfs_vn_op_type(znode_t *zp, uint64_t flag)
 
 	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master &&
 	    ((flag & FCLUSTER) == 0)) {
-		if (zp->z_group_role == GROUP_VIRTUAL)
+		if (zp->z_group_role == GROUP_VIRTUAL )
 			type = VN_OP_CLIENT;
 		else
 			type = VN_OP_SERVER;
@@ -2684,7 +2684,7 @@ vn_op_type_t zpl_vn_type(struct inode *ip)
 	znode_t *zp = ITOZ(ip);
 	zfs_sb_t *zsb = ZTOZSB(zp);
 
-	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master && zp->z_id != zsb->z_root) {
+	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master ) {
 		type = VN_OP_CLIENT;
 	} else {
 		type = VN_OP_SERVER;
