@@ -3620,7 +3620,7 @@ zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname)
 		ret = ioctl(hdl->libzfs_fd, ZFS_IOC_START_LUN_MEGRATE, &zc);
 		if (ret == 0) {
 			if (zc.zc_pad[1] == 5) {
-				printf("haven't this lun migrate\n");
+				printf("haven't or have done this lun migrate\n");
 				return (1);
 			}
 

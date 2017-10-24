@@ -1259,7 +1259,7 @@ void disk_get_slot_map(slot_map_t *sm)
 			sscanf(tmp, "%*[^:]:%d", &slot);
 		} else if (strcasecmp(args, SERIALNO) == 0) {
 			sscanf(tmp, "%*[^:]:%s", value_sn);
-			if (value_sn != NULL) {
+			if (value_sn[0] != '\n') {
 				slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
 				sr->sr_enclosure = enclosure;
 				sr->sr_slot = slot;
@@ -1268,6 +1268,7 @@ void disk_get_slot_map(slot_map_t *sm)
 				slot_map_insert(sm, sr);
 				slot = 0;
 				enclosure = 0;
+				memset(value_sn, '\n', sizeof(value_sn));
 			}
 		}
 	}
