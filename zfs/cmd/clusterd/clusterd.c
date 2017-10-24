@@ -2838,16 +2838,13 @@ cluster_task_wait_event(void)
 		case EVT_REMOTE_HOST_UP:
 			hostid = *((uint32_t *)event->data);
 			syslog(LOG_ERR, "cluster event remote host:%d up", hostid);
-			cluster_failover_conf_handler(FLAG_CF_REMOTE_UP, NULL);
 			hbx_do_cluster_cmd(event->data, event->size, ZFS_HBX_SYNC_POOL);
-			/*cluster_task_pool_scan();*/
 			cluster_remote_hbx_recover(hostid);
 			pthread_cond_broadcast(&cluster_import_replicas_cv);
 			break;
 		case EVT_REMOTE_HOST_DOWN:
 			hostid = *((uint32_t *)event->data);
 			syslog(LOG_ERR, "cluster event remote host:%d down", hostid);
-			cluster_failover_conf_handler(FLAG_CF_REMOTE_DOWN, NULL);
 			cluster_remote_hbx_timeout(hostid);
 			break;
 
