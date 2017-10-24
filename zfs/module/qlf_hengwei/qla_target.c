@@ -213,6 +213,24 @@ static struct qla_tgt_sess *qlt_find_sess_by_port_name(
 	return NULL;
 }
 
+static struct qla_tgt_sess *qlt_find_sess_by_sid(
+        struct qla_tgt *tgt,
+        uint8_t *s_id)
+{
+        struct qla_tgt_sess *sess;
+
+        list_for_each_entry(sess, &tgt->sess_list, sess_list_entry) {
+                if (sess->s_id.b.domain == s_id[0] &&
+                        sess->s_id.b.area == s_id[1] &&
+                        sess->s_id.b.al_pa == s_id[2]){
+                        return sess;
+                }
+        }
+
+        return NULL;
+}
+
+
 /* Might release hw lock, then reaquire!! */
 static inline int qlt_issue_marker(struct scsi_qla_host *vha, int vha_locked)
 {
@@ -5846,6 +5864,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	unsigned char *cdb;
 	uint32_t data_length;
 	int fcp_task_attr, data_dir, bidi = 0;
+	struct qla_tgt_sess *sess;
 
 	memset(cmd, 0, sizeof(struct qla_tgt_cmd));
 	
@@ -5857,8 +5876,15 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	cmd->vha = vha;
 	cmd->reset_count = vha->hw->chip_reset;
 
+	sess = qlt_find_sess_by_sid(ha->tgt.qla_tgt, atio_from->u.isp24.fcp_hdr.s_id);
+        if(sess == NULL) {
+                printk("can not find the session!\n");
+                return;
+        }
+
+
 	/* TODO: */
-	cmd->loop_id = 0;
+	cmd->loop_id = sess->loop_id; 
 	cdb = &atio->u.isp24.fcp_cmnd.cdb[0];
 	//cmd->tag = atio->u.isp24.exchange_addr;
 	cmd->unpacked_lun = scsilun_to_int(
@@ -7736,6 +7762,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 	
 	li->port_topology = port_type;
 
+#if 0
 	/* Get list of logged in devices. */
 	memset(ha->gid_list, 0, qla2x00_gid_list_size(ha));
 	rval = qla2x00_get_id_list(vha, ha->gid_list, ha->gid_list_dma,
@@ -7791,6 +7818,7 @@ qlt_get_link_info(fct_local_port_t *port, fct_link_info_t *li)
 		bcopy(fcport->port_name, li->port_rpwwn, WWN_SIZE);
 		bcopy(fcport->node_name, li->port_rnwwn, WWN_SIZE);
 	}
+#endif
 
 	return (FCT_SUCCESS);
 }
