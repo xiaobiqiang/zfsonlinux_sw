@@ -189,6 +189,7 @@
 #include <linux/miscdevice.h>
 #include <sys/zfs_mirror.h>
 #include <sys/cluster_san.h>
+#include <sys/lun_migrate.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -5536,6 +5537,56 @@ zfs_ioc_do_hbx(zfs_cmd_t *zc)
 	return (err);
 }
 
+static int
+zfs_ioc_do_lun_migrate(zfs_cmd_t *zc)
+{
+	char *ptr = NULL;
+	lun_copy_t *lct = NULL;
+	char path[LUN_DEV_LEN] = {0};
+
+	if (LUN_MIGRATE_START == zc->zc_pad[0]) {
+		lct = lun_migrate_find_copy();
+		if (lct != NULL) {
+			bcopy(zc->zc_string, lct->lun_remote_dev, LUN_DEV_LEN);
+			bcopy(zc->zc_top_ds, lct->lun_host_dev, LUN_DEV_LEN);
+			bcopy(zc->zc_value, lct->lun_guid, LUN_DEV_LEN);
+			bcopy(zc->zc_name, lct->lun_zfs, 64);
+			lct->lun_total_size = zc->zc_lunmigrate_total;
+
+			(void) lun_migrate_start(lct, B_TRUE);
+			return (0);
+		}
+	} else if (LUN_MIGRATE_STOP == zc->zc_pad[0]) {
+		lct = lun_migrate_find_by_name(zc->zc_string);
+
+		if (lct != NULL) {
+			(void) lun_migrate_stop(lct);
+		}
+	} else if (LUN_MIGRATE_RESTART == zc->zc_pad[0]) {
+		lct = lun_migrate_find_by_name(zc->zc_string);
+
+		if (lct != NULL) {
+			(void) lun_migrate_restart(lct);
+		}
+	} else if (LUN_MIGRATE_CHECK == zc->zc_pad[0]) {
+		lct = lun_migrate_find_by_name(zc->zc_string);
+
+		if (lct != NULL) {
+			printk("lct->lun_host_dev = %s\n",lct->lun_host_dev);
+			zc->zc_pad[1] = lct->lun_copy_state;
+			zc->zc_lunmigrate_total = lct->lun_total_size;
+			zc->zc_lunmigrate_cur = lct->lun_cursor_off;
+		} else {
+			zc->zc_pad[1] = LUN_COPY_DEFAULT;
+		}
+	} else {
+		/* TODO */
+	}
+	printk("> lun ioctl return \n");
+
+	return (0);
+}
+
 static zfs_ioc_vec_t zfs_ioc_vec[ZFS_IOC_LAST - ZFS_IOC_FIRST];
 
 static void
@@ -5874,6 +5925,9 @@ zfs_ioctl_init(void)
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	zfs_ioctl_register_legacy(ZFS_IOC_HBX, zfs_ioc_do_hbx,
+	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_START_LUN_MEGRATE, zfs_ioc_do_lun_migrate,
 	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 }
 
@@ -6330,6 +6384,7 @@ _init(void)
 	zfs_init();
 
 	zfs_ioctl_init();
+	lun_migrate_init();
 
 	if ((error = zfs_attach()) != 0)
 		goto out;
@@ -6352,6 +6407,7 @@ _init(void)
 out:
 	zfs_fini();
 	spa_fini();
+	lun_migrate_fini();
 	(void) zvol_fini();
 	printk(KERN_NOTICE "ZFS: Failed to Load ZFS Filesystem v%s-%s%s"
 	    ", rc = %d\n", ZFS_META_VERSION, ZFS_META_RELEASE,
@@ -6366,6 +6422,7 @@ _fini(void)
 	zfs_detach();
 	zfs_fini();
 	spa_fini();
+	lun_migrate_fini();
 	zvol_fini();
 	cluster_proto_unregister();
 

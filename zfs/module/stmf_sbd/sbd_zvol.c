@@ -24,7 +24,7 @@
 #include <sys/dmu_impl.h>
 #include <sys/zfs_rlock.h>
 #include <sys/zil.h>
-#include <sys/dmu_objset.h>
+
 #include <sys/stmf.h>
 #include <sys/lpif.h>
 #include <sys/portif.h>
@@ -32,6 +32,7 @@
 #include <sys/stmf_sbd_ioctl.h>
 #include <sys/stmf_sbd.h>
 #include <sys/sbd_impl.h>
+#include <sys/lun_migrate.h>
 
 extern int highbit(ulong_t i);
 
@@ -98,16 +99,37 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 	uint64_t lock_len;
 	sbd_zvol_io_t	*zvio = dbuf->db_lu_private;
 	rl_t 		*rl;
-	int 		numbufs, error;
+	int 		numbufs, error, ret;
 	uint64_t 	len = dbuf->db_data_size;
 	uint64_t 	offset = zvio->zvio_offset;
 	dmu_buf_t	**dbpp, *dbp;
+	boolean_t	b_lun_migrate;
 
 	/* Make sure request is reasonable */
 	if (len > sl->sl_max_xfer_len)
 		return (E2BIG);
 	if (offset + len  > zvol_get_volume_size(sl->sl_zvol_minor_hdl))
 		return (EIO);
+
+	b_lun_migrate = lun_migrate_is_work(sl->sl_zvol_objset_hdl) == 1 ? B_TRUE : B_FALSE;
+	if (b_lun_migrate) {
+		void *data = NULL;
+		stmf_sglist_ent_t *sgl;
+		dbuf->db_sglist_length = 1;
+		sgl = &dbuf->db_sglist[0];
+		data = zio_data_buf_alloc(len);
+		zvio->zvio_is_migrate = B_TRUE;
+		zvio->zvio_crypt_data = kmem_zalloc(sizeof(void *) * 1, KM_SLEEP);
+		ret = lun_migrate_zvol_sgl_read(sl->sl_name, offset, len, data);
+		if (ret == 0) {
+			sgl->seg_addr = (uint8_t *)data;
+			sgl->seg_length = (uint32_t)len;
+			zvio->zvio_crypt_data[0] = data;
+			return (0);
+		} else {
+			return (EIO);
+		}
+	}
 
 	/*
 	 * The range lock is only held until the dmu buffers read in and
@@ -130,7 +152,7 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 		cmn_err(CE_PANIC, "wrong size sglist: dbuf %d != %d\n",
 			dbuf->db_sglist_length, numbufs);
 	}
-	
+
 	if (error == 0) {
 		int		i;
 		stmf_sglist_ent_t *sgl;
@@ -151,12 +173,12 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 			dbp = dbpp[i];
 			odiff =  offset - dbp->db_offset;
 			ASSERT(odiff == 0 || i == 0);
-			
+
 			data = dmu_get_crypt_data(dbp, &free_data);
 			if (free_data) {
 				zvio->zvio_crypt_data[i] = data;
 			}
-			
+
 			sgl->seg_addr = (uint8_t *)data + odiff;
 			seglen = MIN(len, dbp->db_size - odiff);
 			sgl->seg_length = (uint32_t)seglen;
@@ -167,7 +189,7 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 		ASSERT(len == 0);
 
 	}
-	
+
 	return (error);
 }
 
@@ -182,6 +204,15 @@ sbd_zvol_rele_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	dmu_buf_t *dbp, **dbpp;
 	sbd_zvol_io_t *zvio = dbuf->db_lu_private;
 
+	if (lun_migrate_is_work(sl->sl_zvol_objset_hdl) == 1
+			&& zvio->zvio_is_migrate == 1) {
+		if (zvio->zvio_crypt_data[0] != NULL)
+			dmu_free_crypt_data(zvio->zvio_crypt_data[0], dbuf->db_data_size);
+
+		kmem_free(zvio->zvio_crypt_data, sizeof(void *));
+		return;
+	}
+
 	ASSERT(zvio->zvio_dbp);
 	ASSERT(dbuf->db_sglist_length);
 
@@ -194,7 +225,6 @@ sbd_zvol_rele_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 
 	kmem_free(zvio->zvio_crypt_data, sizeof(void *)*dbuf->db_sglist_length);
 	dmu_buf_rele_array(zvio->zvio_dbp, (int)dbuf->db_sglist_length, RDTAG);
-	
 }
 
 /*
@@ -226,7 +256,6 @@ sbd_zvol_alloc_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	stmf_sglist_ent_t *sgl;
 	uint64_t 	len = dbuf->db_data_size;
 	uint64_t 	offset = zvio->zvio_offset;
-	
 
 	/* Make sure request is reasonable */
 	if (len > sl->sl_max_xfer_len)
@@ -389,11 +418,11 @@ sbd_zvol_rele_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	boolean_t write_meta = (dbuf->db_flags & DB_WRITE_META_DATA) ? B_TRUE : B_FALSE;
 	sbd_zvol_io_t	*zvio = dbuf->db_lu_private;
 	dmu_tx_t	*tx;
-	int		sync, i, error;
+	int		sync, i, error, ret;
 	rl_t 		*rl;
 	arc_buf_t	**abp = zvio->zvio_abp;
 	int		flags = zvio->zvio_flags;
-	uint64_t	toffset, offset = zvio->zvio_offset;
+	uint64_t	coffset, toffset, offset = zvio->zvio_offset;
 	uint64_t	resid, len = dbuf->db_data_size;
 
 	/* sbd_zvol_sgl_write_remote_mirror(sl, dbuf); */
@@ -402,6 +431,34 @@ sbd_zvol_rele_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	ASSERT(flags == 0 || flags == ZVIO_COMMIT || flags == ZVIO_ABORT);
 	dmu_get_lock_para(sl->sl_zvol_bonus_hdl, offset, len, &lock_off, &lock_len);
 	rl = zfs_range_lock(sl->sl_zvol_rl_hdl, lock_off, lock_len, RL_WRITER);
+
+	if (lun_migrate_is_work(sl->sl_zvol_objset_hdl)) {
+		toffset = offset;
+		resid = len;
+		coffset = lun_migrate_get_offset(sl->sl_name);
+		for (i = 0; i < dbuf->db_sglist_length; i++) {
+			arc_buf_t *abuf;
+			int size;
+			abuf = abp[i];
+			size = arc_buf_size(abuf);
+
+			ret = lun_migrate_zvol_sgl_write(sl->sl_name, toffset, size, abuf->b_data);
+
+			if (ret == -1) {
+				zfs_range_unlock(rl);
+				sbd_zvol_rele_write_bufs_abort(sl, dbuf);
+				return (EIO);
+			}
+
+			toffset += size;
+			resid -= size;
+		}
+		if (coffset < offset) {
+			zfs_range_unlock(rl);
+			sbd_zvol_rele_write_bufs_abort(sl, dbuf);
+			return (0);
+		}
+	}
 
 	tx = dmu_tx_create(sl->sl_zvol_objset_hdl);
 	dmu_tx_hold_write(tx, ZVOL_OBJ, offset, (int)len);
@@ -434,7 +491,7 @@ sbd_zvol_rele_write_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf)
 	kmem_free(zvio->zvio_abp,
 	    sizeof (arc_buf_t *) * dbuf->db_sglist_length);
 	zvio->zvio_abp = NULL;
-	if ((sync && write_direct) || ((objset_t*)sl->sl_zvol_objset_hdl)->os_sync == ZFS_SYNC_ALWAYS) {
+	if (sync && write_direct) {
 		zil_commit(sl->sl_zvol_zil_hdl, ZVOL_OBJ);
 	}
 	return (0);
@@ -464,6 +521,17 @@ sbd_zvol_copy_read(sbd_lu_t *sl, uio_t *uio, char *initiator_wwn)
 		cmn_err(CE_WARN,   "%s  sl_access_state=%x is not allowed",__func__, sl->sl_access_state);
 		return (EIO);
 	}
+
+	/* lun migrate add */
+	if (lun_migrate_is_work(sl->sl_zvol_objset_hdl)) {
+		error = lun_migrate_zvol_read(sl->sl_name, uio);
+		if (error != 0) {
+			return (EIO);
+		} else {
+			return (0);
+		}
+	}
+	/* lun migrate add end */
 
 	dmu_get_lock_para(sl->sl_zvol_bonus_hdl, offset, len, &lock_off, &lock_len);
 #if 1
@@ -500,6 +568,7 @@ sbd_zvol_check_remote(int flag, int remote)
 int
 sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 {
+	int ret;
 	int error;
 	int sync;
 	uint64_t len;
@@ -528,7 +597,7 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 	write_direct = B_FALSE;
 	len = (uint64_t)uio->uio_resid;
 	offset = (uint64_t)uio->uio_loffset;
-	
+
 	/* Make sure request is reasonable */
 	if (len > sl->sl_max_xfer_len)
 		return (E2BIG);
@@ -549,9 +618,18 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 		kmem_free(d_iovec, uio->uio_iovcnt * sizeof(iovec_t));
 	}
 	*/
-	
+
 	dmu_get_lock_para(sl->sl_zvol_bonus_hdl, offset, len, &lock_off, &lock_len);
 	rl = zfs_range_lock(sl->sl_zvol_rl_hdl, lock_off, lock_len, RL_WRITER);
+
+	if (lun_migrate_is_work(sl->sl_zvol_objset_hdl)) {
+		ret = lun_migrate_zvol_write(sl->sl_name, uio);
+		if (ret != 1) {
+			zfs_range_unlock(rl);
+			return (ret);
+		}
+	}
+
 	sync = !zvol_get_volume_wce(sl->sl_zvol_minor_hdl);
     if (sync) {
 		write_flag |= WRITE_FLAG_APP_SYNC;
@@ -573,7 +651,7 @@ sbd_zvol_copy_write(sbd_lu_t *sl, uio_t *uio, int flags,char *initiator_wwn)
 		dmu_tx_commit(tx);
 	}
 	zfs_range_unlock(rl);
-	if ((sync && write_direct) || ((objset_t*)sl->sl_zvol_objset_hdl)->os_sync == ZFS_SYNC_ALWAYS) {
+	if (sync && write_direct) {
 		zil_commit(sl->sl_zvol_zil_hdl, ZVOL_OBJ);
 	}
 	if (error == ECKSUM)
