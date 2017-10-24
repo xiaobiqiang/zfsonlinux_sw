@@ -28,6 +28,7 @@
 #include <sys/zfs_znode.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/zpl.h>
+#include <sys/dmu_objset.h>
 
 
 static int
@@ -90,6 +91,10 @@ zpl_fh_to_dentry(struct super_block *sb, struct fid *fh,
 	fstrans_cookie_t cookie;
 	struct inode *ip;
 	int len_bytes, rc;
+	struct dentry *dentry;
+	zfs_sb_t *zsb;
+	uint64_t object;
+	boolean_t object_is_dir = B_FALSE; 
 
 	len_bytes = fh_len * sizeof (__u32);
 
@@ -120,7 +125,16 @@ zpl_fh_to_dentry(struct super_block *sb, struct fid *fh,
 
 	ASSERT((ip != NULL) && !IS_ERR(ip));
 
-	return (zpl_dentry_obtain_alias(ip));
+	zsb = ITOZSB(ip);
+	object = ITOZ(ip)->z_id;
+	object_is_dir = S_ISDIR(ip->i_mode);
+
+//	return (zpl_dentry_obtain_alias(ip));
+	dentry = zpl_dentry_obtain_alias(ip);
+	if (zsb->z_os->os_is_group && !zsb->z_os->os_is_master && object != zsb->z_root && object_is_dir){
+		dput(dentry);
+	}
+	return dentry;
 }
 
 static struct dentry *

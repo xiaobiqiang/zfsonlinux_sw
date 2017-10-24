@@ -1823,6 +1823,8 @@ int zfs_multiclus_init(void)
 		return (-1);
 	}
 	
+	zfs_multiclus_load_config();
+	
 	cmn_err(CE_WARN, "zfs multiclus initialize");
 	if (zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes != NULL && 
 		zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes != NULL) {
@@ -1835,7 +1837,7 @@ int zfs_multiclus_init(void)
 	if (err != 0) {
 		return (-1);
 	}
-	zfs_multiclus_load_config();
+
 	zfs_multiclus_table_init();
 	zfs_multiclus_tx_hash_init();
 	zfs_multiclus_rx_hash_init();

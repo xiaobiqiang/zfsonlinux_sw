@@ -2051,7 +2051,7 @@ zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp)
 	uint64_t	m_spa = 0;
 	uint64_t	m_objset = 0;
 	uint64_t	m_object = 0;
-	boolean_t	failover_down = B_FALSE;
+	boolean_t	remote_regeted = B_FALSE;
 	boolean_t	local_regeted = B_FALSE;
 	char		buf[MAXNAMELEN];
 
@@ -2148,15 +2148,8 @@ reget:
 	} else {
 		err = zfs_group_zget(zsb, object, &zp, m_spa, m_objset, fid_gen, B_FALSE);
 		if (err) {
-			if (retry < vget_repeat_times){
-				if (retry > vget_failover_time && !failover_down) {
-					zfs_failover_ctl(zsb->z_os, 80);
-					failover_down = B_TRUE;
-				}
-				if (retry > vget_slow_retry_time) {
-					zfs_group_wait(ZFS_MULTICLUS_SECOND/10);
-				}
-				retry++;
+			if (remote_regeted == B_FALSE) {
+				remote_regeted = B_TRUE;
 				goto reget;
 			}
 			cmn_err(CE_WARN, "long fid return error4, object=%lld, err: %d", (longlong_t)object, err);
@@ -2191,6 +2184,7 @@ reget:
 				}
 			}
 			zp = ITOZ(filp->f_path.dentry->d_inode);
+			dget(filp->f_path.dentry);
 			igrab(ZTOI(zp));
 			filp_close(filp, NULL);
 			vmem_free(fullpath, MAXPATHLEN);
@@ -2223,9 +2217,6 @@ reget:
 	}
 	if (zp->z_dirquota != 0 && (zsb->z_os->os_is_group && !zsb->z_os->os_is_master)) {
 		zp->z_overquota = zfs_client_overquota(zsb, zp, QUOTA_ALL );
-	}
-	if (failover_down && retry < vget_repeat_times) {
-		zfs_failover_ctl(zsb->z_os, 0);
 	}
 
 	zfs_inquota(zsb, zp);
