@@ -5,6 +5,8 @@
  * See LICENSE.qla2xxx for copyright and licensing details.
  */
 
+#include "qla_target.h"
+
 /**
  * qla24xx_calc_iocbs() - Determine number of Command Type 3 and
  * Continuation Type 1 IOCBs to allocate.
@@ -154,6 +156,7 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 	old_state = atomic_read(&fcport->state);
 	atomic_set(&fcport->state, state);
 
+
 	/* Don't print state transitions during initial allocation of fcport */
 	if (old_state && old_state != state) {
 		ql_dbg(ql_dbg_disc, fcport->vha, 0x207d,
@@ -162,6 +165,12 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 		    port_state_str[old_state], port_state_str[state],
 		    fcport->d_id.b.domain, fcport->d_id.b.area,
 		    fcport->d_id.b.al_pa);
+	}
+
+	if(old_state == FCS_DEVICE_LOST && 
+		state == FCS_DEVICE_DEAD &&
+		fcport->port_type == FCT_INITIATOR) {
+		qla2x00_fct_logout_port(fcport);
 	}
 }
 

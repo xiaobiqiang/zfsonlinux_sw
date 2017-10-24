@@ -3328,6 +3328,8 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	    (fct_i_local_port_t *)port->port_fct_private;
 	stmf_scsi_session_t	*ses   = NULL;
 
+	printk("suwei test %s entry!\n", __func__);
+
 	rport_ids.node_name = wwn_to_u64(fcport->node_name);
 	rport_ids.port_name = wwn_to_u64(fcport->port_name);
 	rport_ids.port_id = fcport->d_id.b.domain << 16 |
@@ -3347,7 +3349,8 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
          */
         qlt_fc_port_added(vha, fcport);
 
-	if (!fct_portid_to_portptr(iport, rport_ids.port_id)) {
+	if (!fct_portid_to_portptr(iport, rport_ids.port_id) &&
+		fcport->port_type == FCT_INITIATOR) {
 		printk("start registe remote port\n");
 		rp = fct_alloc(FCT_STRUCT_REMOTE_PORT,
 			port->port_fca_rp_private_size, 0);
@@ -6691,3 +6694,54 @@ qla24xx_update_all_fcp_prio(scsi_qla_host_t *vha)
 
 	return ret;
 }
+
+/*
+ * qla2x00_fct_logout_port
+ *	logout one port
+ *
+ * Input:
+ *  fcport = logout port
+ *
+ * Return:
+ *	void
+ *
+ * Context:
+ *	Kernel context.
+ */
+void
+qla2x00_fct_logout_port(fc_port_t *fcport)
+{
+	int i;
+	uint32_t remote_portid;
+	fct_i_remote_port_t	*irp = NULL;
+	fct_cmd_t		*cmd = NULL;
+	fct_i_local_port_t *iport = (fct_i_local_port_t *)(fcport->vha->qlt_port->port_fct_private);
+	
+	remote_portid = ((uint32_t)(fcport->d_id.b.area << 8 | fcport->d_id.b.al_pa)) |
+		    (((uint32_t)(fcport->d_id.b.domain)) << 16);
+
+	printk("suwei test %s logout portid = %x\n", __func__, remote_portid);
+	
+	rw_enter(&iport->iport_lock, RW_WRITER);
+	for (i = 0; i < FCT_HASH_TABLE_SIZE; i++) {
+		irp = iport->iport_rp_tb[i];
+		if(irp) {
+			if(irp->irp_portid != remote_portid)
+				continue;
+
+			cmd = fct_create_solels(iport->iport_port, irp->irp_rp,
+			    1, ELS_OP_LOGO, 0, fct_logo_cb);
+			if (cmd == NULL) {
+				stmf_trace(iport->iport_alias,
+				    "fct_implictly_logo: cmd null");
+				rw_exit(&iport->iport_lock);
+
+
+			}
+			printk("suwei test fct_post_implicit_logo!\n");
+			fct_post_implicit_logo(cmd);
+		}
+	}
+	rw_exit(&iport->iport_lock);
+}
+
