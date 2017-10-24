@@ -172,6 +172,13 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 		    fcport->d_id.b.domain, fcport->d_id.b.area,
 		    fcport->d_id.b.al_pa);
 	}
+
+	if(old_state == FCS_DEVICE_LOST &&
+                state == FCS_DEVICE_DEAD &&
+                fcport->port_type == FCT_INITIATOR) {
+                qla2x00_fct_logout_port(fcport);
+        }
+
 }
 
 static inline int
