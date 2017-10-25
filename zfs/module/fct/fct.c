@@ -1718,6 +1718,7 @@ fct_scsi_task_alloc(fct_local_port_t *port, uint16_t rp_handle,
 		return (NULL);
 	}
 	atomic_inc_16(&irp->irp_fcp_xchg_count);
+	printk("suwei test inc irp_fcp_xchg_count=%d! cmd = %p\n", irp->irp_fcp_xchg_count, cmd);
 	cmd->cmd_rp = rp;
 	icmd->icmd_flags |= ICMD_IN_TRANSITION | ICMD_KNOWN_TO_FCA;
 	rw_exit(&irp->irp_lock);
@@ -1838,6 +1839,8 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 	rw_enter(&irp->irp_lock, RW_WRITER);
 	atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
 	atomic_inc_16(&irp->irp_nonfcp_xchg_count);
+	printk("suwei test %s inc irp_nonfcp_xchg_count = %d! irp = %p, cmd = %p\n", 
+		__func__, irp->irp_nonfcp_xchg_count, irp, cmd);
 	atomic_inc_16(&irp->irp_sa_elses_count);
 	/*
 	 * An implicit LOGO can also be posted to a irp where a PLOGI might
@@ -1852,6 +1855,7 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 	fct_post_to_discovery_queue(iport, irp, icmd);
 	rw_exit(&irp->irp_lock);
 }
+EXPORT_SYMBOL(fct_post_implicit_logo);
 
 /*
  * called with iport_lock held, return the slot number
@@ -2030,10 +2034,12 @@ fct_cmd_free(fct_cmd_t *cmd)
 
 	ASSERT(!mutex_owned(&iport->iport_worker_lock));
 	/* Give the slot back */
+	printk("suwei test %s %p\n", __func__, cmd);
 	if (CMD_HANDLE_VALID(cmd->cmd_handle)) {
 		uint16_t n = CMD_HANDLE_SLOT_INDEX(cmd->cmd_handle);
 		fct_cmd_slot_t *slot;
 
+		printk("suwei test cmd handle is valid!\n");
 		/*
 		 * If anything went wrong, grab the lock as writer. This is
 		 * probably unnecessary.
@@ -2067,10 +2073,16 @@ fct_cmd_free(fct_cmd_t *cmd)
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
-			if (cmd->cmd_type == FCT_CMD_FCP_XCHG)
+			if (cmd->cmd_type == FCT_CMD_FCP_XCHG){
 				atomic_dec_16(&irp->irp_fcp_xchg_count);
-			else
+				printk("suwei test FCT_CMD_FCP_XCHG dec irp_fcp_xchg_count = %d! cmd = %p\n", 
+					irp->irp_fcp_xchg_count, cmd);
+			}
+			else {
 				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+				printk("suwei test FCT_CMD_NON_FCP_XCHG dec irp_nonfcp_xchg_count = %d! cmd = %p\n",
+					irp->irp_nonfcp_xchg_count, cmd);
+			}
 		}
 		rw_exit(&iport->iport_lock);
 	} else if ((icmd->icmd_flags & ICMD_IMPLICIT) &&
@@ -2079,16 +2091,28 @@ fct_cmd_free(fct_cmd_t *cmd)
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
-			if (cmd->cmd_type == FCT_CMD_FCP_XCHG)
+			if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
 				atomic_dec_16(&irp->irp_fcp_xchg_count);
-			else
+				printk("suwei test FCT_CMD_FCP_XCHG 2 dec irp_fcp_xchg_count = %d! cmd = %p\n",
+					irp->irp_fcp_xchg_count, cmd);
+			}
+			else {
 				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+				printk("suwei test FCT_CMD_NON_FCP_XCHG 2 dec irp_nonfcp_xchg_count = %d! cmd = %p\n",
+					irp->irp_nonfcp_xchg_count, cmd);
+			}
 		}
+	} else {
+		printk("suwei test %s not dec cmd = %p, cmd_handle = 0x%llx, icmd_flags = 0x%x\n", 
+			__func__, cmd, cmd->cmd_handle, icmd->icmd_flags);
 	}
 
 	if (do_abts_acc) {
 		fct_cmd_t *lcmd = cmd->cmd_link;
 		fct_fill_abts_acc(lcmd);
+		printk("suwei test %s do_abts_acc = %d cmd = %p\n",
+			__func__, do_abts_acc, cmd);
+		
 		if (port->port_send_cmd_response(lcmd,
 		    FCT_IOF_FORCE_FCA_DONE) != FCT_SUCCESS) {
 			/*
@@ -2098,6 +2122,10 @@ fct_cmd_free(fct_cmd_t *cmd)
 			(void) snprintf(info, sizeof (info),
 			    "fct_cmd_free: iport-%p, ABTS_ACC"
 			    " port_send_cmd_response failed", (void *)iport);
+			
+			printk("suwei test %s port_send_cmd_response failed, cmd = %p\n",
+				__func__, cmd);
+			
 			(void) fct_port_shutdown(iport->iport_port,
 			    STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info);
 			return;
@@ -2505,6 +2533,7 @@ fct_create_solels(fct_local_port_t *port, fct_remote_port_t *rp, int implicit,
 	els->els_req_payload[0] = elsop;
 	return (cmd);
 }
+EXPORT_SYMBOL(fct_create_solels);
 
 fct_cmd_t *
 fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
