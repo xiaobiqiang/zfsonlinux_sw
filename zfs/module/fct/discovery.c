@@ -1002,7 +1002,7 @@ start_els_posting:;
 		 */
 		atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
 	}
-	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);
+	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);	
 
 	/*
 	 * Grab the remote port lock while we modify the port state.
@@ -2402,6 +2402,7 @@ fct_logo_cb(fct_i_cmd_t *icmd)
 		    "solicited LOGO is not accepted - icmd/%p", icmd);
 	}
 }
+EXPORT_SYMBOL(fct_logo_cb);
 
 void
 fct_gsnn_cb(fct_i_cmd_t *icmd)

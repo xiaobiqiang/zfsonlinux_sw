@@ -1852,6 +1852,7 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 	fct_post_to_discovery_queue(iport, irp, icmd);
 	rw_exit(&irp->irp_lock);
 }
+EXPORT_SYMBOL(fct_post_implicit_logo);
 
 /*
  * called with iport_lock held, return the slot number
@@ -2067,10 +2068,12 @@ fct_cmd_free(fct_cmd_t *cmd)
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
-			if (cmd->cmd_type == FCT_CMD_FCP_XCHG)
+			if (cmd->cmd_type == FCT_CMD_FCP_XCHG){
 				atomic_dec_16(&irp->irp_fcp_xchg_count);
-			else
+			}
+			else {
 				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+			}
 		}
 		rw_exit(&iport->iport_lock);
 	} else if ((icmd->icmd_flags & ICMD_IMPLICIT) &&
@@ -2079,16 +2082,19 @@ fct_cmd_free(fct_cmd_t *cmd)
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
-			if (cmd->cmd_type == FCT_CMD_FCP_XCHG)
+			if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
 				atomic_dec_16(&irp->irp_fcp_xchg_count);
-			else
+			}
+			else {
 				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+			}
 		}
-	}
+	} 
 
 	if (do_abts_acc) {
 		fct_cmd_t *lcmd = cmd->cmd_link;
 		fct_fill_abts_acc(lcmd);
+		
 		if (port->port_send_cmd_response(lcmd,
 		    FCT_IOF_FORCE_FCA_DONE) != FCT_SUCCESS) {
 			/*
@@ -2098,6 +2104,8 @@ fct_cmd_free(fct_cmd_t *cmd)
 			(void) snprintf(info, sizeof (info),
 			    "fct_cmd_free: iport-%p, ABTS_ACC"
 			    " port_send_cmd_response failed", (void *)iport);
+			
+			
 			(void) fct_port_shutdown(iport->iport_port,
 			    STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info);
 			return;
@@ -2505,6 +2513,7 @@ fct_create_solels(fct_local_port_t *port, fct_remote_port_t *rp, int implicit,
 	els->els_req_payload[0] = elsop;
 	return (cmd);
 }
+EXPORT_SYMBOL(fct_create_solels);
 
 fct_cmd_t *
 fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,
