@@ -1003,8 +1003,6 @@ start_els_posting:;
 		atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
 	}
 	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);	
-	printk("suwei test %s inc irp_nonfcp_xchg_count = %d! irp = %p, cmd = %p, op = %d\n", 
-		__func__, irp->irp_nonfcp_xchg_count, irp, cmd, op);
 
 	/*
 	 * Grab the remote port lock while we modify the port state.
@@ -1741,7 +1739,6 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	clock_t			 end_time;
 
 	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
-	printk("suwei test irp_nonfcp_xchg_count=%d, irp_fcp_xchg_count=%d\n", irp->irp_nonfcp_xchg_count, irp->irp_fcp_xchg_count);
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -2387,8 +2384,6 @@ fct_handle_solct(fct_cmd_t *cmd)
 	rw_exit(&iport->iport_lock);
 
 	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);
-	printk("suwei test %s inc irp_nonfcp_xchg_count = %d! irp = %p, cmd = %p\n", 
-		__func__, irp->irp_nonfcp_xchg_count, irp, cmd);
 	atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
 	icmd->icmd_start_time = ddi_get_lbolt();
 	ret = iport->iport_port->port_send_cmd(cmd);
