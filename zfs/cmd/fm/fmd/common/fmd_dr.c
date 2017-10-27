@@ -108,7 +108,7 @@ fmd_device_event(fmd_msg_t *msg)
 
 	if (strstr(msg->fm_buf, "add") != NULL) {
 		//printf("fmd topo update:%s\n", msg->fm_buf);
-		sleep(3)
+		sleep(3);
 		fmd_topo_update(B_TRUE, B_FALSE);
 	}
 
