@@ -4581,7 +4581,7 @@ int zfs_get_masterroot_attr(struct inode *ip, znode_t **tmp_root_zp)
 	zsb = ZTOZSB(zp);
 	object = zsb->z_os->os_master_root;
 
-	err = zfs_group_zget(zsb, object, tmp_root_zp, 0, 0, 0, B_TRUE);
+	err = zfs_group_zget(zsb, object, tmp_root_zp, 0, 0, 0, B_FALSE);
 	return (err);
 }
 
