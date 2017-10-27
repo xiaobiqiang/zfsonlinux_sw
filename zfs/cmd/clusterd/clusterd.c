@@ -3482,8 +3482,8 @@ cluster_import_event_handler(const void *buffer, int bufsize)
 				cluster_import_response(msg->pool_guid, hostid, msg->hostid);
 			}
 		} else if (cluster_pool_in_local(NULL, msg->pool_guid)) {
-			syslog(LOG_ERR, "NOTICE: pool '%s' imported, stop other host %llu",
-				pool->name, (unsigned long long)msg->hostid);
+			syslog(LOG_ERR, "NOTICE: pool %llu imported, stop other host %llu",
+				(unsigned long long)msg->pool_guid, (unsigned long long)msg->hostid);
 			hostid = gethostid();
 			cluster_import_response(msg->pool_guid, hostid, msg->hostid);
 		}
@@ -5093,6 +5093,8 @@ dup_failover_config(failover_conf_t *config)
 	return (f);
 }
 
+#define	IFLABELMAXLEN	15
+
 /*
  * @flag: =0 normal ip failover
  *        =1 restore ip failover from clusterd crash
@@ -5102,7 +5104,7 @@ static int
 do_ip_failover(failover_conf_t *conf, int flag)
 {
 	char cmd[BUFSIZ];
-	char alias[IFALIASZ];
+	char alias[IFLABELMAXLEN];
 	service_if_t *ifp;
 	int ip_on_link = 0;
 	service_zpool_t *zp;
@@ -5140,7 +5142,7 @@ do_ip_failover(failover_conf_t *conf, int flag)
 	}
 
 	if (!ip_on_link) {
-		snprintf(alias, IFALIASZ, "%s:%s:%s",
+		snprintf(alias, IFLABELMAXLEN, "%s:%s:%s",
 			conf->eth, conf->prop_id, conf->zpool_name);
 		snprintf(cmd, BUFSIZ, "%s addr add %s/%d brd + label %s dev %s",
 			IP_CMD, conf->ip_addr,
