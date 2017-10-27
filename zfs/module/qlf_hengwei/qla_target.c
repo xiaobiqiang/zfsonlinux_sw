@@ -5876,7 +5876,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	cmd->vha = vha;
 	cmd->reset_count = vha->hw->chip_reset;
 
-	sess = qlt_find_sess_by_sid(ha->tgt.qla_tgt, atio_from->u.isp24.fcp_hdr.s_id);
+	sess = qlt_find_sess_by_sid(vha->vha_tgt.qla_tgt, atio_from->u.isp24.fcp_hdr.s_id);
         if(sess == NULL) {
                 printk("can not find the session!\n");
                 return;
