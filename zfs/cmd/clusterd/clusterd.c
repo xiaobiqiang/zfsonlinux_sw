@@ -153,6 +153,7 @@ typedef struct service_if {
 	char eth[MAXLINKNAMELEN];
 	char alias[IFALIASZ];
 	struct link_list *zpool_list;
+	int zpool_refs;
 	failover_conf_t *failover_config;
 
 	int flag;
@@ -5184,6 +5185,7 @@ do_ip_failover(failover_conf_t *conf, int flag)
 	 */
 	ifp->refs = (ip_on_link && flag == 0) ? 2 : 1;
 	ifp->zpool_list = NULL;
+	ifp->zpool_refs = 0;
 	ifp->flag = 0;
 	ifp->failover_config = dup_failover_config(conf);
 
@@ -5217,11 +5219,13 @@ add_zpool:
 	}
 	node->next = ifp->zpool_list;
 	ifp->zpool_list = node;
+
 	if ((node = create_link(ifp)) == NULL) {
 		syslog(LOG_ERR, "alloc zp->if_list node failed");
 		err = ENOMEM;
 		goto exit_func;
 	}
+	ifp->zpool_refs++;
 	node->next = zp->if_list;
 	zp->if_list = node;
 
@@ -5291,7 +5295,8 @@ do_ip_restore(failover_conf_t *conf)
 				list_remove(&failover_ip_list, ifp);
 				if (ifp->failover_config)
 					free(ifp->failover_config);
-				free(ifp);
+				/*free(ifp);*/
+				assert(ifp->zpool_refs > 0);
 				ifp = tmp;
 
 				remove_monitor_dev(conf->eth);
@@ -5312,6 +5317,11 @@ update_zpool:
 				p = *pp;
 				ifp = (service_if_t *) p->ptr;
 				if (ifp && strcmp(ifp->ip_addr, conf->ip_addr) == 0) {
+					assert(ifp->zpool_refs > 0);
+					if (--ifp->zpool_refs == 0) {
+						assert(!list_link_active(&ifp->list));
+						free(ifp);
+					}
 					*pp = p->next;
 					free(p);
 					break;
