@@ -1655,10 +1655,10 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	 * and allows us to do more fine-grained space accounting.
 	 */
 	while (n > 0) {
-		abuf = NULL;
 		woff = uio->uio_loffset;
         sync = dmu_objset_sync_check(zsb->z_os);
 again:
+		abuf = NULL;
 		suq_err = zfs_owner_oversoftquota(zsb, zp, B_FALSE);
 		sgq_err = zfs_owner_oversoftquota(zsb, zp, B_TRUE);
 		if ( suq_err == SOFTQUOTA_OVER_HARD  || sgq_err == SOFTQUOTA_OVER_HARD) {
