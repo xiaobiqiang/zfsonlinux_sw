@@ -5357,6 +5357,14 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 			mode = zfs_enable_disable_double_data((boolean_t)zc->zc_obj);
 			zc->zc_sendobj = (uint64_t)mode;
 			break;
+		case SET_DOUBLE_DATA:
+			mode = zfs_set_double_data((char*)zc->zc_value);
+			zc->zc_sendobj = (uint64_t)mode;
+			break;
+		case GET_DOUBLE_DATA:
+			mode = zfs_get_double_data();
+			zc->zc_sendobj = (uint64_t)mode;
+			break;
 		case ENABLE_MULTICLUS:
 			error = zfs_multiclus_init();
 			break;

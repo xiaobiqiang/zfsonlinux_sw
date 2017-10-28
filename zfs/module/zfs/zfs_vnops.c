@@ -7496,6 +7496,20 @@ int zfs_enable_disable_double_data(boolean_t double_data)
 	return TO_DOUBLE_DATA_FILE;
 }
 
+int zfs_set_double_data(char *double_data_mode)
+{
+	if(double_data_mode && (simple_strtol(double_data_mode, NULL, 10) || !strcasecmp(double_data_mode, "on")))
+		TO_DOUBLE_DATA_FILE = 1;
+	else
+		TO_DOUBLE_DATA_FILE = 0;
+	return TO_DOUBLE_DATA_FILE;
+}
+
+int zfs_get_double_data(void)
+{
+	return TO_DOUBLE_DATA_FILE;
+}
+
 #if defined(_KERNEL) && defined(HAVE_SPL)
 module_param(zfs_read_chunk_size, long, 0644);
 MODULE_PARM_DESC(zfs_read_chunk_size, "Bytes to read per chunk");

@@ -3647,6 +3647,8 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	}else if (flags == DOUBLE_DATA) {
 		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
 		zc.zc_obj = (uint64_t)sync_param->double_data;
+	}else if (flags == SET_DOUBLE_DATA) {
+		strncpy(zc.zc_value, group_name, MAXPATHLEN * 2);
 	}
 	else {
 		if (group_name) {
@@ -3770,6 +3772,12 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 					printf("Double Data Mode Enabled.\n");
 				else
 					printf("Double Data Mode Disabled.\n");
+			}
+			if ((flags == SET_DOUBLE_DATA) || (flags == GET_DOUBLE_DATA)){
+				if (zc.zc_sendobj)
+					printf("DOUBLE_DATA ON.\n");
+				else
+					printf("DOUBLE_DATA OFF.\n");
 			}
 		}
 	}
