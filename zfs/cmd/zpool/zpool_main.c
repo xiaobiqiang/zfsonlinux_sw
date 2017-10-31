@@ -4870,16 +4870,17 @@ print_scan_status(pool_scan_stat_t *ps, xmlNodePtr parent_node)
 	 */
 	if (ps->pss_state == DSS_FINISHED) {
 		uint64_t minutes_taken = (end - start) / 60;
+		uint64_t seconds_taken = (end - start) % 60;
 		char *fmt = NULL;
 
 		if (ps->pss_func == POOL_SCAN_SCRUB) {
-			fmt = gettext("scrub repaired %s in %lluh%um with "
+			fmt = gettext("scrub repaired %s in %lluh%um%us with "
 			    "%llu errors on %s");
 		} else if (ps->pss_func == POOL_SCAN_RESILVER) {
-			fmt = gettext("resilvered %s in %lluh%um with "
+			fmt = gettext("resilvered %s in %lluh%um%us with "
 			    "%llu errors on %s");
 		} else if (ps->pss_func == POOL_SCAN_LOW) {
-			fmt = gettext("migrate low data %s in %lluh%um with "
+			fmt = gettext("migrate low data %s in %lluh%um%us with "
 			    "%llu errors on %s");
 		}
 		
@@ -4887,6 +4888,7 @@ print_scan_status(pool_scan_stat_t *ps, xmlNodePtr parent_node)
 		(void) printf(fmt, processed_buf,
 		    (u_longlong_t)(minutes_taken / 60),
 		    (uint_t)(minutes_taken % 60),
+		    (uint_t)seconds_taken,
 		    (u_longlong_t)ps->pss_errors,
 		    ctime((time_t *)&end));
 		if (parent_node != NULL ) {
@@ -4894,6 +4896,7 @@ print_scan_status(pool_scan_stat_t *ps, xmlNodePtr parent_node)
 			n =  sprintf(buf, fmt, processed_buf,
 				(u_longlong_t)(minutes_taken / 60),
 				(uint_t)(minutes_taken % 60),
+				(uint_t)seconds_taken,
 				(u_longlong_t)ps->pss_errors,
 				ctime((time_t *)&end));
 			memset(buf+n-1, 0, 1);

@@ -54,7 +54,7 @@ static int test_recv_impl (char *file, int line, int sock)
 {
     int rc;
 	void *recv = NULL;
-	int timeout = 1000;
+	int timeout = 3000;
 
 	if (nn_setsockopt(sock, NN_SOL_SOCKET, NN_RCVTIMEO,
 		&timeout, sizeof(timeout)) < 0) {

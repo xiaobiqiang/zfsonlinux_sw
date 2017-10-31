@@ -223,7 +223,7 @@ print_header(FILE *fp)
 	(void) fprintf(fp, "<!--\n");
 	(void) fprintf(fp, " This topology map file was generated on "
 	    "%-15s for %s\n", buf, uts.nodename);
-	(void) fprintf(fp, "<-->\n\n");
+	(void) fprintf(fp, "-->\n\n");
 }
 
 void
