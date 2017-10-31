@@ -3381,6 +3381,10 @@ over_meta_open:
 
 	sl->sl_trans_op = SL_OP_NONE;
 
+	/* lun migrate add */
+	(void) lun_migrate_find_recovery(sl->sl_name);
+	/* lun migrate end */
+
 	/* 2462 type is changed to DMU_OST_ZVOL */
 	/* sbd_create_object(sl->sl_name,DMU_OST_ZVOL); */		
 	return (0);
@@ -4536,6 +4540,13 @@ sdl_do_dereg:;
 	cluster_san_hostinfo_rele(sl->sl_lu->lu_active_sess); /* hold: "lu_reg" */
 	/* 2462 type is changed to DMU_OST_ZVOL */
 	/* sbd_destroy_object(sl->sl_name,DMU_OST_ZVOL); */
+
+	/* lun migrate add */
+	lun_copy_t *lct = lun_migrate_find_by_name(sl->sl_name);
+	if (lct != NULL)
+		(void) lun_migrate_destroy(lct);
+	/* lun migrate end */
+
 	return (sbd_close_delete_lu(sl, 0));
 }
 

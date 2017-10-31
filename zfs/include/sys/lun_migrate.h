@@ -91,6 +91,7 @@ typedef struct lun_migrate {
 extern void lun_migrate_init(void);
 extern void	lun_migrate_fini(void);
 extern void lun_migrate_recovery(const char *fsname);
+extern void lun_migrate_find_recovery(const char *name);
 extern void lun_migrate_start(lun_copy_t *lct, boolean_t b_new);
 extern void lun_migrate_stop(lun_copy_t *lct);
 extern void lun_migrate_restart(lun_copy_t *lct);
