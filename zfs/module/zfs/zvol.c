@@ -1136,12 +1136,6 @@ zvol_first_open(zvol_state_t *zv)
 		zv->zv_flags &= ~ZVOL_RDONLY;
 	}
 
-	/* add from lun migrate */
-	ret = zap_lookup(os, ZVOL_ZAP_OBJ, "copy_position", 8, 1, &position);
-	if (ret == 0) {
-		(void) lun_migrate_recovery(zv->zv_name);
-	}
-
 out_owned:
 	if (error) {
 		dmu_objset_disown(os, zvol_tag);

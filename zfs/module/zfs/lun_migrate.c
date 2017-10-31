@@ -74,7 +74,53 @@ lun_migrate_destroy(lun_copy_t *lct)
 	mutex_exit(&lct->lun_copy_lock);
 }
 
+lun_copy_t *lun_migrate_find_by_name(char *name)
+{
+	int i = 0;
+	lun_copy_t *lct = NULL;
+
+	if (lun_migrate_manager.lum_state == LUN_MIGRATE_NOINIT)
+		return (NULL);
+
+	for (i = 0; i < LUN_COPY_NUM; i++) {
+		lct = &lun_migrate_manager.lum_copy_array[i];
+		if (lct->lun_copy_state != LUN_COPY_NONE &&
+				strcmp(name, lct->lun_host_dev) == 0) {
+			return (lct);
+		}
+	}
+
+	return (NULL);
+}
+
 #ifdef _KERNEL
+void lun_migrate_find_recovery(const char *name)
+{
+	int err = 0;
+	uint64_t position = 0;
+	char *fs = NULL;
+	objset_t *os = NULL;
+	lun_copy_t *lct = NULL;
+
+	if ((fs = strstr(name, "zvol")) == NULL)
+		fs = name; 
+	else
+		fs = fs + 5;
+
+	err = dmu_objset_hold(fs, FTAG, &os);
+	if (err) {
+		printk("Fail to hold objset.\n");
+		return;
+	}
+
+	err = zap_lookup(os, ZVOL_ZAP_OBJ, "copy_position", 8, 1, &position);
+	if (err == 0) {
+		(void) lun_migrate_recovery(fs);
+	}
+
+	dmu_objset_rele(os, FTAG);
+	return;
+}
 
 uint64_t lun_migrate_get_offset(char *name)
 {
@@ -98,25 +144,6 @@ lun_copy_t *lun_migrate_find_by_fs(const char *fs)
 		lct = &lun_migrate_manager.lum_copy_array[i];
 		if (lct->lun_copy_state != LUN_COPY_NONE &&
 				strcmp(fs, lct->lun_zfs) == 0) {
-			return (lct);
-		}
-	}
-
-	return (NULL);
-}
-
-lun_copy_t *lun_migrate_find_by_name(char *name)
-{
-	int i = 0;
-	lun_copy_t *lct = NULL;
-
-	if (lun_migrate_manager.lum_state == LUN_MIGRATE_NOINIT)
-		return (NULL);
-
-	for (i = 0; i < LUN_COPY_NUM; i++) {
-		lct = &lun_migrate_manager.lum_copy_array[i];
-		if (lct->lun_copy_state != LUN_COPY_NONE &&
-				strcmp(name, lct->lun_host_dev) == 0) {
 			return (lct);
 		}
 	}
@@ -372,6 +399,7 @@ lun_copy_ready(lun_copy_t *lct)
 			} else {
 				read = 0;
 				lct->lun_read_fp = rfp;
+				lct->lun_read_fp->f_pos = lct->lun_cursor_off;
 			}
 		}
 
@@ -382,6 +410,7 @@ lun_copy_ready(lun_copy_t *lct)
 			} else {
 				write = 0;
 				lct->lun_write_fp = wfp;
+				lct->lun_write_fp->f_pos = lct->lun_cursor_off;
 			}
 		}
 
@@ -758,7 +787,7 @@ void lun_migrate_fini()
 			mutex_exit(&lct->lun_copy_lock);
 
 			mutex_enter(&lct->lun_copy_out_lock);
-			cv_wait(&lct->lun_copy_out_cv, &lct->lun_copy_lock);
+			cv_wait(&lct->lun_copy_out_cv, &lct->lun_copy_out_lock);
 			mutex_exit(&lct->lun_copy_out_lock);
 		}
 
@@ -777,6 +806,8 @@ EXPORT_SYMBOL(lun_migrate_destroy);
 EXPORT_SYMBOL(lun_migrate_zvol_write);
 EXPORT_SYMBOL(lun_migrate_zvol_read);
 EXPORT_SYMBOL(lun_migrate_get_offset);
+EXPORT_SYMBOL(lun_migrate_find_by_name);
+EXPORT_SYMBOL(lun_migrate_find_recovery);
 EXPORT_SYMBOL(lun_migrate_zvol_sgl_read);
 EXPORT_SYMBOL(lun_migrate_zvol_sgl_write);
 #endif

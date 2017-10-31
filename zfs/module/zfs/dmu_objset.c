@@ -53,7 +53,6 @@
 #include <sys/dsl_destroy.h>
 #include <sys/vdev.h>
 #include <sys/zfs_mirror.h>
-#include <sys/lun_migrate.h>
 
 /*
  * Needed to close a window in dnode_move() that allows the objset to be freed
@@ -1115,9 +1114,6 @@ dmu_objset_evict(objset_t *os)
 	int t;
 
 	dsl_dataset_t *ds = os->os_dsl_dataset;
-
-	if (lun_migrate_is_work(os) == 1)
-		(void) lun_migrate_destroy(os->os_lun_copy);
 
 #ifdef _KERNEL
     dmu_objset_rewrite_worker_fini(os);
