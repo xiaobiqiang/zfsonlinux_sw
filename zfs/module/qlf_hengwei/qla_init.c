@@ -3686,7 +3686,9 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 			 * our login command and log out the initiator, which
 			 * seems to cause havoc).
 			 */
+#if 0
 			if (qla_ini_mode_enabled(base_vha)) {
+#endif
 				/* Find a new loop ID to use. */
 				fcport->loop_id = next_loopid;
 				rval = qla2x00_find_new_loop_id(base_vha,
@@ -3699,6 +3701,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 				/* Login and update database */
 				qla2x00_fabric_dev_login(vha, fcport,
 				    &next_loopid);
+#if 0
 			} else {
 				ql_dbg(ql_dbg_tgt_mgt, vha, 0xf079,
 					"new port %8phC state 0x%x flags 0x%x fc4_type "
@@ -3709,6 +3712,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 					fcport->flags, fcport->fc4_type,
 					fcport->scan_state);
 			}
+#endif
 
 			list_move_tail(&fcport->list, &vha->vp_fcports);
 		}
