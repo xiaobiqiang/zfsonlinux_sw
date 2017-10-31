@@ -49,6 +49,7 @@
 #include <sys/zvol.h>
 #include <sys/dmu_objset.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/lun_migrate.h>
 /* #include <sys/dsl_crypto.h> */
 #include <sys/cluster_san.h>
 #include <sys/stmf_sbd.h>
