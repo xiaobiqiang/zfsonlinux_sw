@@ -35,6 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <netinet/in.h>
+#include <unistd.h>
 
 #include "clumgt_impl.h"
 #include "clu_cmd.h"
@@ -48,8 +49,10 @@ static void daemon_update(void);
 static void detachfromtty(void);
 static void parse_args(int argc, char *argv[]);
 
-/* set if invoked via /usr/lib/clumgt/clumgtd */
-static int l_daemon_mode = FALSE;
+/* set if invoked via /usr/lib/clumgt/clumgtd
+ * 0: run as client; 1: run in background of command line; 2: run by systemctl.
+ */
+static int l_daemon_mode = 0;
 
 /* output directed to syslog during daemon mode if set */
 static int l_logflag = FALSE;
@@ -102,16 +105,18 @@ main(int argc, char *argv[])
 
 	parse_args(argc, argv);
 
-	if (l_daemon_mode == TRUE) {
+	if (l_daemon_mode) {
 		/*
 		 * fork before detaching from tty in order to print error
 		 * message if unable to acquire file lock.  locks not preserved
 		 * across forks.  Even under debug we want to fork so that
 		 * when executed at boot we don't hang.
 		 */
-		if (fork() != 0) {
-			clumgt_exit(0);
-			/*NOTREACHED*/
+		if(l_daemon_mode == 1){
+			if (fork() != 0) {
+				clumgt_exit(0);
+				/*NOTREACHED*/
+			}
 		}
 
 		putenv("CLUMGT=2");
@@ -131,11 +136,11 @@ main(int argc, char *argv[])
 		if ((pid = enter_daemon_lock()) == getpid()) {
 			detachfromtty();
 
-			if (get_local_hostname(c_hostname, sizeof(c_hostname)) < 0) {
+			if (gethostname(c_hostname, sizeof(c_hostname)) < 0) {
 				clumgt_errprint("get hostname failed\n");
 				clumgt_exit(1);
 			}
-			
+
 			if(clumgt_server() != 0) {
 				clumgt_errprint("create server failed\n");
 				clumgt_exit(1);
@@ -162,11 +167,22 @@ main(int argc, char *argv[])
 static void
 parse_args(int argc, char *argv[])
 {
+	char c = 0;
 
 	if (strcmp(l_prog, CLUMGTD) == 0) {
-		l_daemon_mode = TRUE;
+		l_daemon_mode = 1; /*run in background of command line.*/
+		while ((c = getopt(argc, argv, "d")) != EOF) {
+			switch (c) {
+			case 'd': /*run by systemctl.*/
+				l_daemon_mode = 2;
+				return;
+			default:
+				return;
+			}
+		}
+	}else{
+		l_daemon_mode = 0;
 	}
-
 }
 
 
@@ -415,28 +431,6 @@ clumgt_exit(int status)
 	/*NOTREACHED*/
 }
 
-int get_local_hostname(char *buf, int reserved)
-{
-        int i=0;
-        FILE *fp;
-        fp = fopen("/etc/cluster_hostname", "r");
-        if (fp == NULL) {
-                return (-1);
-        }
-        fgets(buf, HOSTNAMELEN, fp);
-        fclose(fp);
-        for (i=0; i<HOSTNAMELEN; i++) {
-                if (*(buf+i) == ' ' || *(buf+i) == '\n') {
-                        break;
-                }
-        }
-        if (i == HOSTNAMELEN)
-                i = HOSTNAMELEN -1;
-        *(buf+i) = 0;
-        return 0;
-}
-
-
 int
 clumgt_get_hosturl(char *url)
 {
@@ -455,7 +449,7 @@ clumgt_get_hosturl(char *url)
 		return (-1);
 	}
 
-	if (get_local_hostname(hostname, HOSTNAMELEN) < 0) {
+	if (gethostname(hostname, HOSTNAMELEN) < 0) {
 			clumgt_errprint("get host name failed.\n");
 			return (-1);
 	}
@@ -503,7 +497,7 @@ void *clumgt_worker (void *arg)
 		hdr.msg_control = &control;
 		hdr.msg_controllen = NN_MSG;
 
-		if (get_local_hostname(hostname, sizeof(hostname)) < 0) {
+		if (gethostname(hostname, sizeof(hostname)) < 0) {
 			clumgt_errprint("get hostname failed\n");
 			continue;
 		}

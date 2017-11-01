@@ -473,7 +473,7 @@ clumgt_handle_common_req(char *cmd, clumgt_response_t **presp, uint32_t req_type
 		strcpy(resp->resp, pxml_str);
 	else
 		strcpy(resp->resp, out_buf);
-	get_local_hostname(resp->hostname, sizeof(resp->hostname));
+	gethostname(resp->hostname, sizeof(resp->hostname));
 
 	free(out_buf);
 	

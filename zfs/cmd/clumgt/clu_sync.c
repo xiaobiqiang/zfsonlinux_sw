@@ -51,7 +51,7 @@ sync_initqueue(void)
 	q->head = 0;
 	q->msg_num = 0;
 	q->cur_sync_locate = 0;
-	get_local_hostname(q->hostname, sizeof(q->hostname));
+	gethostname(q->hostname, sizeof(q->hostname));
 	(void)pthread_mutex_init(&q->sync_lock, NULL);
 	(void)pthread_cond_init(&q->sync_cv, NULL); 
 }
@@ -358,7 +358,7 @@ out:
 	sq->msg_head.seq_start = seq_start;
 	sq->msg_head.guid = guid;
 	
-	get_local_hostname(resp->hostname, sizeof(resp->hostname));
+	gethostname(resp->hostname, sizeof(resp->hostname));
 	
 	*presp = resp;	
 
@@ -392,7 +392,7 @@ out:
 	resp = nn_allocmsg(sizeof(clumgt_response_t), 0);
 	resp->resp_len = sizeof(clumgt_response_t);
 	resp->ret_val = ret;
-	get_local_hostname(resp->hostname, sizeof(resp->hostname));
+	gethostname(resp->hostname, sizeof(resp->hostname));
 	
 	*presp = resp;
 	return 0;
