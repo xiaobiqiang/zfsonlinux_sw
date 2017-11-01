@@ -7683,6 +7683,7 @@ static int
 zfs_do_lun_migrate(int argc, char **argv)
 {
 	int c = 0;
+	int check_now = 0;
 	int has_guid = 0;
 	char *dst = NULL;
 	char *pool = NULL;
@@ -7737,8 +7738,25 @@ zfs_do_lun_migrate(int argc, char **argv)
 		dst = argv[1];
 		return (zfs_recovery_lun_migrate(g_zfs, dst));
 	} else if (strcmp(argv[0], "check") == 0) {
-		dst = argv[1];
-		return (zfs_check_lun_migrate(g_zfs, dst));
+		while ((c = getopt(argc, argv, "nf")) != -1) {
+			switch (c) {
+			case 'n':
+				check_now = 1;
+				break;
+			case 'f':
+				break;
+			case '?':
+			default:
+				(void) fprintf(stderr, gettext("invalid option '%c'\n"),optopt);
+					usage(B_FALSE);
+			}
+		}
+
+		argc -= optind;
+		argv += optind;
+		dst = argv[0];
+
+		return (zfs_check_lun_migrate(g_zfs, dst, check_now));
 	} else {
 		(void) fprintf(stderr, gettext("Invalid arguments\n"));
 	}

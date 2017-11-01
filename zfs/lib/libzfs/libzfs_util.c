@@ -3601,7 +3601,7 @@ zfs_lun_migrate_check(libzfs_handle_t *hdl, const char *dst, char *pool, char *o
 }
 
 int
-zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname)
+zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname, int now)
 {
 	int ret = 0;
 	int i = 1;
@@ -3625,6 +3625,11 @@ zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname)
 			}
 
 			percent = (zc.zc_lunmigrate_cur * 1.0 / zc.zc_lunmigrate_total * 1.0);
+			if (now == 1) {
+				ret = (int)(percent*100);
+				return (ret);
+			}
+
 			if (zc.zc_pad[1] == 2) {
 				printf("[%-51s][%.0f%%][%c][stop]\r",bar,(percent * 100),lab[b%4]);
 			} else {
