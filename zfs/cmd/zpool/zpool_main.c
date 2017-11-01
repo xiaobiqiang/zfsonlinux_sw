@@ -76,6 +76,23 @@
 
 #define	POOL_XML_PATH "/tmp/pool.xml"
 
+typedef struct slot_record {
+	int      sr_enclosure;
+	int      sr_slot;
+	struct slot_record *sr_next;
+	char sr_serial[ARGS_LEN];
+	char sr_guid[ARGS_LEN];
+} slot_record_t;
+
+typedef struct slot_map {
+	slot_record_t *sm_head;
+	int sm_total;
+} slot_map_t;
+
+extern void disk_get_slot_map(slot_map_t *sm);
+extern void slot_map_free(slot_map_t *sm);
+extern void slot_map_find_value_guid(slot_map_t *sm, disk_info_t *di);
+
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
 
@@ -1843,6 +1860,9 @@ xmlNodePtr create_item_node(xmlNodePtr parent_node, const char *name, char *stat
 
 }
 
+slot_map_t g_sm;;
+disk_info_t g_di_cur;
+
 /*
  * Print out configuration state as requested by status_callback.
  */
@@ -1897,10 +1917,14 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		} else {
 			sprintf(di.dk_name, "/dev/%s", name);
 		}
-		disk_get_serial(&di);
-		disk_get_slotid(&di);
-		sprintf(en_buf, "%d", di.dk_enclosure);
-		sprintf(slot_buf, "%d", di.dk_slot);
+		//disk_get_serial(&di);
+		//disk_get_slotid(&di);
+		//sprintf(en_buf, "%d", di.dk_enclosure);
+		//sprintf(slot_buf, "%d", di.dk_slot);
+		strcpy(g_di_cur.dk_serial, name);
+		slot_map_find_value_guid(&g_sm, &g_di_cur);
+		sprintf(en_buf, "%d", g_di_cur.dk_enclosure);
+		sprintf(slot_buf, "%d", g_di_cur.dk_slot);
 	} else {
 		sprintf(en_buf, "%s", "--");
 		sprintf(slot_buf, "%s", "--");
@@ -5719,6 +5743,8 @@ zpool_do_status(int argc, char **argv)
 	unsigned long interval = 0, count = 0;
 	status_cbdata_t cb = { 0 };
 
+	bzero(&g_sm, sizeof(slot_map_t));
+	disk_get_slot_map(&g_sm);
 	/* check options */
 	while ((c = getopt(argc, argv, "gLPvxDT:")) != -1) {
 		switch (c) {
@@ -5795,6 +5821,7 @@ zpool_do_status(int argc, char **argv)
 		(void) sleep(interval);
 	}
 
+	slot_map_free(&g_sm);
 	return (0);
 }
 

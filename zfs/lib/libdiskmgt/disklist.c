@@ -1173,6 +1173,7 @@ typedef struct slot_record {
 	int	 sr_slot;
 	struct slot_record *sr_next;
 	char sr_serial[ARGS_LEN];
+	char sr_guid[ARGS_LEN];
 } slot_record_t;
 
 typedef struct slot_map {
@@ -1219,6 +1220,7 @@ void disk_get_slot_map(slot_map_t *sm)
 	int enclosure = -1;
 	int is_ubuntu = -1;
 	char value_sn[ARGS_LEN] = {0};
+	char value_guid[ARGS_LEN] = {0};
 	char args[ARGS_LEN] = {0};
 	char version[ARGS_LEN] = {0};
 	char tmp[CMD_TMP_LEN] = {0};
@@ -1259,15 +1261,20 @@ void disk_get_slot_map(slot_map_t *sm)
 			sscanf(tmp, "%*[^:]:%d", &slot);
 		} else if (strcasecmp(args, SERIALNO) == 0) {
 			sscanf(tmp, "%*[^:]:%s", value_sn);
-			if (value_sn != NULL) {
+		} else if (strcasecmp(args, "GUID") == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_guid);
+			if (value_sn[0] != '\n') {
 				slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
 				sr->sr_enclosure = enclosure;
 				sr->sr_slot = slot;
 				sr->sr_next = NULL;
 				memcpy(sr->sr_serial, value_sn, strlen(value_sn));
+				memcpy(sr->sr_guid, value_guid, strlen(value_guid));
 				slot_map_insert(sm, sr);
 				slot = 0;
 				enclosure = 0;
+				memset(value_sn, '\n', sizeof(value_sn));
+				memset(value_guid, '\n', sizeof(value_guid));
 			}
 		}
 	}
@@ -1280,6 +1287,22 @@ void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
 	for (search = sm->sm_head; search != NULL; search = search->sr_next) {
 		if (strcasestr(di->dk_serial, search->sr_serial) != NULL ||
 				strcasestr(search->sr_serial, di->dk_serial) != NULL) {
+			di->dk_enclosure = search->sr_enclosure;
+			di->dk_slot = search->sr_slot;
+			break;
+		}
+	}
+
+	return;
+}
+
+void slot_map_find_value_guid(slot_map_t *sm, disk_info_t *di)
+{
+	slot_record_t *search = NULL;
+
+	for (search = sm->sm_head; search != NULL; search = search->sr_next) {
+		if (strcasestr(di->dk_serial, search->sr_guid) != NULL ||
+			strcasestr(search->sr_guid, di->dk_serial) != NULL) {
 			di->dk_enclosure = search->sr_enclosure;
 			di->dk_slot = search->sr_slot;
 			break;

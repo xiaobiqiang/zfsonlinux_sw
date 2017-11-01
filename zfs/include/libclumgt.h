@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #define	HOSTNAMELEN			64
-#define	MAXWORKERS			16
+#define	MAXWORKERS			32
 #define	HOSTURLLEN			32
 #define	TMPBUFLEN			128
 
