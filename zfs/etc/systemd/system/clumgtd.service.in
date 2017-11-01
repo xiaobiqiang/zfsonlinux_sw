@@ -1,0 +1,12 @@
+[Unit]
+Description=cluster management service
+DefaultDependencies=no
+Requires=NetworkManager.service
+After=zfs.target
+
+[Service]
+ExecStart=@sbindir@/clumgtd -d
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

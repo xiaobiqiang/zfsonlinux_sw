@@ -11,6 +11,7 @@ systemdunit_DATA = \
 	zfs-share.service \
 	zfs.target \
 	fmd.service \
+	clumgtd.service \
 	stmf-boot.service \
 	pppt-boot.service \
 	configd.service \
@@ -26,6 +27,7 @@ EXTRA_DIST = \
 	$(top_srcdir)/etc/systemd/system/zfs-share.service.in \
 	$(top_srcdir)/etc/systemd/system/zfs.target.in \
 	$(top_srcdir)/etc/systemd/system/fmd.service.in \
+	$(top_srcdir)/etc/systemd/system/clumgtd.service.in \
 	$(top_srcdir)/etc/systemd/system/stmf-boot.service.in \
 	$(top_srcdir)/etc/systemd/system/pppt-boot.service.in \
 	$(top_srcdir)/etc/systemd/system/configd.service.in \

@@ -1408,7 +1408,7 @@ clu_get_master(char *master)
 	req->req_len = sizeof(clumgt_request_t);
 
 	memset(host, 0x0, sizeof(host));
-	get_local_hostname(host, sizeof(host));
+	gethostname(host, sizeof(host));
 	
 	ret = clumgt_send_request(req, (void *)&resp, host, &node_num);
 	if (0 != ret) {
