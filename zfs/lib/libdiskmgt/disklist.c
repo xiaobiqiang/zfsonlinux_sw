@@ -1259,6 +1259,8 @@ void disk_get_slot_map(slot_map_t *sm)
 			sscanf(tmp, "%*[^:]:%d", &enclosure);
 		} else if (strcasecmp(args, SLOT) == 0) {
 			sscanf(tmp, "%*[^:]:%d", &slot);
+			if (slot == 0)
+				printf(" ");
 		} else if (strcasecmp(args, SERIALNO) == 0) {
 			sscanf(tmp, "%*[^:]:%s", value_sn);
 		} else if (strcasecmp(args, "GUID") == 0) {
@@ -1278,6 +1280,7 @@ void disk_get_slot_map(slot_map_t *sm)
 			}
 		}
 	}
+	printf("\n");
 }
 
 void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
