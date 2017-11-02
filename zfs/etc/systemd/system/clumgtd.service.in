@@ -3,10 +3,12 @@ Description=cluster management service
 DefaultDependencies=no
 Requires=NetworkManager.service
 After=zfs.target
+After=network-online.target
 
 [Service]
 ExecStart=@sbindir@/clumgtd -d
 Restart=on-failure
+PidFile=/var/run/.clumgt_daemon.lock
 
 [Install]
 WantedBy=multi-user.target
