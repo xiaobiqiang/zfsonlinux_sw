@@ -28,5 +28,5 @@ clumgt_LDFLAGS = -pthread
 
 install:all
 	@/usr/bin/install -cv .libs/$(sbin_PROGRAMS) $(sbindir)
-	@/usr/bin/ln -svf $(sbindir)/$(sbin_PROGRAMS) $(sbindir)/clumgtd
+	@/bin/ln -svf $(sbindir)/$(sbin_PROGRAMS) $(sbindir)/clumgtd
 	@/usr/bin/install -cv $(clumgt_files) /etc
