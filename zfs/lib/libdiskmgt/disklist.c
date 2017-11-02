@@ -1342,7 +1342,8 @@ void disk_table_insert(disk_table_t *dt, disk_info_t *di)
 			&& search->dk_slot < slot)
 		search = search->next;
 
-	if (search->next != NULL || (dt->total == 1 && search->dk_enclosure > enclosure)) {
+	if (search->next != NULL || search->dk_slot > slot
+			|| (dt->total == 1 && search->dk_enclosure > enclosure)) {
 		di->prev = search->prev;
 		di->next = search;
 		if (search->prev == NULL) {
