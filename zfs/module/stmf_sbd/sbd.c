@@ -3382,10 +3382,6 @@ over_meta_open:
 
 	sl->sl_trans_op = SL_OP_NONE;
 
-	/* lun migrate add */
-	(void) lun_migrate_find_recovery(sl->sl_name);
-	/* lun migrate end */
-
 	/* 2462 type is changed to DMU_OST_ZVOL */
 	/* sbd_create_object(sl->sl_name,DMU_OST_ZVOL); */		
 	return (0);
@@ -4175,6 +4171,10 @@ sim_sli_loaded:
 	/* config avs */
 
 	/* try transiton to active, may be at the cb of config avs */
+
+	/* lun migrate add */
+	(void) lun_migrate_find_recovery(sl->sl_name);
+	/* lun migrate end */
 
 	return (0);
 
