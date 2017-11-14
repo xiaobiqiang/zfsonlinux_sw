@@ -4274,8 +4274,10 @@ zfs_fsync(struct inode *ip, int syncflag, cred_t *cr)
 
 	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD) {
 		ZFS_ENTER(zsb);
-		ZFS_VERIFY_ZP(zp);
-		zil_commit(zsb->z_log, zp->z_id);
+		if (zp->z_group_role != GROUP_VIRTUAL) {
+			ZFS_VERIFY_ZP(zp);
+			zil_commit(zsb->z_log, zp->z_id);
+		}
 		ZFS_EXIT(zsb);
 	}
 	tsd_set(zfs_fsyncer_key, NULL);
