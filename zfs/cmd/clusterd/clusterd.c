@@ -3650,22 +3650,50 @@ cluster_poweron_remote_event_handler(const void *buffer, int bufsize)
 	return (ret);
 }
 
-static inline int
+static int
 cluster_read_stamp(zpool_stamp_t *stamp, nvlist_t *pool_root, char *path)
 {
-	if (pool_root != NULL)
-		return (zpool_read_stamp(pool_root, stamp));
-	else
-		return (zpool_read_stmp_by_path(path, stamp));
+        int error;
+        int retry = 0;
+
+        while (retry < 3) {
+                if (pool_root != NULL)
+                        error = zpool_read_stamp(pool_root, stamp);
+                else
+                        error = zpool_read_stmp_by_path(path, stamp);
+                if (error == 0)
+                        break;
+                else
+                        syslog(LOG_ERR, "%s: error=%d", __func__, error);
+
+                retry++;
+                sleep(1);
+        }
+
+        return (error);
 }
 
-static inline int
+static int
 cluster_write_stamp(zpool_stamp_t *stamp, nvlist_t *pool_root, char *path)
 {
-	if (pool_root != NULL)
-		return (zpool_write_stamp(pool_root, stamp, SPA_NUM_OF_QUANTUM));
-	else
-		return (zpool_write_dev_stamp_mark(path, stamp) == 0 ? 1 : 0);
+        int error;
+        int retry = 0;
+
+        while (retry < 3) {
+                if (pool_root != NULL)
+                        error = zpool_write_stamp(pool_root, stamp, SPA_NUM_OF_QUANTUM);
+                else
+                        error = zpool_write_dev_stamp_mark(path, stamp) == 0 ? 1 : 0;
+                if (error > 0)
+                        break;
+                else
+                        syslog(LOG_ERR, "%s: error=%d", __func__, error);
+
+                retry++;
+                sleep(1);
+        }
+
+        return (error);
 }
 
 static nvlist_t *
