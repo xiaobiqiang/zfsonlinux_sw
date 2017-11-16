@@ -3579,12 +3579,7 @@ top:
 					zp->z_filename, MAXNAMELEN, tx);
 	mutex_exit(&zp->z_lock);
 
-
-
 	zfs_dirent_unlock(dl);
-
-	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
-		zil_commit(zilog, 0);
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && ZFS_GROUP_DTL_ENABLE){
 		/* Backup directory Master node. */
@@ -3617,6 +3612,9 @@ top:
 	if (zp->z_dirlowdata == 0) {
 		zp->z_dirlowdata = dzp->z_dirlowdata;
 	}
+
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
+		zil_commit(zilog, 0);
 	ZFS_EXIT(zsb);
 	return (0);
 }
@@ -4276,8 +4274,10 @@ zfs_fsync(struct inode *ip, int syncflag, cred_t *cr)
 
 	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD) {
 		ZFS_ENTER(zsb);
-		ZFS_VERIFY_ZP(zp);
-		zil_commit(zsb->z_log, zp->z_id);
+		if (zp->z_group_role != GROUP_VIRTUAL) {
+			ZFS_VERIFY_ZP(zp);
+			zil_commit(zsb->z_log, zp->z_id);
+		}
 		ZFS_EXIT(zsb);
 	}
 	tsd_set(zfs_fsyncer_key, NULL);
@@ -6398,10 +6398,6 @@ top:
 	
 	zfs_dirent_unlock(dl);
 
-
-	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
-		zil_commit(zilog, 0);
-
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2
 		&& (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_LINK, dzp, name, NULL, 0,
@@ -6428,6 +6424,9 @@ top:
 
 	zfs_inode_update(dzp);
 	zfs_inode_update(szp);
+
+	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
+		zil_commit(zilog, 0);
 	ZFS_EXIT(zsb);
 	return (error);
 }
@@ -7493,6 +7492,20 @@ int zfs_print_znode_info(char *path)
 int zfs_enable_disable_double_data(boolean_t double_data)
 {
 	TO_DOUBLE_DATA_FILE = double_data;
+	return TO_DOUBLE_DATA_FILE;
+}
+
+int zfs_set_double_data(char *double_data_mode)
+{
+	if(double_data_mode && (simple_strtol(double_data_mode, NULL, 10) || !strcasecmp(double_data_mode, "on")))
+		TO_DOUBLE_DATA_FILE = 1;
+	else
+		TO_DOUBLE_DATA_FILE = 0;
+	return TO_DOUBLE_DATA_FILE;
+}
+
+int zfs_get_double_data(void)
+{
 	return TO_DOUBLE_DATA_FILE;
 }
 

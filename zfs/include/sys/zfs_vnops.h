@@ -132,6 +132,8 @@ extern void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen
 
 extern int zfs_print_znode_info(char *path);
 extern int zfs_enable_disable_double_data(boolean_t double_data);
+extern int zfs_set_double_data(char *double_data_mode);
+extern int zfs_get_double_data(void);
 
 #ifdef	__cplusplus
 }

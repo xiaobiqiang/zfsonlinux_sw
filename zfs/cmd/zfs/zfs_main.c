@@ -7095,6 +7095,12 @@ zfs_do_multiclus(int argc, char **argv)
 				flags = SET_MULTICLUS_MASTER2;
 			} else if (strcmp(argv[1], "master") == 0){
 				flags = SET_MULTICLUS_MASTER;
+			} else if (strcmp(argv[1], "double_data") == 0){
+				if (argc < 3){
+					fprintf(stderr, gettext("Invalid argument \n"));
+					return -1;
+				}
+				flags = SET_DOUBLE_DATA;	
 			} else{
 				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
 				usage(B_FALSE);
@@ -7118,7 +7124,9 @@ zfs_do_multiclus(int argc, char **argv)
 			 */
 			if (strcmp(argv[1], "dtlstatus") == 0){
 		 		flags = GET_MULTICLUS_DTLSTATUS;
-		 	} else{
+		 	} else if (strcmp(argv[1], "double_data") == 0){
+				flags = GET_DOUBLE_DATA;
+			} else{
 				fprintf(stderr, gettext("%s is not support \n"), argv[1]);
 				usage(B_FALSE);
 
