@@ -7475,7 +7475,9 @@ zpool_do_scanthin(int argc, char **argv)
 {
 	int i;
 	zfs_thinluns_t *statp = NULL;
+	zfs_thin_luns_stat_t *thinp = NULL;
 	zpool_check_thin_luns(&statp);
+	
 	if (statp != NULL) {
 		for (i = 0; i < statp->pool_number; i ++) {
 			pool_thinluns_stat_t *thinlun_stat = &statp->pools[i];
@@ -7485,6 +7487,22 @@ zpool_do_scanthin(int argc, char **argv)
 
 		free(statp->pools);
 		free(statp);
+	}
+
+	zfs_check_thin_luns(&thinp);
+	if (thinp != NULL) {
+		for (i = 0; i < thinp->thinluns_number; i++) {
+			zfs_thin_luns_t *thinlun = &thinp->thinluns[i];
+			printf("poolname:%10s, luname:%10s, "
+				"lusize:%llu, used:%llu, nice:%s, %s, thold:%llu\n",
+				thinlun->pool_name, thinlun->lu_name,
+				thinlun->lu_size, thinlun->thinlun_size,
+				thinlun->total, thinlun->used,
+				thinlun->thinlun_threshold);
+		}
+
+		free(thinp->thinluns);
+		free(thinp);
 	}
 
 	return (0);
