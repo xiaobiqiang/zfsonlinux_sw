@@ -3525,6 +3525,11 @@ zfs_lun_migrate_init(libzfs_handle_t *hdl, const char *dst, char *dst_guid, cons
 	long int current_id = getpid();
 	zfs_cmd_t zc;
 
+	if (strstr(dst, "/dev/disk/by-id/") == NULL) {
+		printf("invalid dev.\n");
+		return (-1);
+	}
+
 	/* create copy lun and lu */
 	ptr = strrchr(dst,'/');
 	ptr++;
@@ -3572,6 +3577,9 @@ zfs_lun_migrate_init(libzfs_handle_t *hdl, const char *dst, char *dst_guid, cons
 
 		break;
 	}
+
+	if (dst_guid == NULL)
+		dst_guid = dst + strlen("/dev/disk/by-id/scsi-x");
 
 	bzero(buf, 256);
 	sprintf(buf,"stmfadm create-lu -p guid=%s /dev/zvol/%s",dst_guid,zvol_fs);
@@ -3662,8 +3670,10 @@ zfs_lun_migrate_check(libzfs_handle_t *hdl, const char *dst, char *pool, char *o
 		err = zfs_lun_migrate_dev_realpath(dst, realpath);
 		if (err == 0) {
 			err = zfs_lun_migrate_init(hdl, realpath, o_guid, pool, gsize);
+			if (o_guid == NULL)
+				o_guid = realpath + strlen("/dev/disk/by-id/scsi-x");
 		} else {
-			err = zfs_lun_migrate_init(hdl, dst, o_guid, pool, gsize);
+			printf("invliad dev path.\n");
 		}
 	} else {
 		err = zfs_lun_migrate_init(hdl, dst, o_guid, pool, gsize);
@@ -3673,7 +3683,10 @@ zfs_lun_migrate_check(libzfs_handle_t *hdl, const char *dst, char *pool, char *o
 		printf("lun migrate begin ...\n");
 		printf("disk name : %s\n", dst);
 		printf("disk size : %lld\n", gsize);
-		printf("lun  guid : %s\n", o_guid);
+		if (o_guid == NULL)
+			printf("lun  guid : %s\n", dst + strlen("/dev/disk/by-id/scsi-x"));
+		else
+			printf("lun  guid : %s\n", o_guid);
 	} else {
 		printf("lun migrate create failed\n");
 	}

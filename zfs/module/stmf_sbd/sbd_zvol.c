@@ -34,6 +34,7 @@
 #include <sys/sbd_impl.h>
 #include <sys/lun_migrate.h>
 
+#define SGL_BLK_SIZE (1ULL << 14)
 extern int highbit(ulong_t i);
 
 /*
@@ -114,12 +115,41 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 	b_lun_migrate = lun_migrate_is_work(sl->sl_zvol_objset_hdl) == 1 ? B_TRUE : B_FALSE;
 	if (b_lun_migrate) {
 		void *data = NULL;
+		int i, nblks;
+		uint64_t readlen = 0;
+		int64_t readoff = 0;
+		int64_t readsize = len;
 		stmf_sglist_ent_t *sgl;
 		dbuf->db_sglist_length = 1;
 		sgl = &dbuf->db_sglist[0];
 		data = zio_data_buf_alloc(len);
 		zvio->zvio_is_migrate = B_TRUE;
 		zvio->zvio_crypt_data = kmem_zalloc(sizeof(void *) * 1, KM_SLEEP);
+
+		if (len > SGL_BLK_SIZE)
+			nblks = (len % SGL_BLK_SIZE == 0) ? (len / SGL_BLK_SIZE) : (len / SGL_BLK_SIZE + 1);
+		else
+			nblks = 1;
+
+		for (i = 0; i < nblks; i++) {
+			readlen = MIN(SGL_BLK_SIZE, readsize);
+			readoff = i * SGL_BLK_SIZE;	
+			ret = lun_migrate_zvol_sgl_read(sl->sl_name, offset + readoff, readlen, data + readoff);
+			if (ret != 0) {
+				kmem_free(zvio->zvio_crypt_data, sizeof(void*));
+				zio_data_buf_free(data, len);
+				return (EIO);
+			} else {
+				readsize -= readlen;
+			}
+		}
+
+		ASSERT(readsize == 0);
+		sgl->seg_addr = (uint8_t *)data;
+		sgl->seg_length = (uint32_t)len;
+		zvio->zvio_crypt_data[0] = data;
+		return (0);
+#if 0
 		ret = lun_migrate_zvol_sgl_read(sl->sl_name, offset, len, data);
 		if (ret == 0) {
 			sgl->seg_addr = (uint8_t *)data;
@@ -129,6 +159,7 @@ sbd_zvol_alloc_read_bufs(sbd_lu_t *sl, stmf_data_buf_t *dbuf, char *initiator_ww
 		} else {
 			return (EIO);
 		}
+#endif
 	}
 
 	/*

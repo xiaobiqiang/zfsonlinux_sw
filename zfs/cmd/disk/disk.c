@@ -438,6 +438,7 @@ void usage(void)
 	printf("Usage:\n"
 	       "disk list\n"
 	       "disk list-all\n"
+	       "disk list-lu\n"
 	       "disk mark <-d dev path>\n"
 	       "disk list-slices <-d dev path | -i dev index>\n"
 	       "disk create <-d dev path | -i dev index> <-p slices index> <-s size | -g gap index>\n"
@@ -1029,6 +1030,8 @@ main(int argc, char **argv) {
 		} else if (strcasecmp(subcommand, SUBC_LIST_ALL) == 0) {
 			all = 1;
 			status = list_disks(all);
+		} else if (strcasecmp(subcommand, "list-lu") == 0) {
+			status = disk_scan_lun();
 		} else if (strcasecmp(subcommand, SUBC_LIST_SLICES) == 0) {
 			status = disk_list_slices(&req_parms, 1);
 		} else if (strcasecmp(subcommand, SUBC_CREATE) == 0) {
