@@ -2342,6 +2342,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 	case ZFS_PROP_REFQUOTA:
 	case ZFS_PROP_RESERVATION:
 	case ZFS_PROP_REFRESERVATION:
+	case ZFS_PROP_LUN_THIN_THRESHOLD:
 
 		if (get_numeric_property(zhp, prop, src, &source, &val) != 0)
 			return (-1);

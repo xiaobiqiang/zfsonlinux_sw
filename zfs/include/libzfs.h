@@ -220,6 +220,21 @@ typedef struct zfs_thinluns_stat {
 	pool_thinluns_stat_t *pools;
 } zfs_thinluns_t;
 
+typedef struct zfs_thin_luns {
+	char		pool_name[MAXNAMELEN];
+	char		lu_name[MAXNAMELEN];
+	uint64_t	lu_size;
+	uint64_t	thinlun_size;
+	uint64_t	thinlun_threshold;
+	char		used[16];
+	char		total[16];
+} zfs_thin_luns_t;
+
+typedef struct zfs_thin_luns_stat {
+	uint32_t thinluns_number;
+	zfs_thin_luns_t *thinluns;
+} zfs_thin_luns_stat_t;
+
 /*
  * Basic handle types
  */

@@ -3420,6 +3420,87 @@ void zpool_check_thin_luns(zfs_thinluns_t **statpp)
         libzfs_fini(tmp_gzfs);
 }
 
+/* zfs thin lun check */
+
+static int
+zfs_checking_thinlun(zfs_handle_t *zhp, void *data)
+{
+	uint64_t reserver_size;
+	uint64_t volsize;
+	uint64_t thold;
+    zfs_thin_luns_t *tmp_statp;
+	zfs_thin_luns_stat_t *cbdata;
+
+	cbdata = (zfs_thin_luns_stat_t *)data;   	
+	reserver_size = zfs_prop_get_int(zhp, ZFS_PROP_REFRESERVATION);
+	volsize = zfs_prop_get_int(zhp, ZFS_PROP_VOLSIZE);
+	thold = zfs_prop_get_int(zhp, ZFS_PROP_LUN_THIN_THRESHOLD);
+
+	if (reserver_size == 0 && volsize != 0 && thold != 0) {
+		uint64_t thin_size = zfs_prop_get_int(zhp, ZFS_PROP_USED);
+		if (thold > 0 && thold < 100 &&
+			thin_size * 100 >= volsize * thold) {
+			tmp_statp = &cbdata->thinluns[cbdata->thinluns_number];
+			bzero(tmp_statp, sizeof(zfs_thin_luns_t));
+			strcpy(tmp_statp->pool_name, zpool_get_name(zhp->zpool_hdl));
+			strcpy(tmp_statp->lu_name, zfs_get_name(zhp));
+			tmp_statp->lu_size = volsize;
+			tmp_statp->thinlun_size = thin_size;
+			tmp_statp->thinlun_threshold = thold;
+			zfs_nicenum(volsize, tmp_statp->total, sizeof(tmp_statp->total));
+			zfs_nicenum(thin_size, tmp_statp->used, sizeof(tmp_statp->used));
+			cbdata->thinluns_number++;
+		}
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+int zfs_check_thin_luns_cb(zfs_handle_t *zhp, void *data)
+{
+	int ret;
+	ret = zfs_iter_filesystems(zhp, zfs_checking_thinlun, data);
+	zfs_close(zhp);
+	return (ret);
+}
+
+void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp)
+{
+        int number;
+        size_t size;
+        libzfs_handle_t *tmp_gzfs;
+        zfs_thin_luns_stat_t *cbdata;
+        zfs_thin_luns_stat_t *luns_stat;
+		int i;
+        
+        tmp_gzfs = libzfs_init();
+        cbdata  = calloc(1, sizeof(zfs_thin_luns_stat_t));
+        bzero(cbdata, sizeof(zfs_thin_luns_stat_t));
+        cbdata->thinluns = calloc(MAX_POOl_NUM, sizeof(zfs_thin_luns_t));
+
+		(void) zfs_iter_root(tmp_gzfs, zfs_check_thin_luns_cb, cbdata);
+
+        number = cbdata->thinluns_number;
+
+        if (number > 0) {
+                luns_stat = calloc(1, sizeof(zfs_thin_luns_stat_t));
+                luns_stat->thinluns = calloc(number, sizeof(zfs_thin_luns_t));
+                luns_stat->thinluns_number = number;
+                bcopy(cbdata->thinluns, luns_stat->thinluns,
+                  sizeof(zfs_thin_luns_t)*number);
+                *statpp = luns_stat;
+                
+        } else {
+                *statpp = NULL;
+        }
+
+        free(cbdata->thinluns);
+        free(cbdata);
+
+        libzfs_fini(tmp_gzfs);
+}
+
+
 /*
  * ***************************************************************************************************
  * lun migrate cmd route
