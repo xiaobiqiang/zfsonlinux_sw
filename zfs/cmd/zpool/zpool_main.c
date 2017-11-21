@@ -2586,11 +2586,11 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	uint64_t state;
 	uint64_t version;
 
-#if 1
 	/* write stamp */
 	int host_id;
 	nvlist_t *nvroot;
 	zpool_stamp_t *stamp;
+	int stamp_ok;
 
 	stamp = malloc(sizeof(zpool_stamp_t));
 	if (stamp == NULL) {
@@ -2603,8 +2603,14 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 	    &nvroot) == 0);
 
-	verify (zpool_read_stamp(nvroot, stamp) == 0);
+	stamp_ok = (zpool_read_stamp(nvroot, stamp) == 0);
 	if (!(flags&ZFS_IMPORT_IGNORE_CLUSTER)) {
+		if (!stamp_ok) {
+                        (void) fprintf(stderr, gettext("cannot import '%s': cannot "
+                                "get pool's owener\n"), name);
+                        free(stamp);
+                        return (1);
+                }
 		if (stamp->para.pool_current_owener != host_id) {
 			(void) fprintf(stderr, gettext("cannot import '%s': pool "
 			    "the pool's cid <%d> is not this host\n"),
@@ -2614,7 +2620,6 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		}
 	}
 	/* write stamp end */
-#endif
 
 	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
 	    &name) == 0);
@@ -2679,12 +2684,13 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		zpool_close(zhp);
 		return (1);
 	}
-#if 1
-	stamp->para.pool_current_owener = host_id;
-	stamp->para.pool_magic = ZPOOL_MAGIC;
-	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
+
+	if (stamp_ok) {
+		stamp->para.pool_current_owener = host_id;
+		stamp->para.pool_magic = ZPOOL_MAGIC;
+		(void) zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM);
+	}
 	free(stamp);
-#endif
 	zfs_import_all_lus(g_zfs, name);
 	zfs_enable_avs(g_zfs, name, 1);
 	zpool_close(zhp);

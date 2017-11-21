@@ -293,6 +293,7 @@ pthread_cond_t	cluster_import_replicas_cv;
 #define	MAX_MAC_STATE_REQ_NUM		10
 
 typedef struct mac_state_param {
+	int hostid;
 	int flag;
 	int mac_num;
 	char mac_list[MAX_MAC_STATE_REQ_NUM][MAXLINKNAMELEN];
@@ -2380,6 +2381,7 @@ req_remote_mac_state(const char *mac_name)
 	pthread_mutex_unlock(&failover_list_lock);
 
 	if (!ifp && eth_list) {
+		request.hostid = get_system_hostid();
 		request.flag = FLAG_MAC_STATE_GET_REMOTE;
 		for (p = eth_list, i = 0; 
 			p && i < MAX_MAC_STATE_REQ_NUM; 
@@ -2895,8 +2897,8 @@ cluster_task_wait_event(void)
 						strlcpy(mac_state.mac_list[i], msp->mac_list[i], MAXLINKNAMELEN);
 						mac_state.linkstate[i] = ils_up;
 					}
-					hbx_do_cluster_cmd((char *)&mac_state, 
-						sizeof(mac_state_param_t), ZFS_HBX_MAC_STAT);
+					hbx_do_cluster_cmd_ex((char *)&mac_state, 
+						sizeof(mac_state_param_t), ZFS_HBX_MAC_STAT, msp->hostid);
 				} else if (msp->flag == FLAG_MAC_STATE_IP_RELEASED) {
 					/* remote released the IPs, we do ip failover now */
 					/* old ip failover */
@@ -3764,6 +3766,7 @@ choose_critical_disk(nvlist_t *pool_root)
 	uint_t i, nchild, nchild2;
 	nvlist_t **children, **children2;
 	char *path;
+	int fd;
 
 	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
 		&children, &nchild) == 0);
@@ -3774,8 +3777,12 @@ choose_critical_disk(nvlist_t *pool_root)
 			return choose_critical_disk(children[i]);
 		}
 
-		if (nvlist_lookup_string(children[i], ZPOOL_CONFIG_PATH, &path) == 0)
-			return path;
+		if (nvlist_lookup_string(children[i], ZPOOL_CONFIG_PATH, &path) == 0) {
+			if ((fd = open(path, O_RDWR)) > 0) {
+				close(fd);
+				return path;
+			}
+		}
 	}
 
 	return (NULL);

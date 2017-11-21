@@ -2267,7 +2267,8 @@ zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
 	zfs_cmd_t zc = {"\0"};
 
 	if (flags == ZFS_HBX_RELEASE_POOLS ||
-		flags == ZFS_HBX_CLUSTER_IMPORT) {
+		flags == ZFS_HBX_CLUSTER_IMPORT ||
+		flags == ZFS_HBX_MAC_STAT) {
 		zc.zc_nvlist_conf = (uintptr_t)buffer;
 		zc.zc_nvlist_conf_size = size;
 		zc.zc_perm_action = remote_id;
