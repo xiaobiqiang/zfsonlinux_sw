@@ -1,0 +1,11 @@
+[Unit]
+Description=performance management service
+DefaultDependencies=no
+After=clumgtd.service
+
+[Service]
+ExecStart=@sbindir@/pmm
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

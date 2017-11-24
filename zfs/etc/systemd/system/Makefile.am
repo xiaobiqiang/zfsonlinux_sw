@@ -15,7 +15,8 @@ systemdunit_DATA = \
 	stmf-boot.service \
 	pppt-boot.service \
 	configd.service \
-	stmf-svc.service
+	stmf-svc.service \
+	pmm.service
 
 EXTRA_DIST = \
 	$(top_srcdir)/etc/systemd/system/zfs-zed.service.in \
@@ -32,7 +33,8 @@ EXTRA_DIST = \
 	$(top_srcdir)/etc/systemd/system/pppt-boot.service.in \
 	$(top_srcdir)/etc/systemd/system/configd.service.in \
 	$(top_srcdir)/etc/systemd/system/stmf-svc.service.in \
-	$(top_srcdir)/etc/systemd/system/50-zfs.preset.in
+	$(top_srcdir)/etc/systemd/system/50-zfs.preset.in \
+	$(top_srcdir)/etc/systemd/system/pmm.service.in 
 
 $(systemdunit_DATA):
 	-$(SED) -e 's,@bindir\@,$(bindir),g' \
