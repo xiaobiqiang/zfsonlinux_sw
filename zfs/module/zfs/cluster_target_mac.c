@@ -45,7 +45,7 @@ uint32_t cts_mac_throttle_default = 1024 * 1024;
 
 uint8_t mac_broadcast_addr[ETHERADDRL] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-uint32_t cluster_target_mac_nrxworker = 4;
+uint32_t cluster_target_mac_nrxworker = 1;
 
 #ifndef SOLARIS
 #define	ETHERTYPE_CLUSTERSAN	(0x8908)	/* cluster san */
@@ -70,6 +70,9 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 static int cluster_inetdev_event(struct notifier_block *this, unsigned long event,
                          void *ptr);
 
+extern int cs_addr_valid(void *addr, const char *name);
+
+
 static struct notifier_block cluster_netdev_notifier = {
 	.notifier_call = cluster_inetdev_event,
 };
@@ -88,7 +91,7 @@ static int cluster_inetdev_event(struct notifier_block *this, unsigned long even
 {
 	struct net_device *notify_dev = netdev_notifier_info_to_dev(ptr);
 	cluster_target_port_mac_t* ctp = NULL;
-		
+
 	if (target_port_array[0].ctp && target_port_array[0].ctp->target_private &&
 		((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->dev == notify_dev) {
 		ctp = target_port_array[0].ctp->target_private;
@@ -243,6 +246,7 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 			MAC_TX_NO_ENQUEUE | MAC_TX_NO_HOLD, &ret_mblk);
 		if (ret_cookie != NULL) {
 #else
+		(void) cs_addr_valid(mblk->skb, "mblk->skb");
 		ret_cookie = dev_queue_xmit(mblk->skb);
 		if (unlikely(ret_cookie != 0)) {
 #endif
@@ -302,6 +306,8 @@ cluster_target_mac_send(void *port, void *fragmentation)
 	int ret = 0;
 
 	mac_tran_data = fragmentation;
+	if (cs_addr_valid(mac_tran_data, "mac_tran_data"))
+		(void) cs_addr_valid(mac_tran_data->mp, "mac_tran_data->mp");
 	ret = cluster_target_mac_send_mp(port, mac_tran_data->mp);
 	kmem_free(mac_tran_data, sizeof(cluster_target_mac_tran_data_t));
 	return (ret);
@@ -682,6 +688,7 @@ static void
 ctp_mac_rx_worker_wakeup(ctp_mac_rx_worker_t *w, mblk_t *mp)
 {
 	spin_lock_irq(&w->worker_spin);
+	(void) cs_addr_valid(mp, "mp");
 	ctp_mac_mplist_insert_tail(w->mplist_w, mp);
 	atomic_inc_32(&w->worker_ntasks);
 	spin_unlock_irq(&w->worker_spin);
@@ -741,6 +748,12 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	ctp_mac_rx_worker_t *ctp_w;
 	mblk_t *mp;
 	int ret;
+	struct ethhdr *eh;
+
+	eh = eth_hdr(skb);
+	if (eh->h_proto != htons(ETHERTYPE_CLUSTERSAN)) {
+		cmn_err(CE_WARN, "proto=%x", eh->h_proto);
+	}
 	
 	skb_linearize(skb);
 
@@ -751,14 +764,14 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 		 ctp = target_port_array[1].ctp;
 	} else {
 		if (target_port_array[0].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[0].ctp->target_private)->mac_addr, dev->dev_addr, ETHERADDRL) == 0) {
-			/* printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[0].dev, dev); */
+			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[0].dev, dev);
 			ctp = target_port_array[0].ctp;
 		} else if (target_port_array[1].ctp && memcmp(((cluster_target_port_mac_t*)target_port_array[1].ctp->target_private)->mac_addr, dev->dev_addr, ETHERADDRL) == 0) {
-			/* printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[1].dev, dev); */
+			printk("target_port_array[0].dev=%p, dev=%p\n", target_port_array[1].dev, dev);
 			ctp = target_port_array[1].ctp;
 		} else {
 #if 0
-			printk("receive package. mac(%x%x %x%x %x%x)\n", 
+			printk("receive %s package. mac(%x%x %x%x %x%x)\n", dev->name,
 				*(dev->dev_addr), *(dev->dev_addr+1),*(dev->dev_addr+2),
 				*(dev->dev_addr+3),*(dev->dev_addr+4),*(dev->dev_addr+5));
 #endif			
@@ -786,7 +799,7 @@ static int cluster_rcv(struct sk_buff *skb, struct net_device *dev,
 	mp = kzalloc(sizeof(mblk_t), GFP_ATOMIC);
 	mp->skb = skb;
 	ctp_mac_rx_worker_wakeup(ctp_w, mp);
-		
+
 #if 0
 out:
 #endif
@@ -962,6 +975,8 @@ static void ctp_mac_rx_worker_handle(void *arg)
 	struct ether_header *eth_head;
 	cluster_target_msg_header_t *ct_head;
 	ctp_mac_mplist_t *mplist;
+	cts_rx_worker_t *cts_w;
+	cts_worker_para_t *cts_para;
 
 	atomic_inc_32(&port_mac->rx_worker_n);
 	
@@ -994,7 +1009,9 @@ static void ctp_mac_rx_worker_handle(void *arg)
 					case CLUSTER_SAN_MSGTYPE_JOIN:
 						if (cts->sess_linkstate == CTS_LINK_DOWN) {
 							atomic_inc_64(&ctp->ref_count);
-							cs_join_msg_handle(fragment);
+							/*cs_join_msg_handle(fragment);*/
+							taskq_dispatch(clustersan->cs_async_taskq,
+								cs_join_msg_handle, fragment, TQ_SLEEP);
 						} else {
 							cts_mac_fragment_free(fragment);
 						}
@@ -1008,8 +1025,19 @@ static void ctp_mac_rx_worker_handle(void *arg)
 						break;
 					default:
 						atomic_add_32(&sess_mac->sess_fc_rx_bytes, ct_head->fc_tx_len);
+					#if	0
 						cts_rx_msg(cts, fragment);
 						cluster_target_session_rele(cts, "cts_find");
+					#else
+						cts_w = &cts->sess_rx_worker[ct_head->index % cts->sess_rx_worker_n];
+						cts_para = kmem_zalloc(sizeof(cts_worker_para_t), KM_SLEEP);
+						cts_para->msg_type = ct_head->msg_type;
+						cts_para->worker = cts_w;
+						cts_para->fragment = fragment;
+						cts_para->sess = cts;
+						cts_para->index = ct_head->index;
+						cts_rx_worker_wakeup(cts_w, cts_para);
+					#endif
 						break;
 					}
 				} else {
@@ -1116,6 +1144,7 @@ int cluster_target_mac_port_init(
 	char *cli_name = NULL;
 #endif
 	int ret;
+	cmn_err(CE_WARN, "mac port init: ctp=%p, link_name=%s", ctp, link_name);
 
 	port_mac = kmem_zalloc(sizeof(cluster_target_port_mac_t), KM_SLEEP);
 
@@ -1174,6 +1203,7 @@ int cluster_target_mac_port_init(
 	port_mac->dev = dev_get_by_name(&init_net, link_name);
 	if (NULL == port_mac->dev) {
 		cmn_err(CE_WARN, "cluster target port get_dev_by_name %s failed", link_name);
+		ret = ENODEV;
 		goto get_dev_by_name_failed;
 	}
 	//port_mac->mac_link_state = (dev_get_flags(port_mac->dev) & IFF_UP) ? 

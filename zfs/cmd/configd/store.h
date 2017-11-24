@@ -79,7 +79,6 @@ typedef struct stmf_lun_view {
 typedef struct stmf_lun {
 	list_node_t	node;
 	uchar_t		lu_guid[33];
-	uchar_t		lu_nbr[8];
 	list_t		view_list;
 } stmf_lun_t;
 
@@ -88,6 +87,7 @@ typedef struct stmf_view {
 	int			hg_id;
 	int			tg_id;
 	int			ve_index;
+	uchar_t		lu_nbr[8];
 } stmf_view_t;
 
 typedef struct stmf_store_info {
