@@ -57,7 +57,7 @@ static int fct_getinfo(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg,
 #endif
 static int fct_open(struct inode *inode, struct file *file);
 static int fct_close(struct inode *inode, struct file *file);
-static int fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+static long fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 static int fct_fctiocmd(intptr_t data, int mode);
 void fct_init_kstats(fct_i_local_port_t *iport);
 
@@ -188,7 +188,7 @@ fct_close(struct inode *inode, struct file *file)
 }
 
 /* ARGSUSED */
-static int
+static long
 fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int		ret = 0;
