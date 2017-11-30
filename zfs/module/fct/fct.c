@@ -1717,7 +1717,7 @@ fct_scsi_task_alloc(fct_local_port_t *port, uint16_t rp_handle,
 		fct_cmd_free(cmd);
 		return (NULL);
 	}
-	atomic_inc_16(&irp->irp_fcp_xchg_count);
+	atomic_inc_32(&irp->irp_fcp_xchg_count);
 	cmd->cmd_rp = rp;
 	icmd->icmd_flags |= ICMD_IN_TRANSITION | ICMD_KNOWN_TO_FCA;
 	rw_exit(&irp->irp_lock);
@@ -1837,8 +1837,8 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 
 	rw_enter(&irp->irp_lock, RW_WRITER);
 	atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
-	atomic_inc_16(&irp->irp_nonfcp_xchg_count);
-	atomic_inc_16(&irp->irp_sa_elses_count);
+	atomic_inc_32(&irp->irp_nonfcp_xchg_count);
+	atomic_inc_32(&irp->irp_sa_elses_count);
 	/*
 	 * An implicit LOGO can also be posted to a irp where a PLOGI might
 	 * be in process. That PLOGI will reset this flag and decrement the
@@ -1876,7 +1876,7 @@ fct_alloc_cmd_slot(fct_i_local_port_t *iport, fct_cmd_t *cmd)
 		new = ((old + (0x10000)) & 0xFFFF0000);
 		new |= iport->iport_cmd_slots[cmd_slot].slot_next;
 	} while (atomic_cas_32(&iport->iport_next_free_slot, old, new) != old);
-	atomic_dec_16(&iport->iport_nslots_free);
+	atomic_dec_32(&iport->iport_nslots_free);
 	iport->iport_cmd_slots[cmd_slot].slot_cmd = icmd;
 	cmd->cmd_handle = (uint32_t)cmd_slot | 0x80000000 |
 	    (((uint32_t)(iport->iport_cmd_slots[cmd_slot].slot_uniq_cntr))
@@ -2064,15 +2064,15 @@ fct_cmd_free(fct_cmd_t *cmd)
 		} while (atomic_cas_32(&iport->iport_next_free_slot,
 		    old, new) != old);
 		cmd->cmd_handle = 0;
-		atomic_inc_16(&iport->iport_nslots_free);
+		atomic_inc_32(&iport->iport_nslots_free);
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
 			if (cmd->cmd_type == FCT_CMD_FCP_XCHG){
-				atomic_dec_16(&irp->irp_fcp_xchg_count);
+				atomic_dec_32(&irp->irp_fcp_xchg_count);
 			}
 			else {
-				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+				atomic_dec_32(&irp->irp_nonfcp_xchg_count);
 			}
 		}
 		rw_exit(&iport->iport_lock);
@@ -2083,10 +2083,10 @@ fct_cmd_free(fct_cmd_t *cmd)
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
 			if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
-				atomic_dec_16(&irp->irp_fcp_xchg_count);
+				atomic_dec_32(&irp->irp_fcp_xchg_count);
 			}
 			else {
-				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+				atomic_dec_32(&irp->irp_nonfcp_xchg_count);
 			}
 		}
 	} 

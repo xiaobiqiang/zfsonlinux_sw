@@ -1002,7 +1002,7 @@ start_els_posting:;
 		 */
 		atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
 	}
-	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);	
+	atomic_add_32_nv(&irp->irp_nonfcp_xchg_count, 1);
 
 	/*
 	 * Grab the remote port lock while we modify the port state.
@@ -1019,11 +1019,11 @@ start_els_posting:;
 			if (irp->irp_flags & IRP_PLOGI_DONE)
 				atomic_add_32(&iport->iport_nrps_login, -1);
 		}
-		atomic_add_16_nv(&irp->irp_sa_elses_count, 1);
+		atomic_add_32_nv(&irp->irp_sa_elses_count, 1);
 		atomic_and_32(&irp->irp_flags, ~rf);
 		atomic_or_32(&icmd->icmd_flags, ICMD_SESSION_AFFECTING);
 	} else {
-		atomic_add_16_nv(&irp->irp_nsa_elses_count, 1);
+		atomic_add_32_nv(&irp->irp_nsa_elses_count, 1);
 	}
 
 	fct_post_to_discovery_queue(iport, irp, icmd);
@@ -1535,7 +1535,7 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 			}
 		}
 	}
-	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+	atomic_add_32_nv(&irp->irp_sa_elses_count, -1);
 
 	if (ret == FCT_SUCCESS) {
 		if (cmd_type == FCT_CMD_RCVD_ELS) {
@@ -1610,7 +1610,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 			    els->els_req_size, els->els_req_payload[6]);
 
 		fct_dequeue_els(irp);
-		atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+		atomic_add_32_nv(&irp->irp_sa_elses_count, -1);
 		ret = fct_send_accrjt(cmd, ELS_OP_LSRJT, 3, 0x2c);
 		goto prli_end;
 	}
@@ -1687,7 +1687,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 	}
 
 	fct_dequeue_els(irp);
-	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+	atomic_add_32_nv(&irp->irp_sa_elses_count, -1);
 	if (ses == NULL) {
 		/* fail PRLI */
 		ret = fct_send_accrjt(cmd, ELS_OP_LSRJT, 3, 0);
@@ -1788,7 +1788,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	}
 
 	fct_dequeue_els(irp);
-	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+	atomic_add_32_nv(&irp->irp_sa_elses_count, -1);
 
 	/* don't send response if this is an implicit logout cmd */
 	if (!(icmd->icmd_flags & ICMD_IMPLICIT)) {
@@ -1890,7 +1890,7 @@ fct_process_prlo(fct_i_cmd_t *icmd)
 	}
 
 	fct_dequeue_els(irp);
-	atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+	atomic_add_32_nv(&irp->irp_sa_elses_count, -1);
 	ret = fct_send_accrjt(cmd, ELS_OP_ACC, 0, 0);
 	if (ret != FCT_SUCCESS)
 		fct_queue_cmd_for_termination(cmd, ret);
@@ -1916,7 +1916,7 @@ fct_process_rcvd_adisc(fct_i_cmd_t *icmd)
 
 	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	fct_dequeue_els(irp);
-	atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
+	atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 
 	/* Validate the adisc request */
 	p = els->els_req_payload;
@@ -1955,7 +1955,7 @@ fct_process_unknown_els(fct_i_cmd_t *icmd)
 	printk("zjn %s iport=%p\n", __func__, iport);
 	ASSERT(icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
-	atomic_add_16_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
+	atomic_add_32_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	op = ICMD_TO_ELS(icmd)->els_req_payload[0];
 	stmf_trace(iport->iport_alias, "Rejecting unknown unsol els %x (%s)",
 	    op, FCT_ELS_NAME(op));
@@ -1978,7 +1978,7 @@ fct_process_rscn(fct_i_cmd_t *icmd)
 
 	printk("zjn %s icmd=%p iport=%p\n", __func__, icmd, iport);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
-	atomic_add_16_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
+	atomic_add_32_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	if (icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS) {
 		op = ICMD_TO_ELS(icmd)->els_req_payload[0];
 		stmf_trace(iport->iport_alias, "Accepting RSCN %x (%s)",
@@ -2076,9 +2076,9 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 			fct_i_cmd_t *c = (*ppcmd)->icmd_next;
 
 			if ((*ppcmd)->icmd_flags & ICMD_SESSION_AFFECTING)
-				atomic_add_16_nv(&irp->irp_sa_elses_count, -1);
+				atomic_add_32_nv(&irp->irp_sa_elses_count, -1);
 			else
-				atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
+				atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 			(*ppcmd)->icmd_next = cmd_to_abort;
 			cmd_to_abort = *ppcmd;
 			*ppcmd = c;
@@ -2134,7 +2134,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 
 		printk("zjn %s iport=%p irp=%p FCT_CMD_SOL_ELS\n", __func__, iport, irp);
 		fct_dequeue_els(irp);
-		atomic_add_16_nv(&irp->irp_nsa_elses_count, -1);
+		atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 		atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
 		if ((s = port->port_send_cmd(cmd)) != FCT_SUCCESS) {
 			atomic_and_32(&icmd->icmd_flags, ~ICMD_KNOWN_TO_FCA);
@@ -2383,7 +2383,7 @@ fct_handle_solct(fct_cmd_t *cmd)
 	rw_exit(&irp->irp_lock);
 	rw_exit(&iport->iport_lock);
 
-	atomic_add_16_nv(&irp->irp_nonfcp_xchg_count, 1);
+	atomic_add_32_nv(&irp->irp_nonfcp_xchg_count, 1);
 	atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
 	icmd->icmd_start_time = ddi_get_lbolt();
 	ret = iport->iport_port->port_send_cmd(cmd);
