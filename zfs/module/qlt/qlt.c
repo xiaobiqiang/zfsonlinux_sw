@@ -147,7 +147,7 @@ static int qlt_dump_risc_ram(qlt_state_t *qlt, uint32_t addr, uint32_t words,
     caddr_t buf, uint_t size_left);
 static int qlt_fwdump_dump_regs(qlt_state_t *qlt, caddr_t buf, int startaddr,
     int count, uint_t size_left);
-static int qlt_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+static long qlt_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 static int qlt_open(struct inode *inode, struct file *file);
 static int qlt_close(struct inode *inode, struct file *file);
 
@@ -2826,7 +2826,7 @@ qlt_close(struct inode *inode, struct file *file)
  * purposes only.
  */
 /* ARGSUSED */
-static int
+static long
 //qlt_ioctl(dev_t dev, int cmd, intptr_t data, int mode,
 //    cred_t *credp, int *rval)
 qlt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
