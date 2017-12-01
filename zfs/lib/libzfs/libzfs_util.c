@@ -2287,25 +2287,8 @@ zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
 int
 get_clusnodename(char *buf, int len)
 {
-#define HOSTNAMELEN 64
-    int i=0;
-    FILE *fp;
-	len = len < HOSTNAMELEN ? len : HOSTNAMELEN;
-    fp = fopen("/etc/cluster_hostname", "r");
-    if (fp == NULL) {
-            return (-1);
-    }
-    fgets(buf, len, fp);
-    fclose(fp);
-    for (i=0; i<len; i++) {
-            if (*(buf+i) == ' ' || *(buf+i) == '\n') {
-                    break;
-            }
-    }
-    if (i == len)
-            i = len -1;
-    *(buf+i) = 0;
-    return 0;
+	gethostname(buf, len);
+	return 0;
 }
 
 /* needby disk.c */
