@@ -170,7 +170,7 @@ clumgt_hostname_get(char *hostname)
 	FILE * fp;
 	char *tmp = (char*)hostname;
 
-	fp = popen("cat /etc/cluster_hostname", "r");
+	fp = popen("hostname", "r");
 	if (fp) {
 		if(fgets(tmp, BUF_MAX, fp) == NULL) {
 		 	syslog(LOG_ERR, "get hostname fail\n");
