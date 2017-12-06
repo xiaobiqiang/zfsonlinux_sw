@@ -390,7 +390,7 @@ static void cm_pmm_iostat_save(cm_pmm_iostat_t *piostat, int period, const char*
     while(NULL != node) {
         fprintf(handle, "<e>\n");
 
-        if(node->info.name[0] == '\0') {
+        if(node->zval[0] == '\0') {
             /* 重新获取一下 */
             cm_pmm_get_zval_name(node->info.name, node->zval, sizeof(node->zval));
         }
