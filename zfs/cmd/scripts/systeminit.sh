@@ -438,7 +438,7 @@ function init_cluster_conf
 	fi
 
 cat > /usr/sbin/cluster_init.sh <<_CLUSTERINIT_
-#!/usr/bin/bash
+#!/bin/bash
 
 #
 # In SAN system, to enable following commands if needed.
