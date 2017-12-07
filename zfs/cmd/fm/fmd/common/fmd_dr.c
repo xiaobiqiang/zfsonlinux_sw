@@ -56,6 +56,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/fmd_transport.h>
+#include <libzfs.h>
 
 #undef FMD_MUTEX_HELD
 #undef FMD_RW_READ_HELD
@@ -69,6 +70,146 @@
 #include "fmd_subr.h"
 #include "fmd_topo.h"
 #include "fmd.h"
+
+#define	ZPOOL_CONFIG_LOWSPARES		"lowspares"
+#define	ZPOOL_CONFIG_METASPARES		"metaspares"
+
+typedef struct find_cbdata {
+	uint64_t	cb_guid;
+	const char	*cb_devid;
+	const char	*cb_fru;
+	zpool_handle_t	*cb_zhp;
+	nvlist_t	*cb_vdev;
+} find_cbdata_t;
+
+static nvlist_t *
+fmd_clear_vdev(nvlist_t *nv, void *data)
+{
+	find_cbdata_t *cbp = data;
+	zpool_handle_t	*zhp = cbp->cb_zhp;
+	nvlist_t **child;
+	nvlist_t *ret;
+	uint_t c, children;
+	char *path;
+	char buf[128];
+	char *p;
+
+	memset(buf, 0, 128);
+	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, &path) == 0) { 
+		
+		if (readlink(path, buf, 128) > 0) {
+		
+			p = buf;
+			while (*p != '\0') {
+				if (*p > 0x2f && *p < 0x3a) {
+					*p = '\0';
+					break;
+				}
+				p = p + 1;
+			}
+			p = buf + 6;
+			if (*p > 96 && *p < 123 &&
+				strstr(cbp->cb_devid, p) != NULL) {
+				syslog(LOG_ERR, "fmdtopo: %s,path:%s, devid:%s, %s\n",
+					p, path,  cbp->cb_devid, zpool_get_name(zhp));
+				memset(buf, 0, 128);
+				snprintf(buf, 128, "zpool clear %s %s", zpool_get_name(zhp), path);
+				system(buf);
+				syslog(LOG_ERR, "fmdtopo:%s\n", buf);
+				sleep(1);
+				memset(buf, 0, 128);
+				snprintf(buf, 128, "zpool clear %s", zpool_get_name(zhp));
+				system(buf);
+				syslog(LOG_ERR, "fmdtopo:%s\n", buf);
+				return nv;
+			}
+		} else syslog(LOG_ERR, "fmd_dr:readlink failed,%s\n", path);
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = fmd_clear_vdev(child[c], data)) != NULL)
+				return (ret);
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = fmd_clear_vdev(child[c], data)) != NULL)
+				return (ret);
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_SPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = fmd_clear_vdev(child[c], data)) != NULL)
+				return (ret);
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = fmd_clear_vdev(child[c], data)) != NULL)
+				return (ret);
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_LOWSPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = fmd_clear_vdev(child[c], data)) != NULL)
+				return (ret);
+		}
+	}
+	
+	return (NULL);
+}
+
+static int
+fmd_callback(zpool_handle_t *zhp, void *data)
+{
+	find_cbdata_t *cbp = data;
+	nvlist_t *config;
+	nvlist_t *nvroot;
+
+	config = zpool_get_config(zhp, NULL);
+	if (nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+		&nvroot) != 0) {
+		zpool_close(zhp);
+		return -1;
+	}
+
+	cbp->cb_zhp = zhp;
+	if (fmd_clear_vdev(nvroot, cbp) != NULL) {
+		zpool_close(zhp);
+		return -1;
+	}
+	zpool_close(zhp);
+	return 0;
+}
+
+static int
+fmd_clear_pool_vdev(const char *devid)
+{
+	libzfs_handle_t *zhdl = NULL;
+	find_cbdata_t cb;
+	
+	if ((zhdl = libzfs_init()) == NULL ) {
+		syslog(LOG_ERR, "fmd_dr: can not do libzfs_init()\n") ;
+		return -1 ;
+	}
+
+	cb.cb_devid = devid;
+	cb.cb_zhp = NULL;
+	(void) zpool_iter(zhdl, fmd_callback, &cb);
+
+	libzfs_fini(zhdl) ;
+	return 0 ;
+}
 
 void
 fmd_device_event(fmd_msg_t *msg)
@@ -87,7 +228,7 @@ fmd_device_event(fmd_msg_t *msg)
 	if ((p = strstr(msg->fm_buf, "sd")) != NULL) {
 		p = p + 3;
 		while (*p != '\0') {
-			if (*p > 0x2f || *p < 0x3a) {
+			if (*p > 0x2f && *p < 0x3a) {
 				return;
 			}
 			p = p + 1;
@@ -107,7 +248,7 @@ fmd_device_event(fmd_msg_t *msg)
 	fmd_topo_rele(prev);
 
 	if (strstr(msg->fm_buf, "add") != NULL) {
-		//printf("fmd topo update:%s\n", msg->fm_buf);
+		syslog(LOG_ERR, "fmd_dr update:%s\n", msg->fm_buf);
 		sleep(3);
 		fmd_topo_update(B_TRUE, B_FALSE);
 	}
@@ -115,6 +256,10 @@ fmd_device_event(fmd_msg_t *msg)
 	ftp = fmd_topo_hold();
 	e = fmd_event_create(FMD_EVT_TOPO, ftp->ft_time_end, NULL, ftp);
 	fmd_modhash_dispatch(fmd.d_mod_hash, e);
+
+	/* if the removed disk in pool, we shold do 
+	  zpool clear for the disk */
+	(void) fmd_clear_pool_vdev(msg->fm_buf);
 }
 
 #if 0
