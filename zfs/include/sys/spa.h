@@ -647,6 +647,13 @@ extern int spa_vdev_setfru(spa_t *spa, uint64_t guid, const char *newfru);
 extern int spa_vdev_split_mirror(spa_t *spa, char *newname, nvlist_t *config,
     nvlist_t *props, boolean_t exp);
 
+extern void spa_metaspare_add(vdev_t *vd);
+extern void spa_metaspare_remove(vdev_t *vd);
+extern boolean_t spa_metaspare_exists(uint64_t guid, uint64_t *pool, int *refcnt);
+extern void spa_metaspare_activate(vdev_t *vd);
+extern boolean_t spa_has_metas(spa_t *spa);
+extern boolean_t spa_has_metaspare(spa_t *, uint64_t guid);
+
 /* spare state (which is global across all pools) */
 extern void spa_spare_add(vdev_t *vd);
 extern void spa_spare_remove(vdev_t *vd);
@@ -812,6 +819,7 @@ extern uint64_t spa_version(spa_t *spa);
 extern boolean_t spa_deflate(spa_t *spa);
 extern metaslab_class_t *spa_normal_class(spa_t *spa);
 extern metaslab_class_t *spa_log_class(spa_t *spa);
+extern metaslab_class_t *spa_meta_class(spa_t *spa);
 extern void spa_evicting_os_register(spa_t *, objset_t *os);
 extern void spa_evicting_os_deregister(spa_t *, objset_t *os);
 extern void spa_evicting_os_wait(spa_t *spa);

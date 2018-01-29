@@ -71,6 +71,7 @@
 #include <sys/trace.h>
 #include <linux/dcache_compat.h>
 #include <linux/utsname_compat.h>
+#include <sys/sysevent/eventdefs.h>
 
 #else /* _KERNEL */
 
@@ -122,6 +123,7 @@
 #include <sys/sunddi.h>
 #include <sys/debug.h>
 #include <sys/utsname.h>
+#include <sys/sysevent/eventdefs.h>
 
 /*
  * Stack

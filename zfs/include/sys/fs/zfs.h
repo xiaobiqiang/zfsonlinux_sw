@@ -473,6 +473,8 @@ typedef enum {
 #define	SPA_VERSION_26			26ULL
 #define	SPA_VERSION_27			27ULL
 #define	SPA_VERSION_28			28ULL
+
+#define SPA_VERSION_31			31ULL
 #define	SPA_VERSION_5000		5000ULL
 
 /*
@@ -534,6 +536,7 @@ typedef enum {
 #define	SPA_VERSION_FAST_SNAP		SPA_VERSION_27
 #define	SPA_VERSION_MULTI_REPLACE	SPA_VERSION_28
 #define	SPA_VERSION_BEFORE_FEATURES	SPA_VERSION_28
+#define SPA_VERSION_METASPARES		SPA_VERSION_31
 #define	SPA_VERSION_FEATURES		SPA_VERSION_5000
 
 #define	SPA_VERSION_IS_SUPPORTED(v) \
@@ -649,6 +652,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
 #define	ZPOOL_CONFIG_METASPARES		"metaspares"
 #define	ZPOOL_CONFIG_LOWSPARES		"lowspares"
+#define	ZPOOL_CONFIG_METADATA_DEV	"metadev"
+#define	ZPOOL_CONFIG_IS_METASPARE	"is_metaspare"
 /*
  * The persistent vdev state is stored as separate values rather than a single
  * 'vdev_state' entry.  This is because a device can be in multiple states, such
@@ -684,6 +689,8 @@ typedef struct zpool_rewind_policy {
 #define	VDEV_TYPE_SPARE			"spare"
 #define	VDEV_TYPE_LOG			"log"
 #define	VDEV_TYPE_L2CACHE		"l2cache"
+#define VDEV_TYPE_META			"meta"
+#define VDEV_TYPE_METASPARE		"metaspare"
 
 
 #define	ZPOOL_CONFIG_MULTICLUS_GNAME		"multiclus_gname"
@@ -772,6 +779,7 @@ typedef enum pool_state {
 	POOL_STATE_DESTROYED,		/* Explicitly destroyed		*/
 	POOL_STATE_SPARE,		/* Reserved for hot spare use	*/
 	POOL_STATE_L2CACHE,		/* Level 2 ARC device		*/
+	POOL_STATE_METASPARE,
 	POOL_STATE_UNINITIALIZED,	/* Internal spa_t state		*/
 	POOL_STATE_UNAVAIL,		/* Internal libzfs state	*/
 	POOL_STATE_POTENTIALLY_ACTIVE	/* Internal libzfs state	*/

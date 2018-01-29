@@ -328,6 +328,8 @@ typedef struct dmu_buf {
 #define	DMU_POOL_FREE_BPOBJ		"free_bpobj"
 #define	DMU_POOL_BPTREE_OBJ		"bptree_obj"
 #define	DMU_POOL_EMPTY_BPOBJ		"empty_bpobj"
+#define DMU_POOL_METASPARES		"metaspares"
+
 
 /*
  * Allocate an object from this objset.  The range of object numbers
@@ -424,7 +426,7 @@ dmu_write_embedded(objset_t *os, uint64_t object, uint64_t offset,
 #define	WP_SPILL	0x4
 
 void dmu_write_policy(objset_t *os, struct dnode *dn, int level, int wp,
-    struct zio_prop *zp);
+    struct zio_prop *zp, boolean_t app_write_meta);
 /*
  * The bonus data is accessed more or less like a regular buffer.
  * You must dmu_bonus_hold() to get the buffer, which will give you a
@@ -742,7 +744,7 @@ int dmu_write_uio_dbuf(dmu_buf_t *zdb, struct uio *uio, uint64_t size,
 struct arc_buf *dmu_request_arcbuf(dmu_buf_t *handle, int size);
 void dmu_return_arcbuf(struct arc_buf *buf);
 void dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, struct arc_buf *buf,
-    dmu_tx_t *tx, boolean_t b_sync);
+    dmu_tx_t *tx, boolean_t b_sync, boolean_t w_app_meta);
 int dmu_xuio_init(struct xuio *uio, int niov);
 void dmu_xuio_fini(struct xuio *uio);
 int dmu_xuio_add(struct xuio *uio, struct arc_buf *abuf, offset_t off,

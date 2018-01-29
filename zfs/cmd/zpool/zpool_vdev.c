@@ -627,6 +627,53 @@ is_spare(nvlist_t *config, const char *path)
 	return (B_FALSE);
 }
 
+static boolean_t
+is_metaspare(nvlist_t *config, const char *path)
+{
+	int fd;
+	uint64_t used_index;
+	uint64_t quantum;
+	pool_state_t state;
+	char *name = NULL;
+	nvlist_t *label;
+	uint64_t guid, metaspareguid;
+	nvlist_t *nvroot;
+	nvlist_t **metaspares;
+	uint_t i, nmetaspares;
+	boolean_t inuse;
+
+	if ((fd = open(path, O_RDONLY)) < 0)
+		return (B_FALSE);
+
+	if (zpool_in_use(g_zfs, fd, &state, &name, &inuse) != 0 ||
+	    !inuse ||
+	    state != POOL_STATE_METASPARE ||
+	    zpool_read_label(fd, &label, NULL) != 0) {
+		free(name);
+		(void) close(fd);
+		return (B_FALSE);
+	}
+	free(name);
+	(void) close(fd);
+
+	verify(nvlist_lookup_uint64(label, ZPOOL_CONFIG_GUID, &guid) == 0);
+	nvlist_free(label);
+
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+	    &metaspares, &nmetaspares) == 0) {
+		for (i = 0; i < nmetaspares; i++) {
+			verify(nvlist_lookup_uint64(metaspares[i],
+			    ZPOOL_CONFIG_GUID, &metaspareguid) == 0);
+			if (metaspareguid == guid)
+				return (B_TRUE);
+		}
+	}
+
+	return (B_FALSE);
+}
+
 /*
  * Create a leaf vdev.  Determine if this is a file or a device.  If it's a
  * device, fill in the device id to make a complete nvlist.  Valid forms for a
@@ -637,7 +684,7 @@ is_spare(nvlist_t *config, const char *path)
  *	xxx		Shorthand for <zfs_vdev_paths>/xxx
  */
 static nvlist_t *
-make_leaf_vdev(nvlist_t *props, const char *arg, uint64_t is_log)
+make_leaf_vdev(nvlist_t *props, const char *arg, uint64_t is_log, uint64_t is_meta)
 {
 	char path[MAXPATHLEN];
 	struct stat64 statbuf;
@@ -726,6 +773,7 @@ make_leaf_vdev(nvlist_t *props, const char *arg, uint64_t is_log)
 	verify(nvlist_add_string(vdev, ZPOOL_CONFIG_PATH, path) == 0);
 	verify(nvlist_add_string(vdev, ZPOOL_CONFIG_TYPE, type) == 0);
 	verify(nvlist_add_uint64(vdev, ZPOOL_CONFIG_IS_LOG, is_log) == 0);
+	verify(nvlist_add_uint64(vdev, ZPOOL_CONFIG_IS_META, is_meta) == 0);
 	if (strcmp(type, VDEV_TYPE_DISK) == 0)
 		verify(nvlist_add_uint64(vdev, ZPOOL_CONFIG_WHOLE_DISK,
 		    (uint64_t)wholedisk) == 0);
@@ -804,6 +852,7 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 	lastrep.zprl_type = NULL;
 	for (t = 0; t < toplevels; t++) {
 		uint64_t is_log = B_FALSE;
+		uint64_t is_meta = B_FALSE;
 
 		nv = top[t];
 
@@ -814,6 +863,12 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_LOG, &is_log);
 		if (is_log)
 			continue;
+
+		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_META, &is_meta);
+		if (is_meta) {
+			rep.zprl_type = "disk";
+			continue;
+		}
 
 		verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE,
 		    &type) == 0);
@@ -876,7 +931,8 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 				 */
 				if (strcmp(childtype,
 				    VDEV_TYPE_REPLACING) == 0 ||
-				    strcmp(childtype, VDEV_TYPE_SPARE) == 0) {
+				    strcmp(childtype, VDEV_TYPE_SPARE) == 0 ||
+				    strcmp(childtype, VDEV_TYPE_METASPARE) == 0) {
 					nvlist_t **rchild;
 					uint_t rchildren;
 
@@ -1293,6 +1349,12 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 		for (c = 0; c < children; c++)
 			if ((ret = make_disks(zhp, child[c])) != 0)
 				return (ret);
+			
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+	    &child, &children) == 0)
+		for (c = 0; c < children; c++)
+			if ((ret = make_disks(zhp, child[c])) != 0)
+				return (ret);
 
 	return (0);
 }
@@ -1338,6 +1400,8 @@ is_device_in_use(nvlist_t *config, nvlist_t *nv, boolean_t force,
 
 			if (is_spare(config, buf))
 				return (B_FALSE);
+			if (is_metaspare(config, buf))
+				return (B_FALSE);
 		}
 
 		if (strcmp(type, VDEV_TYPE_DISK) == 0)
@@ -1359,6 +1423,13 @@ is_device_in_use(nvlist_t *config, nvlist_t *nv, boolean_t force,
 		for (c = 0; c < children; c++)
 			if (is_device_in_use(config, child[c], force, replacing,
 			    B_TRUE))
+				anyinuse = B_TRUE;
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+		&child, &children) == 0)
+		for (c = 0; c < children; c++)
+			if (is_device_in_use(config, child[c], force, replacing,
+				B_TRUE))
 				anyinuse = B_TRUE;
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
@@ -1419,10 +1490,22 @@ is_grouping(const char *type, int *mindev, int *maxdev)
 		return (VDEV_TYPE_LOG);
 	}
 
+	if (strcmp(type, "meta") == 0) {
+		if (mindev != NULL)
+			*mindev = 1;
+		return (VDEV_TYPE_META);
+	}
+
 	if (strcmp(type, "cache") == 0) {
 		if (mindev != NULL)
 			*mindev = 1;
 		return (VDEV_TYPE_L2CACHE);
+	}
+
+	if (strcmp(type, "metaspare") == 0) {
+		if (mindev != NULL)
+			*mindev = 1;
+		return (VDEV_TYPE_METASPARE);
 	}
 
 	return (NULL);
@@ -1437,21 +1520,27 @@ is_grouping(const char *type, int *mindev, int *maxdev)
 nvlist_t *
 construct_spec(nvlist_t *props, int argc, char **argv)
 {
-	nvlist_t *nvroot, *nv, **top, **spares, **l2cache;
-	int t, toplevels, mindev, maxdev, nspares, nlogs, nl2cache;
+	nvlist_t *nvroot, *nv, **top, **spares, **l2cache, **metaspares;
+	int t, toplevels, mindev, maxdev, nspares, nlogs, nl2cache, nmetaspares;
 	const char *type;
-	uint64_t is_log;
+	uint64_t is_log, is_meta, is_metaspare;
 	boolean_t seen_logs;
+	boolean_t seen_metas;
 
 	top = NULL;
 	toplevels = 0;
 	spares = NULL;
 	l2cache = NULL;
+	metaspares = NULL;
 	nspares = 0;
 	nlogs = 0;
 	nl2cache = 0;
+	nmetaspares = 0;
 	is_log = B_FALSE;
+	is_meta = B_FALSE;
+	is_metaspare = B_FALSE;
 	seen_logs = B_FALSE;
+	seen_metas = B_FALSE;
 
 	while (argc > 0) {
 		nv = NULL;
@@ -1473,6 +1562,20 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 					return (NULL);
 				}
 				is_log = B_FALSE;
+				is_meta = B_FALSE;
+			}
+
+			if (strcmp(type, VDEV_TYPE_METASPARE) == 0) {
+				if (metaspares != NULL) {
+					(void) fprintf(stderr,
+						gettext("invalid vdev "
+						"specification: 'metaspare' can be "
+						"specified only once\n"));
+					return (NULL);
+				}
+				is_log = B_FALSE;
+				is_meta = B_FALSE;
+				is_metaspare = B_TRUE;
 			}
 
 			if (strcmp(type, VDEV_TYPE_LOG) == 0) {
@@ -1485,11 +1588,33 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 				}
 				seen_logs = B_TRUE;
 				is_log = B_TRUE;
+				is_meta = B_FALSE;
 				argc--;
 				argv++;
 				/*
 				 * A log is not a real grouping device.
 				 * We just set is_log and continue.
+				 */
+				continue;
+			}
+
+			if (strcmp(type, VDEV_TYPE_META) == 0) {
+				if (seen_metas) {
+					(void) fprintf(stderr,
+						gettext("invalid vdev "
+						"specification: 'meta' can be "
+						"specified only once\n"));
+					return (NULL);
+				}
+				seen_metas = B_TRUE;
+				is_log = B_FALSE;
+				is_meta = B_TRUE;
+
+				argc--;
+				argv++;
+				/*
+				 * A meta is not a real grouping device.
+				 * We just set is_meta and continue.
 				 */
 				continue;
 			}
@@ -1503,6 +1628,7 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 					return (NULL);
 				}
 				is_log = B_FALSE;
+				is_meta = B_FALSE;
 			}
 
 			if (is_log) {
@@ -1525,7 +1651,7 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 				if (child == NULL)
 					zpool_no_memory();
 				if ((nv = make_leaf_vdev(props, argv[c],
-				    B_FALSE)) == NULL)
+				    B_FALSE, is_meta)) == NULL)
 					return (NULL);
 				child[children - 1] = nv;
 			}
@@ -1555,6 +1681,10 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 				l2cache = child;
 				nl2cache = children;
 				continue;
+			} else if (strcmp(type, VDEV_TYPE_METASPARE) == 0) {
+				metaspares = child;
+				nmetaspares = children;
+				continue;
 			} else {
 				verify(nvlist_alloc(&nv, NV_UNIQUE_NAME,
 				    0) == 0);
@@ -1562,6 +1692,8 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 				    type) == 0);
 				verify(nvlist_add_uint64(nv,
 				    ZPOOL_CONFIG_IS_LOG, is_log) == 0);
+				verify(nvlist_add_uint64(nv,
+					ZPOOL_CONFIG_IS_META, is_meta) == 0);
 				if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
 					verify(nvlist_add_uint64(nv,
 					    ZPOOL_CONFIG_NPARITY,
@@ -1581,7 +1713,7 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 			 * construct the appropriate nvlist describing the vdev.
 			 */
 			if ((nv = make_leaf_vdev(props, argv[0],
-			    is_log)) == NULL)
+			    is_log, is_meta)) == NULL)
 				return (NULL);
 			if (is_log)
 				nlogs++;
@@ -1596,7 +1728,8 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 		top[toplevels - 1] = nv;
 	}
 
-	if (toplevels == 0 && nspares == 0 && nl2cache == 0) {
+	if (toplevels == 0 && nspares == 0 && nl2cache == 0 &&
+		nmetaspares == 0) {
 		(void) fprintf(stderr, gettext("invalid vdev "
 		    "specification: at least one toplevel vdev must be "
 		    "specified\n"));
@@ -1623,6 +1756,9 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 	if (nl2cache != 0)
 		verify(nvlist_add_nvlist_array(nvroot, ZPOOL_CONFIG_L2CACHE,
 		    l2cache, nl2cache) == 0);
+	if (nmetaspares != 0)
+		verify(nvlist_add_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+			metaspares, nmetaspares) == 0);
 
 	for (t = 0; t < toplevels; t++)
 		nvlist_free(top[t]);
@@ -1630,10 +1766,14 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 		nvlist_free(spares[t]);
 	for (t = 0; t < nl2cache; t++)
 		nvlist_free(l2cache[t]);
+	for (t = 0; t < nmetaspares; t++)
+		nvlist_free(metaspares[t]);
 	if (spares)
 		free(spares);
 	if (l2cache)
 		free(l2cache);
+	if (metaspares)
+		free(metaspares);
 	free(top);
 
 	return (nvroot);

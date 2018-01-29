@@ -219,7 +219,7 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 	nv = fnvlist_alloc();
 
 	fnvlist_add_string(nv, ZPOOL_CONFIG_TYPE, vd->vdev_ops->vdev_op_type);
-	if (!(flags & (VDEV_CONFIG_SPARE | VDEV_CONFIG_L2CACHE)))
+	if (!(flags & (VDEV_CONFIG_SPARE | VDEV_CONFIG_L2CACHE|VDEV_CONFIG_METASPARE)))
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_ID, vd->vdev_id);
 	fnvlist_add_uint64(nv, ZPOOL_CONFIG_GUID, vd->vdev_guid);
 
@@ -267,11 +267,15 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 
 	if (vd->vdev_isspare)
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_IS_SPARE, 1);
+	if (vd->vdev_ismetaspare)
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_IS_METASPARE, 1);
+	if (vd->vdev_ismeta)
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_METADATA_DEV, vd->vdev_ismeta);
 
 	if (vd->vdev_isquantum)
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_QUANTUM_DEV, 1);
 
-	if (!(flags & (VDEV_CONFIG_SPARE | VDEV_CONFIG_L2CACHE)) &&
+	if (!(flags & (VDEV_CONFIG_SPARE | VDEV_CONFIG_L2CACHE|VDEV_CONFIG_METASPARE)) &&
 	    vd == vd->vdev_top) {
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_METASLAB_ARRAY,
 		    vd->vdev_ms_array);
@@ -280,6 +284,7 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_ASHIFT, vd->vdev_ashift);
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_ASIZE,
 		    vd->vdev_asize);
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_IS_META,vd->vdev_ismeta);
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_IS_LOG, vd->vdev_islog);
 		if (vd->vdev_removing)
 			fnvlist_add_uint64(nv, ZPOOL_CONFIG_REMOVING,
@@ -503,10 +508,10 @@ retry:
  */
 static boolean_t
 vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
-    uint64_t *spare_guid, uint64_t *l2cache_guid)
+    uint64_t *spare_guid, uint64_t *l2cache_guid, uint64_t *metaspare_guid)
 {
 	spa_t *spa = vd->vdev_spa;
-	uint64_t state, pool_guid, device_guid, txg, spare_pool;
+	uint64_t state, pool_guid, device_guid, txg, spare_pool, metaspare_pool;
 	uint64_t vdtxg = 0;
 	nvlist_t *label;
 
@@ -514,6 +519,8 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 		*spare_guid = 0ULL;
 	if (l2cache_guid)
 		*l2cache_guid = 0ULL;
+	if (metaspare_guid)
+		*metaspare_guid = 0ULL;
 
 	/*
 	 * Read the label, if any, and perform some basic sanity checks.
@@ -532,7 +539,7 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 		return (B_FALSE);
 	}
 
-	if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE &&
+	if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE && state!=POOL_STATE_METASPARE &&
 	    (nvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_GUID,
 	    &pool_guid) != 0 ||
 	    nvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_TXG,
@@ -548,9 +555,10 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 	 * be a part of.  The only way this is allowed is if the device is a hot
 	 * spare (which we check for later on).
 	 */
-	if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE &&
+	if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE && state != POOL_STATE_METASPARE &&
 	    !spa_guid_exists(pool_guid, device_guid) &&
 	    !spa_spare_exists(device_guid, NULL, NULL) &&
+	    !spa_metaspare_exists(device_guid, NULL, NULL) &&
 	    !spa_l2cache_exists(device_guid, NULL))
 		return (B_FALSE);
 
@@ -561,7 +569,7 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 	 * user has attempted to add the same vdev multiple times in the same
 	 * transaction.
 	 */
-	if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE &&
+	if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE && state != POOL_STATE_METASPARE &&
 	    txg == 0 && vdtxg == crtxg)
 		return (B_TRUE);
 
@@ -578,6 +586,7 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 		switch (reason) {
 		case VDEV_LABEL_CREATE:
 		case VDEV_LABEL_L2CACHE:
+		case VDEV_LABEL_METASPARE:
 			return (B_TRUE);
 
 		case VDEV_LABEL_REPLACE:
@@ -596,6 +605,27 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 	 */
 	if (spa_l2cache_exists(device_guid, NULL))
 		return (B_TRUE);
+	
+	if (spa_metaspare_exists(device_guid, &metaspare_pool, NULL) ||
+	    spa_has_metaspare(spa, device_guid)) {
+		if (metaspare_guid)
+			*metaspare_guid = device_guid;
+
+		switch (reason) {
+		case VDEV_LABEL_CREATE:
+		case VDEV_LABEL_L2CACHE:
+		case VDEV_LABEL_SPARE:
+			return (B_TRUE);
+
+		case VDEV_LABEL_REPLACE:
+			return (!spa_has_metaspare(spa, device_guid) ||
+			    metaspare_pool != 0ULL);
+
+		case VDEV_LABEL_METASPARE:
+			return (spa_has_metaspare(spa, device_guid));
+
+		}
+	}
 
 	/*
 	 * We can't rely on a pool's state if it's been imported
@@ -634,7 +664,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	char *buf;
 	size_t buflen;
 	int error;
-	uint64_t spare_guid = 0, l2cache_guid = 0;
+	uint64_t spare_guid = 0, l2cache_guid = 0, metaspare_guid = 0;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL;
 	int c, l;
 	vdev_t *pvd;
@@ -662,7 +692,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	 * Determine if the vdev is in use.
 	 */
 	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_SPLIT &&
-	    vdev_inuse(vd, crtxg, reason, &spare_guid, &l2cache_guid))
+	    vdev_inuse(vd, crtxg, reason, &spare_guid, &l2cache_guid, &metaspare_guid))
 		return (SET_ERROR(EBUSY));
 
 	/*
@@ -672,7 +702,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	 * actual GUID (which is shared between multiple pools).
 	 */
 	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_L2CACHE &&
-	    spare_guid != 0ULL) {
+	    reason != VDEV_LABEL_METASPARE && spare_guid != 0ULL) {
 		uint64_t guid_delta = spare_guid - vd->vdev_guid;
 
 		vd->vdev_guid += guid_delta;
@@ -692,7 +722,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	}
 
 	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_SPARE &&
-	    l2cache_guid != 0ULL) {
+	    reason != VDEV_LABEL_METASPARE && l2cache_guid != 0ULL) {
 		uint64_t guid_delta = l2cache_guid - vd->vdev_guid;
 
 		vd->vdev_guid += guid_delta;
@@ -706,6 +736,25 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		 * already labeled appropriately and we can just return.
 		 */
 		if (reason == VDEV_LABEL_L2CACHE)
+			return (0);
+		ASSERT(reason == VDEV_LABEL_REPLACE);
+	}
+
+	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_SPARE &&
+	    reason != VDEV_LABEL_L2CACHE && metaspare_guid != 0ULL) {
+		uint64_t guid_delta = metaspare_guid - vd->vdev_guid;
+
+		vd->vdev_guid += guid_delta;
+
+		for (pvd = vd; pvd != NULL; pvd = pvd->vdev_parent)
+			pvd->vdev_guid_sum += guid_delta;
+
+		/*
+		 * If this is a replacement, then we want to fallthrough to the
+		 * rest of the code.  If we're adding an l2cache, then it's
+		 * already labeled appropriately and we can just return.
+		 */
+		if (reason == VDEV_LABEL_METASPARE)
 			return (0);
 		ASSERT(reason == VDEV_LABEL_REPLACE);
 	}
@@ -737,6 +786,16 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		    spa_version(spa)) == 0);
 		VERIFY(nvlist_add_uint64(label, ZPOOL_CONFIG_POOL_STATE,
 		    POOL_STATE_SPARE) == 0);
+		VERIFY(nvlist_add_uint64(label, ZPOOL_CONFIG_GUID,
+		    vd->vdev_guid) == 0);
+	} else if (reason == VDEV_LABEL_METASPARE ||
+		(reason == VDEV_LABEL_REMOVE && vd->vdev_ismetaspare)) {
+		VERIFY(nvlist_alloc(&label, NV_UNIQUE_NAME, KM_SLEEP) == 0);
+
+		VERIFY(nvlist_add_uint64(label, ZPOOL_CONFIG_VERSION,
+		    spa_version(spa)) == 0);
+		VERIFY(nvlist_add_uint64(label, ZPOOL_CONFIG_POOL_STATE,
+		    POOL_STATE_METASPARE) == 0);
 		VERIFY(nvlist_add_uint64(label, ZPOOL_CONFIG_GUID,
 		    vd->vdev_guid) == 0);
 	} else if (reason == VDEV_LABEL_L2CACHE ||
@@ -844,6 +903,11 @@ retry:
 	    (reason == VDEV_LABEL_L2CACHE ||
 	    spa_l2cache_exists(vd->vdev_guid, NULL)))
 		spa_l2cache_add(vd);
+
+	if (error == 0 && !vd->vdev_ismetaspare &&
+		(reason == VDEV_LABEL_METASPARE ||
+		spa_metaspare_exists(vd->vdev_guid, NULL, NULL)))
+		spa_metaspare_add(vd);
 
 	return (error);
 }

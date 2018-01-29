@@ -1089,8 +1089,8 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl, boolean_t active_ok)
 	vdev_entry_t *ve;
 	config_entry_t *ce;
 	nvlist_t *ret = NULL, *config = NULL, *tmp = NULL, *nvtop, *nvroot;
-	nvlist_t **spares, **l2cache;
-	uint_t i, nspares, nl2cache;
+	nvlist_t **spares, **l2cache, **metaspares;
+	uint_t i, nspares, nl2cache, nmetaspares;
 	boolean_t config_seen;
 	uint64_t best_txg;
 	char *name, *hostname = NULL;
@@ -1433,6 +1433,14 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl, boolean_t active_ok)
 		    &spares, &nspares) == 0) {
 			for (i = 0; i < nspares; i++) {
 				if (fix_paths(spares[i], pl->names) != 0)
+					goto nomem;
+			}
+		}
+			
+		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+			&metaspares, &nmetaspares) == 0) {
+			for (i = 0; i < nmetaspares; i++) {
+				if (fix_paths(metaspares[i], pl->names) != 0)
 					goto nomem;
 			}
 		}
@@ -2417,6 +2425,19 @@ zpool_in_use(libzfs_handle_t *hdl, int fd, pool_state_t *state, char **namestr,
 		cb.cb_zhp = NULL;
 		cb.cb_guid = vdev_guid;
 		cb.cb_type = ZPOOL_CONFIG_SPARES;
+		if (zpool_iter(hdl, find_aux, &cb) == 1) {
+			name = (char *)zpool_get_name(cb.cb_zhp);
+			ret = TRUE;
+		} else {
+			ret = FALSE;
+		}
+		break;
+		
+	case POOL_STATE_METASPARE:
+	
+		cb.cb_zhp = NULL;
+		cb.cb_guid = vdev_guid;
+		cb.cb_type = ZPOOL_CONFIG_METASPARES;
 		if (zpool_iter(hdl, find_aux, &cb) == 1) {
 			name = (char *)zpool_get_name(cb.cb_zhp);
 			ret = TRUE;

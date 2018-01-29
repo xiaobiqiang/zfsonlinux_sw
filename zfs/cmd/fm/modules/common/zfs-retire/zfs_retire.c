@@ -290,6 +290,14 @@ find_vdev(libzfs_handle_t *zhdl, nvlist_t *nv, const char *search_devid,
 		    search_guid)) != NULL)
 			return (ret);
 	}
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = find_vdev(zhdl, child[c], search_devid,
+			    search_guid)) != NULL)
+				return (ret);
+		}
+	}
 
 	return (NULL);
 }

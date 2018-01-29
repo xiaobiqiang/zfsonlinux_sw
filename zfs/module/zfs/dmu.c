@@ -1487,14 +1487,20 @@ static int
 dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
     dmu_tx_t *tx, uint64_t write_flag)
 {
+	uint64_t txg_no;
+	uint64_t txg_id;
 	dmu_buf_t **dbp;
 	int numbufs;
 	int err = 0;
 	int i;
     boolean_t b_sync;
     dmu_buf_impl_t *db_implp;
+    boolean_t b_appmeta;
+	txg_no = tx->tx_txg;
+	txg_id = txg_no & TXG_MASK;
 
     b_sync = write_flag & WRITE_FLAG_APP_SYNC;
+    b_appmeta = write_flag & WRITE_FLAG_APP_META;
 
 	err = dmu_buf_hold_array_by_dnode(dn, uio->uio_loffset, size,
 	    FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH);
@@ -1507,6 +1513,7 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
         int mirror_success = 1;
 		dmu_buf_t *db = dbp[i];
         db_implp = (dmu_buf_impl_t *)db;
+		db_implp->db_app_meta[txg_id] = b_appmeta;
 
         dmu_objset_remove_seg_cache(dn->dn_objset, db_implp);
 
@@ -1678,7 +1685,7 @@ dmu_return_arcbuf(arc_buf_t *buf)
  */
 void
 dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
-    dmu_tx_t *tx, boolean_t b_sync)
+    dmu_tx_t *tx, boolean_t b_sync, boolean_t w_app_meta)
 {
     uint8_t txg_off;
     int mirror_success = 0;
@@ -1689,7 +1696,7 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 	uint64_t blkid;
 
     txg_off = tx->tx_txg & TXG_MASK;
-
+	dbuf->db_app_meta[txg_off] = w_app_meta;
 	DB_DNODE_ENTER(dbuf);
 	dn = DB_DNODE(dbuf);
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
@@ -1929,7 +1936,7 @@ dmu_sync(zio_t *pio, uint64_t txg, dmu_sync_cb_t *done, zgd_t *zgd)
     txg_off = txg & TXG_MASK;
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
-	dmu_write_policy(os, dn, db->db_level, WP_DMU_SYNC, &zp);
+	dmu_write_policy(os, dn, db->db_level, WP_DMU_SYNC, &zp,  db->db_app_meta[txg_off]);
 	DB_DNODE_EXIT(db);
 
 	/*
@@ -2100,7 +2107,8 @@ int zfs_mdcomp_disable = 0;
 int zfs_redundant_metadata_most_ditto_level = 2;
 
 void
-dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
+dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp,
+				boolean_t write_app_meta)
 {
 	dmu_object_type_t type = dn ? dn->dn_type : DMU_OT_OBJSET;
 	boolean_t ismd = (level > 0 || DMU_OT_IS_METADATA(type) ||
@@ -2201,6 +2209,10 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 	zp->zp_dedup = dedup;
 	zp->zp_dedup_verify = dedup && dedup_verify;
 	zp->zp_nopwrite = nopwrite;
+#ifdef _KERNEL
+	zp->zp_app_meta = dmu_objset_appmetaprop(os) ? ZFS_APPMETA_ON : write_app_meta;
+#endif
+
 }
 
 int

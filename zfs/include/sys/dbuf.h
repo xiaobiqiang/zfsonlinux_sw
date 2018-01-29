@@ -290,6 +290,7 @@ typedef struct dmu_buf_impl {
     list_t db_seg_list;
     kmutex_t db_seg_list_mtx;
     void *db_seg_data;
+	boolean_t db_app_meta[TXG_SIZE];
 } dmu_buf_impl_t;
 
 typedef struct dbuf_mirror_io {

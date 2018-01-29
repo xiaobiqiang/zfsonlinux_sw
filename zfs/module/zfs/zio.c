@@ -2113,6 +2113,7 @@ zio_write_gang_block(zio_t *pio)
 		zp.zp_dedup = B_FALSE;
 		zp.zp_dedup_verify = B_FALSE;
 		zp.zp_nopwrite = B_FALSE;
+		zp.zp_app_meta = pio->io_prop.zp_app_meta;
 
 		zio_nowait(zio_write(zio, spa, txg, &gbh->zg_blkptr[g],
 		    (char *)pio->io_data + (pio->io_size - resid), lsize, &zp,
@@ -2602,17 +2603,29 @@ zio_dva_allocate(zio_t *zio)
 	    METASLAB_GANG_CHILD : 0;
 	flags |= (zio->io_flags & ZIO_FLAG_FASTWRITE) ? METASLAB_FASTWRITE : 0;
 
-    if ( spa->spa_log_class->mc_rotor &&
+    /*if ( spa->spa_log_class->mc_rotor &&
 		((prop_p->zp_type != DMU_OT_PLAIN_FILE_CONTENTS && prop_p->zp_type !=DMU_OT_ZVOL ) 
 		|| prop_p->zp_level > 0)) {
 		mc = spa_log_class(spa);
+	}*/
+	if (spa_has_metas(spa) &&
+		(((prop_p->zp_type != DMU_OT_PLAIN_FILE_CONTENTS &&
+			prop_p->zp_type !=DMU_OT_ZVOL )
+		|| (prop_p->zp_level > 0 || prop_p->zp_app_meta)))) {
+		mc = spa->spa_meta_class;
+	}else {
+		mc = spa->spa_normal_class;
 	}
 
-    
+space_alloc:    
 	error = metaslab_alloc(spa, mc, zio->io_size, bp,
 	    zio->io_prop.zp_copies, zio->io_txg, NULL, flags);
 
 	if (error) {
+		if ((error == ENOSPC) && (mc == spa->spa_meta_class)) {
+			mc = spa->spa_normal_class;
+			goto space_alloc;
+		}
 		spa_dbgmsg(spa, "%s: metaslab allocation failure: zio %p, "
 		    "size %llu, error %d", spa_name(spa), zio, zio->io_size,
 		    error);

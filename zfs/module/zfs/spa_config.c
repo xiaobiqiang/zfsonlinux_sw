@@ -236,7 +236,9 @@ spa_search_quantum_dev(vdev_t *vdev)
 			&& (!vdev->vdev_child[c]->vdev_isquantum)
 			&& (vdev->vdev_child[c]->vdev_state >  VDEV_STATE_FAULTED)) {
 			if ((!vdev->vdev_child[c]->vdev_islog)
+				&& (!vdev->vdev_child[c]->vdev_ismeta)
 				&& (!vdev->vdev_child[c]->vdev_isspare)
+				&& (!vdev->vdev_child[c]->vdev_ismetaspare)
 				&& (!vdev->vdev_child[c]->vdev_isl2cache)) {
 				quantum_dev = vdev->vdev_child[c];
 				break;
@@ -528,6 +530,9 @@ spa_all_configs(uint64_t *generation)
 {
 	nvlist_t *pools;
 	spa_t *spa = NULL;
+	nvlist_t *nvroot, **metaspares;
+	uint_t nmetaspares, c;
+	vdev_stat_t *vs;
 
 	if (*generation == spa_config_generation)
 		return (NULL);
@@ -541,6 +546,7 @@ spa_all_configs(uint64_t *generation)
 			mutex_enter(&spa->spa_props_lock);
 			VERIFY(nvlist_add_nvlist(pools, spa_name(spa),
 			    spa->spa_config) == 0);
+			
 			mutex_exit(&spa->spa_props_lock);
 		}
 	}
@@ -651,6 +657,12 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 			    1ULL) == 0);
 		if (vd->vdev_islog)
 			VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_IS_LOG,
+			    1ULL) == 0);
+		if (vd->vdev_ismeta)
+			VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_IS_META,
+			    1ULL) == 0);
+		if (vd->vdev_ismetaspare)
+			VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_IS_METASPARE,
 			    1ULL) == 0);
 		vd = vd->vdev_top;		/* label contains top config */
 	} else {
