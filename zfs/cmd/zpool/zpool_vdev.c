@@ -597,7 +597,7 @@ is_spare(nvlist_t *config, const char *path)
 
 	if (zpool_in_use(g_zfs, fd, &state, &name, &inuse) != 0 ||
 	    !inuse ||
-	    state != POOL_STATE_SPARE ||
+	    (state != POOL_STATE_METASPARE && state != POOL_STATE_SPARE) ||
 	    zpool_read_label(fd, &label, NULL) != 0) {
 		free(name);
 		(void) close(fd);
@@ -619,6 +619,15 @@ is_spare(nvlist_t *config, const char *path)
 		for (i = 0; i < nspares; i++) {
 			verify(nvlist_lookup_uint64(spares[i],
 			    ZPOOL_CONFIG_GUID, &spareguid) == 0);
+			if (spareguid == guid)
+				return (B_TRUE);
+		}
+	}
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+		&spares, &nspares) == 0) {
+		for (i = 0; i < nspares; i++) {
+			verify(nvlist_lookup_uint64(spares[i],
+				ZPOOL_CONFIG_GUID, &spareguid) == 0);
 			if (spareguid == guid)
 				return (B_TRUE);
 		}

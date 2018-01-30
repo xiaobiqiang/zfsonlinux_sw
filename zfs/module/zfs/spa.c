@@ -4733,8 +4733,8 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 		return (spa_vdev_exit(spa, vd, txg, error));
 
 	if(nmetaspares != 0) {	
-		if ((error = spa_prejudge_spare(spa, metaspares, nmetaspares,1))!= 0)
-			return (spa_vdev_exit(spa, vd, txg, error));
+		//if ((error = spa_prejudge_spare(spa, metaspares, nmetaspares,1))!= 0)
+		//	return (spa_vdev_exit(spa, vd, txg, error));
 	}
 
 	/*
@@ -5036,7 +5036,7 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	    replacing && newvd_isspare ? "spare in" :
 	    replacing ? "replace" : "attach", newvdpath,
 	    replacing ? "for" : "to", oldvdpath);
-	spa_history_log_internal(spa, NULL,
+	spa_history_log_internal(spa, "vdev attach", NULL,
 	    "%s vdev=%s %s vdev=%s",
 	    replacing && newvd_ismetaspare ? "metaspare in" :
 	    replacing ? "replace" : "attach", newvdpath,
