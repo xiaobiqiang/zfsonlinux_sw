@@ -4671,6 +4671,8 @@ spa_prejudge_spare(spa_t *spa,nvlist_t **xspares,uint_t xnspares,int form)
 			vdev_free(min_vd);
 			cmn_err(CE_WARN,"spare is too small");
 			return (-1);
+		} else if (min_vd != NULL) {
+			vdev_free(min_vd);
 		}
 	}
 
@@ -4733,8 +4735,8 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 		return (spa_vdev_exit(spa, vd, txg, error));
 
 	if(nmetaspares != 0) {	
-		//if ((error = spa_prejudge_spare(spa, metaspares, nmetaspares,1))!= 0)
-		//	return (spa_vdev_exit(spa, vd, txg, error));
+		if ((error = spa_prejudge_spare(spa, metaspares, nmetaspares,1))!= 0)
+			return (spa_vdev_exit(spa, vd, txg, error));
 	}
 
 	/*

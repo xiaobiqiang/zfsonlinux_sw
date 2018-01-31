@@ -1383,6 +1383,24 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 			free(name);
 		}
 	}
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES, &caches,
+	    &ncaches) == 0) {
+		for (c = 0; c < ncaches; c++) {
+			if ((name = zpool_vdev_name(g_zfs, zhp, caches[c], B_FALSE)) == NULL )
+				continue;
+
+			if (strstr(name, "scsi") != NULL) {
+				sprintf(dev_path, "/dev/disk/by-id/%s", name);
+			} else {
+				sprintf(dev_path, "/dev/%s", name);
+			}
+
+			zpool_init_efi(dev_path);
+			zpool_write_dev_stamp(dev_path, stamp);
+			zpool_write_dev_stamp_mark(dev_path, stamp);
+			free(name);
+		}
+	}
 
 FINISH:
 	free(stamp);
