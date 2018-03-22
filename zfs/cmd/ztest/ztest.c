@@ -1722,7 +1722,7 @@ ztest_replay_write(ztest_ds_t *zd, lr_write_t *lr, boolean_t byteswap)
         dmu_write(os, lr->lr_foid, offset, length, data, tx, B_FALSE);
 	} else {
 		bcopy(data, abuf->b_data, length);
-        dmu_assign_arcbuf(db, offset, abuf, tx, B_FALSE);
+        dmu_assign_arcbuf(db, offset, abuf, tx, B_FALSE, B_FALSE);
 	}
 
 	(void) ztest_log_write(zd, tx, lr);
@@ -4135,13 +4135,13 @@ ztest_dmu_read_write_zcopy(ztest_ds_t *zd, uint64_t id)
 			}
 			if (i != 5 || chunksize < (SPA_MINBLOCKSIZE * 2)) {
 				dmu_assign_arcbuf(bonus_db, off,
-                    bigbuf_arcbufs[j], tx, B_FALSE);
+                    bigbuf_arcbufs[j], tx, B_FALSE, B_FALSE);
 			} else {
 				dmu_assign_arcbuf(bonus_db, off,
-                    bigbuf_arcbufs[2 * j], tx, B_FALSE);
+                    bigbuf_arcbufs[2 * j], tx, B_FALSE, B_FALSE);
 				dmu_assign_arcbuf(bonus_db,
 				    off + chunksize / 2,
-                    bigbuf_arcbufs[2 * j + 1], tx, B_FALSE);
+                    bigbuf_arcbufs[2 * j + 1], tx, B_FALSE, B_FALSE);
 			}
 			if (i == 1) {
 				dmu_buf_rele(dbt, FTAG);

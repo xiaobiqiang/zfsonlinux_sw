@@ -1383,6 +1383,24 @@ zpool_initialize_pool_devs(zpool_handle_t *zhp, nvlist_t *parents)
 			free(name);
 		}
 	}
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES, &caches,
+	    &ncaches) == 0) {
+		for (c = 0; c < ncaches; c++) {
+			if ((name = zpool_vdev_name(g_zfs, zhp, caches[c], B_FALSE)) == NULL )
+				continue;
+
+			if (strstr(name, "scsi") != NULL) {
+				sprintf(dev_path, "/dev/disk/by-id/%s", name);
+			} else {
+				sprintf(dev_path, "/dev/%s", name);
+			}
+
+			zpool_init_efi(dev_path);
+			zpool_write_dev_stamp(dev_path, stamp);
+			zpool_write_dev_stamp_mark(dev_path, stamp);
+			free(name);
+		}
+	}
 
 FINISH:
 	free(stamp);
@@ -1758,6 +1776,14 @@ max_width(zpool_handle_t *zhp, nvlist_t *nv, int depth, int max,
 			    max, name_flags)) > max)
 				max = ret;
 	}
+		
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+		&child, &children) == 0) {
+		for (c = 0; c < children; c++)
+			if ((ret = max_width(zhp, child[c], depth + 2,
+				max, name_flags)) > max)
+				max = ret;
+	}
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
 	    &child, &children) == 0) {
@@ -1917,14 +1943,18 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		} else {
 			sprintf(di.dk_name, "/dev/%s", name);
 		}
-		//disk_get_serial(&di);
-		//disk_get_slotid(&di);
-		//sprintf(en_buf, "%d", di.dk_enclosure);
-		//sprintf(slot_buf, "%d", di.dk_slot);
-		strcpy(g_di_cur.dk_serial, name);
-		slot_map_find_value_guid(&g_sm, &g_di_cur);
-		sprintf(en_buf, "%d", g_di_cur.dk_enclosure);
-		sprintf(slot_buf, "%d", g_di_cur.dk_slot);
+	#if 1   //for redhat
+                disk_get_serial(&di);
+                disk_get_slotid(&di);
+                sprintf(en_buf, "%d", di.dk_enclosure);
+                sprintf(slot_buf, "%d", di.dk_slot);
+        #else   //for kylinxos, need to test 
+                strcpy(g_di_cur.dk_serial, name);
+                slot_map_find_value_guid(&g_sm, &g_di_cur);
+                sprintf(en_buf, "%d", g_di_cur.dk_enclosure);
+                sprintf(slot_buf, "%d", g_di_cur.dk_slot);
+        #endif
+
 	} else {
 		sprintf(en_buf, "%s", "--");
 		sprintf(slot_buf, "%s", "--");
@@ -2060,14 +2090,16 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	(void) printf("\n");
 
 	for (c = 0; c < children; c++) {
-		uint64_t islog = B_FALSE, ishole = B_FALSE;
+		uint64_t islog = B_FALSE, ishole = B_FALSE, is_meta=B_FALSE;
 
 		/* Don't print logs or holes here */
 		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOG,
 		    &islog);
 		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_HOLE,
 		    &ishole);
-		if (islog || ishole)
+		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_META,
+		    &is_meta);
+		if (islog || ishole || is_meta)
 			continue;
 		vname = zpool_vdev_name(g_zfs, zhp, child[c],
 		    name_flags | VDEV_NAME_TYPE_ID);
@@ -2147,10 +2179,15 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth,
 
 	for (c = 0; c < children; c++) {
 		uint64_t is_log = B_FALSE;
+		uint64_t is_meta = B_FALSE;
 
 		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOG,
 		    &is_log);
 		if (is_log)
+			continue;
+		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_META,
+		    &is_meta);
+		if (is_meta)
 			continue;
 
 		vname = zpool_vdev_name(g_zfs, NULL, child[c],
@@ -2168,6 +2205,17 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth,
 			    name_flags);
 			(void) printf("\t  %s\n", vname);
 			free(vname);
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+		&child, &children) == 0) {
+		(void) printf(gettext("\tmetaspares\n"));
+		for (c = 0; c < children; c++) {
+			if ((vname = zpool_vdev_name(g_zfs, NULL, child[c], B_FALSE)) != NULL ) {
+				(void) printf("\t  %s\n", vname);
+				free(vname);
+			}
 		}
 	}
 
@@ -2225,6 +2273,41 @@ print_logs(zpool_handle_t *zhp, nvlist_t *nv, int namewidth, boolean_t verbose,
 			print_import_config(name, child[c], namewidth, 2,
 			    name_flags);
 		free(name);
+	}
+}
+static void
+print_metas(zpool_handle_t *zhp, nvlist_t *nv, int namewidth, 
+	boolean_t verbose, int name_flags, xmlNodePtr parent_node)
+{
+	uint_t c, children;
+	nvlist_t **child;
+	xmlNodePtr meta_node = NULL;
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN, &child,
+		&children) != 0)
+		return;
+
+	(void) printf(gettext("\tMetadatas\n"));
+	if (parent_node != NULL)
+		meta_node = xmlNewChild(parent_node, NULL, (xmlChar *)"metas", NULL);
+	for (c = 0; c < children; c++) {
+		uint64_t is_meta = B_FALSE;
+		char *name;
+
+		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_META,
+			&is_meta);
+		if (!is_meta)
+			continue;
+		if ((name = zpool_vdev_name(g_zfs, zhp, child[c], 
+			name_flags | VDEV_NAME_TYPE_ID)) != NULL ) {
+			if (verbose)
+				print_status_config(zhp, name, child[c], namewidth,
+					2, B_FALSE, name_flags, meta_node);
+			else
+				print_import_config(name, child[c], namewidth, 2,
+					name_flags);
+			free(name);
+		}
 	}
 }
 
@@ -2479,6 +2562,9 @@ show_import(nvlist_t *config)
 	print_import_config(name, nvroot, namewidth, 0, 0);
 	if (num_logs(nvroot) > 0)
 		print_logs(NULL, nvroot, namewidth, B_FALSE, 0, NULL);
+
+	if (num_metas(nvroot) > 0)
+		print_metas(NULL, nvroot, namewidth, B_FALSE, 0, NULL);
 
 	if (reason == ZPOOL_STATUS_BAD_GUID_SUM) {
 		(void) printf(gettext("\n\tAdditional devices are known to "
@@ -5074,6 +5160,31 @@ print_error_log(zpool_handle_t *zhp)
 	free(pathname);
 	nvlist_free(nverrlist);
 }
+static void
+print_metaspares(zpool_handle_t *zhp, nvlist_t **metaspares, uint_t nmetaspares,
+    int namewidth, int name_flags, xmlNodePtr parent_node)
+{
+	uint_t i;
+	char *name;
+	xmlNodePtr metaspare_node = NULL;
+
+	if (nmetaspares == 0)
+		return;
+
+	if (parent_node != NULL)
+		metaspare_node =xmlNewChild(parent_node, NULL, (xmlChar *)"metaspares", NULL);
+
+
+	(void) printf(gettext("\tmetaspares\n"));
+
+	for (i = 0; i < nmetaspares; i++) {
+		if ((name = zpool_vdev_name(g_zfs, zhp, metaspares[i], name_flags)) != NULL ) {
+			print_status_config(zhp, name, metaspares[i],
+		    	namewidth, 2, B_TRUE, name_flags, metaspare_node);
+			free(name);
+		}
+	}
+}
 
 static void
 print_spares(zpool_handle_t *zhp, nvlist_t **spares, uint_t nspares,
@@ -5618,8 +5729,8 @@ status_callback(zpool_handle_t *zhp, void *data)
 	if (config != NULL) {
 		int namewidth;
 		uint64_t nerr;
-		nvlist_t **spares, **l2cache;
-		uint_t nspares, nl2cache;
+		nvlist_t **spares, **l2cache, **metaspares;
+		uint_t nspares, nl2cache, nmetaspares;
 		pool_scan_stat_t *ps = NULL;
 
 		(void) nvlist_lookup_uint64_array(nvroot,
@@ -5639,9 +5750,16 @@ status_callback(zpool_handle_t *zhp, void *data)
 		if (num_logs(nvroot) > 0)
 			print_logs(zhp, nvroot, namewidth, B_TRUE,
 			    cbp->cb_name_flags, node);
+		if (num_metas(nvroot) > 0)
+			print_metas(zhp, nvroot, namewidth, B_TRUE,
+				cbp->cb_name_flags, node);
 		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_L2CACHE,
 		    &l2cache, &nl2cache) == 0)
 			print_l2cache(zhp, l2cache, nl2cache, namewidth,
+				cbp->cb_name_flags, node);
+		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+		    &metaspares, &nmetaspares) == 0)
+			print_metaspares(zhp, metaspares, nmetaspares, namewidth, 
 				cbp->cb_name_flags, node);
 
 		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_SPARES,

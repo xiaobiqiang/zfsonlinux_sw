@@ -1299,6 +1299,11 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
+	if (!db->db_app_meta[txgoff] && db->db_blkptr != NULL &&
+		!BP_IS_HOLE(db->db_blkptr)) {
+			db->db_app_meta[txgoff] = BP_IS_APPMETA(db->db_blkptr);
+	}
+
 	/*
 	 * Shouldn't dirty a regular buffer in syncing context.  Private
 	 * objects may be dirtied in syncing context, but only if they
@@ -1912,7 +1917,7 @@ dbuf_direct_write(dmu_buf_impl_t *db,  dmu_tx_t *tx)
     SET_BOOKMARK(&zb, os->os_dsl_dataset->ds_object,
         db->db.db_object, db->db_level, db->db_blkid);
     wp_flag = 0;
-    dmu_write_policy(os, DB_DNODE(db), db->db_level, wp_flag, &zp);
+    dmu_write_policy(os, DB_DNODE(db), db->db_level, wp_flag, &zp, db->db_app_meta[txg_id]);
 
     blk_record = kmem_zalloc(sizeof(dbuf_blkptr_record_t), KM_SLEEP);
     blk_record->seq = db->db_blkptr_seq[txg_id];
@@ -2123,6 +2128,7 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	
 	for (i = 0; i < TXG_SIZE; i++) {
 		db->db_ctrl_data[i] = 0;
+		db->db_app_meta[i] = 0;
 		list_create(&db->db_blkptr_list[i],  sizeof (dbuf_blkptr_record_t),
 			    offsetof(dbuf_blkptr_record_t, db_blkptr_node));
 	}
@@ -3267,6 +3273,7 @@ dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 	ASSERT(db->db_dirtycnt > 0);
 	db->db_dirtycnt -= 1;
 	db->db_data_pending = NULL;
+	db->db_app_meta[txg_off] = B_FALSE;
 	dbuf_rele_and_unlock(db, (void *)(uintptr_t)tx->tx_txg);
 }
 
@@ -3385,7 +3392,7 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx)
 		wp_flag = WP_SPILL;
 	wp_flag |= (db->db_state == DB_NOFILL) ? WP_NOFILL : 0;
 
-	dmu_write_policy(os, dn, db->db_level, wp_flag, &zp);
+	dmu_write_policy(os, dn, db->db_level, wp_flag, &zp, db->db_app_meta[txg_id]);
 	DB_DNODE_EXIT(db);
 
 	if (db->db_level == 0 &&

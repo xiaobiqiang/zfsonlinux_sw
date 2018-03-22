@@ -290,6 +290,14 @@ find_vdev(libzfs_handle_t *zhdl, nvlist_t *nv, const char *search_devid,
 		    search_guid)) != NULL)
 			return (ret);
 	}
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = find_vdev(zhdl, child[c], search_devid,
+			    search_guid)) != NULL)
+				return (ret);
+		}
+	}
 
 	return (NULL);
 }
@@ -897,7 +905,8 @@ zfs_retire_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl,
 	 * check for an available spare and continue.
 	 */
 	if (strcmp(class, "resource.fs.zfs.removed") == 0 ||
-		strcmp(class, "ereport.fs.zfs.vdev.unknown") == 0) {
+		strcmp(class, "ereport.fs.zfs.vdev.unknown") == 0 ||
+		strcmp(class, "ereport.fs.zfs.probe_failure") == 0) {
 		if (nvlist_lookup_uint64(nvl, FM_EREPORT_PAYLOAD_ZFS_POOL_GUID,
 		    &pool_guid) != 0 ||
 		    nvlist_lookup_uint64(nvl, FM_EREPORT_PAYLOAD_ZFS_VDEV_GUID,

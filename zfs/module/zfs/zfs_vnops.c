@@ -918,6 +918,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	zilog_t		*zilog;
 	offset_t	woff;
 	ssize_t		n, nbytes;
+	boolean_t write_meta = B_FALSE;
 	rl_t		*rl;
 	int		max_blksz = zsb->z_max_blksz;
 	arc_buf_t	*abuf;
@@ -1215,7 +1216,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 			} else {
 				ASSERT(xuio || tx_bytes == max_blksz);
 				dmu_assign_arcbuf(sa_get_db(zp->z_sa_hdl),
-				    woff, abuf, tx, sync);
+				    woff, abuf, tx, sync, write_meta);
 			}
 			ASSERT(tx_bytes <= uio->uio_resid);
 			uioskip(uio, tx_bytes);
@@ -1417,6 +1418,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	int		error = 0;
 	arc_buf_t	*abuf;
 	const iovec_t	*aiov = NULL;
+	boolean_t write_meta = B_FALSE;
 	xuio_t		*xuio = NULL;
 	int		i_iov = 0;
 	iovec_t	*iovp = uio->uio_iov;
@@ -1791,7 +1793,7 @@ tx_again:
 			} else {
 				ASSERT(xuio || tx_bytes == max_blksz);
 				dmu_assign_arcbuf(sa_get_db(zp->z_sa_hdl),
-                    woff, abuf, tx, sync);
+                    woff, abuf, tx, sync, write_meta);
 			}
 			ASSERT(tx_bytes <= uio->uio_resid);
 			uioskip(uio, tx_bytes);

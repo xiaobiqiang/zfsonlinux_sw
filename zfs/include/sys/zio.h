@@ -311,6 +311,7 @@ typedef struct zio_prop {
 	boolean_t		zp_dedup;
 	boolean_t		zp_dedup_verify;
 	boolean_t		zp_nopwrite;
+	boolean_t		zp_app_meta;
 } zio_prop_t;
 
 typedef struct zio_cksum_report zio_cksum_report_t;

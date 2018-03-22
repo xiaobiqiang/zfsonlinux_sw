@@ -1089,8 +1089,8 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl, boolean_t active_ok)
 	vdev_entry_t *ve;
 	config_entry_t *ce;
 	nvlist_t *ret = NULL, *config = NULL, *tmp = NULL, *nvtop, *nvroot;
-	nvlist_t **spares, **l2cache;
-	uint_t i, nspares, nl2cache;
+	nvlist_t **spares, **l2cache, **metaspares;
+	uint_t i, nspares, nl2cache, nmetaspares;
 	boolean_t config_seen;
 	uint64_t best_txg;
 	char *name, *hostname = NULL;
@@ -1436,6 +1436,14 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl, boolean_t active_ok)
 					goto nomem;
 			}
 		}
+			
+		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+			&metaspares, &nmetaspares) == 0) {
+			for (i = 0; i < nmetaspares; i++) {
+				if (fix_paths(metaspares[i], pl->names) != 0)
+					goto nomem;
+			}
+		}
 
 		/*
 		 * Update the paths for l2cache devices.
@@ -1530,12 +1538,13 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 		}
 
 		if (nvlist_lookup_uint64(*config, ZPOOL_CONFIG_POOL_STATE,
-		    &state) != 0 || state > POOL_STATE_L2CACHE) {
+		    &state) != 0 || state > POOL_STATE_METASPARE) {
 			nvlist_free(*config);
 			continue;
 		}
 
 		if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE &&
+			state != POOL_STATE_METASPARE &&
 		    (nvlist_lookup_uint64(*config, ZPOOL_CONFIG_POOL_TXG,
 		    &txg) != 0 || txg == 0)) {
 			nvlist_free(*config);
@@ -2319,7 +2328,7 @@ zpool_in_use(libzfs_handle_t *hdl, int fd, pool_state_t *state, char **namestr,
 	verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_GUID,
 	    &vdev_guid) == 0);
 
-	if (stateval != POOL_STATE_SPARE && stateval != POOL_STATE_L2CACHE) {
+	if (stateval != POOL_STATE_METASPARE && stateval != POOL_STATE_SPARE && stateval != POOL_STATE_L2CACHE) {
 		verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
 		    &name) == 0);
 		verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID,
@@ -2417,6 +2426,19 @@ zpool_in_use(libzfs_handle_t *hdl, int fd, pool_state_t *state, char **namestr,
 		cb.cb_zhp = NULL;
 		cb.cb_guid = vdev_guid;
 		cb.cb_type = ZPOOL_CONFIG_SPARES;
+		if (zpool_iter(hdl, find_aux, &cb) == 1) {
+			name = (char *)zpool_get_name(cb.cb_zhp);
+			ret = TRUE;
+		} else {
+			ret = FALSE;
+		}
+		break;
+		
+	case POOL_STATE_METASPARE:
+	
+		cb.cb_zhp = NULL;
+		cb.cb_guid = vdev_guid;
+		cb.cb_type = ZPOOL_CONFIG_METASPARES;
 		if (zpool_iter(hdl, find_aux, &cb) == 1) {
 			name = (char *)zpool_get_name(cb.cb_zhp);
 			ret = TRUE;

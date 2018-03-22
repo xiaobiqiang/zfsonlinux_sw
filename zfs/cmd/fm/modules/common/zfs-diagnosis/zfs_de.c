@@ -207,7 +207,13 @@ zfs_mark_vdev(uint64_t pool_guid, nvlist_t *vd)
 		for (c = 0; c < children; c++)
 			zfs_mark_vdev(pool_guid, child[c]);
 	}
-	
+		
+	if (nvlist_lookup_nvlist_array(vd, ZPOOL_CONFIG_METASPARES, &child,
+	    &children) == 0) {
+		for (c = 0; c < children; c++)
+			zfs_mark_vdev(pool_guid, child[c]);
+	}
+		
 	if (nvlist_lookup_nvlist_array(vd, ZPOOL_CONFIG_MIRRORSPARES, &child,
 	    &children) == 0) {
 		for (c = 0; c < children; c++)

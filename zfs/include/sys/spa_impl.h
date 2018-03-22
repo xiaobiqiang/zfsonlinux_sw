@@ -160,6 +160,7 @@ struct spa {
 	boolean_t	spa_is_initializing;	/* true while opening pool */
 	metaslab_class_t *spa_normal_class;	/* normal data class */
 	metaslab_class_t *spa_log_class;	/* intent log data class */
+	metaslab_class_t *spa_meta_class;
 	uint64_t	spa_first_txg;		/* first txg after spa_open() */
 	uint64_t	spa_final_txg;		/* txg of export/destroy */
 	uint64_t	spa_freeze_txg;		/* freeze pool at this txg */
@@ -181,6 +182,7 @@ struct spa {
 	list_t		spa_state_dirty_list;	/* vdevs with dirty state */
 	spa_aux_vdev_t	spa_spares;		/* hot spares */
 	spa_aux_vdev_t	spa_l2cache;		/* L2ARC cache devices */
+	spa_aux_vdev_t  spa_metaspares;
 	nvlist_t	*spa_label_features;	/* Features for reading MOS */
 	uint64_t	spa_config_object;	/* MOS object for pool config */
 	uint64_t	spa_config_generation;	/* config generation number */

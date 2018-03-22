@@ -238,6 +238,8 @@ static kmutex_t spa_spare_lock;
 static avl_tree_t spa_spare_avl;
 static kmutex_t spa_l2cache_lock;
 static avl_tree_t spa_l2cache_avl;
+static kmutex_t spa_metaspare_lock;
+static avl_tree_t spa_metaspare_avl;
 
 kmem_cache_t *spa_buffer_pool;
 int spa_mode_global;
@@ -1024,6 +1026,50 @@ spa_l2cache_activate(vdev_t *vd)
 	mutex_exit(&spa_l2cache_lock);
 }
 
+static int
+spa_metaspare_compare(const void *a, const void *b)
+{
+	return (spa_aux_compare(a, b));
+}
+
+void
+spa_metaspare_add(vdev_t *vd)
+{
+	mutex_enter(&spa_metaspare_lock);
+	ASSERT(!vd->vdev_ismetaspare);
+	spa_aux_add(vd, &spa_metaspare_avl);
+	vd->vdev_ismetaspare = B_TRUE;
+	mutex_exit(&spa_metaspare_lock);
+}
+void
+spa_metaspare_activate(vdev_t *vd)
+{
+	mutex_enter(&spa_metaspare_lock);
+	ASSERT(vd->vdev_ismetaspare);
+	spa_aux_activate(vd, &spa_metaspare_avl);
+	mutex_exit(&spa_metaspare_lock);
+}
+boolean_t
+spa_metaspare_exists(uint64_t guid, uint64_t *pool, int *refcnt)
+{
+	boolean_t found;
+
+	mutex_enter(&spa_metaspare_lock);
+	found = spa_aux_exists(guid, pool, refcnt, &spa_metaspare_avl);
+	mutex_exit(&spa_metaspare_lock);
+
+	return (found);
+}
+void
+spa_metaspare_remove(vdev_t *vd)
+{
+	mutex_enter(&spa_metaspare_lock);
+	ASSERT(vd->vdev_ismetaspare);
+	spa_aux_remove(vd, &spa_metaspare_avl);
+	vd->vdev_ismetaspare = B_FALSE;
+	mutex_exit(&spa_metaspare_lock);
+}
+
 /*
  * ==========================================================================
  * SPA vdev locking
@@ -1674,6 +1720,11 @@ spa_log_class(spa_t *spa)
 {
 	return (spa->spa_log_class);
 }
+metaslab_class_t *
+spa_meta_class(spa_t *spa)
+{
+	return (spa->spa_meta_class);
+}
 
 void
 spa_evicting_os_register(spa_t *spa, objset_t *os)
@@ -1807,12 +1858,16 @@ spa_init(int mode)
 	mutex_init(&spa_namespace_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa_spare_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa_l2cache_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa_metaspare_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&spa_namespace_cv, NULL, CV_DEFAULT, NULL);
 
 	avl_create(&spa_namespace_avl, spa_name_compare, sizeof (spa_t),
 	    offsetof(spa_t, spa_avl));
 
 	avl_create(&spa_spare_avl, spa_spare_compare, sizeof (spa_aux_t),
+	    offsetof(spa_aux_t, aux_avl));
+	
+	avl_create(&spa_metaspare_avl, spa_metaspare_compare, sizeof (spa_aux_t),
 	    offsetof(spa_aux_t, aux_avl));
 
 	avl_create(&spa_l2cache_avl, spa_l2cache_compare, sizeof (spa_aux_t),
@@ -1873,9 +1928,11 @@ spa_fini(void)
 	avl_destroy(&spa_namespace_avl);
 	avl_destroy(&spa_spare_avl);
 	avl_destroy(&spa_l2cache_avl);
+	avl_destroy(&spa_metaspare_avl);
 
 	cv_destroy(&spa_namespace_cv);
 	mutex_destroy(&spa_namespace_lock);
+	mutex_destroy(&spa_metaspare_lock);
 	mutex_destroy(&spa_spare_lock);
 	mutex_destroy(&spa_l2cache_lock);
 }
