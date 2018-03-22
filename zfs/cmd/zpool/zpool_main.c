@@ -1943,14 +1943,18 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		} else {
 			sprintf(di.dk_name, "/dev/%s", name);
 		}
-		//disk_get_serial(&di);
-		//disk_get_slotid(&di);
-		//sprintf(en_buf, "%d", di.dk_enclosure);
-		//sprintf(slot_buf, "%d", di.dk_slot);
-		strcpy(g_di_cur.dk_serial, name);
-		slot_map_find_value_guid(&g_sm, &g_di_cur);
-		sprintf(en_buf, "%d", g_di_cur.dk_enclosure);
-		sprintf(slot_buf, "%d", g_di_cur.dk_slot);
+	#if 1   //for redhat
+                disk_get_serial(&di);
+                disk_get_slotid(&di);
+                sprintf(en_buf, "%d", di.dk_enclosure);
+                sprintf(slot_buf, "%d", di.dk_slot);
+        #else   //for kylinxos, need to test 
+                strcpy(g_di_cur.dk_serial, name);
+                slot_map_find_value_guid(&g_sm, &g_di_cur);
+                sprintf(en_buf, "%d", g_di_cur.dk_enclosure);
+                sprintf(slot_buf, "%d", g_di_cur.dk_slot);
+        #endif
+
 	} else {
 		sprintf(en_buf, "%s", "--");
 		sprintf(slot_buf, "%s", "--");
