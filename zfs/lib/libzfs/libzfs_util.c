@@ -58,6 +58,7 @@
 #include "libzfs_impl.h"
 #include "zfs_prop.h"
 #include "zfeature_common.h"
+#include <dirent.h>
 
 #define	ZFS_ILU_MAX_NTHREAD		64
 #define NETCONFIG_FILE			"/dev/tcp"
@@ -97,6 +98,19 @@ typedef struct zfs_avs_ctx {
 	uint64_t dev_no;
 	int enabled;
 } zfs_avs_ctx_t;
+
+
+typedef struct path_dir_node{
+	struct path_dir_node *next;
+	char *dir_path;
+} path_dir_node_t;
+
+typedef struct path_dir {
+	struct path_dir_node *head;
+	struct path_dir_node *tail;
+} path_dir_t;
+
+#define	rm_files_thread_num  32
 
 int
 libzfs_errno(libzfs_handle_t *hdl)
@@ -3957,3 +3971,185 @@ void zpool_check_thin_luns(zfs_thinluns_t **statpp)
 
         libzfs_fini(tmp_gzfs);
 }
+
+
+uint64_t rm_file_num = 0;
+tpool_t *rm_files_threadpool = NULL;
+path_dir_t child_dir_list;
+pthread_mutex_t child_dir_list_lock;
+boolean_t rm_done = B_FALSE;
+
+typedef struct wait_rm_file_list
+{
+	char path[MAXPATHLEN];
+	struct wait_rm_file_list *next;
+}wait_rm_file_list_t;
+
+struct rm_file_thread_info{
+	int thread_id;
+	int thread_busy_flag;
+}rm_file_thread_info[rm_files_thread_num] = {0};
+
+static void
+zfs_rm_files_in_a_dir(int *thread_id)
+{
+	path_dir_node_t *dir_node;
+	DIR *dirp = NULL;
+	struct dirent64 *dp = NULL;
+	int error;
+	char dir[MAXNAMELEN] = {0};
+	char path[MAXPATHLEN] = {0};
+	int free_thread_num = 0;
+	wait_rm_file_list_t *wait_rm_file_node;
+	int i;
+	
+	while(!rm_done){
+		pthread_mutex_lock(&child_dir_list_lock);
+		if (child_dir_list.head == NULL){
+			rm_file_thread_info[*thread_id].thread_busy_flag = 0;
+			free_thread_num = 0;
+			for (i = 0; i < rm_files_thread_num; i++){
+				if (rm_file_thread_info[i].thread_busy_flag == 0){
+					free_thread_num += 1;
+				}
+			}
+			if (free_thread_num == rm_files_thread_num){
+				rm_done = B_TRUE;
+				pthread_mutex_unlock(&child_dir_list_lock);
+				continue;
+			}
+			pthread_mutex_unlock(&child_dir_list_lock);
+			usleep(200);
+			continue;
+		} else {
+			rm_file_thread_info[*thread_id].thread_busy_flag = 1;
+			
+			dir_node = child_dir_list.head;
+			if (child_dir_list.head == child_dir_list.tail) {
+				child_dir_list.tail = NULL;
+				child_dir_list.head = NULL;
+			} else {
+				child_dir_list.head = dir_node->next;
+			}
+			pthread_mutex_unlock(&child_dir_list_lock);
+		}
+		
+		strcpy(dir, dir_node->dir_path);
+		free(dir_node->dir_path);
+		free(dir_node);
+
+		wait_rm_file_node = NULL;
+		if ((dirp = opendir(dir)) == NULL) {
+			//syslog(LOG_ERR, "cann't open dir:%s", dir);
+			error = remove(dir);
+			if (error != 0) {
+				syslog(LOG_ERR, "remove file %s err %d\n", dir, error);
+				continue;
+			}
+			atomic_inc_64(&rm_file_num);	
+			continue;
+	    }
+		
+		while ((dp = readdir64(dirp)) != NULL) {
+			char *name = dp->d_name;
+			if (strcmp(name, ".") == 0 || 
+					strcmp(name, "..") == 0)
+				continue;
+			
+			bzero(path, MAXPATHLEN);
+			(void) sprintf(path, "%s/%s", dir, name);
+			if (NULL == strchr(name, '.') || NULL != strstr(name, ".dir")) {
+				dir_node = malloc(sizeof(path_dir_node_t));
+				dir_node->dir_path = (char*)malloc(strlen(path)+1);
+				bzero(dir_node->dir_path, strlen(path)+1);
+				strcpy(dir_node->dir_path, path);
+				dir_node->next = NULL;
+
+				pthread_mutex_lock(&child_dir_list_lock);
+				if (child_dir_list.tail == NULL){
+					child_dir_list.head = dir_node;
+					child_dir_list.tail = dir_node;
+				}else{
+					child_dir_list.tail->next = dir_node;
+					child_dir_list.tail = dir_node;
+				}	
+				pthread_mutex_unlock(&child_dir_list_lock);
+			}else {
+				wait_rm_file_list_t *tmp = (wait_rm_file_list_t*)malloc(sizeof(wait_rm_file_list_t));
+				strcpy(tmp->path, path);
+				tmp->next = wait_rm_file_node;
+				wait_rm_file_node = tmp;
+			}
+		}
+		(void) closedir(dirp);
+
+		if (wait_rm_file_node) {
+			do {
+				wait_rm_file_list_t *tmp = wait_rm_file_node;
+				wait_rm_file_node = wait_rm_file_node->next;
+	
+				error = remove(tmp->path);
+				if (error != 0) {
+					syslog(LOG_ERR, "remove file %s err %d\n", tmp->path, error);
+				}	
+				atomic_inc_64(&rm_file_num);
+				free(tmp);
+			} while(wait_rm_file_node);
+		}
+	}
+}
+
+int zfs_start_rm_file_in_dir(libzfs_handle_t *hdl, char *dir)
+{
+	path_dir_node_t *dir_node;
+	DIR *dirp = NULL;
+	int i;
+
+	if ((dir == NULL) || (0 == strlen(dir))) {
+		/* not found in df output */
+		(void) printf("Error: fail to find dir %s.\n", dir);
+		return (-1);
+	}
+
+	if ((dirp = opendir(dir)) == NULL) {
+		(void) printf("Error: can't find dir %s.\n", dir);
+		return (-1);
+	}
+	(void) closedir(dirp);
+	
+	rm_file_num = 0;
+	rm_files_threadpool = tpool_create(1, rm_files_thread_num, 0, NULL);
+	
+	if (NULL == rm_files_threadpool)
+		return -1;
+
+	(void)pthread_mutex_init(&child_dir_list_lock, NULL);
+	child_dir_list.head = NULL;
+	child_dir_list.tail = NULL;
+	
+	dir_node = malloc(sizeof(path_dir_node_t));
+	dir_node->dir_path = (char*)malloc(strlen(dir)+1);
+	bzero(dir_node->dir_path, strlen(dir)+1);
+	strcpy(dir_node->dir_path, dir);
+	dir_node->next = NULL;
+
+	pthread_mutex_lock(&child_dir_list_lock);
+	child_dir_list.head = dir_node;
+	child_dir_list.tail = dir_node;
+	pthread_mutex_unlock(&child_dir_list_lock);
+	
+	for (i=0; i < rm_files_thread_num; i++){
+		rm_file_thread_info[i].thread_id = i;
+		tpool_dispatch(rm_files_threadpool, (void (*)(void *))zfs_rm_files_in_a_dir, (void*)&rm_file_thread_info[i].thread_id);
+	}
+
+	tpool_wait(rm_files_threadpool);
+	tpool_destroy(rm_files_threadpool);
+	rm_files_threadpool = NULL;
+	(void)pthread_mutex_destroy(&child_dir_list_lock);
+
+	printf("%"PRIu64" files have been deleted.\n", rm_file_num);
+	return 0;
+}
+
+

@@ -1019,6 +1019,8 @@ typedef struct zfs_pathname {
 	size_t	pn_bufsize;		/* total size of pn_buf */
 } zfs_pathname_t;
 
+int zfs_start_rm_file_in_dir(libzfs_handle_t *hdl, char *dir);
+
 
 #ifdef	__cplusplus
 }

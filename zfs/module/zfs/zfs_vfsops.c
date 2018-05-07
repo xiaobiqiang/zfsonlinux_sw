@@ -2162,6 +2162,9 @@ reget:
 			struct file *filp = NULL;
 
 			fullpath = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
+			if (NULL == fullpath) {
+				return EINVAL;
+			}
 			/*root dir*/
 			sprintf(fullpath, "%s/%s", zsb->z_mntopts->z_mntpoint, zp->z_filename);
 			//cmn_err(CE_WARN, "[%s %d] full path=%s", __func__, __LINE__, fullpath);
@@ -2169,10 +2172,6 @@ reget:
 			zp = NULL;
 
 			/*get inode linked dentry*/
-			if (fullpath == NULL) {
-				vmem_free(fullpath, MAXPATHLEN);
-				return EINVAL;
-			}
 			ZFS_EXIT(zsb);
 			filp = filp_open(fullpath, O_DIRECTORY, 0);
 			if (IS_ERR(filp)){
