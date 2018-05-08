@@ -113,6 +113,7 @@ static int zfs_do_mirror(int argc, char **argv);
 static int zfs_do_clustersan(int argc, char **argv);
 static int zfs_do_speed_test(int arc, char **argv);
 static int zfs_do_multiclus(int argc, char **argv);
+static int zfs_do_rmfileindir_file_type(int argc, char **argv);
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -163,7 +164,8 @@ typedef enum {
     HELP_MIRROR,
 	HELP_CLUSTERSAN,
 	HELP_SPEEDTEST,
-	HELP_MULTICLUS
+	HELP_MULTICLUS,
+	HELP_RMFILES
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -221,6 +223,7 @@ static zfs_command_t command_table[] = {
 	{ "clustersan", zfs_do_clustersan, HELP_CLUSTERSAN		},
 	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
 	{ "multiclus",	zfs_do_multiclus,	HELP_MULTICLUS		},
+	{ "rmfiles",  zfs_do_rmfileindir_file_type, HELP_RMFILES},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -370,7 +373,10 @@ get_usage(zfs_help_t idx)
 		    "\tmulticlus get dtlstatus <zfsname> [count]\n"
 		    "\tmulticlus clean dtl <zfsname>\n"
 		    "\tmulticlus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]\n"
-		    "\tmulticlus sync-data <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s | -a]\n"));			
+		    "\tmulticlus sync-data <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s | -a]\n"));		
+	case HELP_RMFILES:
+		return (gettext("\n"
+			"\trmfiles dir_fullpath\n"));
 	}
 
 	abort();
@@ -8328,6 +8334,24 @@ zfs_do_clustersan(int argc, char **argv)
 	}
 #endif
 	return (ret);
+}
+
+static int
+zfs_do_rmfileindir_file_type(int argc, char **argv)
+{
+	char *dir = NULL;
+	
+	if (argc < 1) {
+		(void) fprintf(stderr, gettext("Invalid arguments\n"));
+		return (-1);
+	}
+
+	argc -= optind;
+	argv += optind;
+	
+	dir = argv[0];
+	zfs_start_rm_file_in_dir(g_zfs, dir);
+	return (0);
 }
 
 int
