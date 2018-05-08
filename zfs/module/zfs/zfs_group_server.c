@@ -414,8 +414,17 @@ int zfs_group_process_remove_data_file(zfs_sb_t *zsb, znode_t *dzp,
 	dmu_tx_t *tx;
 
 	err = zfs_zget(zsb, object, &zp);
-	if (err != 0)
-		return (err);
+	if (err != 0) {
+		/*
+		 * zfs_zget return EEXIST, because dnode_free was called,
+		 * the dnode will be free, just return success.
+		 * When master node call zfs_remove, if dmu_tx_assign return
+		 * ERESTART, it will re-call zfs_remove_data_file,
+		 * here zfs_zget return ENOENT if the object freed, or return
+		 * EEXIST if object is freeing.
+		 */
+		return (err == EEXIST ? 0 : err);
+	}
 
 	ip = ZTOI(zp);
 top:
