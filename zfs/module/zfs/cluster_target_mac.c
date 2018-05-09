@@ -14,6 +14,13 @@
 #ifdef USE_HENGWEI
 #define	register_netdevice_notifier_rh	register_netdevice_notifier
 #define	unregister_netdevice_notifier_rh	unregister_netdevice_notifier
+#else
+/* support centos 7.2 */
+#ifndef	netdev_notifier_info_to_dev
+#define	netdev_notifier_info_to_dev(x)	x
+#define	register_netdevice_notifier_rh	register_netdevice_notifier
+#define	unregister_netdevice_notifier_rh	unregister_netdevice_notifier
+#endif
 #endif
 
 #define	CLUSTER_MAC_TX_MAX_REPEAT_COUNT		3
