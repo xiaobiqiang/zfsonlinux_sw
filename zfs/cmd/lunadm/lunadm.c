@@ -3487,6 +3487,7 @@ static int getlunviewprop(list_t *view_list_p)
 	for (i =0; i < lulist->cnt; i++)
     {
 		int j;
+		freelunresource = 0;
 		if ((stmfRet = stmfGetLuResource(&(lulist->guid[i]), &hdl))   
 	    	== STMF_ERROR_NOT_FOUND)
 		{

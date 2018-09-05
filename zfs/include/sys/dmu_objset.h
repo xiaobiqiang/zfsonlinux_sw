@@ -43,6 +43,7 @@
 #ifdef _KERNEL
 #include <sys/zfs_group_dtl.h>
 #endif
+#include <sys/lun_migrate.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -165,6 +166,10 @@ struct objset {
 	int os_recordsize;
     uint8_t os_woptimize;
     uint8_t os_appmeta;
+
+	/* Lun Migrate */
+	uint8_t os_lun_migrate;
+	lun_copy_t *os_lun_copy;
 
 	/* no lock needed: */
 	struct dmu_tx *os_synctx; /* XXX sketchy */

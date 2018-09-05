@@ -1943,7 +1943,7 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		} else {
 			sprintf(di.dk_name, "/dev/%s", name);
 		}
-	#if 1   //for redhat
+	#if USE_HENGWEI   //for redhat
                 disk_get_serial(&di);
                 disk_get_slotid(&di);
                 sprintf(en_buf, "%d", di.dk_enclosure);
@@ -2672,11 +2672,11 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	uint64_t state;
 	uint64_t version;
 
-#if 1
 	/* write stamp */
 	int host_id;
 	nvlist_t *nvroot;
 	zpool_stamp_t *stamp;
+	int stamp_ok;
 
 	stamp = malloc(sizeof(zpool_stamp_t));
 	if (stamp == NULL) {
@@ -2689,8 +2689,14 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 	    &nvroot) == 0);
 
-	verify (zpool_read_stamp(nvroot, stamp) == 0);
+	stamp_ok = (zpool_read_stamp(nvroot, stamp) == 0);
 	if (!(flags&ZFS_IMPORT_IGNORE_CLUSTER)) {
+		if (!stamp_ok) {
+                        (void) fprintf(stderr, gettext("cannot import '%s': cannot "
+                                "get pool's owener\n"), name);
+                        free(stamp);
+                        return (1);
+                }
 		if (stamp->para.pool_current_owener != host_id) {
 			(void) fprintf(stderr, gettext("cannot import '%s': pool "
 			    "the pool's cid <%d> is not this host\n"),
@@ -2700,7 +2706,6 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		}
 	}
 	/* write stamp end */
-#endif
 
 	verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
 	    &name) == 0);
@@ -2765,12 +2770,13 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 		zpool_close(zhp);
 		return (1);
 	}
-#if 1
-	stamp->para.pool_current_owener = host_id;
-	stamp->para.pool_magic = ZPOOL_MAGIC;
-	verify(zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM) != 0);
+
+	if (stamp_ok) {
+		stamp->para.pool_current_owener = host_id;
+		stamp->para.pool_magic = ZPOOL_MAGIC;
+		(void) zpool_write_stamp(nvroot, stamp, SPA_NUM_OF_QUANTUM);
+	}
 	free(stamp);
-#endif
 	zfs_import_all_lus(g_zfs, name);
 	zfs_enable_avs(g_zfs, name, 1);
 	zpool_close(zhp);
@@ -7593,7 +7599,9 @@ zpool_do_scanthin(int argc, char **argv)
 {
 	int i;
 	zfs_thinluns_t *statp = NULL;
+	zfs_thin_luns_stat_t *thinp = NULL;
 	zpool_check_thin_luns(&statp);
+	
 	if (statp != NULL) {
 		for (i = 0; i < statp->pool_number; i ++) {
 			pool_thinluns_stat_t *thinlun_stat = &statp->pools[i];
@@ -7603,6 +7611,22 @@ zpool_do_scanthin(int argc, char **argv)
 
 		free(statp->pools);
 		free(statp);
+	}
+
+	zfs_check_thin_luns(&thinp);
+	if (thinp != NULL) {
+		for (i = 0; i < thinp->thinluns_number; i++) {
+			zfs_thin_luns_t *thinlun = &thinp->thinluns[i];
+			printf("poolname:%10s, luname:%10s, "
+				"lusize:%llu, used:%llu, nice:%s, %s, thold:%llu\n",
+				thinlun->pool_name, thinlun->lu_name,
+				thinlun->lu_size, thinlun->thinlun_size,
+				thinlun->total, thinlun->used,
+				thinlun->thinlun_threshold);
+		}
+
+		free(thinp->thinluns);
+		free(thinp);
 	}
 
 	return (0);

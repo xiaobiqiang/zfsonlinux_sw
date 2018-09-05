@@ -26,7 +26,7 @@ typedef struct __ddi_dma_handle {
 	struct pci_dev *dev;
 	void * ptr;
 	size_t size;
-	dma_addr_t *dma_handle;
+	dma_addr_t dma_handle;
 	int flag;
 }*ddi_dma_handle_t;
 

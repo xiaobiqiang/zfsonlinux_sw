@@ -275,6 +275,7 @@ typedef struct sbd_create_standby_lu {
 
 typedef struct sbd_zvol_io {
 	uint64_t	zvio_offset;	/* offset into volume */
+	boolean_t	zvio_is_migrate;
 	int		zvio_flags;	/* flags */
 	void 		*zvio_dbp;	/* array of dmu buffers */
 	void		*zvio_abp;	/* array of arc buffers */
