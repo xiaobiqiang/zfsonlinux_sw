@@ -206,10 +206,6 @@ void spl_vn_fini(void);
 
 extern vnode_t *rootdir;
 
-
-enum vcexcl	{ NONEXCL, EXCL };		/* (non)excl create */
-typedef enum vcexcl	vcexcl_t;
-
 /*
  * Structure used by various vnode operations to determine
  * the context (pid, host, identity) of a caller.

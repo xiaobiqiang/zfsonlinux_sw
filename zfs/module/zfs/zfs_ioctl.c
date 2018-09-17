@@ -1380,8 +1380,8 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 static int
 get_zfs_sb(const char *dsname, zfs_sb_t **zsbp)
 {
-	objset_t *os;
-	int error;
+	objset_t *os = NULL;
+	int error = 0;
 
 	error = dmu_objset_hold(dsname, FTAG, &os);
 	if (error != 0)
@@ -2312,7 +2312,6 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	const char *propname = pairvalue->propname;
 	uint64_t value = pairvalue->value;
 	zfs_sb_t *zsb = NULL;
-//	zfsvfs_t *zfsvfs = NULL;
 	int err;
 	zfs_dirlowdata_t *dir_lowdata = kmem_zalloc(sizeof(zfs_dirlowdata_t), KM_SLEEP);
 
@@ -2329,7 +2328,6 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	 
 	/* cmn_err(CE_WARN, "Receive set_dir_lowdata message from slave 
 		Success!!!"); */
-//	err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_FALSE);
 	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
 	if (err == 0) {
 		
@@ -5341,7 +5339,6 @@ int zfs_multiclus_clean_dtltree(zfs_cmd_t *zc)
 	return error;
 }
 
-
 static int
 zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 {
@@ -5409,7 +5406,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string, 
 				ZFS_MULTICLUS_MASTER);
 			break;
-/*
+
 		case GET_MULTICLUS_DTLSTATUS:
 			error = zfs_multiclus_get_dtlstatus(zc);
 			break;
@@ -5417,7 +5414,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 		case CLEAN_MULTICLUS_DTLTREE:
 			error = zfs_multiclus_clean_dtltree(zc);
 			break;
-
+/*
 		case SYNC_MULTICLUS_GROUP:
 			if (zc->zc_multiclus_pad[1] == 0) {
 				error = zfs_multiclus_sync_group(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0);

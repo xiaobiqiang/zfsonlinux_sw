@@ -36,7 +36,6 @@
 #include <sys/zfs_group_dtl.h>
 #include <sys/ddi.h>
 #endif
-#include <sys/cred.h>
 
 #define	ZFS_GROUP_DTL_SECOND	1*1000*1000 /* 1s, base micro sec */
 #define	ZFS_GROUP_DTL_SECOND_CVWAIT_TIME	(5*ZFS_GROUP_DTL_SECOND)	 /* 5s */
@@ -46,7 +45,7 @@
 int debug_zgroup_dtl = 0;
 int debug_zgroup_dtl2 = 0;
 int debug_nas_group_dtl = 0;
-int ZFS_GROUP_DTL_ENABLE = 0;
+int ZFS_GROUP_DTL_ENABLE = 1;
 
 
 int avl_num = 20;
@@ -136,13 +135,14 @@ zfs_group_dtl_add(avl_tree_t *ptree, void* value, size_t size)
 		return;
 	}
 	
-	ssearch = kmem_alloc(sizeof(zfs_group_dtl_node_t), KM_SLEEP);
+	ssearch = kmem_zalloc(sizeof(zfs_group_dtl_node_t), KM_SLEEP);
 
 	ssearch->data.obj = ssdata->obj;
 	ssearch->data.gentime = ssdata->gentime;
 	ss = avl_find(ptree, ssearch, &where);
 
 	if (ss != NULL) {
+		cmn_err(CE_WARN, "[%s %d] ss is not NULL", __func__, __LINE__);
 		kmem_free(ssearch, sizeof(zfs_group_dtl_node_t));
 		return;
 	}
@@ -154,7 +154,7 @@ zfs_group_dtl_add(avl_tree_t *ptree, void* value, size_t size)
 	bcopy(value, &ss->data, size);
 	avl_insert(ptree, ss, where);
 	kmem_free(ssearch, sizeof(zfs_group_dtl_node_t));
-#endif	
+#endif
 }
 
 #ifdef _KERNEL
@@ -202,19 +202,16 @@ zfs_group_dtl_sync_treeX(objset_t *os, zfs_multiclus_node_type_t master_type, in
 	void *cookie = NULL;
 	zfs_group_dtl_node_t *ss;
 	dmu_buf_t *db = NULL;
-//	uint64_t *objp = NULL;
 	uint64_t bufsize;
 	uint8_t *entry, *entry_map;
-//	uint64_t entry_space;
 	uint64_t nodedatasize = 0, avail_size = 0, remain_size = 0, write_size = 0;
 	uint64_t obj_size = 0;
 	uint64_t dtl_obj;
-	zfs_group_dtl_obj_t dtl_header; // = {0};
+	zfs_group_dtl_obj_t dtl_header = {0};
 	zfs_sb_t * zsb = NULL;
 	avl_tree_t* ptree;
 	kmutex_t* ptree_mutex = NULL;
 	kmutex_t* dtl_obj_mutex = NULL;
-//	int ptree_num = 0;
 	uint8_t *data_buf = NULL;
 	uint64_t* pdtl_obj_num = NULL;
 	uint64_t  count = 0;
@@ -222,8 +219,7 @@ zfs_group_dtl_sync_treeX(objset_t *os, zfs_multiclus_node_type_t master_type, in
 	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
 	if (zsb == NULL)
 		return;
-//	VFS_HOLD(zfsvfs->z_vfs);
-	atomic_inc_not_zero(&zsb->z_sb->s_active);
+
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 
 	switch(master_type){
@@ -250,15 +246,11 @@ zfs_group_dtl_sync_treeX(objset_t *os, zfs_multiclus_node_type_t master_type, in
 			break;
 		default:
 			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-			deactivate_super(zsb->z_sb);
 			return;
 	}
 
 	if(ptree == NULL || dtl_obj == 0){
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 		
@@ -272,8 +264,6 @@ zfs_group_dtl_sync_treeX(objset_t *os, zfs_multiclus_node_type_t master_type, in
 	if(err != 0){
 		mutex_exit(dtl_obj_mutex);
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 	
@@ -291,8 +281,6 @@ zfs_group_dtl_sync_treeX(objset_t *os, zfs_multiclus_node_type_t master_type, in
 					cmn_err(CE_WARN, "[Error] %s %d dtl_header.start_pos 0x%llx, nodedatasize * count 0x%llx",
 						__func__, __LINE__, (unsigned long long)dtl_header.start_pos, (unsigned long long)(nodedatasize * count));
 					rrm_exit(&zsb->z_teardown_lock, FTAG);
-//					VFS_RELE(zfsvfs->z_vfs);
-					deactivate_super(zsb->z_sb);
 					return;
 			}else{
 				dtl_header.start_pos -= nodedatasize * count;
@@ -303,8 +291,6 @@ zfs_group_dtl_sync_treeX(objset_t *os, zfs_multiclus_node_type_t master_type, in
 		default:
 			cmn_err(CE_WARN, "[Error] %s %d where is %d.", __func__, __LINE__, where);
 			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//			VFS_RELE(zfsvfs->z_vfs);
-			deactivate_super(zsb->z_sb);
 			return;
 	}
 
@@ -396,8 +382,6 @@ out:
 		dmu_tx_abort(tx);
 		mutex_exit(dtl_obj_mutex);
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 		
@@ -407,8 +391,6 @@ out:
 		mutex_exit(dtl_obj_mutex);
 		dmu_tx_commit(tx);
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 	
@@ -449,8 +431,6 @@ out:
 		dmu_tx_abort(tx);
 		mutex_exit(dtl_obj_mutex);
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 	
@@ -460,8 +440,6 @@ out:
 		mutex_exit(dtl_obj_mutex);
 		dmu_tx_commit(tx);
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 
@@ -483,9 +461,6 @@ out:
 	mutex_exit(dtl_obj_mutex);
 		
 	rrm_exit(&zsb->z_teardown_lock, FTAG);
-//	VFS_RELE(zfsvfs->z_vfs);
-	deactivate_super(zsb->z_sb);
-
 }
 #endif
 
@@ -519,7 +494,7 @@ void zfs_group_dtl_init_obj(objset_t *os, zfs_sb_t *zsb, uint64_t *pobj, int idx
 	dmu_tx_t *tx = NULL;
 	char *buf = NULL;
 	dmu_buf_t *db = NULL;
-	zfs_group_dtl_obj_t dtl_header; // = {0};
+	zfs_group_dtl_obj_t dtl_header = {0};
 
 	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	
@@ -528,18 +503,17 @@ void zfs_group_dtl_init_obj(objset_t *os, zfs_sb_t *zsb, uint64_t *pobj, int idx
 	if(err != 0){
 		dmu_tx_abort(tx);
 		kmem_free(buf, MAXPATHLEN);
-		cmn_err(CE_WARN, "[Error] %s %d, dmu_tx_assign failed", __func__, __LINE__);
+		cmn_err(CE_WARN, "[%s %d] dmu_tx_assign failed", __func__, __LINE__);
 		return;
 	}
 	
 	*pobj = dmu_object_alloc(os, DMU_OT_GROUP_DTL, 1 << ZFS_GROUP_DTL_BLOCKSHIFT,	
 				DMU_OT_GROUP_DTL_HEADER, sizeof (zfs_group_dtl_obj_t), tx);
 	if(*pobj == 0){
-			cmn_err(CE_WARN, "[Error] %s %d failed in allocating zfs_group_dtl_obj!",
-				__func__, __LINE__);
+			cmn_err(CE_WARN, "[%s %d] failed in allocating zfs_group_dtl_obj!", __func__, __LINE__);
 			dmu_tx_commit(tx);
 			kmem_free(buf, MAXPATHLEN);
-			cmn_err(CE_WARN, "[Error] %s %d, dmu_tx_assign failed", __func__, __LINE__);
+			cmn_err(CE_WARN, "[%s %d] dmu_tx_assign failed", __func__, __LINE__);
 			return;
 	}
 	
@@ -549,7 +523,7 @@ void zfs_group_dtl_init_obj(objset_t *os, zfs_sb_t *zsb, uint64_t *pobj, int idx
 	if(err != 0){
 		dmu_tx_commit(tx);
 		kmem_free(buf, MAXPATHLEN);
-		cmn_err(CE_WARN, "[Error] %s %d Failed in calling zap_add for zfs_group_dtl_prefix %s",
+		cmn_err(CE_WARN, "[%s %d] Failed in calling zap_add for zfs_group_dtl_prefix %s",
 			__func__, __LINE__, buf);
 		return;
 	}
@@ -569,7 +543,7 @@ void zfs_group_dtl_init_obj(objset_t *os, zfs_sb_t *zsb, uint64_t *pobj, int idx
 		dmu_buf_will_dirty(db, tx);
 		dmu_buf_rele(db, FTAG);
 	}else{
-		cmn_err(CE_WARN, "[Error] %s %d error code %d", __func__, __LINE__, err);
+		cmn_err(CE_WARN, "[%s %d] error code %d", __func__, __LINE__, err);
 	}
 
 	dmu_tx_commit(tx);
@@ -577,12 +551,10 @@ void zfs_group_dtl_init_obj(objset_t *os, zfs_sb_t *zsb, uint64_t *pobj, int idx
 }
 #endif
 
-
-void
-zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
-{
 #ifdef _KERNEL
-//	int i, err;
+void
+zfs_group_dtl_sync_tree2_nolock(objset_t *os, dmu_tx_t *ptx, zfs_sb_t *zsb)
+{
 	int err;
 	dmu_tx_t *tx = ptx;
 	void *cookie = NULL;
@@ -590,31 +562,22 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 	dmu_buf_t *db = NULL, *db3 = NULL, *db4 = NULL;
 	uint64_t bufsize;
 	uint8_t *entry, *entry_map;
-//	uint64_t entry_space;
 	uint64_t nodedatasize = 0, avail_size = 0, remain_size = 0, write_size = 0;
 	uint64_t obj_size = 0, obj3_size = 0, obj4_size = 0;
 	uint64_t dtl_obj, dtl_obj3, dtl_obj4;
 	zfs_group_dtl_obj_t dtl_header = {0};
 	zfs_group_dtl_obj_t dtl_header3 = {0};
 	zfs_group_dtl_obj_t dtl_header4 = {0};
-	zfs_sb_t * zsb = NULL;
 	avl_tree_t* ptree;
 	kmutex_t* ptree_mutex = NULL;
 	uint8_t *data_buf = NULL;
-
-	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-	if (zsb == NULL)
-		return;
-	atomic_inc_not_zero(&zsb->z_sb->s_active);
-	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 	
 	ptree = &zsb->z_group_dtl_tree2;
 	ptree_mutex = &zsb->z_group_dtl_tree2_mutex;
 	
 	if(ptree == NULL || zsb->z_group_dtl_obj == 0
-		|| zsb->z_group_dtl_obj3 == 0 || zsb->z_group_dtl_obj4 == 0){
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-		deactivate_super(zsb->z_sb);
+		|| zsb->z_group_dtl_obj3 == 0 || zsb->z_group_dtl_obj4 == 0) {
+		cmn_err(CE_WARN, "[%s %d] dtl tree may not be initialized.", __func__, __LINE__);
 		return;
 	}
 		
@@ -627,10 +590,11 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 	
 	if(avl_numnodes(ptree) == 0){
 		mutex_exit(ptree_mutex);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-		deactivate_super(zsb->z_sb);
+		cmn_err(CE_WARN, "[%s %d] avl_numnodes of tree2 is 0", __func__, __LINE__);
 		return;
-	}
+	} 
+
+	cmn_err(CE_WARN, "[%s %d] avl_numnodes of tree2 is %d", __func__, __LINE__, (int)(avl_numnodes(ptree)));
 
 	mutex_enter(&zsb->z_group_dtl_obj_mutex);
 	mutex_enter(&zsb->z_group_dtl_obj3_mutex);
@@ -642,12 +606,13 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 		mutex_exit(&zsb->z_group_dtl_obj3_mutex);
 		mutex_exit(&zsb->z_group_dtl_obj_mutex);
 		mutex_exit(ptree_mutex);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-		deactivate_super(zsb->z_sb);
+		cmn_err(CE_WARN, "[%s %d] dmu_bonus_hold dtl_obj=%"PRIu64" failed, err=%d", __func__, __LINE__, dtl_obj, err);
 		return;
 	}
 	bcopy(db->db_data, &dtl_header, sizeof (zfs_group_dtl_obj_t));
 	obj_size = dtl_header.end_pos;
+
+	cmn_err(CE_WARN, "[%s %d] obj_size=%"PRIu64"", __func__, __LINE__, obj_size);
 
 	err = dmu_bonus_hold(os, dtl_obj3, FTAG, &db3);
 	if(err != 0){
@@ -656,12 +621,13 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 		mutex_exit(&zsb->z_group_dtl_obj3_mutex);
 		mutex_exit(&zsb->z_group_dtl_obj_mutex);
 		mutex_exit(ptree_mutex);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-		deactivate_super(zsb->z_sb);
+		cmn_err(CE_WARN, "[%s %d] dmu_bonus_hold dtl_obj3=%"PRIu64" failed, err=%d", __func__, __LINE__, dtl_obj3, err);
 		return;
 	}
 	bcopy(db3->db_data, &dtl_header3, sizeof (zfs_group_dtl_obj_t));
 	obj3_size = dtl_header3.end_pos;
+
+	cmn_err(CE_WARN, "[%s %d] obj3_size=%"PRIu64"", __func__, __LINE__, obj3_size);
 
 	err = dmu_bonus_hold(os, dtl_obj4, FTAG, &db4);
 	if(err != 0){
@@ -671,12 +637,13 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 		mutex_exit(&zsb->z_group_dtl_obj3_mutex);
 		mutex_exit(&zsb->z_group_dtl_obj_mutex);
 		mutex_exit(ptree_mutex);
-		rrm_exit(&zsb->z_teardown_lock, FTAG);
-		deactivate_super(zsb->z_sb);
+		cmn_err(CE_WARN, "[%s %d] dmu_bonus_hold dtl_obj4=%"PRIu64" failed, err=%d", __func__, __LINE__, dtl_obj4, err);
 		return;
 	}
 	bcopy(db4->db_data, &dtl_header4, sizeof (zfs_group_dtl_obj_t));
 	obj4_size = dtl_header4.end_pos;
+
+	cmn_err(CE_WARN, "[%s %d] obj4_size=%"PRIu64"", __func__, __LINE__, obj4_size);
 	
 	bufsize = (avl_numnodes(ptree)) * nodedatasize;
 	bufsize = MIN(bufsize, 1ULL << ZFS_GROUP_DTL_BLOCKSHIFT);
@@ -712,8 +679,6 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 						mutex_exit(&zsb->z_group_dtl_obj3_mutex);
 						mutex_exit(&zsb->z_group_dtl_obj_mutex);
 						mutex_exit(ptree_mutex);
-						rrm_exit(&zsb->z_teardown_lock, FTAG);
-						deactivate_super(zsb->z_sb);
 						return;
 					}
 				}
@@ -776,8 +741,6 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 			mutex_exit(&zsb->z_group_dtl_obj3_mutex);
 			mutex_exit(&zsb->z_group_dtl_obj_mutex);
 			mutex_exit(ptree_mutex);
-			rrm_exit(&zsb->z_teardown_lock, FTAG);
-			deactivate_super(zsb->z_sb);
 			return;
 		}
 	}
@@ -801,8 +764,32 @@ zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx)
 	mutex_exit(&zsb->z_group_dtl_obj3_mutex);
 	mutex_exit(&zsb->z_group_dtl_obj_mutex);
 	mutex_exit(ptree_mutex);
-	rrm_exit(&zsb->z_teardown_lock, FTAG);
-	deactivate_super(zsb->z_sb);
+}
+#endif
+
+void
+zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx, int zfsvfs_holden)
+{
+#ifdef _KERNEL
+	zfs_sb_t *zsb = NULL;
+
+	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
+	if (zsb == NULL) {
+		cmn_err(CE_WARN, "[%s %d] get zsb failed.", __func__, __LINE__);
+		return;
+	}
+
+	if (zfsvfs_holden == 0) {
+		atomic_inc_not_zero(&zsb->z_sb->s_active);
+		rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
+	}
+
+	zfs_group_dtl_sync_tree2_nolock(os, ptx, zsb);
+
+	if (zfsvfs_holden == 0) {
+		rrm_exit(&zsb->z_teardown_lock, FTAG);
+		deactivate_super(zsb->z_sb);
+	}
 #endif
 }
 
@@ -822,7 +809,6 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 	uint64_t bufsize, offset, offset_tmp, end;
 	dmu_tx_t *tx = NULL;
 	int error = 0;
-//	int dm_idx = 0;
 	dmu_buf_t *db = NULL;
 	uint64_t dtl_obj;
 	zfs_sb_t *zsb = NULL;
@@ -840,8 +826,7 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
 	if (zsb == NULL)
 		return;
-//	VFS_HOLD(zfsvfs->z_vfs);
-	atomic_inc_not_zero(&zsb->z_sb->s_active);
+
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 
 	pss=kmem_alloc(sizeof(zfs_group_dtl_node_t), KM_SLEEP);
@@ -874,8 +859,6 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 		default:
 			kmem_free(pss, sizeof(zfs_group_dtl_node_t));
 			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-			deactivate_super(zsb->z_sb);
 			return;
 	}
 
@@ -884,8 +867,6 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 		mutex_exit(pdtl_obj_mutex);
 		kmem_free(pss, sizeof(zfs_group_dtl_node_t));
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 		
@@ -906,8 +887,6 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 		default:
 			kmem_free(pss, sizeof(zfs_group_dtl_node_t));
 			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//			VFS_RELE(zfsvfs->z_vfs);
-			deactivate_super(zsb->z_sb);
 			return;
 	}
 
@@ -955,8 +934,6 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 		zio_buf_free(entry_map, bufsize);
 		kmem_free(pss, sizeof(zfs_group_dtl_node_t));
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
-		deactivate_super(zsb->z_sb);
 		return;
 	}
 
@@ -986,8 +963,6 @@ zfs_group_dtl_loadX(objset_t *os, zfs_multiclus_node_type_t master_type, int fro
 	zio_buf_free(entry_map, bufsize);
 	kmem_free(pss, sizeof(zfs_group_dtl_node_t));
 	rrm_exit(&zsb->z_teardown_lock, FTAG);
-//	VFS_RELE(zfsvfs->z_vfs);
-	deactivate_super(zsb->z_sb);
 	return;
 }
 #endif
@@ -1035,7 +1010,7 @@ int zfs_get_dtltree_status(uint64_t *numarray, char* fs_name)
 		dmu_objset_rele(os, FTAG);
 		return -1;
 	}
-//	VFS_HOLD(zfsvfs->z_vfs);
+
 	atomic_inc_not_zero(&zsb->z_sb->s_active);
 
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
@@ -1076,9 +1051,7 @@ zfs_group_dtl_reset(objset_t *os, dmu_tx_t *ptx)
 #ifdef _KERNEL
 	int err;
 	dmu_tx_t *tx = ptx;
-//	zfs_group_dtl_node_t *ss;
 	dmu_buf_t *db = NULL;
-//	uint64_t *objp = NULL;
 	uint64_t dtl_obj = 0;
 	zfs_group_dtl_obj_t dtl_header = {0};
 	zfs_sb_t * zsb = NULL;
@@ -1098,7 +1071,6 @@ zfs_group_dtl_reset(objset_t *os, dmu_tx_t *ptx)
 		return;
 	}
 
-//	VFS_HOLD(zfsvfs->z_vfs);
 	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 
@@ -1163,7 +1135,6 @@ zfs_group_dtl_reset(objset_t *os, dmu_tx_t *ptx)
 				
 				mutex_exit(ptree_mutex);
 				rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
 				deactivate_super(zsb->z_sb);
 				kmem_free(buf, MAXPATHLEN);
 				return;
@@ -1199,7 +1170,6 @@ zfs_group_dtl_reset(objset_t *os, dmu_tx_t *ptx)
 	
 
 	rrm_exit(&zsb->z_teardown_lock, FTAG);
-//	VFS_RELE(zfsvfs->z_vfs);
 	deactivate_super(zsb->z_sb);
 	kmem_free(buf, MAXPATHLEN);
 	
@@ -1212,8 +1182,6 @@ void zfs_group_dtl_test(char *fsname)
 #ifdef _KERNEL
 	int err = 0, i;
 	objset_t *os = NULL;
-//	off_t offset = 0, size = 0;
-//	uint64_t *objp = NULL;
 	zfs_group_dtl_data_t* ssdata;
 	zfs_sb_t *zsb = NULL;
 	avl_tree_t* ptree = NULL;
@@ -1229,7 +1197,7 @@ void zfs_group_dtl_test(char *fsname)
 		dmu_objset_rele(os, FTAG);
 		return;
 	}
-//	VFS_HOLD(zfsvfs->z_vfs);
+
 	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 	ptree = &zsb->z_group_dtl_tree2;
@@ -1248,7 +1216,7 @@ void zfs_group_dtl_test(char *fsname)
 			mutex_exit(ptree_mutex);
 		}
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
+
 		deactivate_super(zsb->z_sb);
 		kmem_free(ssdata, sizeof(zfs_group_dtl_data_t));
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
@@ -1256,12 +1224,11 @@ void zfs_group_dtl_test(char *fsname)
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
 		zfs_group_dtl_walk(ptree, zfs_group_dtl_output);
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
-		zfs_group_dtl_sync_tree2(os, NULL);
+		zfs_group_dtl_sync_tree2(os, NULL, 1);
 		
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
 	}else{
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
 		deactivate_super(zsb->z_sb);
 	}
 
@@ -1277,7 +1244,6 @@ void zfs_group_dtl_test(char *fsname)
 		zfs_group_dtl_sync_tree134(os);
 	}
 
-//	VFS_HOLD(zfsvfs->z_vfs);
 	atomic_inc_not_zero(&zsb->z_sb->s_active);
 
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
@@ -1296,7 +1262,7 @@ void zfs_group_dtl_test(char *fsname)
 			mutex_exit(ptree_mutex);
 		}
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
+
 		deactivate_super(zsb->z_sb);
 		kmem_free(ssdata, sizeof(zfs_group_dtl_data_t));
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
@@ -1304,11 +1270,10 @@ void zfs_group_dtl_test(char *fsname)
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
 		zfs_group_dtl_walk(ptree, zfs_group_dtl_output);
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
-		zfs_group_dtl_sync_tree2(os, NULL);
+		zfs_group_dtl_sync_tree2(os, NULL, 1);
 		cmn_err(CE_WARN, "[yzy] %s %d", __func__, __LINE__);
 	}else{
 		rrm_exit(&zsb->z_teardown_lock, FTAG);
-//		VFS_RELE(zfsvfs->z_vfs);
 		deactivate_super(zsb->z_sb);
 	}
 	
@@ -1330,25 +1295,27 @@ void zfs_group_dtl_test(char *fsname)
 #ifdef _KERNEL
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_create(name_operation_t z_op, znode_t *pzp,	char *name,
-vattr_t *vap, vcexcl_t ex, int mode, znode_t *zp, cred_t *credp, int flag, 
+vattr_t *vap, int ex, int mode, znode_t *zp, cred_t *credp, int flag, 
 caller_context_t *ct, vsecattr_t *vsap)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
+	vattr_t *vattr = NULL;
+	
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.create.dir_zid = pzp->z_id;
 	z_carrier->z_dtl.create.dir_os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
-	z_carrier->z_dtl.create.dir_spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
+	z_carrier->z_dtl.create.dir_spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 	z_carrier->z_dtl.create.dir_gen = pzp->z_gen;
 	z_carrier->z_dtl.create.zid = zp->z_id;
 	z_carrier->z_dtl.create.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
-	z_carrier->z_dtl.create.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.create.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 	z_carrier->z_dtl.create.gen = zp->z_gen;
 
 	if (name != NULL)
@@ -1358,14 +1325,19 @@ caller_context_t *ct, vsecattr_t *vsap)
 		z_carrier->z_dtl.create.name[namesize] = '\0';
 	}
 
-	if(vap != NULL){
+	if(vap != NULL)
 		z_carrier->z_dtl.create.xvap = *((xvattr_t*)vap);
-		z_carrier->z_dtl.create.isvapcarry = TRUE;
-	}else{
+	else
 		bzero(&z_carrier->z_dtl.create.xvap, sizeof(xvattr_t));
-		z_carrier->z_dtl.create.isvapcarry = FALSE;
+
+	vattr = &z_carrier->z_dtl.create.xvap.xva_vattr;
+	if (!(vattr->va_mask & AT_MTIME)) {
+		ZFS_TIME_DECODE(&vattr->va_mtime, zp->z_mtime);
+		vattr->va_mask |= AT_MTIME;
 	}
-	if(vsap != NULL){
+	z_carrier->z_dtl.create.isvapcarry = B_TRUE;
+
+	if(vsap != NULL) {
 		if(vsap->vsa_aclcnt > ZFS_GROUP_DTL_ACL_ENTRY_MAX){
 			cmn_err(CE_WARN, "[ERROR] %s vsap->vsa_aclcnt %d, vsap->vsa_aclentsz %lu", 
 				__func__, vsap->vsa_aclcnt, vsap->vsa_aclentsz);
@@ -1378,11 +1350,12 @@ caller_context_t *ct, vsecattr_t *vsap)
 		z_carrier->z_dtl.create.vsap.vsa_aclentsz = MIN(vsap->vsa_aclentsz, 0xc * ZFS_GROUP_DTL_ACL_ENTRY_MAX);
 		bcopy(vsap->vsa_aclentp, z_carrier->z_dtl.create.vsap.vsa_aclentp, 
 		   z_carrier->z_dtl.create.vsap.vsa_aclentsz);
-		z_carrier->z_dtl.create.isvsapcarry = TRUE;
+		z_carrier->z_dtl.create.isvsapcarry = B_TRUE;
 	}else{
 		bzero(&z_carrier->z_dtl.create.vsap, sizeof(zfs_group_dtl_vsecattr_t));
-		z_carrier->z_dtl.create.isvsapcarry = FALSE;
+		z_carrier->z_dtl.create.isvsapcarry = B_FALSE;
 	}
+	
 	z_carrier->z_dtl.create.ex = ex;
 	z_carrier->z_dtl.create.mode = mode;
 	z_carrier->z_dtl.create.flag = flag;
@@ -1400,14 +1373,15 @@ zfs_group_dtl_carry_remove(name_operation_t z_op, znode_t *pzp, char *name,
 	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.remove.group_id = pzp->z_group_id;
 	z_carrier->z_dtl.remove.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
-	z_carrier->z_dtl.remove.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
+	z_carrier->z_dtl.remove.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1431,19 +1405,19 @@ vattr_t *vap, znode_t *zp,	cred_t *credp, caller_context_t *ct, int flag, vsecat
 	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.mkdir.dir_zid = pzp->z_id;
 	z_carrier->z_dtl.mkdir.dir_os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
-	z_carrier->z_dtl.mkdir.dir_spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
+	z_carrier->z_dtl.mkdir.dir_spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 	z_carrier->z_dtl.mkdir.dir_gen = pzp->z_gen;
 	z_carrier->z_dtl.mkdir.zid = zp->z_id;
 	z_carrier->z_dtl.mkdir.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
-	z_carrier->z_dtl.mkdir.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.mkdir.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.mkdir.gen = zp->z_gen;
 
 	if (name != NULL)
@@ -1455,10 +1429,10 @@ vattr_t *vap, znode_t *zp,	cred_t *credp, caller_context_t *ct, int flag, vsecat
 
 	if(vap != NULL){
 		z_carrier->z_dtl.mkdir.xvap = *((xvattr_t *)vap);
-		z_carrier->z_dtl.mkdir.isvapcarry = TRUE;
+		z_carrier->z_dtl.mkdir.isvapcarry = B_TRUE;
 	}else{
 		bzero(&z_carrier->z_dtl.mkdir.xvap, sizeof(xvattr_t));
-		z_carrier->z_dtl.mkdir.isvapcarry = FALSE;
+		z_carrier->z_dtl.mkdir.isvapcarry = B_FALSE;
 	}
 	if(vsap != NULL){
 		if(vsap->vsa_aclcnt > ZFS_GROUP_DTL_ACL_ENTRY_MAX){
@@ -1471,10 +1445,10 @@ vattr_t *vap, znode_t *zp,	cred_t *credp, caller_context_t *ct, int flag, vsecat
 		z_carrier->z_dtl.mkdir.vsap.vsa_mask = vsap->vsa_mask;
 		z_carrier->z_dtl.mkdir.vsap.vsa_aclentsz = MIN(vsap->vsa_aclentsz, 0xc * ZFS_GROUP_DTL_ACL_ENTRY_MAX);
 		bcopy(vsap->vsa_aclentp, z_carrier->z_dtl.mkdir.vsap.vsa_aclentp, z_carrier->z_dtl.mkdir.vsap.vsa_aclentsz);
-		z_carrier->z_dtl.mkdir.isvsapcarry = TRUE;
+		z_carrier->z_dtl.mkdir.isvsapcarry = B_TRUE;
 	}else{
 		bzero(&z_carrier->z_dtl.mkdir.vsap, sizeof(zfs_group_dtl_vsecattr_t));
-		z_carrier->z_dtl.mkdir.isvsapcarry = FALSE;
+		z_carrier->z_dtl.mkdir.isvsapcarry = B_FALSE;
 	}
 
 	z_carrier->z_dtl.mkdir.flag = flag;
@@ -1492,14 +1466,15 @@ zfs_group_dtl_carry_rmdir(name_operation_t z_op, znode_t *pzp, char *name,
 	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.rmdir.group_id = pzp->z_group_id;
 	z_carrier->z_dtl.rmdir.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
-	z_carrier->z_dtl.rmdir.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
+	z_carrier->z_dtl.rmdir.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
 
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1523,20 +1498,20 @@ zfs_group_dtl_carry_link(name_operation_t z_op, znode_t *dzp,	char *name,
 	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.link.zid = dzp->z_id;
 	z_carrier->z_dtl.link.os_id = dmu_objset_id(ZTOZSB(dzp)->z_os);
-	z_carrier->z_dtl.link.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(dzp)->z_os));
+	z_carrier->z_dtl.link.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(dzp)->z_os));
 	z_carrier->z_dtl.link.gen = dzp->z_gen;
 	
 	z_carrier->z_dtl.link.szid= szp->z_id;
 	z_carrier->z_dtl.link.sos_id= dmu_objset_id(ZTOZSB(szp)->z_os);
-	z_carrier->z_dtl.link.sspa_id=
-		spa_guid(dmu_objset_spa(ZTOZSB(szp)->z_os));
+	z_carrier->z_dtl.link.sspa_id= spa_guid(dmu_objset_spa(ZTOZSB(szp)->z_os));
 	z_carrier->z_dtl.link.sgen = szp->z_gen;
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1560,20 +1535,20 @@ znode_t *nzp, cred_t *credp, int flag, caller_context_t *ct, char* newname)
 	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.rename.zid= ozp->z_id;
 	z_carrier->z_dtl.rename.os_id = dmu_objset_id(ZTOZSB(ozp)->z_os);
-	z_carrier->z_dtl.rename.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(ozp)->z_os));
+	z_carrier->z_dtl.rename.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(ozp)->z_os));
 	z_carrier->z_dtl.rename.gen = ozp->z_gen;
 	
 	z_carrier->z_dtl.rename.nzid = nzp->z_id;
 	z_carrier->z_dtl.rename.nos_id = dmu_objset_id(ZTOZSB(nzp)->z_os);
-	z_carrier->z_dtl.rename.nspa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(nzp)->z_os));
+	z_carrier->z_dtl.rename.nspa_id = spa_guid(dmu_objset_spa(ZTOZSB(nzp)->z_os));
 	z_carrier->z_dtl.rename.ngen = nzp->z_gen;
 	z_carrier->z_dtl.rename.old_group_id = ozp->z_group_id;
 	z_carrier->z_dtl.rename.new_group_id = nzp->z_group_id;
@@ -1603,22 +1578,23 @@ vattr_t *vap, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct, char *
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
 	int targetsize = 0;
+	vattr_t *vattr = NULL;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.symlink.dir_zid= dzp->z_id;
 	z_carrier->z_dtl.symlink.dir_os_id = dmu_objset_id(ZTOZSB(dzp)->z_os);
-	z_carrier->z_dtl.symlink.dir_spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(dzp)->z_os));
+	z_carrier->z_dtl.symlink.dir_spa_id = spa_guid(dmu_objset_spa(ZTOZSB(dzp)->z_os));
 	z_carrier->z_dtl.symlink.dir_gen = dzp->z_gen;
 	
 	z_carrier->z_dtl.symlink.zid = zp->z_id;
 	z_carrier->z_dtl.symlink.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
-	z_carrier->z_dtl.symlink.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.symlink.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.symlink.gen = zp->z_gen;
 
 	if (name != NULL)
@@ -1635,13 +1611,17 @@ vattr_t *vap, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct, char *
 		z_carrier->z_dtl.symlink.target[targetsize] = '\0';
 	}
 
-	if(vap != NULL){
+	if(vap != NULL)
 		z_carrier->z_dtl.symlink.xvap = *((xvattr_t*)vap);
-		z_carrier->z_dtl.symlink.isvapcarry = TRUE;
-	}else{
+	else
 		bzero(&z_carrier->z_dtl.symlink.xvap, sizeof(xvattr_t));
-		z_carrier->z_dtl.symlink.isvapcarry = FALSE;
+
+	vattr = &z_carrier->z_dtl.symlink.xvap.xva_vattr;
+	if (!(vattr->va_mask & AT_MTIME)) {
+		ZFS_TIME_DECODE(&vattr->va_mtime, zp->z_mtime);
+		vattr->va_mask |= AT_MTIME;
 	}
+	z_carrier->z_dtl.symlink.isvapcarry = B_TRUE;
 	
 	z_carrier->z_dtl.symlink.flag = flag;
 	
@@ -1655,17 +1635,17 @@ zfs_group_dtl_carry_acl(name_operation_t z_op, znode_t *zp, cred_t *credp,
 int flag, caller_context_t *ct, vsecattr_t *vsap)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
-//	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.setsecattr.zid= zp->z_id;
 	z_carrier->z_dtl.setsecattr.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
-	z_carrier->z_dtl.setsecattr.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.setsecattr.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.setsecattr.gen = zp->z_gen;
 
 	if(vsap != NULL){
@@ -1680,10 +1660,10 @@ int flag, caller_context_t *ct, vsecattr_t *vsap)
 		z_carrier->z_dtl.setsecattr.vsap.vsa_mask = vsap->vsa_mask;
 		z_carrier->z_dtl.setsecattr.vsap.vsa_aclentsz = MIN(vsap->vsa_aclentsz, 0xc * ZFS_GROUP_DTL_ACL_ENTRY_MAX);
 		bcopy(vsap->vsa_aclentp, z_carrier->z_dtl.setsecattr.vsap.vsa_aclentp, z_carrier->z_dtl.setsecattr.vsap.vsa_aclentsz);
-		z_carrier->z_dtl.setsecattr.isvsapcarry = TRUE;
+		z_carrier->z_dtl.setsecattr.isvsapcarry = B_TRUE;
 	}else{
 		bzero(&z_carrier->z_dtl.setsecattr.vsap, sizeof(zfs_group_dtl_vsecattr_t));
-		z_carrier->z_dtl.setsecattr.isvsapcarry = FALSE;
+		z_carrier->z_dtl.setsecattr.isvsapcarry = B_FALSE;
 	}
 
 	z_carrier->z_dtl.setsecattr.flag = flag;
@@ -1698,17 +1678,17 @@ zfs_group_dtl_carry_acl2(name_operation_t z_op, znode_t *zp,
 vattr_t *vap, cred_t *credp, int flag, caller_context_t *ct)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
-//	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.setattr.zid = zp->z_id;
 	z_carrier->z_dtl.setattr.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
-	z_carrier->z_dtl.setattr.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.setattr.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.setattr.gen = zp->z_gen;
 
 	if(vap != NULL){
@@ -1717,10 +1697,10 @@ vattr_t *vap, cred_t *credp, int flag, caller_context_t *ct)
 		} else {
 			z_carrier->z_dtl.setattr.xvap.xva_vattr = *vap;
 		}
-		z_carrier->z_dtl.setattr.isvapcarry = TRUE;
+		z_carrier->z_dtl.setattr.isvapcarry = B_TRUE;
 	}else{
 		bzero(&z_carrier->z_dtl.setattr.xvap, sizeof(vattr_t));
-		z_carrier->z_dtl.setattr.isvapcarry = FALSE;
+		z_carrier->z_dtl.setattr.isvapcarry = B_FALSE;
 	}
 	
 	z_carrier->z_dtl.setattr.flag = flag;
@@ -1738,13 +1718,14 @@ zfs_group_dtl_carry_dirquota(name_operation_t z_op, znode_t *zp,
 	int namesize = 0;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.dirquota.zid = zp->z_id;
-	z_carrier->z_dtl.dirquota.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.dirquota.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.dirquota.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 
 	z_carrier->z_dtl.dirquota.obj_id = dir_obj;
@@ -1770,8 +1751,10 @@ zfs_group_dtl_carry_dirlowdata(name_operation_t z_op, znode_t *zp,
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
-	if(NULL == z_carrier)
+	if(NULL == z_carrier) {
+		cmn_err(CE_WARN, "[%s %d] alloc z_carrier failed.", __func__, __LINE__);
 		return (z_carrier);
+	}
 	if(NULL == z_dirlow){
 		kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 		return (NULL);
@@ -1779,8 +1762,7 @@ zfs_group_dtl_carry_dirlowdata(name_operation_t z_op, znode_t *zp,
 	
 	z_carrier->z_op = z_op;
 	z_carrier->z_dtl.dirlowdata.zid = zp->z_id;
-	z_carrier->z_dtl.dirlowdata.spa_id =
-		spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
+	z_carrier->z_dtl.dirlowdata.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(zp)->z_os));
 	z_carrier->z_dtl.dirlowdata.os_id = dmu_objset_id(ZTOZSB(zp)->z_os);
 
 	z_carrier->z_dtl.dirlowdata.obj_id = z_dirlow->dir_obj;
@@ -1798,7 +1780,7 @@ zfs_group_dtl_carry_dirlowdata(name_operation_t z_op, znode_t *zp,
 
 zfs_group_dtl_carrier_t*	
 zfs_group_dtl_carry(name_operation_t z_op, znode_t *pzp,	char *name,
-vattr_t *vap, vcexcl_t ex, int mode, void* multiplex1, cred_t *credp, int flag, 
+vattr_t *vap, int ex, int mode, void* multiplex1, cred_t *credp, int flag, 
 caller_context_t *ct, void* multiplex2)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
@@ -2129,6 +2111,7 @@ zfs_group_dtl_resolve_mkdir(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_no
 		err = dmu_tx_assign(tx, TXG_WAIT);
 		if(err){
 			dmu_tx_abort(tx);
+			cmn_err(CE_WARN, "[%s %d] dmu_tx_assign error=%d, tx=%p", __func__, __LINE__, err, (void*)tx);
 			goto out;
 		}
 		mutex_enter(&zp->z_lock);
@@ -2605,7 +2588,7 @@ zfs_group_dtl_resolve(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node_typ
 
 	if(z_carrier->z_magic != ZFS_GROUP_DTL_MAGIC){
 		error = 0;
-		cmn_err(CE_WARN, "ZFS_GROUP_DTL_MAGIC is corrupt!");
+		cmn_err(CE_WARN, "[%s %d] ZFS_GROUP_DTL_MAGIC is corrupt!", __func__, __LINE__);
 		return (error);
 	}
 
@@ -2720,11 +2703,11 @@ zfs_group_dtl_thread_worker(void* arg)
 	time = drv_usectohz(ZFS_GROUP_DTL_SECOND_CVWAIT_TIME);
 	
 	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-	if (zsb == NULL)
+	if (zsb == NULL) {
+		cmn_err(CE_WARN, "[%s %d] get zsb failed.", __func__, __LINE__);
 		return;
+	}
 
-//	VFS_HOLD(zfsvfs->z_vfs);
-	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	rrm_enter(&zsb->z_teardown_lock, RW_READER, FTAG);
 
 	switch(master_type){
@@ -2745,12 +2728,11 @@ zfs_group_dtl_thread_worker(void* arg)
 			break;
 		default:
 			rrm_exit(&zsb->z_teardown_lock, FTAG);
-//				VFS_RELE(zfsvfs->z_vfs);
-			deactivate_super(zsb->z_sb);
+			cmn_err(CE_WARN, "[%s %d] master_type=%d", __func__, __LINE__, master_type);
 			return;
 	}
 	
-	dtlnode = kmem_alloc(sizeof(zfs_group_dtl_node_t), KM_NOSLEEP);
+	dtlnode = kmem_zalloc(sizeof(zfs_group_dtl_node_t), KM_SLEEP);
 	z_carrier = kmem_zalloc(sizeof(zfs_group_dtl_carrier_t), KM_SLEEP);
 	
 	rrm_exit(&zsb->z_teardown_lock, FTAG);
@@ -2760,6 +2742,7 @@ zfs_group_dtl_thread_worker(void* arg)
 		
 		do {
 			if (pdtlthread->z_group_dtl_thr_exit){
+				cmn_err(CE_WARN, "[%s %d] thread exit", __func__, __LINE__);
 				goto out;
 			}
 
@@ -2773,11 +2756,14 @@ zfs_group_dtl_thread_worker(void* arg)
 				mutex_enter(ptree_mutex);
 				count = avl_numnodes(ptree);
 				mutex_exit(ptree_mutex);
-				if(count > 0)break;
+				cmn_err(CE_WARN, "[%s %d] count=%d", __func__, __LINE__, count);
+				if(count > 0)
+					break;
 			}
 			cv_timedwait(&pdtlthread->z_group_dtl_cv, &pdtlthread->z_group_dtl_lock, ddi_get_lbolt() + time);
+			
 			if(os->os_is_group == B_TRUE && os->os_is_master == B_TRUE){
-				zfs_group_dtl_sync_tree2(os, NULL);
+				zfs_group_dtl_sync_tree2(os, NULL, 1);
 			}
 		} while (count <= 0);
 		
@@ -2785,6 +2771,8 @@ zfs_group_dtl_thread_worker(void* arg)
 			record = zfs_multiclus_get_group_master(zsb->z_os->os_group_name, master_type);
 		}else{
 			record = NULL;
+			cmn_err(CE_WARN, "[%s %d] group %s master_type=%d is NULL", __func__, __LINE__, 
+				zsb->z_os->os_group_name, master_type);
 		}
 
 		if(record != NULL && record->node_status.status != ZFS_MULTICLUS_NODE_OFFLINE){
@@ -2797,6 +2785,7 @@ zfs_group_dtl_thread_worker(void* arg)
 						    __func__, __LINE__, (unsigned long long)count, master_type);
 					}
 					mutex_exit(ptree_mutex);
+					cmn_err(CE_WARN, "[%s %d] thread exit", __func__, __LINE__);
 					goto out;
 				}
 
@@ -2804,22 +2793,23 @@ zfs_group_dtl_thread_worker(void* arg)
 				  * in the dtl tree. If no, it means that the dtl tree has been dirtied by an other thread, 
 				  * break current while loop.
 				  */
-//				dtlnode = *dn;
 				bcopy(dn, dtlnode, sizeof(zfs_group_dtl_node_t));
 				bcopy(&dn->data.data[0], z_carrier, sizeof(zfs_group_dtl_carrier_t));
 				mutex_exit(ptree_mutex);
 				dtlerror = zfs_group_dtl_resolve(z_carrier, master_type);
 				mutex_enter(ptree_mutex);
-				dn = avl_find(ptree, &dtlnode, &where);
+				dn = avl_find(ptree, dtlnode, &where);
 				if(dn == NULL){
 					/* If dn can't be find back, the dtl tree must be dirty. Break the while loop. */
-					break;				
+					cmn_err(CE_WARN, "[%s %d] avl_find error.", __func__, __LINE__);
+					break;			
 				}
 				old_dn = dn;
-				dn = AVL_NEXT(ptree, dn);
+				dn = AVL_NEXT(ptree, old_dn);
 				if(dtlerror == 0){
 					avl_remove(ptree, old_dn);
 					kmem_free(old_dn, sizeof(zfs_group_dtl_node_t));
+					cmn_err(CE_WARN, "[%s %d] avl_remove, op=%d, count=%d", __func__, __LINE__, z_carrier->z_op, (int)(avl_numnodes(ptree)));
 				}
 				
 				if(1 == debug_nas_group_dtl){
@@ -2837,17 +2827,16 @@ zfs_group_dtl_thread_worker(void* arg)
 
 out:
 	if(os->os_is_group == B_TRUE && os->os_is_master == B_TRUE){
-		zfs_group_dtl_sync_tree2(os, NULL);
+		zfs_group_dtl_sync_tree2(os, NULL, 0);
 		zfs_group_dtl_sync_treeX(os, master_type, 0);
 	}
 	pdtlthread->z_group_dtl_thread = NULL;
 	mutex_exit(&pdtlthread->z_group_dtl_lock);
-//	VFS_RELE(zfsvfs->z_vfs);
-	deactivate_super(zsb->z_sb);
 	if (NULL != z_carrier)
 		kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 	if (NULL != dtlnode)
 		kmem_free(dtlnode, sizeof(zfs_group_dtl_node_t));
+	cv_signal(&pdtlthread->z_group_dtl_cv);
 	thread_exit();
 #endif
 }
@@ -2863,9 +2852,9 @@ start_zfs_group_dtl_thread(objset_t *os)
 		thread_para = kmem_zalloc(sizeof(zfs_group_dtl_thread_para_t), KM_SLEEP);			
 		thread_para->os = os;			
 		thread_para->master_type = ZFS_MULTICLUS_MASTER2;
-		os->os_group_dtl_th.z_group_dtl_thread = thread_create(NULL, 0,
-		    zfs_group_dtl_thread_worker, thread_para, 0, &p0, TS_RUN, maxclsyspri);
 		os->os_group_dtl_th.z_group_dtl_thr_exit = B_FALSE;
+		os->os_group_dtl_th.z_group_dtl_thread = kthread_run(zfs_group_dtl_thread_worker, 
+			(void *) thread_para, "%s", "zfs_group_dtl_1");
 	}
 	mutex_exit(&os->os_group_dtl_th.z_group_dtl_lock);
 
@@ -2874,9 +2863,9 @@ start_zfs_group_dtl_thread(objset_t *os)
 		thread_para = kmem_zalloc(sizeof(zfs_group_dtl_thread_para_t), KM_SLEEP);			
 		thread_para->os = os;			
 		thread_para->master_type = ZFS_MULTICLUS_MASTER3;
-		os->os_group_dtl3_th.z_group_dtl_thread = thread_create(NULL, 0,
-		    zfs_group_dtl_thread_worker, thread_para, 0, &p0, TS_RUN, maxclsyspri);
 		os->os_group_dtl3_th.z_group_dtl_thr_exit = B_FALSE;
+		os->os_group_dtl3_th.z_group_dtl_thread = kthread_run(zfs_group_dtl_thread_worker, 
+			(void *) thread_para, "%s", "zfs_group_dtl_3");
 	}
 	mutex_exit(&os->os_group_dtl3_th.z_group_dtl_lock);
 
@@ -2885,9 +2874,9 @@ start_zfs_group_dtl_thread(objset_t *os)
 		thread_para = kmem_zalloc(sizeof(zfs_group_dtl_thread_para_t), KM_SLEEP);			
 		thread_para->os = os;			
 		thread_para->master_type = ZFS_MULTICLUS_MASTER4;
-		os->os_group_dtl4_th.z_group_dtl_thread = thread_create(NULL, 0,
-		    zfs_group_dtl_thread_worker, thread_para, 0, &p0, TS_RUN, maxclsyspri);
 		os->os_group_dtl4_th.z_group_dtl_thr_exit = B_FALSE;
+		os->os_group_dtl4_th.z_group_dtl_thread = kthread_run(zfs_group_dtl_thread_worker, 
+			(void *) thread_para, "%s", "zfs_group_dtl_4");
 	}
 	mutex_exit(&os->os_group_dtl4_th.z_group_dtl_lock);
 	
@@ -2898,40 +2887,31 @@ boolean_t
 stop_zfs_group_dtl_thread(objset_t *os)
 {
 #ifdef _KERNEL
-//	kt_did_t dtl_th_did = 0;
-//	kt_did_t dtl_th3_did = 0;
-//	kt_did_t dtl_th4_did = 0;
-	kthread_t *dtl_th = NULL;
-	kthread_t *dtl_th3 = NULL;
-	kthread_t *dtl_th4 = NULL;
+	clock_t time = 0;
+
+	time = drv_usectohz(ZFS_GROUP_DTL_SECOND_CVWAIT_TIME);
 	
 	if (os->os_group_dtl_th.z_group_dtl_thread != NULL) {
-//		dtl_th_did = os->os_group_dtl_th.z_group_dtl_thread->t_did;
-		dtl_th = os->os_group_dtl_th.z_group_dtl_thread;
 		os->os_group_dtl_th.z_group_dtl_thr_exit = B_TRUE;
 		cv_signal(&os->os_group_dtl_th.z_group_dtl_cv);
-//		thread_join(dtl_th_did);
-		kthread_stop(dtl_th);
+		cv_timedwait(&os->os_group_dtl_th.z_group_dtl_cv,
+			&os->os_group_dtl_th.z_group_dtl_lock, ddi_get_lbolt() + time);
 		os->os_group_dtl_th.z_group_dtl_thread = NULL;
 	}
 
 	if (os->os_group_dtl3_th.z_group_dtl_thread != NULL) {
-//		dtl_th3_did = os->os_group_dtl3_th.z_group_dtl_thread->t_did;
-		dtl_th3 = os->os_group_dtl3_th.z_group_dtl_thread;
 		os->os_group_dtl3_th.z_group_dtl_thr_exit = B_TRUE;
 		cv_signal(&os->os_group_dtl3_th.z_group_dtl_cv);
-//		thread_join(dtl_th3_did);
-		kthread_stop(dtl_th3);
+		cv_timedwait(&os->os_group_dtl3_th.z_group_dtl_cv, 
+			&os->os_group_dtl3_th.z_group_dtl_lock, ddi_get_lbolt() + time);
 		os->os_group_dtl3_th.z_group_dtl_thread = NULL;
 	}
 
 	if (os->os_group_dtl4_th.z_group_dtl_thread != NULL) {
-//		dtl_th4_did = os->os_group_dtl4_th.z_group_dtl_thread->t_did;
-		dtl_th4 = os->os_group_dtl4_th.z_group_dtl_thread;
 		os->os_group_dtl4_th.z_group_dtl_thr_exit = B_TRUE;
 		cv_signal(&os->os_group_dtl4_th.z_group_dtl_cv);
-//		thread_join(dtl_th4_did);
-		kthread_stop(dtl_th4);
+		cv_timedwait(&os->os_group_dtl4_th.z_group_dtl_cv, 
+			&os->os_group_dtl4_th.z_group_dtl_lock, ddi_get_lbolt() + time);
 		os->os_group_dtl4_th.z_group_dtl_thread = NULL;
 	}
 	

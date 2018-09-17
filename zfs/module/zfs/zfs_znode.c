@@ -98,6 +98,8 @@ static kmem_cache_t *znode_cache = NULL;
 static kmem_cache_t *znode_hold_cache = NULL;
 unsigned int zfs_object_mutex_size = ZFS_OBJ_MTX_SZ;
 
+extern int wait_meta_tx;
+
 /*ARGSUSED*/
 static int
 zfs_znode_cache_constructor(void *buf, void *arg, int kmflags)
@@ -2012,15 +2014,12 @@ log:
 	    }
 	}
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 	zfs_inode_update(zp);
 
 	error = 0;
-	if ( err_meta_tx ){
-		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
-	}
 	if (zsb->z_os->os_is_group) {
 		if (reduce_len) {
 			zfs_client_notify_file_space(zp, reduce_len, REDUCE_SPACE,

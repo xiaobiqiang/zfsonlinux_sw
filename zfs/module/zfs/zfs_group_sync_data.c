@@ -286,7 +286,7 @@ int zfs_multiclus_sync_group_data(char* group_name, char* fs_name, char* output_
 	}
 
 	sync_obj->thread_exit = B_FALSE;
-	sync_obj->thread = thread_create(NULL, 0, zmc_sync_data_worker_thread, arg, 0, &p0, TS_RUN, maxclsyspri);
+	sync_obj->thread = kthread_run(zmc_sync_data_worker_thread, (void *)arg, "%s", "zfs_multiclus_sync_data_obj");
 
 	mutex_exit(&(sync_obj->lock));
 
@@ -1155,7 +1155,7 @@ static void zfs_group_build_header_data_backup(objset_t *os,
 
 
 int zfs_group_create_data_file_node(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id,zfs_group_object_t *z_group_id, int type)
 
 {
@@ -1398,7 +1398,7 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 	target = zfs_multiclus_get_record(d1zp->z_group_id.data_spa, d1zp->z_group_id.data_objset);
 	host_id = target->hostid;
 	
-	zfs_group_create_data_file_node(zp, zp->z_filename, bregual, &vsa, &va, EXCL,
+	zfs_group_create_data_file_node(zp, zp->z_filename, bregual, &vsa, &va, 1,
 		0, flag, orig_spa, orig_os, &pzp->z_dirlowdata, &host_id,&d1zp->z_group_id,type);
 	
 	error = zmc_remote_get_data_node(ip, tmp_ipp_data2, type);

@@ -571,7 +571,7 @@ void zfs_group_znode_reset_phys(znode_t *zp, zfs_group_phys_t *src_phys)
 	zp->z_dirquota = src_phys->zp_dirquota;
 	zp->z_dirlowdata = src_phys->zp_dirlowdata;
 	zp->z_old_gen = src_phys->zp_old_gen;
-	zp->z_bquota = src_phys->zp_bquota ;
+	zp->z_bquota = src_phys->zp_bquota;
 	bcopy(src_phys->zp_atime, zp->z_atime, sizeof(uint64_t) *2);
 	bcopy(src_phys->zp_ctime, zp->z_ctime, sizeof(uint64_t) *2);
 	bcopy(src_phys->zp_mtime, zp->z_mtime, sizeof(uint64_t) *2);
@@ -1998,7 +1998,6 @@ int zfs_group_zget(zfs_sb_t *zsb, uint64_t object, znode_t **zpp,
 
 int zfs_group_get_attr_from_data_node(zfs_sb_t *zsb, znode_t *master_znode)
 {
-//	boolean_t bover;
 	zfs_group_cmd_arg_t cmd_arg;
 	fs_data_file_attr_t *fs_data_filesize = kmem_zalloc(sizeof(fs_data_file_attr_t), KM_SLEEP);
 	dmu_tx_t *tx;
@@ -2049,18 +2048,18 @@ int zfs_group_get_attr_from_data_node(zfs_sb_t *zsb, znode_t *master_znode)
 	if (err == 0) {
 		if ((fs_data_filesize->ret == 0) && ((master_znode->z_size != fs_data_filesize->data_filesize) || 
 			(master_znode->z_nblks != fs_data_filesize->data_filenblks) || (master_znode->z_blksz != fs_data_filesize->data_fileblksz))){
-			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
-			    &fs_data_filesize->data_filesize, 8);
-			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_NBLKS(zsb), NULL,
-			    &fs_data_filesize->data_filenblks, 8);
-			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_BLKSZ(zsb), NULL,
-			    &fs_data_filesize->data_fileblksz, 8);
-			
 			mutex_enter(&master_znode->z_lock);
 			master_znode->z_size = fs_data_filesize->data_filesize;
 			master_znode->z_nblks = fs_data_filesize->data_filenblks;
 			master_znode->z_blksz = fs_data_filesize->data_fileblksz;
 			mutex_exit(&master_znode->z_lock);
+			
+			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
+			    &master_znode->z_size, 8);
+			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_NBLKS(zsb), NULL,
+			    &master_znode->z_nblks, 8);
+			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_BLKSZ(zsb), NULL,
+			    &master_znode->z_blksz, 8);
 		top:
 			tx = dmu_tx_create(zsb->z_os);
 			dmu_tx_hold_sa(tx, master_znode->z_sa_hdl, B_FALSE);
@@ -2344,9 +2343,6 @@ int zfs_client_notify_file_space(znode_t *zp, uint64_t update_size, uint64_t use
 	}
 
 	bzero(&file_notify, sizeof(zfs_group_notify_file_space_t));
-//	bcopy(zp->z_atime, file_notify.atime, sizeof(zp->z_atime));
-//	bcopy(zp->z_ctime, file_notify.ctime, sizeof(zp->z_ctime));
-//	bcopy(zp->z_mtime, file_notify.mtime, sizeof(zp->z_mtime));
 	ZFS_TIME_ENCODE(&ZTOI(zp)->i_atime, file_notify.atime);
 	ZFS_TIME_ENCODE(&ZTOI(zp)->i_ctime, file_notify.ctime);
 	ZFS_TIME_ENCODE(&ZTOI(zp)->i_mtime, file_notify.mtime);
@@ -2473,7 +2469,7 @@ int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_ty
 
  int objset_notify_system_space(objset_t *os)
  {
- 	int error;
+ 	int error = 0;
  	zfs_sb_t *zsb = NULL;
  	zfs_group_notify_system_space_t sys_space;
 
@@ -2842,23 +2838,18 @@ zfs_group_create_extra_t *zfs_group_get_create_extra(char *name, vattr_t *vap,
 }
 
 
-int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
+int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, int ex,
     int mode, struct inode **ipp, cred_t *credp, int flag, caller_context_t *ct,
     vsecattr_t *vsap)
 {
-//	char *cp;
-//	char *tmp_cp;
-//	uint64_t cp_len;
-
 	size_t namesize;
 	size_t aclsize;
 	size_t xvatsize;
 	zfs_group_create_extra_t *create_extra;
 
-
 	znode_t *zp;
 	znode_t *pzp; 
-	zfs_group_name_create_t create;
+	zfs_group_name_create_t *create = NULL;
 	zfs_group_znode_record_t *nrec;
 	int error = 0;
 
@@ -2866,23 +2857,20 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 	aclsize = 0;
 	xvatsize =0;
 	create_extra = NULL;
-/*
-	vp = dnlc_lookup(pvp, name);
-	if (vp != NULL) {
-		dnlc_remove(pvp, name);
-		VN_RELE(vp);
-	}
-*/
+
 	create_extra = zfs_group_get_create_extra(name, vap, vsap, &namesize, &xvatsize,
 					    &aclsize, NULL, 0);
-	create.name_len = namesize;
-	create.xattr_len = xvatsize;
-	create.acl_len = aclsize;
+	create = vmem_zalloc(sizeof(zfs_group_name_create_t), KM_SLEEP);
+	create->name_len = namesize;
+	create->xattr_len = xvatsize;
+	create->acl_len = aclsize;
 	*ipp = NULL;
-	create.ex = (int32_t)ex;
-	create.mode = mode;
-	create.flag = flag;
-	if ((error = zfs_group_v_to_v32(vap, &create.vattr)) != 0) {
+	create->ex = (int32_t)ex;
+	create->mode = mode;
+	create->flag = flag;
+	
+	if ((error = zfs_group_v_to_v32(vap, &create->vattr)) != 0) {
+		vmem_free(create, sizeof(zfs_group_name_create_t));
 		kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
 		kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 		return (error);
@@ -2891,8 +2879,8 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 	nrec = kmem_alloc(sizeof (zfs_group_znode_record_t), KM_SLEEP);
 
 	pzp = ITOZ(pip);
-	error = zfs_group_proc_name(pzp, NAME_CREATE, &create,
-	    sizeof (create), create_extra->extra_createp,
+	error = zfs_group_proc_name(pzp, NAME_CREATE, create,
+	    sizeof (zfs_group_name_create_t), create_extra->extra_createp,
 	    create_extra->extra_create_plen, NULL, flag, credp, nrec);
 	if (error == 0) {
 		if(nrec->object_id.master_spa == 0 && nrec->object_id.master_objset == 0
@@ -2908,6 +2896,7 @@ int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, vcexcl_t ex,
 		*ipp = ZTOI(zp);
 	}
 
+	vmem_free(create, sizeof(zfs_group_name_create_t));
 	kmem_free(create_extra->extra_createp, create_extra->extra_create_plen);
 	kmem_free(create_extra, sizeof(zfs_group_create_extra_t));
 	kmem_free(nrec, sizeof(zfs_group_znode_record_t));
@@ -3041,7 +3030,7 @@ int remove_master_obj_by_mx_group_id(znode_t *zp, dmu_tx_t *tx)
 *   Then Master2 uses master2 (spa, os, obj) and name to create backup master node, and set data(spa, os, obj) into back master node.
 */
 
-int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, vcexcl_t ex,
+int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, int ex,
     int mode, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct,
     vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type)
 {
@@ -3618,8 +3607,26 @@ void zfs_group_route_data2(zfs_sb_t *zsb, uint64_t orig_spa, uint64_t orig_os,
 	return;
 }
 
+void zfs_set_remote_object(znode_t *zp, zfs_group_object_t *group_object)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	
+	tx = dmu_tx_create(zp->z_zsb->z_os);
+	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if( err){
+		dmu_tx_abort(tx);
+		return;
+	}
+
+	zfs_sa_set_remote_object(zp, group_object, tx);
+
+	dmu_tx_commit(tx);
+}
+
 int zfs_group_create_data_file(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id, dmu_tx_t *tx)
 {
 	int err = 0;
@@ -3789,7 +3796,7 @@ int zfs_group_create_data_file(znode_t *zp, char *name, boolean_t bregual,
 }
 
 int zfs_group_create_data2_file(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id, dmu_tx_t *tx)
 {
 	int err = 0;
@@ -4273,7 +4280,6 @@ zfs_client_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int fl
 	size_t nbytes; 
 	znode_t *zp = ITOZ(ip); 	
 
-	void *buf = NULL;
 	struct uio auio;
 	struct iovec aiov;
 	int eof = -1;
@@ -5768,27 +5774,31 @@ zfs_proc_dir_low(objset_t *os, ushort_t op, share_flag_t wait_flag,
 int zfs_client_get_dirquota(zfs_sb_t *zsb,
  	uint64_t dir_obj, zfs_dirquota_t *dirquota)
 {
+	int err = 0;
  	zfs_multiclus_stat_arg_t stat_arg;
- 	dir_lowdata_t dir_lowdata = {0};
+ 	dir_lowdata_t *dir_lowdata = NULL;
 
- 	dir_lowdata.pairvalue.object = dir_obj;
- 	stat_arg.arg_ptr = (uintptr_t)(&dir_lowdata);
+	dir_lowdata = kmem_zalloc(sizeof(dir_lowdata_t), KM_SLEEP);
+
+ 	dir_lowdata->pairvalue.object = dir_obj;
+ 	stat_arg.arg_ptr = (uintptr_t)dir_lowdata;
 	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_t);
  	stat_arg.return_ptr = (uintptr_t)dirquota;
  	stat_arg.return_size = (uintptr_t)sizeof(zfs_dirquota_t);
 
- 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIR_QUOTA, SHARE_WAIT, &stat_arg,
- 		    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
+ 	err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIR_QUOTA, SHARE_WAIT, &stat_arg,
+		zsb->z_os->os_master_spa, zsb->z_os->os_master_os, APP_USER);
 	
  	if (err == 0) {
- 		if(dir_lowdata.ret != 0){
- 			err=dir_lowdata.ret;
+ 		if(dir_lowdata->ret != 0){
+ 			err=dir_lowdata->ret;
  			cmn_err(CE_WARN, "ret=%d: get dirquota from master FAIL!!!",err);
  		}
  	}else{
  		cmn_err(CE_WARN, "ret=%d: get dirquota from master FAIL!!",err);
  	}
-	
+
+	kmem_free(dir_lowdata, sizeof(dir_lowdata_t));
  	return (err);
 }
 

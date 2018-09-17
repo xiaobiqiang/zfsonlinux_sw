@@ -604,7 +604,6 @@ void* zfs_multiclus_create_group_sync_obj(void)
 void zfs_multiclus_destroy_group_sync_obj(void* sync_obj)
 {
 	zmc_sync_obj_t* obj = (zmc_sync_obj_t*)sync_obj;
-//	kt_did_t thread_id = 0;
 	kthread_t *sync_thread = NULL;
 
 	if (obj == NULL) {
@@ -613,18 +612,15 @@ void zfs_multiclus_destroy_group_sync_obj(void* sync_obj)
 
 	mutex_enter(&(obj->lock));
 	if (obj->thread != NULL) {
-
-//		thread_id = obj->thread->t_did;
 		sync_thread = obj->thread;
 		/* inform worker thread to exit */
 		obj->thread_exit = B_TRUE;
 	}
 	mutex_exit(&(obj->lock));
 
-//	if (thread_id != 0) {
-//		thread_join(thread_id);
-//	}
-	kthread_stop(sync_thread);
+	if (NULL != sync_thread) {
+		kthread_stop(sync_thread);
+	}
 
 	mutex_destroy(&(obj->lock));
 	kmem_free(obj, sizeof(zmc_sync_obj_t));
@@ -702,7 +698,7 @@ int zfs_multiclus_sync_group(char* group_name, char* fs_name, char* output_file,
 	}
 
 	sync_obj->thread_exit = B_FALSE;
-	sync_obj->thread = thread_create(NULL, 0, zmc_sync_worker_thread, arg, 0, &p0, TS_RUN, maxclsyspri);
+	sync_obj->thread = kthread_run(zmc_sync_worker_thread, (void *)arg, "%s", "zfs_multiclus_sync_obj");
 
 	mutex_exit(&(sync_obj->lock));
 
@@ -717,7 +713,6 @@ int zfs_multiclus_stop_sync(char* group_name, char* fs_name)
 	objset_t* os = NULL;
 	zfs_sb_t *zsb = NULL;
 	zmc_sync_obj_t* sync_obj = NULL;
-//	kt_did_t thread_id = 0;
 	kthread_t *sync_thread = NULL;
 
 	if (group_name == NULL || fs_name == NULL) {
@@ -756,7 +751,6 @@ int zfs_multiclus_stop_sync(char* group_name, char* fs_name)
 		return 0;
 	}
 
-//	thread_id = sync_obj->thread->t_did;
 	sync_thread = sync_obj->thread;
 
 	/* inform worker thread to exit */
@@ -764,8 +758,9 @@ int zfs_multiclus_stop_sync(char* group_name, char* fs_name)
 
 	mutex_exit(&(sync_obj->lock));
 
-//	thread_join(thread_id);  
-	kthread_stop(sync_thread);
+	if (NULL != sync_thread) {
+		kthread_stop(sync_thread);
+	}
 
 	dmu_objset_rele(os, FTAG);
 
@@ -2086,7 +2081,7 @@ int zmc_remote_create_file(struct inode* pip, struct inode * ip, zfs_multiclus_n
 	credp = prepare_creds();
 	crsetugid(credp, va.va_uid, va.va_gid);
 
-	ret = zfs_client_create_backup(pzp, zp->z_filename, &va, EXCL, 0, zp, credp, 0, NULL, &vsa, node_type);
+	ret = zfs_client_create_backup(pzp, zp->z_filename, &va, 1, 0, zp, credp, 0, NULL, &vsa, node_type);
 	if (ret != 0) {
 		goto out;
 	}

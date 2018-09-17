@@ -1236,7 +1236,7 @@ typedef  enum {
 
 /* cluster end */
 
-#define	ZFS_QUANTUM_INTERVAL_TICK	5
+#define	ZFS_QUANTUM_INTERVAL_TICK	50
 
 typedef  enum {
 	ENABLE_MULTICLUS = 1,

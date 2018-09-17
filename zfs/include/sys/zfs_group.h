@@ -745,11 +745,11 @@ typedef struct todinfo {
 void
 zfs_group_set_cred(cred_t *credp, zfs_group_cred_t *group_credp);
 
-int zfs_client_create(struct inode *pip,	char *name, vattr_t *vap, vcexcl_t ex,
+int zfs_client_create(struct inode *pip,	char *name, vattr_t *vap, int ex,
     int mode, struct inode **ipp, cred_t *credp, int flag, caller_context_t *ct,
     vsecattr_t *vsap);
 
-int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, vcexcl_t ex,
+int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, int ex,
     int mode, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct,
     vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type);
 
@@ -878,11 +878,11 @@ void zfs_group_update_system_space(objset_t *os,
     zfs_group_notify_system_space_t *sys_space);
 
 int zfs_group_create_data_file(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id, dmu_tx_t *tx);
 
 int zfs_group_create_data2_file(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id, dmu_tx_t *tx);
 
 void zfs_group_route_data(zfs_sb_t *zsb, uint64_t orig_spa, uint64_t orig_os,
@@ -933,6 +933,8 @@ int zfs_group_process_create_data_file(znode_t *dzp, uint64_t master_object,
     uint64_t object, uint64_t dirquota);
  
 void zfs_failover_ctl(objset_t *os, int time);
+void zfs_set_remote_object(znode_t *zp, zfs_group_object_t *group_object);
+int zfs_group_get_attr_from_data_node(zfs_sb_t *zsb, znode_t *master_znode);
 extern void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_tx_t *tx);
 extern int zfs_group_broadcast_unflag_overquota(znode_t *zp, uint64_t old_dirquota_id);
 extern const char *zfs_group_map_key_name_prefix_format;

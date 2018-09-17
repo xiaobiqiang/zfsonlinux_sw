@@ -63,6 +63,10 @@ extern kmutex_t	multiclus_mtx;
 
 uint64_t group_create_seq = 0;
 extern size_t zfs_group_max_dataseg_size;
+extern int wait_meta_tx;
+
+extern int zfs_log_file_space_notify(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+	znode_t *zp, zfs_group_notify_file_space_t *file_notify);
 
 int zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *offsize, uint64_t vflg,cred_t *cred, ssize_t *readen);
 int zfs_migrate_dataA_to_dataB(znode_t *zp,zfs_group_data_msg_t *data,uint64_t vflg);
@@ -287,7 +291,7 @@ static void zfs_group_set_create_extra(char *extra_cp, size_t namesize, char *na
 int zfs_group_process_create_data_file(znode_t *dzp, uint64_t master_object,
 	uint64_t master_gen, znode_t **zpp, uint64_t *dirlowdata, vattr_t *vap)
 {
-	int error, txtype; //, err_meta_tx;
+	int error, txtype, err_meta_tx;
 	boolean_t waited;
 	zfs_group_object_t group_object;
 
@@ -377,8 +381,7 @@ top:
  		    dirlowdata, 8, tx);
 	zfs_sa_set_remote_object(zp, &group_object, tx);
 	txtype = zfs_log_create_txtype(Z_FILE, NULL, vap);
-//	err_meta_tx = zfs_log_create(zfsvfs->z_log, tx, txtype, dzp, zp, ZIL_LOG_DATA_FILE_NAME, NULL, NULL, vap);
-	(void)zfs_log_create(zsb->z_log, tx, txtype, dzp, zp, ZIL_LOG_DATA_FILE_NAME, NULL, NULL, vap);
+	err_meta_tx = zfs_log_create(zsb->z_log, tx, txtype, dzp, zp, ZIL_LOG_DATA_FILE_NAME, NULL, NULL, vap);
 	dmu_tx_commit(tx);
 	if(zp->z_group_id.master_spa == 0 && zp->z_group_id.master_objset == 0
 		&& zp->z_group_id.master_object == 0 && zp->z_group_id.data_spa == 0
@@ -386,11 +389,11 @@ top:
 			cmn_err(CE_WARN, "[corrupt group object] %s %s %d",
 				__FILE__, __func__, __LINE__);
 	}
-/*
-	if ( err_meta_tx ){
+
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
-*/
+
 	*zpp = zp;
 	zfs_acl_ids_free(&acl_ids);
 	if (group_object.data_spa == 0 ||
@@ -469,7 +472,7 @@ top:
 
 	err_meta_tx = zfs_log_remove(zsb->z_log, tx, TX_REMOVE, dzp, ZIL_LOG_DATA_FILE_NAME, object);
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 
@@ -488,9 +491,6 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 	struct inode *ip;
 	size_t cp_len;
 	char name[MAXNAMELEN];
-//	char new_name[MAXNAMELEN];
-//	caller_context_t ct;
-//	zfs_group_object_t group_object;
 	zfs_sb_t *zsb;
 
 	znode_t *zp;
@@ -498,8 +498,6 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
 	vsecattr_t *vsap;
 	xvattr_t *xattrp;
 	uint64_t *dirlowdata = NULL;
-//	zfs_group_name_attr_t *zg_attr;
-//	zfs_group_name_acl_t *zg_acl;
 
 	zfs_group_name_create_t *createp;
 	zfs_group_name2_t *n2p;
@@ -533,15 +531,9 @@ static int zfs_group_process_create(zfs_group_header_t *msg_header, zfs_msg_t *m
         xattrp, createp->acl_len, &vsap, dirlowdata, createp->dirlowdata_len);
 
 	if (msg_header->orig_type == APP_USER) {
-		
-//		ct.cc_sysid = BF64_GET(client_spa, 32, 32);
-//		ct.cc_pid = BF64_GET(client_spa, 0, 32);
-//		ct.cc_caller_id = client_os;
 		clientosinfo = kmem_zalloc(sizeof(client_os_info_t), KM_SLEEP);
 		clientosinfo->spa_id = client_spa;
 		clientosinfo->os_id = client_os;
-//		err = VOP_CREATE(ZTOV(dzp), name, &xattrp->xva_vattr,
-//		    createp->ex, createp->mode, &vp, cred, flag, &ct, vsap);
 		err = zfs_create(ZTOI(dzp), name, &xattrp->xva_vattr,
 		    createp->ex, createp->mode, &ip, cred, flag, vsap, clientosinfo);
 		if (err != 0) {
@@ -1601,7 +1593,6 @@ static int zfs_group_process_create_data(zfs_group_header_t *msg_header, zfs_msg
     cred_t *cred)
 {
 	int err;
-//	int error;
 	uint64_t flag;
 	char *cp;
 	struct inode *ip;
@@ -1675,7 +1666,7 @@ static int zfs_group_process_create_data(zfs_group_header_t *msg_header, zfs_msg
 	zp->z_group_id.master4_object = msg_header->master4_object;
 	zp->z_group_id.master4_gen = msg_header->master4_gen;
 	
-	zp->z_group_id.data_status = DATA_NODE_DIRTY;
+	zp->z_group_id.data_status = 0;
 
 	/* save master info */
 	tx = dmu_tx_create(zsb->z_os);
@@ -2579,7 +2570,6 @@ zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *of
 {
 	int 	err = 0;
 	ssize_t readbytes = 0;
-//	ssize_t	resid;
 	ssize_t read_cnt = 0;
 	ssize_t nbytes = 0;
 	znode_t* src_zp = NULL;
@@ -2591,9 +2581,6 @@ zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *of
 		P2PHASE(*offsize, zfs_group_max_dataseg_size));
 	
 	while (1) {
-//		err = vn_rdwr(UIO_READ, src_vp, buf, nbytes, *offsize,
-//		    UIO_SYSSPACE, vflg, RLIM64_INFINITY, cred, &resid);
-
 		readbytes = zpl_read_common(src_ip, buf, nbytes, offsize,
 		    UIO_SYSSPACE, vflg, cred);
 
@@ -2756,14 +2743,12 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 		if (zg_setattr->bxattr == 1) {
 			zfs_group_to_xvattr(&zg_setattr->xattr, xvattrp);
 		}
-//		error = VOP_SETATTR(ZTOV(zp), (vattr_t *)xvattrp, flags, cred, NULL);
 		error = zfs_setattr(ZTOI(zp), (vattr_t *)xvattrp, flags, cred);
 		kmem_free(xvattrp, sizeof(xvattr_t)); 
 	}
-
+	break;
 	case ZNODE_ACCESS:
 		flags = arg->p.access.flag | FCLUSTER;
-//		error = VOP_ACCESS(ZTOV(zp), arg->p.access.mode, flags, cred, NULL);
 		error = zfs_access(ZTOI(zp), arg->p.access.mode, flags, cred);
 	break;
 
@@ -2783,6 +2768,7 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 			cmn_err(CE_WARN, "%s %d error=%d\n", __func__, __LINE__, error);
 		}
 	}
+	break;
 	case ZNODE_SEARCH:
 	case ZNODE_GET:
 	default:
@@ -2799,7 +2785,6 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
                       error = zfs_group_get_relativepath(zp, z2p);
 		}
 	}
-//	crfree(cred);
 	abort_creds(cred);
 	if (zp != NULL) {
 		iput(ZTOI(zp));
@@ -3162,22 +3147,36 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 				break;
 			}
 
+			if (file_notify->file_updateop == EXPAND_SPACE) {
+				while ((end_size = zp->z_size) < file_notify->file_size) {
+					atomic_cas_64(&zp->z_size, end_size, file_notify->file_size);
+				}
+
+				while ((end_size = zp->z_nblks) < file_notify->file_nblks) {
+					atomic_cas_64(&zp->z_nblks, end_size, file_notify->file_nblks);
+				}
+			} else if (file_notify->file_updateop == REDUCE_SPACE) {
+				while ((end_size = zp->z_size) > file_notify->file_size) {
+					atomic_cas_64(&zp->z_size, end_size, file_notify->file_size);
+				}
+
+				while ((end_size = zp->z_nblks) > file_notify->file_nblks) {
+					atomic_cas_64(&zp->z_nblks, end_size, file_notify->file_nblks);
+				}
+			}
+			ZTOI(zp)->i_blocks = file_notify->file_nblks;
+
+			end_size = (uint64_t)zp->z_blksz;
+			if ((uint64_t)zp->z_blksz < file_notify->file_blksz) {
+				atomic_cas_64((uint64_t *)&zp->z_blksz, end_size, file_notify->file_blksz);
+			}
+
 			bcopy(file_notify->atime, zp->z_atime, sizeof(zp->z_atime));
 			bcopy(file_notify->ctime, zp->z_ctime, sizeof(zp->z_ctime));
 			bcopy(file_notify->mtime, zp->z_mtime, sizeof(zp->z_mtime));
 			ZFS_TIME_DECODE(&ZTOI(zp)->i_atime, file_notify->atime);
 			ZFS_TIME_DECODE(&ZTOI(zp)->i_ctime, file_notify->ctime);
 			ZFS_TIME_DECODE(&ZTOI(zp)->i_mtime, file_notify->mtime);
-	
-			if (file_notify->file_updateop==EXPAND_SPACE){
-				while ((end_size = zp->z_size) < file_notify->file_size) {
-					atomic_cas_64(&zp->z_size, end_size, file_notify->file_size);
-				}
-			}else if (file_notify->file_updateop==REDUCE_SPACE){
-				while ((end_size = zp->z_size) > file_notify->file_size) {
-					atomic_cas_64(&zp->z_size, end_size, file_notify->file_size);
-				}
-			}
 
 			SA_ADD_BULK_AMCTIME(bulk, count, zsb, zp);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
@@ -3186,9 +3185,7 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			    &file_notify->file_nblks, 8);
 			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_BLKSZ(zsb), NULL,
 			    &file_notify->file_blksz, 8);
-			zp->z_nblks = file_notify->file_nblks;
-			zp->z_blksz = file_notify->file_blksz;
-			ZTOI(zp)->i_blocks = file_notify->file_nblks;
+			
 			
 			if (zp->z_group_id.data_spa == file_notify->group_id.data_spa &&
 				zp->z_group_id.data_objset == file_notify->group_id.data_objset &&
@@ -3249,6 +3246,7 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 				zfs_update_quota_used(zsb, zp,
 				    file_notify->file_updatesize, file_notify->file_updateop, tx);
 			}
+			zfs_log_file_space_notify(zsb->z_log, tx, TX_FILE_SPACE_NOTIFY, zp, file_notify);
 			dmu_tx_commit(tx);
 			iput(ZTOI(zp));
 			break;

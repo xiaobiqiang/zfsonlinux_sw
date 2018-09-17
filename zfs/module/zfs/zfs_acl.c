@@ -97,6 +97,8 @@
 
 #define	ALL_MODE_EXECS (S_IXUSR | S_IXGRP | S_IXOTH)
 
+extern int wait_meta_tx;
+
 static uint16_t
 zfs_ace_v0_get_type(void *acep)
 {
@@ -2057,6 +2059,7 @@ zfs_setacl(znode_t *zp, vsecattr_t *vsecp, boolean_t skipaclchk, cred_t *cr)
 	zfs_fuid_info_t	*fuidp = NULL;
 	boolean_t	fuid_dirtied;
 	uint64_t	acl_obj;
+	int	err_meta_tx = 0;
 
 	if (mask == 0)
 		return (SET_ERROR(ENOSYS));
@@ -2135,11 +2138,15 @@ top:
 	if (fuid_dirtied)
 		zfs_fuid_sync(zsb, tx);
 
-	zfs_log_acl(zilog, tx, zp, vsecp, fuidp);
+	err_meta_tx = zfs_log_acl(zilog, tx, zp, vsecp, fuidp);
 
 	if (fuidp)
 		zfs_fuid_info_free(fuidp);
 	dmu_tx_commit(tx);
+
+	if (wait_meta_tx && err_meta_tx != 0) {
+		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
+	}
 
 	mutex_exit(&zp->z_lock);
 	mutex_exit(&zp->z_acl_lock);
