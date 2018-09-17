@@ -359,7 +359,6 @@ typedef struct zfs_cmd {
 	uint64_t	zc_createtxg;
 	zfs_stat_t	zc_stat;
 
-	char		zc_top_ds[MAXPATHLEN];
 	//zfs_ioc_crypto_t zc_crypto;
 	boolean_t	zc_temphold;
 	uint64_t	zc_multiclus_stat;
