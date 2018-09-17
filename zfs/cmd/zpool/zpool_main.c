@@ -1943,7 +1943,7 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		} else {
 			sprintf(di.dk_name, "/dev/%s", name);
 		}
-	#if USE_HENGWEI   //for redhat
+	#ifndef USE_HENGWEI   //for redhat
                 disk_get_serial(&di);
                 disk_get_slotid(&di);
                 sprintf(en_buf, "%d", di.dk_enclosure);
