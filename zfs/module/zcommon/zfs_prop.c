@@ -376,7 +376,16 @@ zfs_prop_init(void)
 	zprop_register_string(ZFS_PROP_CLUSTER_NODE_NAME, "clusnodename", "none",
 	    PROP_READONLY, ZFS_TYPE_FILESYSTEM| ZFS_TYPE_VOLUME, 
 	    "cluster node name", "CLUSNODENAME");
-	
+	/* Lun Migrate */
+	zprop_register_string(ZFS_PROP_LUN_REMOTE, "remotelundev", "none",
+	    PROP_DEFAULT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "/dev/dsk/xxx",
+	    "REMOTE LUNDEV");
+	zprop_register_string(ZFS_PROP_LUN_HOST, "hostlundev", "none",
+	    PROP_DEFAULT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "/dev/zvol/pool/name",
+	    "HOST LUNDEV");
+	zprop_register_string(ZFS_PROP_LUN_GUID, "lunguid", "none",
+	    PROP_DEFAULT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "guid",
+	    "LUN GUID");
 
 	/* readonly number properties */
 	zprop_register_number(ZFS_PROP_USED, "used", 0, PROP_READONLY,
@@ -440,6 +449,8 @@ zfs_prop_init(void)
 	zprop_register_number(ZFS_PROP_SNAPSHOT_COUNT, "snapshot_count",
 	    UINT64_MAX, PROP_DEFAULT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "<count>", "SSCOUNT");
+	zprop_register_number(ZFS_PROP_LUN_THIN_THRESHOLD, "thold", 0, PROP_DEFAULT,
+	    ZFS_TYPE_VOLUME, "<size> | none", "THOLD");
 
 	/* inherit number properties */
 	zprop_register_number(ZFS_PROP_RECORDSIZE, "recordsize",

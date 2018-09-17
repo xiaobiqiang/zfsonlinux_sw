@@ -1199,6 +1199,7 @@ dmu_objset_evict(objset_t *os)
 	int t;
 
 	dsl_dataset_t *ds = os->os_dsl_dataset;
+
 #ifdef _KERNEL
     dmu_objset_rewrite_worker_fini(os);
 #endif

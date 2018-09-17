@@ -88,6 +88,7 @@ extern int
 qla2x00_alloc_outstanding_cmds(struct qla_hw_data *, struct req_que *);
 extern int qla2x00_init_rings(scsi_qla_host_t *);
 extern uint8_t qla27xx_find_valid_image(struct scsi_qla_host *);
+extern void qla2x00_fct_logout_port(fc_port_t *fcport);
 
 /*
  * Global Data in qla_os.c source file.

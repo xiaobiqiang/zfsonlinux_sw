@@ -688,7 +688,6 @@ dbLoadLuns(list_t *luns)
 			lun = malloc(sizeof(stmf_lun_t));
 			memset(lun, 0, sizeof(stmf_lun_t));
 			memcpy(lun->lu_guid, lun_view->lu_guid, sizeof(lun_view->lu_guid));
-			memcpy(lun->lu_nbr, lun_view->lu_nbr, sizeof(lun_view->lu_nbr));
 			list_create(&lun->view_list, sizeof(stmf_view_t),
 				offsetof(stmf_view_t, node));
 			list_insert_tail(luns, lun);
@@ -699,6 +698,7 @@ dbLoadLuns(list_t *luns)
 		view->hg_id = lun_view->hg_id;
 		view->tg_id = lun_view->tg_id;
 		view->ve_index = lun_view->ve_index;
+		memcpy(view->lu_nbr, lun_view->lu_nbr, sizeof(lun_view->lu_nbr));
 		list_insert_tail(&lun->view_list, view);
 		
 		lun_view = list_next(&lun_views, lun_view);

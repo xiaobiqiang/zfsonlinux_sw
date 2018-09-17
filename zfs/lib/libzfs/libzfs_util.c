@@ -2303,7 +2303,8 @@ zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
 	zfs_cmd_t zc = {"\0"};
 
 	if (flags == ZFS_HBX_RELEASE_POOLS ||
-		flags == ZFS_HBX_CLUSTER_IMPORT) {
+		flags == ZFS_HBX_CLUSTER_IMPORT ||
+		flags == ZFS_HBX_MAC_STAT) {
 		zc.zc_nvlist_conf = (uintptr_t)buffer;
 		zc.zc_nvlist_conf_size = size;
 		zc.zc_perm_action = remote_id;
@@ -2322,25 +2323,8 @@ zfs_do_hbx_process_ex(libzfs_handle_t * hdl, char * buffer, int size,
 int
 get_clusnodename(char *buf, int len)
 {
-#define HOSTNAMELEN 64
-    int i=0;
-    FILE *fp;
-	len = len < HOSTNAMELEN ? len : HOSTNAMELEN;
-    fp = fopen("/etc/cluster_hostname", "r");
-    if (fp == NULL) {
-            return (-1);
-    }
-    fgets(buf, len, fp);
-    fclose(fp);
-    for (i=0; i<len; i++) {
-            if (*(buf+i) == ' ' || *(buf+i) == '\n') {
-                    break;
-            }
-    }
-    if (i == len)
-            i = len -1;
-    *(buf+i) = 0;
-    return 0;
+	gethostname(buf, len);
+	return 0;
 }
 
 /* needby disk.c */
@@ -3972,7 +3956,6 @@ void zpool_check_thin_luns(zfs_thinluns_t **statpp)
         libzfs_fini(tmp_gzfs);
 }
 
-
 uint64_t rm_file_num = 0;
 tpool_t *rm_files_threadpool = NULL;
 path_dir_t child_dir_list;
@@ -4152,4 +4135,369 @@ int zfs_start_rm_file_in_dir(libzfs_handle_t *hdl, char *dir)
 	return 0;
 }
 
+/* zfs thin lun check */
+
+static int
+zfs_checking_thinlun(zfs_handle_t *zhp, void *data)
+{
+	uint64_t reserver_size;
+	uint64_t volsize;
+	uint64_t thold;
+	zfs_thin_luns_t *tmp_statp;
+	zfs_thin_luns_stat_t *cbdata;
+
+	cbdata = (zfs_thin_luns_stat_t *)data;   	
+	reserver_size = zfs_prop_get_int(zhp, ZFS_PROP_REFRESERVATION);
+	volsize = zfs_prop_get_int(zhp, ZFS_PROP_VOLSIZE);
+	thold = zfs_prop_get_int(zhp, ZFS_PROP_LUN_THIN_THRESHOLD);
+
+	if (reserver_size == 0 && volsize != 0 && thold != 0) {
+		uint64_t thin_size = zfs_prop_get_int(zhp, ZFS_PROP_USED);
+		if (thold > 0 && thold < 100 &&
+			thin_size * 100 >= volsize * thold) {
+			tmp_statp = &cbdata->thinluns[cbdata->thinluns_number];
+			bzero(tmp_statp, sizeof(zfs_thin_luns_t));
+			strcpy(tmp_statp->pool_name, zpool_get_name(zhp->zpool_hdl));
+			strcpy(tmp_statp->lu_name, zfs_get_name(zhp));
+			tmp_statp->lu_size = volsize;
+			tmp_statp->thinlun_size = thin_size;
+			tmp_statp->thinlun_threshold = thold;
+			zfs_nicenum(volsize, tmp_statp->total, sizeof(tmp_statp->total));
+			zfs_nicenum(thin_size, tmp_statp->used, sizeof(tmp_statp->used));
+			cbdata->thinluns_number++;
+		}
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+int zfs_check_thin_luns_cb(zfs_handle_t *zhp, void *data)
+{
+	int ret;
+	ret = zfs_iter_filesystems(zhp, zfs_checking_thinlun, data);
+	zfs_close(zhp);
+	return (ret);
+}
+
+void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp)
+{
+        int number;
+        size_t size;
+        libzfs_handle_t *tmp_gzfs;
+        zfs_thin_luns_stat_t *cbdata;
+        zfs_thin_luns_stat_t *luns_stat;
+		int i;
+        
+        tmp_gzfs = libzfs_init();
+        cbdata  = calloc(1, sizeof(zfs_thin_luns_stat_t));
+        bzero(cbdata, sizeof(zfs_thin_luns_stat_t));
+        cbdata->thinluns = calloc(MAX_POOl_NUM, sizeof(zfs_thin_luns_t));
+
+		(void) zfs_iter_root(tmp_gzfs, zfs_check_thin_luns_cb, cbdata);
+
+        number = cbdata->thinluns_number;
+
+        if (number > 0) {
+                luns_stat = calloc(1, sizeof(zfs_thin_luns_stat_t));
+                luns_stat->thinluns = calloc(number, sizeof(zfs_thin_luns_t));
+                luns_stat->thinluns_number = number;
+                bcopy(cbdata->thinluns, luns_stat->thinluns,
+                  sizeof(zfs_thin_luns_t)*number);
+                *statpp = luns_stat;
+                
+        } else {
+                *statpp = NULL;
+        }
+
+        free(cbdata->thinluns);
+        free(cbdata);
+
+        libzfs_fini(tmp_gzfs);
+}
+
+
+/*
+ * ***************************************************************************************************
+ * lun migrate cmd route
+ * ***************************************************************************************************
+ */
+#define GSIZE_ALIG	(1024 * 1024 * 1024)
+#define GSIZE_ALIG_MB	(1024 * 1024)
+static int
+zfs_lun_migrate_init(libzfs_handle_t *hdl, const char *dst, char *dst_guid, const char *pool, uint64_t gsize)
+{
+	char *ptr = NULL;
+	FILE *lfp = NULL;
+	char lun[128] = { 0 };
+	char buf[256] = { 0 };
+	char zvol_fs[256] = { 0 };
+	char dst_path[128] = { 0 };
+	char readbuf[1024] = { 0 };
+	char fstr[128] = { 0 };
+	char fguid[128] = { 0 };
+	char fdev[128] = { 0 };
+	nvlist_t *result = NULL;
+	long int current_id = getpid();
+	zfs_cmd_t zc;
+
+	if (strstr(dst, "/dev/disk/by-id/") == NULL) {
+		printf("invalid dev.\n");
+		return (-1);
+	}
+
+	/* create copy lun and lu */
+	ptr = strrchr(dst,'/');
+	ptr++;
+	sprintf(zvol_fs,"%s/lun_%s", pool, ptr);
+	if ((gsize / GSIZE_ALIG) == 0) {
+		sprintf(buf,"zfs create -V %dM %s 2>/dev/null", gsize / GSIZE_ALIG_MB, zvol_fs);
+	} else {
+		sprintf(buf,"zfs create -V %dG %s 2>/dev/null", gsize / GSIZE_ALIG, zvol_fs);
+	}
+
+	if ( system(buf) != 0) {
+		(void) printf("zfs create lun failed\n");
+		return (-1);
+	}
+
+	lfp = popen("stmfadm list-lu -v 2>/dev/null", "r");
+	if (lfp == NULL) {
+		(void) printf("stmfadm list-lu -v failed\n");
+		return (-1);
+	}
+
+	while (fgets(readbuf, sizeof(readbuf), lfp)) {
+		sscanf(readbuf, "%s", fstr);
+
+		if (strcasecmp(fstr, "LU") == 0) {
+			bzero(fguid, 128);
+			sscanf(readbuf, "%*[^:]:%s", fguid);
+			bzero(readbuf, 1024);
+			continue;
+		}
+
+		if (strstr(readbuf, zvol_fs) == NULL) {
+			bzero(readbuf, 1024);
+			continue;
+		}
+
+		bzero(buf, 256);
+		sprintf(buf, "stmfadm delete-lu %s 2>/dev/null",fguid);
+		if (system(buf) != 0) {
+			(void) printf("stmfadm delete-lu %s failed\n",fguid);
+			return (-1);
+		}
+
+		result = zfs_clustersan_sync_cmd(hdl, current_id, buf, 10, -1);
+
+		break;
+	}
+
+	if (dst_guid == NULL)
+		dst_guid = dst + strlen("/dev/disk/by-id/scsi-x");
+
+	bzero(buf, 256);
+	sprintf(buf,"stmfadm create-lu -p guid=%s /dev/zvol/%s",dst_guid,zvol_fs);
+	if (system(buf) != 0) {
+		(void) printf("stmfadm create lu failed\n");
+		return (-1);
+	}
+
+	sprintf(lun,"/dev/zvol/%s", zvol_fs);
+	memcpy(dst_path, dst, 128);
+
+	bzero(&zc, sizeof(zfs_cmd_t));
+	strcpy(zc.zc_string, dst);
+	strcpy(zc.zc_value, dst_guid);
+	strcpy(zc.zc_top_ds, lun);
+	strcpy(zc.zc_name, zvol_fs);
+	zc.zc_lunmigrate_total = gsize;
+	zc.zc_pad[0] = 1;
+
+	return (ioctl(hdl->libzfs_fd, ZFS_IOC_START_LUN_MEGRATE, &zc));
+}
+
+static int
+zfs_lun_migrate_dev_realpath(const char *dst, char *real)
+{
+	int sec = 0;
+	int len = 0;
+	FILE *fd = NULL;
+	char *ptr = NULL;
+	char tmp[1024] = { 0 };
+	char buf_scsi[128] = { 0 };
+	char buf_other[128] = { 0 };
+	char buf_dev[128] = { 0 };
+
+	fd = popen("ls -l /dev/disk/by-id/", "r");
+	if (fd == NULL)
+		return (-1);
+
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		sscanf(tmp, "%*[^:]:%d %s %s %s",&sec, buf_scsi, buf_other, buf_dev);
+		len = strlen(buf_dev);
+		if (buf_dev[len - 1] >= '0' && buf_dev[len - 1] <= '9') {
+			continue;
+		}
+
+		if (strncasecmp(buf_scsi, "scsi", 4) == 0) {
+			ptr = strrchr(buf_dev, '/');
+			if (ptr != NULL && strstr(dst, ptr) != NULL) {
+				sprintf(real, "/dev/disk/by-id/%s", buf_scsi);
+				return (0);
+			}
+		}
+	}
+
+	return (-1);
+}
+
+static int
+zfs_lun_migrate_check(libzfs_handle_t *hdl, const char *dst, char *pool, char *o_guid)
+{
+	int err = 0;
+	char *ptr = NULL;
+	FILE *fd = NULL;
+	uint64_t gsize = 0;
+	char cmd_buf[128] = { 0 };
+	char realpath[128] = { 0 };
+	char readbuf[1024] = { 0 };
+
+	if (dst == NULL || pool == NULL) {
+		printf("invliad input\n");
+		return (-1);
+	}
+
+	sprintf(cmd_buf, "fdisk -s %s", dst);
+	fd = popen(cmd_buf, "r");
+	if (fd == NULL) {
+		printf("get %s gsize faild!\n", dst);
+		return (-1);
+	} else {
+		if (fgets(readbuf, sizeof(readbuf), fd) != NULL) {
+			sscanf(readbuf, "%lld", &gsize);
+		}
+
+		gsize = gsize * 1024;
+	}
+
+	if (strstr(dst, "scsi") == NULL) {
+		err = zfs_lun_migrate_dev_realpath(dst, realpath);
+		if (err == 0) {
+			err = zfs_lun_migrate_init(hdl, realpath, o_guid, pool, gsize);
+			if (o_guid == NULL)
+				o_guid = realpath + strlen("/dev/disk/by-id/scsi-x");
+		} else {
+			printf("invliad dev path.\n");
+		}
+	} else {
+		err = zfs_lun_migrate_init(hdl, dst, o_guid, pool, gsize);
+	}
+
+	if (err == 0) {
+		printf("lun migrate begin ...\n");
+		printf("disk name : %s\n", dst);
+		printf("disk size : %lld\n", gsize);
+		if (o_guid == NULL)
+			printf("lun  guid : %s\n", dst + strlen("/dev/disk/by-id/scsi-x"));
+		else
+			printf("lun  guid : %s\n", o_guid);
+	} else {
+		printf("lun migrate create failed\n");
+	}
+
+	return (0);
+}
+
+int
+zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname, int now)
+{
+	int ret = 0;
+	int i = 1;
+	int b = 1;
+	int try = 0;
+	float percent = 0;
+	char bar[52] = {0};
+	char *lab = "-\\|/";
+	zfs_cmd_t zc;
+
+	bzero(&zc, sizeof(zfs_cmd_t));
+	strcpy(zc.zc_string, fsname);
+	zc.zc_pad[0] = 4;
+
+	while (1) {
+		ret = ioctl(hdl->libzfs_fd, ZFS_IOC_START_LUN_MEGRATE, &zc);
+		if (ret == 0) {
+			if (zc.zc_pad[1] == 5) {
+				printf("haven't or have done this lun migrate\n");
+				return (1);
+			}
+
+			percent = (zc.zc_lunmigrate_cur * 1.0 / zc.zc_lunmigrate_total * 1.0);
+			if (now == 1) {
+				ret = (int)(percent*100);
+				return (ret);
+			}
+
+			if (zc.zc_pad[1] == 2) {
+				printf("[%-51s][%.0f%%][%c][stop]\r",bar,(percent * 100),lab[b%4]);
+			} else {
+				printf("[%-51s][%.0f%%][%c]\r",bar,(percent * 100),lab[b%4]);
+			}
+			fflush(stdout);
+			memset(bar, 0, 52);
+			for (i = 0; i < percent * 50; i++) {
+				bar[i] = '#';
+			}
+
+			if (b < 3)
+				b++;
+			else
+				b = 0;
+		} else {
+			try++;
+			if (try >= 5) {
+				printf("Lun migrate has complete!\n");
+				return (1);
+			}
+		}
+
+		sleep(1);
+	}
+	printf("\n");
+
+	return (1);
+}
+
+int
+zfs_recovery_lun_migrate(libzfs_handle_t *hdl, char *dst)
+{
+	zfs_cmd_t zc;
+
+	bzero(&zc, sizeof(zfs_cmd_t));
+	strcpy(zc.zc_string, dst);
+	zc.zc_pad[0] = 3;
+
+	return (ioctl(hdl->libzfs_fd, ZFS_IOC_START_LUN_MEGRATE, &zc));
+}
+
+int
+zfs_stop_lun_migrate(libzfs_handle_t *hdl, const char *dst)
+{
+	zfs_cmd_t zc;
+
+	bzero(&zc, sizeof(zfs_cmd_t));
+	strcpy(zc.zc_string, dst);
+	zc.zc_pad[0] = 2;
+
+	return (ioctl(hdl->libzfs_fd, ZFS_IOC_START_LUN_MEGRATE, &zc));
+}
+
+int
+zfs_start_lun_migrate(libzfs_handle_t *hdl, const char *dst, char *pool, char *guid)
+{
+	char *ret_cp = NULL;
+
+	return (zfs_lun_migrate_check(hdl, dst, pool, guid) != 0);
+}
 

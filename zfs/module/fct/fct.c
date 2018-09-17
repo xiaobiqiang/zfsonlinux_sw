@@ -57,7 +57,7 @@ static int fct_getinfo(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg,
 #endif
 static int fct_open(struct inode *inode, struct file *file);
 static int fct_close(struct inode *inode, struct file *file);
-static int fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+static long fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 static int fct_fctiocmd(intptr_t data, int mode);
 void fct_init_kstats(fct_i_local_port_t *iport);
 
@@ -188,7 +188,7 @@ fct_close(struct inode *inode, struct file *file)
 }
 
 /* ARGSUSED */
-static int
+static long
 fct_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int		ret = 0;
@@ -1717,7 +1717,7 @@ fct_scsi_task_alloc(fct_local_port_t *port, uint16_t rp_handle,
 		fct_cmd_free(cmd);
 		return (NULL);
 	}
-	atomic_inc_16(&irp->irp_fcp_xchg_count);
+	atomic_inc_32(&irp->irp_fcp_xchg_count);
 	cmd->cmd_rp = rp;
 	icmd->icmd_flags |= ICMD_IN_TRANSITION | ICMD_KNOWN_TO_FCA;
 	rw_exit(&irp->irp_lock);
@@ -1837,8 +1837,8 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 
 	rw_enter(&irp->irp_lock, RW_WRITER);
 	atomic_or_32(&icmd->icmd_flags, ICMD_IMPLICIT_CMD_HAS_RESOURCE);
-	atomic_inc_16(&irp->irp_nonfcp_xchg_count);
-	atomic_inc_16(&irp->irp_sa_elses_count);
+	atomic_inc_32(&irp->irp_nonfcp_xchg_count);
+	atomic_inc_32(&irp->irp_sa_elses_count);
 	/*
 	 * An implicit LOGO can also be posted to a irp where a PLOGI might
 	 * be in process. That PLOGI will reset this flag and decrement the
@@ -1852,6 +1852,7 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 	fct_post_to_discovery_queue(iport, irp, icmd);
 	rw_exit(&irp->irp_lock);
 }
+EXPORT_SYMBOL(fct_post_implicit_logo);
 
 /*
  * called with iport_lock held, return the slot number
@@ -1875,7 +1876,7 @@ fct_alloc_cmd_slot(fct_i_local_port_t *iport, fct_cmd_t *cmd)
 		new = ((old + (0x10000)) & 0xFFFF0000);
 		new |= iport->iport_cmd_slots[cmd_slot].slot_next;
 	} while (atomic_cas_32(&iport->iport_next_free_slot, old, new) != old);
-	atomic_dec_16(&iport->iport_nslots_free);
+	atomic_dec_32(&iport->iport_nslots_free);
 	iport->iport_cmd_slots[cmd_slot].slot_cmd = icmd;
 	cmd->cmd_handle = (uint32_t)cmd_slot | 0x80000000 |
 	    (((uint32_t)(iport->iport_cmd_slots[cmd_slot].slot_uniq_cntr))
@@ -2063,14 +2064,16 @@ fct_cmd_free(fct_cmd_t *cmd)
 		} while (atomic_cas_32(&iport->iport_next_free_slot,
 		    old, new) != old);
 		cmd->cmd_handle = 0;
-		atomic_inc_16(&iport->iport_nslots_free);
+		atomic_inc_32(&iport->iport_nslots_free);
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
-			if (cmd->cmd_type == FCT_CMD_FCP_XCHG)
-				atomic_dec_16(&irp->irp_fcp_xchg_count);
-			else
-				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+			if (cmd->cmd_type == FCT_CMD_FCP_XCHG){
+				atomic_dec_32(&irp->irp_fcp_xchg_count);
+			}
+			else {
+				atomic_dec_32(&irp->irp_nonfcp_xchg_count);
+			}
 		}
 		rw_exit(&iport->iport_lock);
 	} else if ((icmd->icmd_flags & ICMD_IMPLICIT) &&
@@ -2079,16 +2082,19 @@ fct_cmd_free(fct_cmd_t *cmd)
 		if (cmd->cmd_rp) {
 			irp = (fct_i_remote_port_t *)
 			    cmd->cmd_rp->rp_fct_private;
-			if (cmd->cmd_type == FCT_CMD_FCP_XCHG)
-				atomic_dec_16(&irp->irp_fcp_xchg_count);
-			else
-				atomic_dec_16(&irp->irp_nonfcp_xchg_count);
+			if (cmd->cmd_type == FCT_CMD_FCP_XCHG) {
+				atomic_dec_32(&irp->irp_fcp_xchg_count);
+			}
+			else {
+				atomic_dec_32(&irp->irp_nonfcp_xchg_count);
+			}
 		}
-	}
+	} 
 
 	if (do_abts_acc) {
 		fct_cmd_t *lcmd = cmd->cmd_link;
 		fct_fill_abts_acc(lcmd);
+		
 		if (port->port_send_cmd_response(lcmd,
 		    FCT_IOF_FORCE_FCA_DONE) != FCT_SUCCESS) {
 			/*
@@ -2098,6 +2104,8 @@ fct_cmd_free(fct_cmd_t *cmd)
 			(void) snprintf(info, sizeof (info),
 			    "fct_cmd_free: iport-%p, ABTS_ACC"
 			    " port_send_cmd_response failed", (void *)iport);
+			
+			
 			(void) fct_port_shutdown(iport->iport_port,
 			    STMF_RFLAG_FATAL_ERROR | STMF_RFLAG_RESET, info);
 			return;
@@ -2505,6 +2513,7 @@ fct_create_solels(fct_local_port_t *port, fct_remote_port_t *rp, int implicit,
 	els->els_req_payload[0] = elsop;
 	return (cmd);
 }
+EXPORT_SYMBOL(fct_create_solels);
 
 fct_cmd_t *
 fct_create_solct(fct_local_port_t *port, fct_remote_port_t *query_rp,

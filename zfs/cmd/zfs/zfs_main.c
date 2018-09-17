@@ -115,6 +115,7 @@ static int zfs_do_speed_test(int arc, char **argv);
 static int zfs_do_multiclus(int argc, char **argv);
 static int zfs_do_rmfileindir_file_type(int argc, char **argv);
 
+static int zfs_do_lun_migrate(int argc, char **argv);
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
  */
@@ -161,11 +162,12 @@ typedef enum {
 	HELP_RELEASE,
 	HELP_DIFF,
 	HELP_BOOKMARK,
-    HELP_MIRROR,
+	HELP_MIRROR,
 	HELP_CLUSTERSAN,
 	HELP_SPEEDTEST,
 	HELP_MULTICLUS,
-	HELP_RMFILES
+	HELP_RMFILES,
+	HELP_LUN_MIGRATE
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -224,6 +226,7 @@ static zfs_command_t command_table[] = {
 	{"speed",	zfs_do_speed_test,	HELP_SPEEDTEST		},
 	{ "multiclus",	zfs_do_multiclus,	HELP_MULTICLUS		},
 	{ "rmfiles",  zfs_do_rmfileindir_file_type, HELP_RMFILES},
+	{ "lun_migrate", zfs_do_lun_migrate, HELP_LUN_MIGRATE},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -363,6 +366,16 @@ get_usage(zfs_help_t idx)
 			"\tclustersan list-target [-v]\n"));
 	case HELP_SPEEDTEST:
 		return (gettext("\tspeed -s blocksize -n cnt [-r]\n"));
+	case HELP_LUN_MIGRATE:
+		return (gettext(
+			"\tlun_migrate create [-g guid] <dev> <pool>\n"
+			"\t  eg: zfs lun_migrate create -g 60014xxxxxxxxxxxx /dev/disk/by-id/scsi-xxxx tank\n"
+			"\tlun_migrate check <host_lun>\n"
+			"\t  eg: zfs lun_migrate check /dev/zvol/tank/scsi-xxxx\n"
+			"\tlun_migrate stop <host_lun> \n"
+			"\t  eg: zfs lun_migrate stop /dev/zvol/tank/scsi-xxxx\n"
+			"\tlun_migrate restart <host_dev> \n"
+			));
 			
 	case HELP_MULTICLUS:
 		return (gettext("\n"
@@ -8351,6 +8364,92 @@ zfs_do_rmfileindir_file_type(int argc, char **argv)
 	
 	dir = argv[0];
 	zfs_start_rm_file_in_dir(g_zfs, dir);
+	return (0);
+}
+
+
+static int
+zfs_do_lun_migrate(int argc, char **argv)
+{
+	int c = 0;
+	int check_now = 0;
+	int has_guid = 0;
+	char *dst = NULL;
+	char *pool = NULL;
+	char *dst_guid = NULL;
+	char guid[128] = {0};
+
+	if (argc < 2) {
+		(void) fprintf(stderr, gettext("Invalid arguments\n"));
+		usage(B_FALSE);
+		return (-1);
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	if (strcmp(argv[0], "create") == 0) {
+		if (argc+optind < 4) {
+			(void) fprintf(stderr, gettext("Invalid arguments\n"));
+			usage(B_FALSE);
+			return (-1);
+		}
+
+		while ((c = getopt(argc, argv, "g:f")) != -1) {
+			switch (c) {
+			case 'g':
+				has_guid = 1;
+				memcpy(guid, optarg, strlen(optarg));
+				break;
+			case 'f':
+				break;
+			case '?':
+			default:
+				(void) fprintf(stderr, gettext("invalid option '%c'\n"),optopt);
+					usage(B_FALSE);
+			}
+		}
+
+		argc -= optind;
+		argv += optind;
+
+		dst = argv[0];
+		pool = argv[1];
+
+		if (has_guid == 1)
+			return (zfs_start_lun_migrate(g_zfs, dst, pool, guid));
+		else
+			return (zfs_start_lun_migrate(g_zfs, dst, pool, NULL));
+	} else if (strcmp(argv[0], "stop") == 0) {
+		dst = argv[1];
+		return (zfs_stop_lun_migrate(g_zfs, dst));
+	} else if (strcmp(argv[0], "restart") == 0) {
+		dst = argv[1];
+		return (zfs_recovery_lun_migrate(g_zfs, dst));
+	} else if (strcmp(argv[0], "check") == 0) {
+		while ((c = getopt(argc, argv, "nf")) != -1) {
+			switch (c) {
+			case 'n':
+				check_now = 1;
+				break;
+			case 'f':
+				break;
+			case '?':
+			default:
+				(void) fprintf(stderr, gettext("invalid option '%c'\n"),optopt);
+					usage(B_FALSE);
+			}
+		}
+
+		argc -= optind;
+		argv += optind;
+		dst = argv[0];
+
+		return (zfs_check_lun_migrate(g_zfs, dst, check_now));
+	} else {
+		(void) fprintf(stderr, gettext("Invalid arguments\n"));
+	}
+
 	return (0);
 }
 

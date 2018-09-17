@@ -58,7 +58,6 @@ void *clumgt_worker (void *arg);
 int clumgt_parse_revcdata(void *req, clumgt_response_t **resp);
 extern int
 clumgt_get_hosturl(char *url);
-extern int get_local_hostname(char *buf, int reserved);
 
 
 #ifdef	__cplusplus

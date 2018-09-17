@@ -256,6 +256,21 @@ typedef struct zfs_thinluns_stat {
 	pool_thinluns_stat_t *pools;
 } zfs_thinluns_t;
 
+typedef struct zfs_thin_luns {
+	char		pool_name[MAXNAMELEN];
+	char		lu_name[MAXNAMELEN];
+	uint64_t	lu_size;
+	uint64_t	thinlun_size;
+	uint64_t	thinlun_threshold;
+	char		used[16];
+	char		total[16];
+} zfs_thin_luns_t;
+
+typedef struct zfs_thin_luns_stat {
+	uint32_t thinluns_number;
+	zfs_thin_luns_t *thinluns;
+} zfs_thin_luns_stat_t;
+
 /*
  * Basic handle types
  */
@@ -1021,6 +1036,11 @@ typedef struct zfs_pathname {
 
 int zfs_start_rm_file_in_dir(libzfs_handle_t *hdl, char *dir);
 
+
+extern int zfs_start_lun_migrate(libzfs_handle_t *hdl, const char *dst, char *pool, char *guid);
+extern int zfs_stop_lun_migrate(libzfs_handle_t *hdl, const char *dst);
+extern int zfs_recovery_lun_migrate(libzfs_handle_t *hdl, char *fsname);
+extern int zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname, int now);
 
 #ifdef	__cplusplus
 }

@@ -224,7 +224,6 @@ psAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 		lun = malloc(sizeof(stmf_lun_t));
 		memset(lun, 0, sizeof(stmf_lun_t));
 		memcpy(lun->lu_guid, guidAsciiBuf, sizeof(guidAsciiBuf));
-		memcpy(lun->lu_nbr, viewEntry->luNbr, sizeof(viewEntry->luNbr));
 		list_create(&lun->view_list, sizeof(stmf_view_t),
 			offsetof(stmf_view_t, node));
 		list_insert_tail(&s_luns_list, lun);
@@ -235,6 +234,7 @@ psAddViewEntry(stmfGuid *lu, stmfViewEntry *viewEntry)
 	view->hg_id = hg->group_id;
 	view->tg_id = tg->group_id;
 	view->ve_index = viewEntry->veIndex;
+	memcpy(view->lu_nbr, viewEntry->luNbr, sizeof(viewEntry->luNbr));
 	list_insert_tail(&lun->view_list, view);
 	
 done:
@@ -436,7 +436,7 @@ psGetViewEntry(stmfGuid *lu, uint32_t viewEntryIndex, stmfViewEntry *ve)
 	}
 
 	ret = ipsGetViewEntry(view->hg_id, view->tg_id, viewEntryIndex, 
-		lun->lu_nbr, ve);
+		view->lu_nbr, ve);
 done:
 	pthread_rwlock_unlock(&s_rwlock);
 	return (ret);
@@ -778,7 +778,7 @@ psGetViewEntryList(stmfGuid *lu, stmfViewEntryList **viewEntryList)
 	view = list_head(&lun->view_list);
 	while (view) {
 		ret = ipsGetViewEntry(view->hg_id, view->tg_id, view->ve_index,
-			lun->lu_nbr, &((*viewEntryList)->ve[i]));
+			view->lu_nbr, &((*viewEntryList)->ve[i]));
 		if (ret != STMF_PS_SUCCESS)
 			break;
 

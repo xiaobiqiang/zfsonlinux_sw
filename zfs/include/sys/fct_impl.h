@@ -124,10 +124,10 @@ typedef struct fct_i_remote_port {
 	 * that are terminated. active_xchg_count covers everything including
 	 * the ones waiting to be terminated.
 	 */
-	uint16_t			irp_sa_elses_count;
-	uint16_t			irp_nsa_elses_count;
-	uint16_t			irp_fcp_xchg_count;
-	uint16_t			irp_nonfcp_xchg_count;
+	uint32_t			irp_sa_elses_count;
+	uint32_t			irp_nsa_elses_count;
+	uint32_t			irp_fcp_xchg_count;
+	uint32_t			irp_nonfcp_xchg_count;
 
 	uint32_t			irp_flags;
 	clock_t				irp_deregister_timer;
@@ -245,7 +245,7 @@ typedef struct fct_i_local_port {
 	uint16_t		iport_task_yellow_limit;
 	uint16_t		iport_task_red_limit;
 	/* cmd slots */
-	uint16_t		iport_nslots_free;
+	uint32_t		iport_nslots_free;
 
 	/* upper 16 bits is just a counter to avoid ABA issues */
 	uint32_t		iport_next_free_slot;

@@ -260,9 +260,10 @@ static int zfs_hbx_do_mac_state(zfs_cmd_t *zc)
 	char *buffer;
 	uint64_t size;
 	int ret = -1;
+	int hostid = zc->zc_perm_action;
 
 	size = zc->zc_nvlist_conf_size;
-	cmn_err(CE_NOTE, "send mac state event, len=0x%llx", size);
+	cmn_err(CE_NOTE, "send mac state event to host %d, len=0x%llx", hostid, size);
 	if (size != 0) {
 		buffer = kmem_alloc(size, KM_SLEEP);
 		if ((ret = ddi_copyin((void *)(uintptr_t)zc->zc_nvlist_conf, 
@@ -270,7 +271,7 @@ static int zfs_hbx_do_mac_state(zfs_cmd_t *zc)
 			cmn_err(CE_WARN, "%s: ddi copyin failed", __func__);
 			kmem_free(buffer, size);
 		} else {
-			ret = zfs_hbx_send(0, buffer, size, EVT_MAC_STATE,
+			ret = zfs_hbx_send(hostid, buffer, size, EVT_MAC_STATE,
 				B_TRUE, zfs_hbx_send_retry_times);
 			kmem_free(buffer, size);
 		}
@@ -598,7 +599,7 @@ zfs_hbx_send(int hostid, void *data, uint64_t len, enum hbx_event_type event,
 	if (hostid == 0)
 		hostid = cluster_get_failover_hostid();
 	cshi = cluster_remote_hostinfo_hold(hostid);
-	if (cshi == NULL) {
+	if (cshi == NULL || cshi == CLUSTER_SAN_BROADCAST_SESS) {
 		cmn_err(CE_WARN, "%s: Can't find host %d in cluster",
 			__func__, hostid);
 		return (-1);

@@ -26,6 +26,7 @@
 #define THINLUN_CHECK_FLAG	1
 #define QUOTA_CHECK_FLAG	2
 #define AVS_CHECK_FLAG		4
+#define ZFSTHINLUN_CHECK_FLAG	8
 
 typedef enum avs_state {
 	logging = 0,
@@ -62,6 +63,7 @@ typedef struct link_monitor{/*{{{*/
 void log_null(FILE *file, ...){}
 
 extern void zpool_check_thin_luns(zfs_thinluns_t **statp);
+extern void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp);
 static uint64_t thinlunandquanta_check_time = 0;
 static uint32_t check_map = 0;
 static uint32_t check_interval = 60;
@@ -315,6 +317,54 @@ void zpool_thinlun_check(fmd_hdl_t *hdl, link_monitor_t *lmp)
 	nvlist_free(fmri);	
 }
 
+void zfs_thinlun_check(fmd_hdl_t *hdl, link_monitor_t *lmp)
+{
+	int i;
+	zfs_thin_luns_stat_t *statp = NULL;
+	char buf[512]={0};
+	uint64_t ena = 0;
+	nvlist_t *fmri, *nvl;
+	FILE *fp;
+
+	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0 ||
+		nvlist_alloc(&fmri, NV_UNIQUE_NAME, 0) != 0 )
+		return;
+	if ((fp = fopen("/tmp/zfsthinlun.tmp", "w")) == NULL)
+		return;
+	zfs_check_thin_luns(&statp);
+	if (statp != NULL) {
+	   for (i = 0; i < statp->thinluns_number; i ++) {
+	   		memset(buf, 0, 512);
+			zfs_thin_luns_t *thinlun_stat = &statp->thinluns[i];
+			snprintf(buf,512,"LUsize=%s,used=%s,LUname=%s,thold=%llu",
+				thinlun_stat->total, thinlun_stat->used, 
+				thinlun_stat->lu_name, thinlun_stat->thinlun_threshold);
+			fprintf(fp, "%s %s %s %llu##\n", 
+				thinlun_stat->lu_name, thinlun_stat->total,
+				thinlun_stat->used, thinlun_stat->thinlun_threshold);
+			if (nvlist_add_string(fmri, "detector", "link transport") != 0 ||
+			    nvlist_add_string(nvl, TOPO_LINK_TYPE, "zfsthin_luns_warning") != 0 ||
+			    nvlist_add_string(nvl, TOPO_LINK_NAME, thinlun_stat->pool_name) != 0 ||
+			    nvlist_add_uint32(nvl, TOPO_LINK_STATE, 0) != 0 ||
+			    nvlist_add_string(nvl, TOPO_LINK_STATE_DESC, buf) != 0) {
+					nvlist_free(nvl);
+					nvlist_free(fmri);
+					return;
+			}
+			lt_post_ereport(lmp->lm_hdl, lmp->lm_xprt, "ceresdata", "trapinfo", ena, fmri, nvl);
+
+	   }
+	   free(statp->thinluns);
+	   free(statp);
+	} 
+				
+	fclose(fp);
+	(void) rename("/tmp/zfsthinlun.tmp", "/tmp/zfsthinlun.txt");
+	nvlist_free(nvl);
+	nvlist_free(fmri);	
+}
+
+
 #if 0
 double get_number(char *q)
 {
@@ -534,6 +584,9 @@ static void get_check_conf(void)
 			} else if ((strcmp(s1, "thinlun_check")) == 0) {
 				if ((strcmp(s2, "yes")) == 0)
 						check_map |= THINLUN_CHECK_FLAG;
+			} else if ((strcmp(s1, "zfsthinlun_check")) == 0) {
+				if ((strcmp(s2, "yes")) == 0)
+						check_map |= ZFSTHINLUN_CHECK_FLAG;
 			} else if ((strcmp(s1, "avs_check")) == 0) {
 				if ((strcmp(s2, "yes")) == 0)
 						check_map |= AVS_CHECK_FLAG;
@@ -692,6 +745,8 @@ static void lt_timeout(fmd_hdl_t *hdl, id_t id, void *data){/*{{{*/
 			avs_check(hdl, lmp);
 #endif
 	}
+	if (check_map & ZFSTHINLUN_CHECK_FLAG)
+		zfs_thinlun_check(hdl, lmp);
 	node_state_check(hdl, lmp);
 	fmd_hdl_topo_rele(hdl, thp);
 
