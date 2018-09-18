@@ -58,6 +58,7 @@
 #include <sys/dnode.h>
 #include <sys/spa.h>
 #include <sys/zap.h>
+#include <sys/fs/zfs.h>
 #include <libzfs.h>
 
 #include "zfs_namecheck.h"
