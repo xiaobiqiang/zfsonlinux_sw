@@ -66,7 +66,7 @@ typedef struct disk_table {
 	disk_info_t *next;
 } disk_table_t;
 
-extern int disk_scan_lun();
+extern int disk_scan_lun(void);
 extern int disk_get_info(disk_table_t *di);
 extern void disk_get_system(char* name);
 extern int disk_get_slotid(disk_info_t *di);
