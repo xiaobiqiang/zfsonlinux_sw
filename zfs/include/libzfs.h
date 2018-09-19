@@ -1025,6 +1025,8 @@ extern int get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags,
 	char *groupip, uint_t *num);
 extern int zfs_rpc_back_proc(uint_t rtype, char **backbuf, zfs_rpc_arg_t *recvarg,
 	zfs_rpc_ret_t *backarg);
+extern int zfs_rpc_call(char* host, uint32_t gettype,
+        zfs_rpc_arg_t *sendarg, zfs_rpc_ret_t *backarg);
 
 
 typedef struct zfs_pathname {
@@ -1041,6 +1043,14 @@ extern int zfs_start_lun_migrate(libzfs_handle_t *hdl, const char *dst, char *po
 extern int zfs_stop_lun_migrate(libzfs_handle_t *hdl, const char *dst);
 extern int zfs_recovery_lun_migrate(libzfs_handle_t *hdl, char *fsname);
 extern int zfs_check_lun_migrate(libzfs_handle_t *hdl, char *fsname, int now);
+extern int get_clusnodename(char *buf, int len);
+extern uint64_t label_offset(uint64_t size, int l);
+extern int zfs_prop_get_dirquota(zfs_handle_t *zhp, const char *propname,
+    char *propbuf, int proplen);
+extern int zfs_group_userquota_send(int flags, zfs_msg_type_t settype, int argc, char **argv, void *data);
+extern uint_t num_metas(nvlist_t *nv);
+extern void zpool_check_thin_luns(zfs_thinluns_t **statpp);
+extern void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp);
 
 #ifdef	__cplusplus
 }
