@@ -1381,8 +1381,8 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 static int
 get_zfs_sb(const char *dsname, zfs_sb_t **zsbp)
 {
-	objset_t *os;
-	int error;
+	objset_t *os = NULL;
+	int error = 0;
 
 	error = dmu_objset_hold(dsname, FTAG, &os);
 	if (error != 0)
@@ -2313,7 +2313,6 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	const char *propname = pairvalue->propname;
 	uint64_t value = pairvalue->value;
 	zfs_sb_t *zsb = NULL;
-//	zfsvfs_t *zfsvfs = NULL;
 	int err;
 	zfs_dirlowdata_t *dir_lowdata = kmem_zalloc(sizeof(zfs_dirlowdata_t), KM_SLEEP);
 
@@ -2330,7 +2329,6 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	 
 	/* cmn_err(CE_WARN, "Receive set_dir_lowdata message from slave 
 		Success!!!"); */
-//	err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_FALSE);
 	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
 	if (err == 0) {
 		
@@ -5342,6 +5340,33 @@ int zfs_multiclus_clean_dtltree(zfs_cmd_t *zc)
 	return error;
 }
 
+boolean_t zfs_multiclus_get_znodeinfo(zfs_cmd_t *zc)
+{
+	boolean_t gstatus;
+	nvlist_t *config;
+	
+	gstatus = zfs_multiclus_enable();
+	if(B_FALSE == gstatus)
+	{
+		strcpy(zc->zc_string, "down");
+	}
+	else
+	{
+		zfs_get_group_znode_info(zc->zc_top_ds, &config);
+		if(config != NULL) 
+		{
+			strcpy(zc->zc_string, "up");
+			put_nvlist(zc, config);
+			nvlist_free(config);
+		}
+		else
+		{
+			strcpy(zc->zc_string, "Null");
+			return (B_TRUE);
+		}
+	}
+	return (B_TRUE);
+}
 
 static int
 zfs_ioc_start_multiclus(zfs_cmd_t *zc)
@@ -5352,11 +5377,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 	switch (zc->zc_cookie)
 	{
 		case ZNODE_INFO:
-			error = zfs_print_znode_info(zc->zc_top_ds);
-			break;
-		case DOUBLE_DATA:
-			mode = zfs_enable_disable_double_data((boolean_t)zc->zc_obj);
-			zc->zc_sendobj = (uint64_t)mode;
+			zfs_multiclus_get_znodeinfo(zc);
 			break;
 		case SET_DOUBLE_DATA:
 			mode = zfs_set_double_data((char*)zc->zc_value);
@@ -5410,7 +5431,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 			error = zfs_multiclus_set_master(zc->zc_value, zc->zc_string, 
 				ZFS_MULTICLUS_MASTER);
 			break;
-/*
+
 		case GET_MULTICLUS_DTLSTATUS:
 			error = zfs_multiclus_get_dtlstatus(zc);
 			break;
@@ -5434,7 +5455,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string);
 			}
 			break;
-*/
+
 		default:
 			break;
 	}

@@ -1,6 +1,7 @@
 #ifdef _KERNEL
 #include <sys/ddi.h>
 #include <sys/byteorder.h>
+#include <sys/sysmacros.h>
 #include <sys/atomic.h>
 #include <sys/sysmacros.h>
 #include <sys/cmn_err.h>
@@ -110,7 +111,7 @@ static void zfs_multiclus_worker_wakeup(zfs_multiclus_worker_t *w, zfs_multiclus
 static void zfs_multiclus_rx_operate_check(void *arg);
 static void zfs_multiclus_load_config(void);
 int zmc_set_node_type(char* group_name, char* fs_name, zfs_multiclus_node_type_t node_type);
-int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, objset_t* os, zfs_multiclus_node_type_t node_type);
+int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, zfs_multiclus_node_type_t node_type);
 zfs_multiclus_group_record_t* zmc_find_record(zfs_multiclus_group_t* group, zfs_multiclus_node_type_t node_type);
 zfs_multiclus_node_type_t zmc_get_node_type(objset_t* os);
 uint64_t zmc_node_type_to_os_type(zfs_multiclus_node_type_t node_type);
@@ -144,7 +145,6 @@ void
 zfs_multiclus_group_record_init(char *group_name, char *fs_name, uint64_t spa_id, uint64_t os_id, uint64_t root, 
 		zfs_multiclus_node_type_t node_type, uint64_t avail_size, uint64_t used_size, uint64_t load_ios)
 {
-//	spa_t *spa;
 	int name_len = 0;
 	zfs_group_header_t msg_header = {0};
 
@@ -162,15 +162,14 @@ zfs_multiclus_group_record_init(char *group_name, char *fs_name, uint64_t spa_id
 	reg_msg->node_status.status = ZFS_MULTICLUS_NODE_ONLINE;
 	bcopy(fs_name, reg_msg->fsname, MAX_FSNAME_LEN);
 	bcopy(group_name, reg_msg->group_name, name_len);
-	bcopy(group_name, msg_header.group_name, name_len);
 	reg_msg->group_name[strlen(group_name)] = '\0';
-	msg_header.group_name[strlen(group_name)] = '\0';
 	reg_msg->group_name_len = name_len;
-	msg_header.group_name_len = name_len;
 	bcopy(rpc_port_addr, reg_msg->rpc_addr, ZFS_MULTICLUS_RPC_ADDR_SIZE);
-		
+
+	bcopy(group_name, msg_header.group_name, name_len);
+	msg_header.group_name[strlen(group_name)] = '\0';
+	msg_header.group_name_len = name_len;
 	zfs_multiclus_record_reg_and_update(&msg_header, reg_msg);
-	
 	kmem_free(reg_msg, sizeof(zfs_group_reg_t));
 }
 
@@ -179,7 +178,6 @@ zfs_multiclus_post_frame(zfs_multiclus_worker_para_t *work_para)
 {
 	zfs_multiclus_worker_t *action_worker = NULL;
 	uint64_t key = 0;
-//	uint64_t index = 0;
 
 	if (work_para->msg_header->msg_type == ZFS_MULTICLUS_OPERATE_MSG) {
 		key = work_para->msg_header->data_index;
@@ -234,8 +232,9 @@ zfs_multiclus_rx(cs_rx_data_t *cs_data, void *arg)
 	zfs_multiclus_worker_para_t *work_para = NULL;
 
 	if (B_FALSE == zfs_multiclus_global_workers.b_initialized) {
+		csh_rx_data_free( cs_data, B_TRUE);
 		return;
-	}	
+	}
 	group_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 	group_data = vmem_zalloc(cs_data->data_len, KM_SLEEP);
 	work_para = kmem_zalloc(sizeof(zfs_multiclus_worker_para_t), KM_SLEEP);
@@ -396,22 +395,22 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 	spa_t * os_spa = NULL;
 	
 	count = zfs_multiclus_check_group_master_count((const char *)groupname);
-	if (count >= 2){
+	if (count >= 2) {
 		if (DOUBLE_MASTER_PANIC) {
-			zfs_panic_recover("%s, %d, %d, DOUBLE_MASTER A new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)", 
+			zfs_panic_recover("[%s %d] %d, DOUBLE_MASTER A new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)", 
 				__func__, __LINE__, count, (unsigned long long)new_master_spa, (unsigned long long)old_master_spa,
 				(unsigned long long)new_master_os, (unsigned long long)old_master_os);
 		} else {
-			cmn_err(CE_WARN, "%s, %d, %d, DOUBLE_MASTER A new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)",
+			cmn_err(CE_WARN, "[%s %d] %d, DOUBLE_MASTER A new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)",
 				__func__, __LINE__, count, (unsigned long long)new_master_spa, (unsigned long long)old_master_spa,
 				(unsigned long long)new_master_os, (unsigned long long)old_master_os);
 		}
 	}
 
 	mutex_enter(&multiclus_mtx);
-	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
+	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++) {
 		if(zfs_multiclus_table[i].used && 
-			(0 == strncmp(zfs_multiclus_table[i].group_name, groupname, strlen(groupname))))	{
+			(0 == strncmp(zfs_multiclus_table[i].group_name, groupname, strlen(groupname)))) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_group[j].used){
@@ -462,15 +461,15 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 						os_spa = dmu_objset_spa(os);
 						dmu_objset_rele(os, FTAG);
 						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, os_is_master);       //os->os_is_master
+							zfs_prop_to_name(ZFS_PROP_MASTER), ZPROP_SRC_LOCAL, os_is_master);       /*os->os_is_master*/
 						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_NODE_TYPE),ZPROP_SRC_LOCAL, os_node_type);	 //os->os_node_type
+							zfs_prop_to_name(ZFS_PROP_NODE_TYPE),ZPROP_SRC_LOCAL, os_node_type);	 /*os->os_node_type*/
 						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER_SPA),ZPROP_SRC_LOCAL, new_master_spa);   //os->os_master_spa
+							zfs_prop_to_name(ZFS_PROP_MASTER_SPA),ZPROP_SRC_LOCAL, new_master_spa);   /*os->os_master_spa*/
 						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, new_master_os);    //os->os_master_os
+							zfs_prop_to_name(ZFS_PROP_MASTER_OS), ZPROP_SRC_LOCAL, new_master_os);    /*os->os_master_os*/
 						dsl_prop_set_int((const char*)(zfs_multiclus_table[i].multiclus_group[j].fsname), 
-							zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, new_master_root);  //os->os_master_root
+							zfs_prop_to_name(ZFS_PROP_MASTER_ROOT), ZPROP_SRC_LOCAL, new_master_root);  /*os->os_master_root*/
 						if (os_spa != NULL)
 							spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
 					}
@@ -485,11 +484,11 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 	count = zfs_multiclus_check_group_master_count((const char *)groupname);
 	if (count >= 2){
 		if (DOUBLE_MASTER_PANIC) {
-			zfs_panic_recover("%s, %d, %d, DOUBLE_MASTER B new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)", 
+			zfs_panic_recover("[%s %d] %d, DOUBLE_MASTER B new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)", 
 				__func__, __LINE__, count, (unsigned long long)new_master_spa, (unsigned long long)old_master_spa,
 				(unsigned long long)new_master_os, (unsigned long long)old_master_os);
 		} else {
-			cmn_err(CE_WARN, "%s, %d, %d, DOUBLE_MASTER B new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)",
+			cmn_err(CE_WARN, "[%s %d] %d, DOUBLE_MASTER B new_master_spa(0x%llx) == old_master_spa(0x%llx), new_master_os(0x%llx) == old_master_os(0x%llx)",
 				__func__, __LINE__, count, (unsigned long long)new_master_spa, (unsigned long long)old_master_spa,
 				(unsigned long long)new_master_os, (unsigned long long)old_master_os);
 		}
@@ -581,9 +580,11 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 				count = zfs_multiclus_check_group_master_count((const char *)group_name);
 				if (count >= 2){
 					if (DOUBLE_MASTER_PANIC) {
-						zfs_panic_recover("%s, %d, %d, DOUBLE_MASTER There are two or more masters in group!", __func__, __LINE__, count);
+						zfs_panic_recover("[%s %d] %d, DOUBLE_MASTER There are two or more masters in group!", 
+							__func__, __LINE__, count);
 					} else {
-						cmn_err(CE_WARN, "%s, %d, %d, DOUBLE_MASTER There are two or more masters in group!", __func__, __LINE__, count);
+						cmn_err(CE_WARN, "[%s %d] %d, DOUBLE_MASTER There are two or more masters in group!", 
+							__func__, __LINE__, count);
 					}
 				}
 				mutex_enter(&multiclus_mtx_update_record);
@@ -595,9 +596,11 @@ void zfs_multiclus_handle_frame(zfs_multiclus_worker_t *action_worker, zfs_group
 				mutex_exit(&multiclus_mtx_update_record);
 			}
 		} else {
-			if (group_master != NULL && group_master->spa_id != reg_msg->spa_id && group_master->os_id != reg_msg->os_id) {
-				zfs_multiclus_change_master_to_record((char *)group_name, (char *)reg_msg->fsname, reg_msg->spa_id, reg_msg->os_id, reg_msg->root, 
-					group_master->spa_id, group_master->os_id, ZFS_MULTICLUS_SLAVE);
+			if (group_master != NULL && group_master->spa_id != reg_msg->spa_id && 
+				group_master->os_id != reg_msg->os_id) {
+				zfs_multiclus_change_master_to_record((char *)group_name, (char *)reg_msg->fsname, 
+					reg_msg->spa_id, reg_msg->os_id, reg_msg->root, group_master->spa_id, 
+					group_master->os_id, ZFS_MULTICLUS_SLAVE);
 			}
 			zfs_multiclus_start_reg((char *)group_name, 0, 0, EXCEPT_SOMEONE);
 		}
@@ -681,7 +684,7 @@ zfs_multiclus_rx_mp_worker_frame(void *arg)
 			work_para->worker = rx_worker;
 			if (taskq_dispatch(rx_worker->worker_taskq,
 			    (void (*)(void *))zfs_multiclus_post_frame,
-			    work_para, TQ_NOSLEEP) == NULL) {
+			    work_para, TQ_NOSLEEP) == 0) {
 				cmn_err(CE_WARN, "dispatch mp post fail,to do directly");
 				zfs_multiclus_post_frame(work_para);
 			}
@@ -811,7 +814,6 @@ zfs_multiclus_workers_finit(void)
 	}
 	/*finit action taskq*/
 	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq);
-//	ddi_taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq);
 	vmem_free(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes,
 	    sizeof (zfs_multiclus_worker_t) * zfs_multiclus_server_nworkers);
 	zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes = NULL;
@@ -840,7 +842,6 @@ zfs_multiclus_workers_finit(void)
 	}
 	/*finit rx taskq*/
 	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_taskq);
-//	ddi_taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_taskq);
 	kmem_free(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes,
 	    sizeof (zfs_multiclus_worker_t) * zfs_multiclus_rx_mp_worker_nworkers);
 	zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes = NULL;
@@ -875,13 +876,16 @@ zfs_multiclus_hash_tmchk_thr_work(void *arg)
 	mutex_enter(&hash_header->hash_tmchk_thr_lock);
 	hash_header->hash_tmchk_thr_running = B_TRUE;
 	
-	while(!hash_header->hash_tmchk_thr_exit) {
+	while(1) {
 		time = drv_usectohz(ZFS_MULTICLUS_RX_HASH_CHECK);
 		zfs_multiclus_hash_tmchk_thr_wait(&cpr, &hash_header->hash_tmchk_thr_cv,
 		    time, &hash_header->hash_tmchk_thr_lock);
 
-		if (hash_header->hash_tmchk_thr_exit)
+		if (kthread_should_stop()) {
+			cmn_err(CE_WARN, "[%s %d] thread exit", __func__, __LINE__);
 			break;
+		}
+
 		if (timeout_chk_flag)
 			zfs_multiclus_rx_operate_check(hash_header);
 	}
@@ -898,7 +902,7 @@ zfs_multiclus_hash_tmchk_thr_work(void *arg)
 // 	if (zfs_multiclus_rx_hash[hash_location].hash_tmchk_thr_running) {
 // 		zfs_multiclus_rx_hash[hash_location].hash_tmchk_thr_exit = B_TRUE;
 // 		cv_broadcast(&zfs_multiclus_rx_hash[hash_location].hash_tmchk_thr_cv);
-// 		thread_join(zfs_multiclus_rx_hash[hash_location].hash_tmchk_thread->t_did);
+// 		kthread_stop(zfs_multiclus_rx_hash[hash_location].hash_tmchk_thread);
 // 	}
 // }
 
@@ -909,9 +913,9 @@ zfs_multiclus_hash_tmchk_thr_start(int hash_location)
 	
 	rw_enter(&zfs_multiclus_rx_hash[hash_location].zfs_multiclus_timeout_lock, RW_READER);
 
-	zfs_multiclus_rx_hash[hash_location].hash_tmchk_thread = thread_create(NULL, 12<<10,
-	    zfs_multiclus_hash_tmchk_thr_work, &zfs_multiclus_rx_hash[hash_location],
-	    0, &p0, TS_RUN, minclsyspri);
+	zfs_multiclus_rx_hash[hash_location].hash_tmchk_thread = kthread_run(zfs_multiclus_hash_tmchk_thr_work, 
+		(void*)(&zfs_multiclus_rx_hash[hash_location]), "zfs_multiclus_rx_hash_%d", hash_location);
+
 	if (zfs_multiclus_rx_hash[hash_location].hash_tmchk_thread == NULL) {
 		cmn_err(CE_WARN, "zfs_multiclus:create hash timeout check thr failed");
 		ret = 1;
@@ -977,8 +981,8 @@ zfs_multiclus_get_record(uint64_t spa_id, uint64_t os_id)
 	int j = 0;
 
 	mutex_enter(&multiclus_mtx);
-	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if(zfs_multiclus_table[i].used)	{
+	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
+		if(zfs_multiclus_table[i].used) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_group[j].used &&
@@ -1206,8 +1210,6 @@ zfs_multiclus_record_reg_and_update(zfs_group_header_t *msg_header, zfs_group_re
 {
 	int i = 0;
 	int j = 0;
-//	int group_index = 0;
-//	int reg_index = 0;
 
 	mutex_enter(&multiclus_mtx);
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
@@ -1239,15 +1241,14 @@ zfs_multiclus_record_reg_and_update(zfs_group_header_t *msg_header, zfs_group_re
 
 record_add:
 	
-	if (zfs_multiclus_table[i].used == B_FALSE){
+	if (zfs_multiclus_table[i].used == B_FALSE) {
 		j = 0;
 		mutex_init(&zfs_multiclus_table[i].multiclus_group_mutex, NULL, MUTEX_DRIVER, NULL);
 		cv_init(&zfs_multiclus_table[i].multiclus_group_cv, NULL, CV_DRIVER, NULL);
 		zfs_multiclus_table[i].used = B_TRUE;
 		bcopy((char *)(msg_header->group_name), (char *)(zfs_multiclus_table[i].group_name), msg_header->group_name_len);
 		zfs_multiclus_table[i].group_reg_timer_tq = taskq_create("ZFS_REG_TASQ", 
-			ZFS_MULTICLUS_GROUP_NODE_NUM, TASKQ_DEFAULTPRI, 1, ZFS_MULTICLUS_GROUP_NODE_NUM, 0);			
-//			ddi_taskq_create(0, "ZFS_REG_TASQ", ZFS_MULTICLUS_GROUP_NODE_NUM, TASKQ_DEFAULTPRI, 0);
+			ZFS_MULTICLUS_GROUP_NODE_NUM, TASKQ_DEFAULTPRI, 1, ZFS_MULTICLUS_GROUP_NODE_NUM, 0);
 		zfs_multiclus_table[i].group_name_len = msg_header->group_name_len;
 	}
 	
@@ -1340,7 +1341,6 @@ static void
 zfs_multiclus_update_group(zfs_group_header_t *msg_header, zfs_msg_t *msg_data)
 {
 	int i = 0;
-//	int j = 0, k = 0;
 	boolean_t find = B_FALSE;
 	int group_name_len = 16;
 	zfs_multiclus_group_record_t *group = (zfs_multiclus_group_record_t *)msg_data;
@@ -1389,7 +1389,6 @@ zfs_multiclus_write_group_reply_msg(void *group_msg, zfs_group_header_t *msg_hea
 {
 	uint32_t	data_len = 0;
 	char	*data = NULL;
-//	char	group_name[16];
 	zfs_group_header_t	*head = NULL;
 
 	if (!zfs_multiclus_enable()) {
@@ -1449,7 +1448,6 @@ int zfs_multiclus_write_operate_msg(objset_t *os, zfs_group_header_t *msg_header
 {
 	int	wait = 0;
 	int	err = 0;
-//	int	trans_again_count = 0;
 	clock_t	time = 0;
 	clock_t	ret = 0;
 	boolean_t	bsame_host = B_FALSE;
@@ -1575,6 +1573,17 @@ trans_again:
 
 		zfs_multiclus_remove_hash(modhash_header, tx_hash_member);
 		mutex_enter(&tx_hash_member->multiclus_hash_mutex);
+		if (ret == -1 && wait) {
+			zfs_group_header_t *omhr = (zfs_group_header_t *)(tx_hash_member->omsg_header);
+			if (0 != omhr->nmsg_header) {
+				kmem_free((zfs_group_header_t *)((uintptr_t)(omhr->nmsg_header)), sizeof(zfs_group_header_t));
+				omhr->nmsg_header = 0;
+			}
+			if (0 != omhr->nmsg_data) {
+				kmem_free((zfs_msg_t *)((uintptr_t)(omhr->nmsg_data)), omhr->nmsg_len);
+				omhr->nmsg_data = 0;
+			}
+		}
 		mutex_exit(&tx_hash_member->multiclus_hash_mutex);
 		zfs_multiclus_destroy_hash_member(tx_hash_member);
 		tx_hash_member = NULL;
@@ -1612,12 +1621,12 @@ int zfs_multiclus_write_group_record(void *reg, zfs_multiclus_data_type_t data_t
 
 
 	if (!zfs_multiclus_enable()) {
-		cmn_err(CE_WARN, "%s, %d: multiclus is disabled!", __func__, __LINE__);
+		cmn_err(CE_WARN, "[%s %d] multiclus is disabled!", __func__, __LINE__);
 		return (1);
 	}
 
 	if (!spa_by_guid(reg_msg->spa_id, 0)) {
-		cmn_err(CE_WARN, "%s, %d: get spa by guid fail!!!", __func__, __LINE__);
+		cmn_err(CE_WARN, "[%s %d] get spa by guid fail!!!", __func__, __LINE__);
 		return (1);
 	}
 
@@ -1884,7 +1893,6 @@ uint64_t zfs_multiclus_get_log_index(void)
 uint64_t zfs_multiclus_get_all_record(zfs_group_info_t *gs, char **gname, 
 	uint64_t *master, uint64_t *num_group, uint64_t *breakmark, boolean_t* onceflag)
 {
-//	zfs_multiclus_group_record_t* record = NULL;
 	int i = 0;
 	int j = 0;
 	int gnum = 0;
@@ -2156,6 +2164,46 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 	return (0);
 }
 
+int
+zfs_get_group_znode_info(char *path, nvlist_t **config)
+{
+	nvlist_t *nv = NULL;
+	struct file *filp = NULL;
+	struct inode *ip = NULL;
+	znode_t *zp;
+	zfs_group_object_t *zp_info = NULL;
+	
+	if (path == NULL) {
+		*config = NULL;
+		return EINVAL;
+	}
+
+	filp = filp_open(path, O_DIRECTORY, 0);
+	if (IS_ERR(filp)){
+		filp = filp_open(path, O_RDONLY, 0444);
+		if (IS_ERR(filp)){
+			cmn_err(CE_WARN, "[%s %d], the path %s is error", __func__, __LINE__, path);
+			*config = NULL;
+			return (EINVAL);
+		}
+	}
+
+	ip = filp->f_path.dentry->d_inode;
+	zp = ITOZ(ip);
+
+	zp_info = kmem_zalloc(sizeof(zfs_group_object_t), KM_SLEEP);
+	bcopy(&zp->z_group_id, zp_info, sizeof(zfs_group_object_t));
+	VERIFY(nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) == 0);
+	VERIFY(nvlist_add_uint64_array(nv, ZPOOL_CONFIG_MULTICLUS_ZNODEINFO,
+	    (uint64_t *)zp_info, (sizeof(zfs_group_object_t) / sizeof(uint64_t)) ) == 0);
+
+	*config = nv;
+	kmem_free(zp_info, sizeof(zfs_group_object_t));
+	filp_close(filp, NULL);
+	return (0);
+}
+
+
 // int zfs_get_group_name(char *poolname, nvlist_t **rmconfig)
 // {
 // 	int err=0;
@@ -2199,7 +2247,6 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 {
 	int err;
-//	boolean_t b_hold = B_FALSE;
 	spa_t *spa = NULL;
 	dsl_pool_t *dp = NULL;
 	dsl_dataset_t *dsl_dataset = NULL;
@@ -2228,10 +2275,8 @@ int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 
 	if (os == NULL ) {
 		cmn_err(CE_WARN, "zfs_group_hold: os == NULL");
-//		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (-1);
 	}
-//	dsl_dataset_rele(dsl_dataset, FTAG);
 	dmu_objset_name(os, fsname);
 
 	return (0);
@@ -2319,7 +2364,7 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 {
 	clock_t time = 0, left_time = 0;
 	int err = 0;
-	boolean_t record_reinit = FALSE;
+	boolean_t record_reinit = B_FALSE;
 	boolean_t First_wait = B_TRUE;
 	boolean_t will_be_master = B_FALSE;
 	int group_num = 0;
@@ -2344,7 +2389,7 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 		mutex_enter(&multiclus_mtx_update_record);
 		group_num = zfs_multiclus_get_group((char *)reg_data->group_name, &group);
 		if (group == NULL) {
-			cmn_err(CE_WARN, "%s, %d, Can not get group info, there is a serious problem!", 
+			cmn_err(CE_WARN, "[%s %d] Can not get group info, there is a serious problem!", 
 				__func__, __LINE__);
 			mutex_exit(&multiclus_mtx_update_record);
 			break;
@@ -2353,24 +2398,38 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 		reg_record = zfs_multiclus_get_reg_record((char *)reg_data->group_name, 
 			reg_data->spa_id, reg_data->os_id, &group_index, &reg_index);
 		if (reg_record == NULL) {
-			cmn_err(CE_WARN, "zfs_multiclus_register_tq exit.line:%d",__LINE__);
+			cmn_err(CE_WARN, "[%s %d] zfs_multiclus_register_tq exit.",__func__, __LINE__);
 			mutex_exit(&multiclus_mtx_update_record);
 			break;
 		}
 
 		record = zfs_multiclus_get_record(reg_data->spa_id, reg_data->os_id);
-		if (record == NULL || record->hostid != zfs_multiclus_node_id)
-		{
-			record_reinit = TRUE;
-			cmn_err(CE_WARN, "%s, %d, Cannot get the record! will reinit!", __func__, __LINE__);
+		if (record == NULL) {
+			record_reinit = B_TRUE;
+			cmn_err(CE_WARN, "[%s %d] Cannot get the record! will reinit!", __func__, __LINE__);
+			
+			if ((err = dmu_objset_hold((char *)reg_data->fsname, FTAG, &os))) {
+				zfs_multiclus_destroy_reg_record((char*)(reg_data->group_name),
+					record->spa_id, record->os_id);
+				cmn_err(CE_WARN, "[%s %d] zfs_multiclus_register_tq exit: can't hold %s",
+					__func__, __LINE__, (char *)reg_data->fsname);
+				mutex_exit(&multiclus_mtx_update_record);
+				break;
+			}
+			node_type = zmc_get_node_type(os);
+			dmu_objset_space(os, &refdbytesp, &availbytesp, &usedobjsp, &availobjsp);
+			dmu_objset_rele(os, FTAG);
+			reg_data->avail_size = availbytesp;
+			reg_data->used_size = refdbytesp;
+			reg_data->node_type = node_type;
+		} else {
+			node_type = record->node_type ;
+			reg_data->avail_size = record->avail_size;
+			reg_data->used_size = record->used_size;
+			reg_data->node_type = node_type;
 		}
-	
-		node_type = record->node_type ;
-		reg_data->avail_size = record->avail_size;
-		reg_data->used_size = record->used_size;
-		reg_data->node_type = node_type;
 
-		if(record_reinit){
+		if(record_reinit) {
 			if (node_type != ZFS_MULTICLUS_SLAVE) {
 				tmp_record = zfs_multiclus_get_group_master((char*)(reg_data->group_name), node_type);
 				if (tmp_record != NULL) {
@@ -2382,25 +2441,37 @@ zfs_multiclus_register_tq(zfs_group_reg_t *reg_data)
 					if (tmp_type == ZFS_MULTICLUS_NODE_TYPE_NUM) {
 						tmp_type = ZFS_MULTICLUS_SLAVE;
 					}
+
+					if ((err = dmu_objset_hold((char *)reg_data->fsname, FTAG, &os))) {
+						zfs_multiclus_destroy_reg_record((char*)(reg_data->group_name),
+							record->spa_id, record->os_id);
+						cmn_err(CE_WARN, "[%s %d] zfs_multiclus_register_tq exit: can't hold %s",
+							__func__, __LINE__, (char *)reg_data->fsname);
+						mutex_exit(&multiclus_mtx_update_record);
+						break;
+					}
+					(void)zmc_change_objset_node_type((char*)(reg_data->group_name), 
+						(char *)reg_data->fsname, os, tmp_type);
 					node_type = tmp_type;
 					reg_data->node_type = node_type;
 				}
 			}
 			zfs_multiclus_group_record_init((char*)reg_data->group_name,
 				(char*)reg_data->fsname, reg_data->spa_id, 
-				reg_data->os_id, reg_data->root, 
+				reg_data->os_id, reg_data->root,
 				node_type, reg_data->avail_size,
 				reg_data->used_size, reg_data->load_ios);
-			record_reinit = FALSE;
+			record_reinit = B_FALSE;
 			waitcount = 0;
-			cmn_err(CE_WARN, "zfs_multiclus_register_tq reinit record: %s, node_type:%d, cache_head->node_type: %d",
-				(char *)reg_data->fsname, node_type, reg_data->node_type);
+			cmn_err(CE_WARN, "[%s %d] zfs_multiclus_register_tq reinit record: %s, node_type:%d, cache_head->node_type: %d",
+				__func__, __LINE__, (char *)reg_data->fsname, node_type, reg_data->node_type);
 			mutex_exit(&multiclus_mtx_update_record);
 			continue;
 		}
 
 		err = zfs_multiclus_write_group_record((void *)reg_data, ZFS_MULTICLUS_GROUP_MSG, node_type);
 		mutex_exit(&multiclus_mtx_update_record);
+		
 		mutex_enter(&reg_record->reg_timer_lock);
 		if (node_type == ZFS_MULTICLUS_MASTER) {
 			time = drv_usectohz(zfs_multiclus_master_wait_time);
@@ -2545,8 +2616,6 @@ break_out:
 		if (reg_record->used == B_FALSE) {
 			reg_record->spa_id = 0;
 			reg_record->os_id = 0;
-			mutex_destroy(&reg_record->reg_timer_lock);
-			cv_destroy(&reg_record->reg_timer_cv);
 			cmn_err(CE_WARN, "zfs_multiclus_register_tq exit.line:%d",__LINE__);
 		}
 		mutex_exit(&group->multiclus_group_mutex);
@@ -2594,18 +2663,20 @@ int zmc_change_objset_node_type(char* group_name, char *fsname, objset_t* os, zf
 	dmu_objset_name(os, fs_name);
 
 	os_spa = dmu_objset_spa(os);
-	if (fsname != NULL)
-		dmu_objset_rele(os, FTAG);	
+
+	if (NULL != fsname)
+		dmu_objset_rele(os, FTAG);
+
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
-		ZPROP_SRC_LOCAL, os_is_master);      //os->os_is_master
+		ZPROP_SRC_LOCAL, os_is_master);      /*os->os_is_master*/
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
-		ZPROP_SRC_LOCAL, os_master_spa);     //os->os_master_spa
+		ZPROP_SRC_LOCAL, os_master_spa);     /*os->os_master_spa*/
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
-		ZPROP_SRC_LOCAL, os_master_os);      //os->os_master_os
+		ZPROP_SRC_LOCAL, os_master_os);      /*os->os_master_os*/
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
-		ZPROP_SRC_LOCAL, os_master_root);    //os->os_master_root
+		ZPROP_SRC_LOCAL, os_master_root);    /*os->os_master_root*/
 	dsl_prop_set_int((const char*)fs_name, zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-		ZPROP_SRC_LOCAL, os_node_type);      //os->os_node_type
+		ZPROP_SRC_LOCAL, os_node_type);      /*os->os_node_type*/
 
 	spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
 	return 0;
@@ -2615,7 +2686,6 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 {
 	char fsname[MAX_FSNAME_LEN] = {0};
 	zfs_multiclus_group_record_t *record = NULL;
-//	zfs_multiclus_group_record_t *group_master = NULL;
 	zfs_multiclus_group_t *group = NULL;
 	zfs_group_reg_t	*reg_data = NULL;
 	uint64_t spa_id = 0;
@@ -2627,11 +2697,14 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 	uint64_t load_ios = 0;
 	int count = 0;
 	
-	if (!zfs_multiclus_enable()){
+	if (!zfs_multiclus_enable()) {
+		cmn_err(CE_WARN, "[%s %d] multiclus is disabled.", __func__, __LINE__);
 		return (-1);
 	}
 
 	if ((spa_import_flags(dmu_objset_spa(os)) & ZFS_IMPORT_MULTICLUS_UPDATE) == 0) {
+		cmn_err(CE_WARN, "[%s %d] ZFS_IMPORT_MULTICLUS_UPDATE is not in import flags.", 
+			__func__, __LINE__);
 		return (-1);
 	}
 	mutex_enter(&multiclus_mtx_update_record);
@@ -2689,10 +2762,10 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 
 		zfs_multiclus_group_record_init(group_name, fsname, spa_id, os_id, os->os_self_root,
 			(cur_type == ZFS_MULTICLUS_MASTER) ? ZFS_MULTICLUS_SLAVE : cur_type,
-			reg_data->avail_size, reg_data->used_size,
-			reg_data->load_ios);
+			reg_data->avail_size, reg_data->used_size, reg_data->load_ios);
 		if (cur_type == ZFS_MULTICLUS_MASTER || cur_type == ZFS_MULTICLUS_SLAVE) {
-			zfs_multiclus_write_group_record((void *)reg_data, ZFS_MULTICLUS_GROUP_MSG, ZFS_MULTICLUS_SLAVE);
+			zfs_multiclus_write_group_record((void *)reg_data, ZFS_MULTICLUS_GROUP_MSG, 
+				ZFS_MULTICLUS_SLAVE);
 			zfs_group_wait(zfs_multiclus_master_update_wait_time);
 		}
 
@@ -2717,9 +2790,11 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 	count = zfs_multiclus_check_group_master_count((const char *)group_name);
 	if (count >= 2){
 		if (DOUBLE_MASTER_PANIC) {
-			zfs_panic_recover("%s, %d, %d, DOUBLE_MASTER A Found too many master in group: %s", __func__, __LINE__, count, group_name);
+			zfs_panic_recover("[%s %d] %d, DOUBLE_MASTER A Found too many master in group: %s", 
+				__func__, __LINE__, count, group_name);
 		} else {
-			cmn_err(CE_WARN, "%s, %d, %d, DOUBLE_MASTER A Found too many master in group: %s", __func__, __LINE__, count, group_name);
+			cmn_err(CE_WARN, "[%s %d] %d, DOUBLE_MASTER A Found too many master in group: %s", 
+				__func__, __LINE__, count, group_name);
 		}
 	}
 
@@ -2729,9 +2804,11 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 	count = zfs_multiclus_check_group_master_count((const char *)group_name);
 	if (count >= 2){
 		if (DOUBLE_MASTER_PANIC) {
-			zfs_panic_recover("%s, %d, %d, DOUBLE_MASTER B Found too many master in group: %s", __func__, __LINE__, count, group_name);
+			zfs_panic_recover("%s, %d, %d, DOUBLE_MASTER B Found too many master in group: %s", 
+				__func__, __LINE__, count, group_name);
 		} else {
-			cmn_err(CE_WARN, "%s, %d, %d, DOUBLE_MASTER B Found too many master in group: %s", __func__, __LINE__, count, group_name);
+			cmn_err(CE_WARN, "%s, %d, %d, DOUBLE_MASTER B Found too many master in group: %s", 
+				__func__, __LINE__, count, group_name);
 		}
 	}
 
@@ -2743,12 +2820,12 @@ int zfs_multiclus_update_record(char *group_name, objset_t *os)
 			(void (*)(void *))zfs_multiclus_register_tq,
 			reg_data, TQ_NOSLEEP) == 0) {
 			kmem_free(reg_data, sizeof(zfs_group_reg_t));
-			cmn_err(CE_WARN, "dispatch reg thread fail,to do directly");
+			cmn_err(CE_WARN, "[%s %d] dispatch reg thread fail,to do directly", __func__, __LINE__);
 			return (-1);
 		}
 	} else {
 		kmem_free(reg_data, sizeof(zfs_group_reg_t));
-		cmn_err(CE_WARN, "%s, %d, group_reg_timer_tq is NULL, groupname: %s, fsname: %s!", 
+		cmn_err(CE_WARN, "[%s %d] group_reg_timer_tq is NULL, groupname: %s, fsname: %s!", 
 			__func__, __LINE__, group_name, fsname);
 		return (-1);
 	}
@@ -2769,84 +2846,30 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 	zfs_group_reg_t	*reg_data;
 	int error;
 
+	uint64_t os_master_spa = 0;
+	uint64_t os_master_os = 0;
+
 	uint64_t avail_size = 0;
 	uint64_t used_size = 0;
 	uint64_t usedobjs = 0;
 	uint64_t availobjs = 0;
 	uint64_t load_ios = 0;
-
-	uint64_t master_spa = 0;
-	uint64_t master_os = 0;
 		
-	if (zfs_multiclus_enable() == B_FALSE)
+	if (zfs_multiclus_enable() == B_FALSE) {
+		cmn_err(CE_WARN, "[%s %d] multiclus is disabled.", __func__, __LINE__);
 		return (-1);
+	}
 	
-	if ((error = dmu_objset_hold(fs_name, FTAG, &os))){
+	if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
+		cmn_err(CE_WARN, "[%s %d] %s may not exist.", __func__, __LINE__, fs_name);
 		return (error);
 	}
 	
 	spa_id = spa_guid(dmu_objset_spa(os));
 	dsl_id = dmu_objset_id(os);
 
-	if(os->os_is_group){
-		dmu_objset_rele(os, FTAG);
-		return (-1);
-	}else {
-		os->os_is_group = 1;
-		os->os_is_master = 1;
-		os->os_node_type = OS_NODE_TYPE_SLAVE; /* os_is_master == 1, OS_NODE_TYPE_SLAVE is ignored */
-		master_spa = spa_guid(dmu_objset_spa(os));
-		os->os_master_spa = master_spa;
-		master_os = dmu_objset_id(os);
-		os->os_master_os = master_os;
-		strcpy(os->os_group_name, group_name);
-		
-		dmu_objset_rele(os, FTAG);
-		dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
-			ZPROP_SRC_LOCAL, group_name);
-		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
-			ZPROP_SRC_LOCAL, 1);   //1: os->os_is_group
-		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
-		    ZPROP_SRC_LOCAL, 1);   //1: os->os_is_master
-		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
-		    ZPROP_SRC_LOCAL, master_spa);
-		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
-		    ZPROP_SRC_LOCAL, master_os);
-		if ((error = dmu_objset_hold(fs_name, FTAG, &os))){
-			return (error);
-		}
-	}
-
-	if (os->os_phys->os_type == DMU_OST_ZFS) {
-		mutex_enter(&os->os_user_ptr_lock);
-		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
-		if (NULL == zsb){
-			//fs may not be mounted.
-			cmn_err(CE_WARN, "[%s %d]: dmu_objset_get_user error.", __func__, __LINE__);
-			mutex_exit(&os->os_user_ptr_lock);
-			dmu_objset_rele(os, FTAG);
-			return (-1);
-		}
-		root_id = zsb->z_root;
-
-		mutex_exit(&os->os_user_ptr_lock);
-		os->os_master_root = root_id;
-		os->os_self_root = root_id;
-
-		dmu_objset_rele(os, FTAG);
-		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
-		    ZPROP_SRC_LOCAL, root_id);    //os->os_master_root
-		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
-		    ZPROP_SRC_LOCAL, root_id);    //os->os_self_root
-		if ((error = dmu_objset_hold(fs_name, FTAG, &os))){
-			return (error);
-		}
-	}
-
-	spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
-
 	group_num = zfs_multiclus_get_group(group_name, &group);
-	if (group != NULL){
+	if (group != NULL) {
 		cmn_err(CE_WARN, "the group %s has been exist", group_name);
 		dmu_objset_rele(os, FTAG);
 		return (-1);
@@ -2860,6 +2883,78 @@ int zfs_multiclus_create_group(char *group_name, char *fs_name)
 		return (-1);
 	}
 
+	if(os->os_is_group){
+		dmu_objset_rele(os, FTAG);
+		cmn_err(CE_WARN, "[%s %d] %s may be already in a nas group.", __func__, __LINE__, fs_name);
+		return (-1);
+	}else {
+		os->os_is_group = 1;
+		os->os_is_master = 1;
+		os->os_node_type = OS_NODE_TYPE_SLAVE; /* os_is_master == 1, OS_NODE_TYPE_SLAVE is ignored */
+		os->os_master_spa = os_master_spa = spa_guid(dmu_objset_spa(os));
+		os->os_master_os = os_master_os = dmu_objset_id(os);
+		strcpy(os->os_group_name, group_name);
+		
+		dmu_objset_rele(os, FTAG);
+		dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
+			ZPROP_SRC_LOCAL, group_name);
+		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
+			ZPROP_SRC_LOCAL, 1);  /*os->os_is_group*/
+		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
+		    ZPROP_SRC_LOCAL, 1);	 /*os->os_is_master*/
+		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
+		    ZPROP_SRC_LOCAL, os_master_spa);
+		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
+		    ZPROP_SRC_LOCAL, os_master_os);
+		if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
+			return (error);
+		}
+	}
+
+	if (os->os_phys->os_type == DMU_OST_ZFS) {
+		mutex_enter(&os->os_user_ptr_lock);
+		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
+		if (NULL == zsb){
+			/*fs may not be mounted. */
+			cmn_err(CE_WARN, "[%s %d]: dmu_objset_get_user error.", __func__, __LINE__);
+			mutex_exit(&os->os_user_ptr_lock);
+			/*operation rolled back*/
+			os->os_is_group = 0;
+			os->os_is_master = 0;
+			os->os_master_spa = os_master_spa = 0;
+			os->os_master_os = os_master_os = 0;
+			bzero(os->os_group_name, MAXNAMELEN);
+			dmu_objset_rele(os, FTAG);
+			
+			dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
+				ZPROP_SRC_LOCAL, os->os_group_name);
+			dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
+				ZPROP_SRC_LOCAL, 0);  /*os->os_is_group*/
+			dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
+				ZPROP_SRC_LOCAL, 0);	 /*os->os_is_master*/
+			dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
+		    		ZPROP_SRC_LOCAL, os_master_spa);
+			dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
+		    		ZPROP_SRC_LOCAL, os_master_os);
+			return (-1);
+		}
+
+		root_id = zsb->z_root;
+		mutex_exit(&os->os_user_ptr_lock);
+		os->os_master_root = root_id;
+		os->os_self_root = root_id;
+
+		dmu_objset_rele(os, FTAG);
+		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
+		    ZPROP_SRC_LOCAL, root_id);    /*os->os_master_root*/
+		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
+		    ZPROP_SRC_LOCAL, root_id);    /*os->os_self_root*/
+		if ((error = dmu_objset_hold(fs_name, FTAG, &os))){
+			return (error);
+		}
+	}
+
+	spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 	
 	dmu_objset_space(os, &used_size, &avail_size, &usedobjs, &availobjs);
 	
@@ -2931,10 +3026,13 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	uint64_t os_master_root = 0;
 
 
-	if (zfs_multiclus_enable() == B_FALSE)
+	if (zfs_multiclus_enable() == B_FALSE) {
+		cmn_err(CE_WARN, "[%s %d] multiclus is disabled.", __func__, __LINE__);
 		return (-1);
+	}
 	
 	if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
+		cmn_err(CE_WARN, "[%s %d] %s may not exist.", __func__, __LINE__, fs_name);
 		return (error);
 	}
 	
@@ -2944,11 +3042,18 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	record = zfs_multiclus_get_group_master(group_name, ZFS_MULTICLUS_MASTER);
 	if (record != NULL) {
 		dmu_objset_set_group(os, record->spa_id, record->os_id, record->root);
-		cmn_err(CE_WARN, "register master and os");
+		cmn_err(CE_NOTE, "register master and os");
+	}
+
+	if (zfs_multiclus_get_record(spa_id, dsl_id) != NULL){
+		cmn_err(CE_WARN, "the fs:%s has been registed", fs_name);
+		dmu_objset_rele(os, FTAG);
+		return (-1);
 	}
 
 	if(os->os_is_group){
 		dmu_objset_rele(os, FTAG);
+		cmn_err(CE_WARN, "[%s %d] %s may be already in a nas group.", __func__, __LINE__, fs_name);
 		return (-1);
 	}else {
 		os->os_is_group = 1;
@@ -2960,9 +3065,9 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 		dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
 		    ZPROP_SRC_LOCAL, group_name);
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
-		    ZPROP_SRC_LOCAL, 1);   //os->os_is_group
+		    ZPROP_SRC_LOCAL, 1);   /*os->os_is_group*/
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER),
-		    ZPROP_SRC_LOCAL, 0);   //os->os_is_master
+		    ZPROP_SRC_LOCAL, 0);   /*os->os_is_master*/
 		if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
 			return (error);
 		}
@@ -2972,10 +3077,21 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 		mutex_enter(&os->os_user_ptr_lock);
 		zsb = (zfs_sb_t *)dmu_objset_get_user(os);
 		if (NULL == zsb){
-			//fs may not be mounted.
+			/*fs may not be mounted.*/
 			cmn_err(CE_WARN, "[%s %d]: dmu_objset_get_user error.", __func__, __LINE__);
 			mutex_exit(&os->os_user_ptr_lock);
+			/*operation rolled back*/
+			os->os_is_group = 0;
+			os->os_master_spa = 0;
+			os->os_master_os = 0;
+			os->os_master_root = 0;
+			bzero(os->os_group_name, MAXNAMELEN);
 			dmu_objset_rele(os, FTAG);
+
+			dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
+		    		ZPROP_SRC_LOCAL, os->os_group_name);
+			dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
+				ZPROP_SRC_LOCAL, 0);  
 			return (-1);
 		}
 		root_id = zsb->z_root;
@@ -2983,12 +3099,6 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	}
 
 	spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
-
-	if (zfs_multiclus_get_record(spa_id, dsl_id) != NULL){
-		cmn_err(CE_WARN, "the fs:%s has been registed", fs_name);
-		dmu_objset_rele(os, FTAG);
-		return (-1);
-	}
 
 	dmu_objset_space(os, &used_size, &avail_size, &usedobjs, &availobjs);
 
@@ -3016,7 +3126,8 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 	bcopy(rpc_port_addr, reg_data->rpc_addr, ZFS_MULTICLUS_RPC_ADDR_SIZE);
 
 	if ((record == NULL) || record->hostid != zfs_multiclus_node_id){
-		zfs_multiclus_write_group_record((void*)reg_data, ZFS_MULTICLUS_GROUP_MSG, ZFS_MULTICLUS_SLAVE);
+		zfs_multiclus_write_group_record((void*)reg_data, ZFS_MULTICLUS_GROUP_MSG, 
+			ZFS_MULTICLUS_SLAVE);
 		delay(drv_usectohz(500000));
 	}
 
@@ -3038,13 +3149,13 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 		os_master_root = os->os_master_root;
 		dmu_objset_rele(os, FTAG);
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_SPA),
-		    ZPROP_SRC_LOCAL, os_master_spa);    //os->os_master_spa
+		    ZPROP_SRC_LOCAL, os_master_spa);    /*os->os_master_spa*/
 		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_OS),
-		    ZPROP_SRC_LOCAL, os_master_os);     //os->os_master_os
+		    ZPROP_SRC_LOCAL, os_master_os);     /*os->os_master_os*/
 		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_MASTER_ROOT),
-		    ZPROP_SRC_LOCAL, os_master_root);   //os->os_master_root
+		    ZPROP_SRC_LOCAL, os_master_root);   /*os->os_master_root*/
 		error = dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_SELF_ROOT),
-		    ZPROP_SRC_LOCAL, root_id);          //os->os_self_root
+		    ZPROP_SRC_LOCAL, root_id);          /*os->os_self_root*/
 		spa_async_request(os_spa, SPA_ASYNC_SYSTEM_SPACE);
 		if ((error = dmu_objset_hold(fs_name, FTAG, &os))) {
 			return (error);
@@ -3058,7 +3169,15 @@ int zfs_multiclus_add_group(char *group_name, char *fs_name)
 		if (group) {
 			group->used = B_FALSE;
 		}
+		/*operation rolled back*/
+		os->os_is_group = 0;
+		bzero(os->os_group_name, MAXNAMELEN);
 		dmu_objset_rele(os, FTAG);
+
+		dsl_prop_set_string(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP_NAME),
+			ZPROP_SRC_LOCAL, os->os_group_name);
+		dsl_prop_set_int(fs_name, zfs_prop_to_name(ZFS_PROP_GROUP),
+			ZPROP_SRC_LOCAL, 0);
 		kmem_free(reg_data, sizeof(zfs_group_reg_t));
 		cmn_err(CE_WARN, "%s, %d, There is no master when add into group %s", __func__, __LINE__, group_name);
 		return (-1);
@@ -3216,12 +3335,8 @@ walk_hash_rx_timeout_callback(mod_hash_key_t key, mod_hash_val_t *val,
 {
 	zfs_multiclus_hash_t *hash_member = (zfs_multiclus_hash_t *)val;
 	list_t *rx_timeout_list = (list_t *)arg;
-//	zfs_msg_t *data = (zfs_msg_t *)hash_member->datap;
 	zfs_group_header_t *msg_header = (zfs_group_header_t *)hash_member->omsg_header;
 	uint64_t time_tmp = 0;
-//	zfs_multiclus_worker_para_t *work_para = NULL;
-//	uint64_t ntask = 0;
-//	uint64_t npara = 0;
 	int timeout = 0;
 
 	if ((msg_header->command == ZFS_GROUP_CMD_DATA) && (msg_header->operation == DATA_WRITE))
@@ -3331,10 +3446,7 @@ zfs_multiclus_load_config(void)
 	uint64_t fsize;
 	char *buf = NULL;
 	char *buf_tmp = NULL;
-//	int i = 0, j = 0;
 	int j = 0;
-//	boolean_t name = B_FALSE;
-//	boolean_t addr = B_FALSE;
 
 	file = kobj_open_file("/etc/fsgroup/rpc_port.conf");
 
@@ -3452,8 +3564,9 @@ zfs_multiclus_node_type_t node_type)
 
 int zfs_multiclus_set_slave(char* group_name, char* fs_name)
 {
-	if (group_name == NULL || fs_name == NULL)
-	{
+	if (group_name == NULL || fs_name == NULL) {
+		cmn_err(CE_WARN, "[%s %d] multiclus group_name=%s, fs_name=%s.",
+			__func__, __LINE__, group_name, fs_name);
 		return -1;
 	}
 
@@ -3463,8 +3576,9 @@ int zfs_multiclus_set_slave(char* group_name, char* fs_name)
 int zfs_multiclus_set_master(char* group_name, char* fs_name, 
 	zfs_multiclus_node_type_t node_type)
 {
-	if (group_name == NULL || fs_name == NULL)
-	{
+	if (group_name == NULL || fs_name == NULL) {
+		cmn_err(CE_WARN, "[%s %d] multiclus group_name=%s, fs_name=%s.",
+			__func__, __LINE__, group_name, fs_name);
 		return -1;
 	}
 
@@ -3590,16 +3704,14 @@ int zmc_set_node_type(char* group_name, char* fs_name, zfs_multiclus_node_type_t
 	objset_t* os = NULL;
 	int ret = 0;
 
-	if (!zfs_multiclus_enable())
-	{
-		cmn_err(CE_WARN, "multicluster is disabled.");
+	if (!zfs_multiclus_enable()) {
+		cmn_err(CE_WARN, "[%s %d] multiclus is disabled.", __func__, __LINE__);
 		return -1;
 	}
 
 	zfs_multiclus_get_group(group_name, &group);
-	if (group == NULL)
-	{
-		cmn_err(CE_WARN, "failed to get group %s.", group_name);
+	if (group == NULL) {
+		cmn_err(CE_WARN, "[%s %d] failed to get group %s.", __func__, __LINE__, group_name);
 		return -1;
 	}
 
@@ -3609,53 +3721,64 @@ int zmc_set_node_type(char* group_name, char* fs_name, zfs_multiclus_node_type_t
 	 */
 	if (node_type != ZFS_MULTICLUS_SLAVE 
 		&& node_type != ZFS_MULTICLUS_MASTER
-		&& zmc_find_record(group, node_type) != NULL)
-	{
-		cmn_err(CE_WARN, "node type %d is existed.", node_type);
+		&& zmc_find_record(group, node_type) != NULL) {
+		cmn_err(CE_WARN, "[%s %d] node type %d is existed.", __func__, __LINE__, node_type);
 		return -1;
 	}
 
 	ret = dmu_objset_hold(fs_name, FTAG, &os);
-	if (ret != 0)
-	{
-		cmn_err(CE_WARN, "failed to get fs %s.", fs_name);
+	if (ret != 0) {
+		cmn_err(CE_WARN, "[%s %d] failed to get fs %s.", __func__, __LINE__, fs_name);
 		return ret;
 	}
 
-	if (os->os_phys->os_type != DMU_OST_ZFS || os->os_is_group == 0)
-	{
-		cmn_err(CE_WARN, "fs %s is invalid.", fs_name);
+	if (os->os_phys->os_type != DMU_OST_ZFS || os->os_is_group == 0) {
+		cmn_err(CE_WARN, "[%s %d] fs %s is invalid.", __func__, __LINE__, fs_name);
 		dmu_objset_rele(os, FTAG);
-
 		return -1;
 	}
 
 	record = zfs_multiclus_get_record(spa_guid(dmu_objset_spa(os)), dmu_objset_id(os));
-	if (record == NULL)
-	{
-		cmn_err(CE_WARN, "fs %s is not in the group %s.", fs_name, group_name);
+	if (record == NULL) {
+		cmn_err(CE_WARN, "[%s %d] fs %s is not in the group %s.", __func__, __LINE__, 
+			fs_name, group_name);
 		dmu_objset_rele(os, FTAG);
-
 		return -1;
 	}
-
-	ret = zmc_do_set_node_type(record, fs_name, os, node_type);
-	if (ret == 0)	
-		dmu_objset_rele(os, FTAG);
+	
+	dmu_objset_rele(os, FTAG);
+	
+	ret = zmc_do_set_node_type(record, fs_name, node_type);
+	
 	return ret;
 }
 
-int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, objset_t* os, zfs_multiclus_node_type_t node_type)
+int 
+zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, zfs_multiclus_node_type_t node_type)
 {
 	zfs_sb_t *zsb = NULL;
+	objset_t *os = NULL;
 	zfs_multiclus_group_record_t *old_master = NULL;
 	zfs_multiclus_node_type_t old_nodetype = record->node_type;
 	int err = 0;
 
-	if (node_type != ZFS_MULTICLUS_MASTER && zfs_multiclus_set_node_type(record->spa_id, record->os_id, node_type)) {
-		cmn_err(CE_WARN, "%s, %d, Set node type %d failed!", __func__, __LINE__, node_type);
+	char os_group_name[MAXNAMELEN] = {0};
+	uint64_t new_master_spa = 0;
+	uint64_t new_master_os = 0;
+	uint64_t old_master_spa = 0;
+	uint64_t old_master_os = 0;
+
+	err = dmu_objset_hold(fs_name, FTAG, &os);
+	if (err != 0) {
+		cmn_err(CE_WARN, "[%s %d] failed to get fs %s.", __func__, __LINE__, fs_name);
+		return err;
+	}
+
+	if (node_type != ZFS_MULTICLUS_MASTER && 
+		zfs_multiclus_set_node_type(record->spa_id, record->os_id, node_type)) {
+		cmn_err(CE_WARN, "[%s %d] Set node type %d failed!", __func__, __LINE__, node_type);
 	} else {
-		cmn_err(CE_WARN, "%s, %d, Set node type %d succeed!", __func__, __LINE__, node_type);
+		cmn_err(CE_WARN, "[%s %d] Set node type %d succeed!", __func__, __LINE__, node_type);
 	}
 	
 	switch (node_type)
@@ -3665,9 +3788,9 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, ob
 			os->os_node_type = OS_NODE_TYPE_SLAVE;
 			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, 0);  					//os->os_is_master
+				ZPROP_SRC_LOCAL, 0);  		/*os->os_is_master*/
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, OS_NODE_TYPE_SLAVE);   //os->os_node_type
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_SLAVE);   /*os->os_node_type*/
 			err = dmu_objset_hold(fs_name, FTAG, &os);
 			if (err == 0)
 				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
@@ -3676,25 +3799,31 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, ob
 		case ZFS_MULTICLUS_MASTER:
 			zsb = (zfs_sb_t *)dmu_objset_get_user(os);
 			if (zsb == NULL) {
-				cmn_err(CE_WARN, "%s, %d, zfsvfs is NULL!", __func__, __LINE__);
+				cmn_err(CE_WARN, "[%s %d] zfsvfs is NULL!", __func__, __LINE__);
 				return (-1);
 			}
 			os->os_will_be_master = B_TRUE;
+			strncpy(os_group_name, os->os_group_name, strlen(os->os_group_name));
+			new_master_spa = spa_guid(dmu_objset_spa(os));
+			new_master_os = dmu_objset_id(os);
 			
 			old_master = zfs_multiclus_get_record(os->os_master_spa, os->os_master_os);
-			if (old_master != NULL) {
-				zfs_multiclus_change_master_to_record((char *)os->os_group_name, (char *)record->fsname,
-					spa_guid(dmu_objset_spa(os)), dmu_objset_id(os), zsb->z_root, 
-					old_master->spa_id, old_master->os_id, old_nodetype);
-			}else{
-				zfs_multiclus_change_master_to_record((char *)os->os_group_name, (char *)record->fsname,
-					spa_guid(dmu_objset_spa(os)), dmu_objset_id(os), zsb->z_root, 
-					os->os_master_spa, os->os_master_os, old_nodetype);
+			if (NULL != old_master) {
+				old_master_spa = old_master->spa_id;
+				old_master_os = old_master->os_id;
+			} else {
+				old_master_spa = os->os_master_spa;
+				old_master_os = os->os_master_os;
 			}
+			dmu_objset_rele(os, FTAG);
 
-			/* wake up the new master */
-			zfs_multiclus_start_reg((char *)os->os_group_name, os->os_master_spa, os->os_master_os, WAKEUP_SOMEONE);
-			
+			zfs_multiclus_change_master_to_record((char *)os_group_name, (char *)record->fsname,
+				new_master_spa, new_master_os, zsb->z_root, old_master_spa, old_master_os, old_nodetype);
+
+			err = dmu_objset_hold(fs_name, FTAG, &os);
+				/* wake up the new master */
+			if (err == 0)
+				zfs_multiclus_start_reg((char *)os->os_group_name, os->os_master_spa, os->os_master_os, WAKEUP_SOMEONE);
 			break;
 
 		case ZFS_MULTICLUS_MASTER2:
@@ -3702,9 +3831,9 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, ob
 			os->os_node_type = OS_NODE_TYPE_MASTER2;
 			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, 0);    					//os->os_is_master
+				ZPROP_SRC_LOCAL, 0);    					/*os->os_is_master*/
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER2);     //os->os_node_type
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER2);     /*os->os_node_type*/
 			err = dmu_objset_hold(fs_name, FTAG, &os);
 			if (err == 0)
 				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
@@ -3715,9 +3844,9 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, ob
 			os->os_node_type = OS_NODE_TYPE_MASTER3;
 			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, 0);                       //os->os_is_master
+				ZPROP_SRC_LOCAL, 0);                       /*os->os_is_master*/
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER3);    //os->os_node_type
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER3);    /*os->os_node_type*/
 			err = dmu_objset_hold(fs_name, FTAG, &os);
 			if (err == 0)
 				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
@@ -3728,9 +3857,9 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, ob
 			os->os_node_type = OS_NODE_TYPE_MASTER4;
 			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, 0);                       //os->os_is_master
+				ZPROP_SRC_LOCAL, 0);                       /*os->os_is_master*/
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER4);    //os->os_node_type
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_MASTER4);    /*os->os_node_type*/
 			err = dmu_objset_hold(fs_name, FTAG, &os);
 			if (err == 0)
 				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
@@ -3742,16 +3871,21 @@ int zmc_do_set_node_type(zfs_multiclus_group_record_t* record, char *fs_name, ob
 			os->os_node_type = OS_NODE_TYPE_SLAVE;
 			dmu_objset_rele(os, FTAG);
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_MASTER),
-				ZPROP_SRC_LOCAL, 0);                     //os->os_is_master
+				ZPROP_SRC_LOCAL, 0);                     /*os->os_is_master*/
 			dsl_prop_set_int((const char*)(record->fsname), zfs_prop_to_name(ZFS_PROP_NODE_TYPE),
-				ZPROP_SRC_LOCAL, OS_NODE_TYPE_SLAVE);    //os->os_node_type
+				ZPROP_SRC_LOCAL, OS_NODE_TYPE_SLAVE);    /*os->os_node_type*/
 			err = dmu_objset_hold(fs_name, FTAG, &os);
 			if (err == 0)
 				spa_async_request(dmu_objset_spa(os), SPA_ASYNC_SYSTEM_SPACE);
 			break;
 	}
+
+	if (err != 0)
+		return (err);
+	
 	if (ZFS_GROUP_DTL_ENABLE)
 		zfs_group_dtl_reset(os, NULL);
+	dmu_objset_rele(os, FTAG);
 	return err;
 }
 

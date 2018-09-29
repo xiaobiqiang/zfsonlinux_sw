@@ -54,6 +54,7 @@
 #include <libzfs_core.h>
 #include <libstmf.h>
 #include <libzfs_rpc.h>
+#include <sys/zfs_znode.h>
 
 #include "libzfs_impl.h"
 #include "zfs_prop.h"
@@ -3562,6 +3563,50 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 	return (err);
 }
 
+
+int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
+{
+	int err = 0;
+	nvlist_t *config = NULL;
+	uint_t cnt = 0;
+	zfs_group_object_t *zp_info = NULL;
+	
+	if (zcmd_alloc_dst_nvlist(hdl, zc, 0) != 0){
+		printf("zcmd_alloc_dst_nvlist: NULL\r\n");
+		return -1;
+	}
+
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_START_MULTICLUS, zc);
+	if(err){
+		printf("Fail to show multiclus info, %d\n", err);
+		zcmd_free_nvlists(zc);
+	}else if(strcmp(zc->zc_string, "down")){
+		if(zcmd_read_dst_nvlist(hdl, zc, &config) != 0){
+			zcmd_free_nvlists(zc);
+			return -1;
+		}
+	
+		zcmd_free_nvlists(zc);
+		/* nvlist_print(stdout, config); */
+		verify(nvlist_lookup_uint64_array(config, 
+			ZPOOL_CONFIG_MULTICLUS_ZNODEINFO,	(uint64_t **)&zp_info, &cnt) == 0);
+		printf("\tPath: %s\n", zc->zc_top_ds);
+		printf("\tMaster\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master_spa, zp_info->master_objset, zp_info->master_object);
+		printf("\tMaster2\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master2_spa, zp_info->master2_objset, zp_info->master2_object);
+		printf("\tMaster3\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master3_spa, zp_info->master3_objset, zp_info->master3_object);
+		printf("\tMaster4\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master4_spa, zp_info->master4_objset, zp_info->master4_object);
+		printf("\tData\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->data_spa, zp_info->data_objset, zp_info->data_object);
+		printf("\tData2\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->data2_spa, zp_info->data2_objset, zp_info->data2_object);
+		nvlist_free(config);
+	}
+	else{
+		printf("Multiclus_state: down\r\n");
+		zcmd_free_nvlists(zc);
+	}
+	return (err);
+}
+
+
 void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
     char *fs_name, uint64_t flags, void* param) 
 {
@@ -3642,10 +3687,7 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	} else if (flags == ZNODE_INFO) {
 		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
 		strncpy(zc.zc_top_ds, sync_param->target_dir, MAXPATHLEN);
-	}else if (flags == DOUBLE_DATA) {
-		zfs_grp_sync_param_t* sync_param = (zfs_grp_sync_param_t*)param;
-		zc.zc_obj = (uint64_t)sync_param->double_data;
-	}else if (flags == SET_DOUBLE_DATA) {
+	} else if (flags == SET_DOUBLE_DATA) {
 		strncpy(zc.zc_value, group_name, MAXPATHLEN * 2);
 	}
 	else {
@@ -3663,8 +3705,9 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 
 	if ( SHOW_MULTICLUS == flags|| XML_MULTICLUS == flags)	{
 		err = multiclus_info_print(hdl, &zc, flags);
-	
-	}else if(GET_MULTICLUS_DTLSTATUS == flags){
+	} else if(ZNODE_INFO == flags) {
+		err = multiclus_get_znodeinfo(hdl, &zc);
+	} else if(GET_MULTICLUS_DTLSTATUS == flags){
 		if (group_name && isdigit(group_name[0])) {
 			char *end;
 			interval = strtoul(group_name, &end, 10);
@@ -3764,13 +3807,7 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 					printf("Fail to set multiclus, Type invalid\n");
 					break;
 			}
-		}else{
-			if (flags == DOUBLE_DATA){
-				if (zc.zc_sendobj)
-					printf("Double Data Mode Enabled.\n");
-				else
-					printf("Double Data Mode Disabled.\n");
-			}
+		} else {
 			if ((flags == SET_DOUBLE_DATA) || (flags == GET_DOUBLE_DATA)){
 				if (zc.zc_sendobj)
 					printf("DOUBLE_DATA ON.\n");

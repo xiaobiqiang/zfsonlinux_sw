@@ -704,6 +704,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_MULTICLUS_CHILD	"multiclus_child"
 #define	ZPOOL_CONFIG_MULTICLUS_FSNAME	"multiclus_fsname"
 #define	ZPOOL_CONFIG_MULTICLUS		"multiclus_stats"
+#define	ZPOOL_CONFIG_MULTICLUS_ZNODEINFO	"multiclus_znodeinfo"
 
 #define	ZFS_RPC_GROUP_IP		"group_ipaddr"
 #define	ZFS_RPC_MASTER_IP		"master_ipaddr"
@@ -1262,7 +1263,6 @@ typedef  enum {
 	SYNC_MULTICLUS_GROUP,
 	SYNC_MULTICLUS_GROUP_DATA,
 	ZNODE_INFO,
-	DOUBLE_DATA,
 	SET_DOUBLE_DATA,
 	GET_DOUBLE_DATA,
 	MULTICLUS_CMD_MAX

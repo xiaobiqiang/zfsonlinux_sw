@@ -381,9 +381,12 @@ get_usage(zfs_help_t idx)
 		return (gettext("\n"
 		    "\tmulticlus -e <portname>\n"
 		    "\tmulticlus -vd\n"
+		    "\tmulticlus z_info <fullpath>\n"
 		    "\tmulticlus create/add <groupname> <zfsname>\n"
 		    "\tmulticlus set slave/master/master2/master3/master4 <groupname> <zfsname>\n"
 		    "\tmulticlus get dtlstatus <zfsname> [count]\n"
+		    "\tmulticlus set double_data <on | off>\n"
+		    "\tmulticlus get double_data\n"
 		    "\tmulticlus clean dtl <zfsname>\n"
 		    "\tmulticlus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]\n"
 		    "\tmulticlus sync-data <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s | -a]\n"));		
@@ -7042,30 +7045,32 @@ zfs_do_multiclus(int argc, char **argv)
 	void* param = NULL;	
 	zfs_grp_sync_param_t sync_param = { B_FALSE, B_FALSE, B_FALSE, B_FALSE};
 
-	while ((c = getopt(argc, argv, "vedxrt")) != -1) {
-		switch (c) {
-		case 'v':
-			flags = SHOW_MULTICLUS;
-			break;
-		case 'e':
-			flags = ENABLE_MULTICLUS;
-			break;
-		case 'd':
-			flags = DISABLE_MULTICLUS;
-			break;
-		case 'x':
-			flags = XML_MULTICLUS;
-			break;
-		case 'r':
-			flags = ZFS_RPC_CALL_SERVER;
-			break;
-		case 't':
-			flags = ZFS_RPC_CALL_TEST;
-			break;
-		default:
-			(void) fprintf(stderr,
-			    gettext("invalid option '%c'\n"), optopt);
-			usage(B_FALSE);
+	if (argc >= 2 && strncmp(argv[1], "-", 1) == 0) {
+		while ((c = getopt(argc, argv, "vedxrt")) != -1) {
+			switch (c) {
+			case 'v':
+				flags = SHOW_MULTICLUS;
+				break;
+			case 'e':
+				flags = ENABLE_MULTICLUS;
+				break;
+			case 'd':
+				flags = DISABLE_MULTICLUS;
+				break;
+			case 'x':
+				flags = XML_MULTICLUS;
+				break;
+			case 'r':
+				flags = ZFS_RPC_CALL_SERVER;
+				break;
+			case 't':
+				flags = ZFS_RPC_CALL_TEST;
+				break;
+			default:
+				(void) fprintf(stderr,
+				    gettext("invalid option '%c'\n"), optopt);
+				usage(B_FALSE);
+			}
 		}
 	}
 
@@ -7077,23 +7082,25 @@ zfs_do_multiclus(int argc, char **argv)
 			flags = CREATE_MULTICLUS;
 			group_name = argv[1];
 			fs_name = argv[2];
-		}
-		else if(!strcmp(argv[0], "z_info")) {
+		} else if(!strcmp(argv[0], "z_info")) {
+			if (argc < 2) {
+				fprintf(stderr, gettext("Missing argument.\n"));
+				usage(B_FALSE);
+				return -1;
+			}
 			flags = ZNODE_INFO;
 			sync_param.target_dir = argv[1];
 			param = (void*)(&sync_param);
-		}
-		else if(!strcmp(argv[0], "double_data")) {
-			flags = DOUBLE_DATA;
-			sync_param.double_data = (boolean_t)(atoi(argv[1]));
-			param = (void*)(&sync_param);
-		}
-		else if(!strcmp(argv[0], "add")){
+		} else if(!strcmp(argv[0], "add")){
 			flags = ADD_MULTICLUS;
 			group_name = argv[1];
 			fs_name = argv[2];
-		}
-		else if(!strcmp(argv[0], "set")){
+		} else if(!strcmp(argv[0], "set")){
+			if (argc < 2) {
+				fprintf(stderr, gettext("Missing argument.\n"));
+				usage(B_FALSE);
+				return -1;
+			}
 			/*
 			 * master node is specified by "create" command,
 			 * this command can specify only slave/master2/3/4 nodes:
@@ -7116,7 +7123,8 @@ zfs_do_multiclus(int argc, char **argv)
 				flags = SET_MULTICLUS_MASTER;
 			} else if (strcmp(argv[1], "double_data") == 0){
 				if (argc < 3){
-					fprintf(stderr, gettext("Invalid argument \n"));
+					fprintf(stderr, gettext("Missing argument.\n"));
+					usage(B_FALSE);
 					return -1;
 				}
 				flags = SET_DOUBLE_DATA;	
@@ -7129,8 +7137,12 @@ zfs_do_multiclus(int argc, char **argv)
 
 			group_name = argv[2];
 			fs_name = argv[3];
-		}
-		else if(!strcmp(argv[0], "get")){
+		} else if(!strcmp(argv[0], "get")){
+			if (argc < 2) {
+				fprintf(stderr, gettext("Missing argument.\n"));
+				usage(B_FALSE);
+				return -1;
+			}
 			/*
 			 * this command can get the basic information in multiclus dtl trees:
 			 *
@@ -7154,8 +7166,12 @@ zfs_do_multiclus(int argc, char **argv)
 
 			group_name = argv[3];
 			fs_name = argv[2];
-		}
-		else if(!strcmp(argv[0], "clean")){
+		} else if(!strcmp(argv[0], "clean")){
+			if (argc < 3) {
+				fprintf(stderr, gettext("Missing argument.\n"));
+				usage(B_FALSE);
+				return -1;
+			}
 			/*
 			 * this command clean the node in multiclus dtl trees:
 			 *
@@ -7172,8 +7188,7 @@ zfs_do_multiclus(int argc, char **argv)
 			}
 
 			fs_name = argv[2];
-		}
-		else if (strcmp(argv[0], "sync") == 0) {
+		} else if (strcmp(argv[0], "sync") == 0) {
 			char* output_file = NULL;
 
 			/*
@@ -7240,83 +7255,81 @@ zfs_do_multiclus(int argc, char **argv)
 
 			flags = SYNC_MULTICLUS_GROUP;
 			param = (void*)(&sync_param);
-		}
-		else if (strcmp(argv[0], "sync-data") == 0) { 
+		} else if (strcmp(argv[0], "sync-data") == 0) { 
 		
-		char* output_file = NULL;
-		
-		/*
-		 * zfs multiclus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]
-		 *
-		 * "-d dir_path": start sync/check from the specified target dir
-		 * "-c": check only, do not sync
-		 * "-s": stop current sync/check
-		 */
-		if (argc < 4) {
-			usage(B_FALSE);
-			return -1;
-		}
-		
-		group_name = argv[1];
-		fs_name = argv[2];
-		output_file = argv[3];
-		
-		argc -= 4;
-		argv += 4;
-		
-		sync_param.check_only = B_FALSE;
-		sync_param.stop_sync = B_FALSE;
-		sync_param.output_file = output_file;
-		sync_param.target_dir = NULL;
-		sync_param.all_member_online = B_FALSE;
-		
-		if (argc == 0) {
-			;
-		} else if (argc == 1) {
-			if (strcmp(argv[0], "-c") == 0) {
-				sync_param.check_only = B_TRUE;
-			} else if (strcmp(argv[0], "-s") == 0) {
-				sync_param.stop_sync = B_TRUE;
-			} else if (strcmp(argv[0], "-a") == 0) {
-				sync_param.all_member_online = B_TRUE;
-			} else {
+			char* output_file = NULL;
+			
+			/*
+			 * zfs multiclus sync <groupname> <zfsname> <output_file> [-d <dir_path>] [-c | -s]
+			 *
+			 * "-d dir_path": start sync/check from the specified target dir
+			 * "-c": check only, do not sync
+			 * "-s": stop current sync/check
+			 */
+			if (argc < 4) {
 				usage(B_FALSE);
 				return -1;
 			}
-		} else if (argc == 2) {
-			if (strcmp(argv[0], "-d") != 0) {
-				usage(B_FALSE);
-				return -1;
-			} else {
+			
+			group_name = argv[1];
+			fs_name = argv[2];
+			output_file = argv[3];
+			
+			argc -= 4;
+			argv += 4;
+			
+			sync_param.check_only = B_FALSE;
+			sync_param.stop_sync = B_FALSE;
+			sync_param.output_file = output_file;
+			sync_param.target_dir = NULL;
+			sync_param.all_member_online = B_FALSE;
+			
+			if (argc == 0) {
+				;
+			} else if (argc == 1) {
+				if (strcmp(argv[0], "-c") == 0) {
+					sync_param.check_only = B_TRUE;
+				} else if (strcmp(argv[0], "-s") == 0) {
+					sync_param.stop_sync = B_TRUE;
+				} else if (strcmp(argv[0], "-a") == 0) {
+					sync_param.all_member_online = B_TRUE;
+				} else {
+					usage(B_FALSE);
+					return -1;
+				}
+			} else if (argc == 2) {
+				if (strcmp(argv[0], "-d") != 0) {
+					usage(B_FALSE);
+					return -1;
+				} else {
+					sync_param.target_dir = argv[1];
+				}
+			} else if (argc == 3) {
+				if (strcmp(argv[0], "-d") != 0) {
+					usage(B_FALSE);
+					return -1;
+				}
 				sync_param.target_dir = argv[1];
-			}
-		} else if (argc == 3) {
-			if (strcmp(argv[0], "-d") != 0) {
-				usage(B_FALSE);
-				return -1;
-			}
-			sync_param.target_dir = argv[1];
-		
-			if (strcmp(argv[2], "-c") == 0) {
-				sync_param.check_only = B_TRUE;
-			} else if (strcmp(argv[2], "-s") == 0) {
-				sync_param.stop_sync = B_TRUE;
-			} else if (strcmp(argv[0], "-a") == 0) {
-				sync_param.all_member_online = B_TRUE;
+			
+				if (strcmp(argv[2], "-c") == 0) {
+					sync_param.check_only = B_TRUE;
+				} else if (strcmp(argv[2], "-s") == 0) {
+					sync_param.stop_sync = B_TRUE;
+				} else if (strcmp(argv[2], "-a") == 0) {
+					sync_param.all_member_online = B_TRUE;
+				} else {
+					usage(B_FALSE);
+					return -1;
+				}
 			} else {
 				usage(B_FALSE);
 				return -1;
 			}
-		} else {
-			usage(B_FALSE);
-			return -1;
-		}
+			
+			flags = SYNC_MULTICLUS_GROUP_DATA;
+			param = (void*)(&sync_param);
 		
-		flags = SYNC_MULTICLUS_GROUP_DATA;
-		param = (void*)(&sync_param);
-		
-		}
-		else{
+		} else{
 			(void) fprintf(stderr, gettext("missing property "
 			    "argument\n"));
 			usage(B_FALSE);

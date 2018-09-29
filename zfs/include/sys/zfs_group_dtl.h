@@ -96,7 +96,7 @@ typedef struct zfs_group_dtl_create {
 	boolean_t	isvapcarry;
 	zfs_group_dtl_vsecattr_t	vsap;
 	boolean_t	isvsapcarry;
-	vcexcl_t	ex;
+	int	ex;
 	zfs_group_cred_t	cred;
 	int	mode;
 	int	flag;
@@ -155,6 +155,10 @@ typedef struct zfs_group_dtl_remove {
 	zfs_group_object_t	group_id;
 	uint64_t	spa_id;
 	uint64_t	os_id;
+	uint64_t	dirid;
+	uint64_t	dirlowdata;
+	uint64_t	dirquota;
+	char	dirname[MAXNAMELEN];
 	char	name[MAXNAMELEN];
 	zfs_group_cred_t	cred;
 	int	flag;
@@ -164,6 +168,10 @@ typedef struct zfs_group_dtl_rmdir {
 	zfs_group_object_t	group_id;
 	uint64_t	spa_id;
 	uint64_t	os_id;
+	uint64_t	dirid;
+	uint64_t	dirlowdata;
+	uint64_t	dirquota;
+	char	dirname[MAXNAMELEN];
 	char	name[MAXNAMELEN];
 	zfs_group_cred_t	cred;
 	int	flag;
@@ -215,7 +223,7 @@ typedef struct zfs_group_dtl_dirquota {
 	uint64_t	obj_id;
 	uint64_t	dir_gen;
 	uint64_t	quota;
-	char	path[MAXPATHLEN];
+	char	path[1024];
 	int		flag;
 } zfs_group_dtl_dirquota_t;
 
@@ -226,7 +234,7 @@ typedef struct zfs_group_dtl_dirlowdata {
 	uint64_t	obj_id;
 	uint64_t	dir_gen;
 	uint64_t	value;
-	char	path[MAXPATHLEN];
+	char	path[1024];
 	char	propname[MAXNAMELEN];
 	int		flag;
 } zfs_group_dtl_dirlowdata_t;
@@ -261,7 +269,7 @@ typedef struct zfs_group_dtl_carrier{
 
 extern	void zfs_group_dtl_load(objset_t *os);
 extern	void zfs_group_dtl_sync_tree134(objset_t *os);
-extern	void zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx);
+extern	void zfs_group_dtl_sync_tree2(objset_t *os, dmu_tx_t *ptx, int zfsvfs_holden);
 
 extern	void zfs_group_dtl_create(avl_tree_t* ptree);
 extern	void zfs_group_dtl_destroy(avl_tree_t* ptree);
@@ -273,8 +281,7 @@ zfs_group_dtl_add(avl_tree_t *ptree, void* value, size_t size);
 
 extern zfs_group_dtl_carrier_t*
 zfs_group_dtl_carry(name_operation_t z_op, znode_t *pzp,	char *name,
-vattr_t *vap, vcexcl_t ex, int mode, void *multiplex1, cred_t *credp, int flag,
-caller_context_t *ct, void* multiplex2);
+vattr_t *vap, int ex, int mode, void *multiplex1, cred_t *credp, int flag, void* multiplex2);
 
 extern int
 zfs_group_dtl_resolve(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node_type_t m_node_type);

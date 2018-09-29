@@ -742,126 +742,126 @@ typedef struct todinfo {
 
 
 
-void
-zfs_group_set_cred(cred_t *credp, zfs_group_cred_t *group_credp);
+void zfs_group_set_cred(cred_t *credp, zfs_group_cred_t *group_credp);
 
-int zfs_client_create(struct inode *pip,	char *name, vattr_t *vap, vcexcl_t ex,
-    int mode, struct inode **ipp, cred_t *credp, int flag, caller_context_t *ct,
-    vsecattr_t *vsap);
+int zfs_client_create(struct inode *pip,	char *name, vattr_t *vap, int ex,
+    int mode, struct inode **ipp, cred_t *credp, int flag, vsecattr_t *vsap);
 
-int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, vcexcl_t ex,
-    int mode, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct,
-    vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type);
+int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, int ex,
+    int mode, znode_t *zp, cred_t *credp, int flag, vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type);
 
-
-int
-zfs_client_lookup(struct inode *pip, char *cp,
+int zfs_client_lookup(struct inode *pip, char *cp,
     struct inode **ipp, 	pathname_t *pnp, int flags, struct inode *rdir,
-    cred_t *credp, caller_context_t *ct,
-    int *defp,	struct pathname *rpnp);
-int zfs_client_remove(struct inode *pip,
-    char *cp, cred_t *credp, caller_context_t *ct,
-    int flag);
-int zfs_client_remove_backup(znode_t *dzp,
-    char *cp, cred_t *credp, caller_context_t *ct,
-    int flag, zfs_multiclus_node_type_t m_node_type);
+    cred_t *credp, int *defp, struct pathname *rpnp);
+
+int zfs_client_remove(struct inode *pip, char *cp, cred_t *credp, int flag);
+
+int zfs_client_remove_backup(znode_t *dzp, char *cp, cred_t *credp, 
+	int flag, zfs_multiclus_node_type_t m_node_type);
+
 int zfs_client_mkdir(struct inode *pip, char *cp, vattr_t *vap, struct inode **ipp,	
-    cred_t *credp, caller_context_t *ct, int flag,	vsecattr_t *vsap);
+    cred_t *credp, int flag,	vsecattr_t *vsap);
+
 int zfs_client_mkdir_backup(znode_t *pzp, char *cp, vattr_t *vap, znode_t *zp,	
-    cred_t *credp, caller_context_t *ct, int flag, vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type);
+    cred_t *credp, int flag, vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type);
 
-int zfs_client_rmdir(struct inode *pip, char *cp, struct inode *cdir, cred_t *credp,
-    caller_context_t *ct, int flag);
+int zfs_client_rmdir(struct inode *pip, char *cp, struct inode *cdir, cred_t *credp, int flag);
+
 int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *credp,
-    caller_context_t *ct, int flag, zfs_multiclus_node_type_t m_node_type);
+    int flag, zfs_multiclus_node_type_t m_node_type);
 
-int		
-zfs_client_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flag);
-int
-zfs_client_xattr_list(struct inode *ip, void *buffer, size_t buffer_size, cred_t *cr) ;
-int	zfs_client_symlink(struct inode *pip, char *cp, vattr_t *vap, char *tnm, struct inode **ipp,		
+int zfs_client_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr, int flag);
+
+int zfs_client_xattr_list(struct inode *ip, void *buffer, size_t buffer_size, cred_t *cr) ;
+
+int zfs_client_symlink(struct inode *pip, char *cp, vattr_t *vap, char *tnm, struct inode **ipp,		
     cred_t *credp, int flag);
-int	zfs_client_symlink_backup(
-    znode_t *dzp, char *cp, vattr_t *vap, znode_t *zp, char *tnm,		
-    cred_t *credp, caller_context_t *ct,int flag, zfs_multiclus_node_type_t m_node_type);
 
-int
-zfs_client_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr,
-    caller_context_t *ct, int flags);
-int
-zfs_client_link_backup(znode_t *dzp, znode_t *szp, char *name, cred_t *cr,
-    caller_context_t *ct, int flags, zfs_multiclus_node_type_t m_node_type);
-int
-zfs_client_readlink(struct inode *ip, uio_t *uio, cred_t *cr, caller_context_t *ct);
-int
-zfs_client_rename(struct inode *sdip, char *snm, struct inode *tdip,
-    char *tnm, cred_t *cr,
-    caller_context_t *ct, int flags);
+int zfs_client_symlink_backup(znode_t *dzp, char *cp, vattr_t *vap, znode_t *zp, char *tnm,		
+    cred_t *credp, int flag, zfs_multiclus_node_type_t m_node_type);
+
+int zfs_client_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr, int flags);
+
+int zfs_client_link_backup(znode_t *dzp, znode_t *szp, char *name, cred_t *cr,
+    int flags, zfs_multiclus_node_type_t m_node_type);
+
+int zfs_client_readlink(struct inode *ip, uio_t *uio, cred_t *cr);
+
+int zfs_client_rename(struct inode *sdip, char *snm, struct inode *tdip,
+    char *tnm, cred_t *cr, int flags);
+
 int zfs_client_rename_backup(znode_t *opzp, char *snm, znode_t *npzp,
-    char *tnm, cred_t *cr,
-    caller_context_t *ct, int flags, zfs_multiclus_node_type_t m_node_type);
+    char *tnm, cred_t *cr, int flags, zfs_multiclus_node_type_t m_node_type);
 
-int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr,
-    caller_context_t *ct);
+int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr);
+
 int zfs_client_setattr_backup(znode_t *zp, vattr_t *vap, int flags, cred_t *cr,
-    caller_context_t *ct, zfs_multiclus_node_type_t m_node_type);
+    zfs_multiclus_node_type_t m_node_type);
 
 int zfs_client_access(struct inode *ip, int mode, int flag, cred_t *cr);
-int zfs_client_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr,
-    caller_context_t *ct);
+
+int zfs_client_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr);
+
 int zfs_client_setsecattr_backup(znode_t *zp, vsecattr_t *vsecp, int flag, cred_t *cr,
-    caller_context_t *ct, zfs_multiclus_node_type_t m_node_type);
+    zfs_multiclus_node_type_t m_node_type);
+
 int zfs_client_set_dirquota_backup(znode_t *zp, uint64_t object,
     const char *path, uint64_t quota, zfs_multiclus_node_type_t m_node_type);
+
 int zfs_client_set_dirlow_backup(znode_t *zp, 
 	nvpairvalue_t *pairvalue, zfs_multiclus_node_type_t m_node_type);
-int
-zfs_client_read(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr);
-int
-zfs_client_read2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr);
-int
-zfs_client_write(struct inode *ip, uio_t *uio, int ioflag,
-    cred_t *cr, caller_context_t *ct);
-int
-zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag,
-    cred_t *cr, caller_context_t *ct);
-int
-zfs_client_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr,
-    caller_context_t *ct);
+
+int zfs_client_read(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr);
+
+int zfs_client_read2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr);
+
+int zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr);
+
+int zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr);
+
+int zfs_client_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr);
 
 int zfs_group_send_to_server(zfs_msg_t *msg);
+
 void zfs_group_znode_copy_phys(znode_t *zp, zfs_group_phys_t *dst_phys, boolean_t nosa);
 
 int zfs_client_send_to_server(objset_t *os, zfs_group_header_t *msg_header, zfs_msg_t *msg, boolean_t waitting);
 
-int	
-zfs_group_v_to_v32(vattr_t *vap, zfs_group_vattr_t *va32p);
+int zfs_group_v_to_v32(vattr_t *vap, zfs_group_vattr_t *va32p);
+
 int zfs_client_notify_file_space(znode_t *zp, uint64_t update_size, uint64_t used_op, boolean_t update_quota,
 	uint64_t local_spa, uint64_t local_os);
+
 void zfs_client_noify_file_space_tq(void* arg);
+
 int zfs_client_notify_file_info(znode_t* zp, zfs_multiclus_node_type_t m_node_type, uint64_t update_node_info);
 
 void zfs_client_overquota_tq(void* arg);
+
 int zfs_group_zget(zfs_sb_t *zsb, uint64_t object, znode_t **zpp, 
 	uint64_t last_master_spa, uint64_t last_master_objset, uint64_t gen,
 	boolean_t waitting);
 
 void zfs_group_server_rx(zfs_group_server_para_t *server_para);
+
 void zfs_group_msg(zfs_group_header_t *msg_header, zfs_msg_t *msg_data, boolean_t bserver, boolean_t brx, 
     boolean_t bprint);
 
-int zfs_remove_data_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp, 
-	caller_context_t *ct, int flag);
-int zfs_remove_data2_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp, 
-	caller_context_t *ct, int flag);
+int zfs_remove_data_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp, int flag);
+
+int zfs_remove_data2_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp, int flag);
 
 int zfs_client_get_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
     uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs);
+
 int zfs_client_get_fictitious_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
     uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs);
+
 int zfs_client_master_get_group_fsstat(zfs_sb_t *zsb, uint64_t *refbytes,
     uint64_t *availbytes, uint64_t *refobjs, uint64_t *availobjs);
+
 void zfs_group_to_acl(zfs_group_name_acl_t *zg_acl, vsecattr_t *vsap);
+
 void zfs_group_to_dirlowdata(zfs_group_name_dirlowdata_t *zg_dirlowdata, zfs_dirlowdata_t *dirlowdata);
 
 void zfs_group_from_acl(zfs_group_name_acl_t *zg_acl, vsecattr_t *vsap);
@@ -878,11 +878,11 @@ void zfs_group_update_system_space(objset_t *os,
     zfs_group_notify_system_space_t *sys_space);
 
 int zfs_group_create_data_file(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id, dmu_tx_t *tx);
 
 int zfs_group_create_data2_file(znode_t *zp, char *name, boolean_t bregual,
-	vsecattr_t *vsecp, vattr_t *vap, vcexcl_t ex, int mode, int flag,
+	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id, dmu_tx_t *tx);
 
 void zfs_group_route_data(zfs_sb_t *zsb, uint64_t orig_spa, uint64_t orig_os,
@@ -933,6 +933,8 @@ int zfs_group_process_create_data_file(znode_t *dzp, uint64_t master_object,
     uint64_t object, uint64_t dirquota);
  
 void zfs_failover_ctl(objset_t *os, int time);
+void zfs_set_remote_object(znode_t *zp, zfs_group_object_t *group_object);
+int zfs_group_get_attr_from_data_node(zfs_sb_t *zsb, znode_t *master_znode);
 extern void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_tx_t *tx);
 extern int zfs_group_broadcast_unflag_overquota(znode_t *zp, uint64_t old_dirquota_id);
 extern const char *zfs_group_map_key_name_prefix_format;

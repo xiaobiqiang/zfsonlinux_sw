@@ -631,8 +631,9 @@ zfs_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 	int err;
 	dmu_tx_t *tx;
 	uint64_t *objp;
-	uint64_t used_obj ;
+	uint64_t used_obj;
 	boolean_t fuid_dirtied;
+	uint64_t	otherquota = 0;
 
 	if (zsb->z_os->os_is_group &&
 		zsb->z_os->os_is_master == 0 &&
@@ -653,27 +654,27 @@ zfs_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 	switch(type) {
 		case ZFS_PROP_USERQUOTA:
 			objp = &zsb->z_userquota_obj;
-			used_obj = DMU_USERUSED_OBJECT ;
+			used_obj = DMU_USERUSED_OBJECT;
 			break;
 		case ZFS_PROP_USEROBJQUOTA:
 			objp = &zsb->z_userobjquota_obj ;
-			used_obj = DMU_USEROBJUSED_OBJECT ;
+			used_obj = DMU_USEROBJUSED_OBJECT;
 			break ;
 		case ZFS_PROP_GROUPQUOTA:
 			objp = &zsb->z_groupquota_obj;
-			used_obj = DMU_GROUPUSED_OBJECT ;
+			used_obj = DMU_GROUPUSED_OBJECT;
 			break;
 		case ZFS_PROP_GROUPOBJQUOTA:
 			objp = &zsb->z_groupobjquota_obj ;
-			used_obj = DMU_GROUPOBJUSED_OBJECT ;
+			used_obj = DMU_GROUPOBJUSED_OBJECT;
 			break ;
 		case ZFS_PROP_SOFTUSERQUOTA:
 			objp = &zsb->z_softuserquota_obj;
-			used_obj = DMU_USERUSED_OBJECT ;
+			used_obj = DMU_USERUSED_OBJECT;
 			break;
 		case ZFS_PROP_SOFTGROUPQUOTA:
 			objp = &zsb->z_softgroupquota_obj;
-			used_obj = DMU_GROUPUSED_OBJECT ;
+			used_obj = DMU_GROUPUSED_OBJECT;
 			break;
 	}
 
@@ -721,9 +722,30 @@ zfs_set_userquota(zfs_sb_t *zsb, zfs_userquota_prop_t type,
 
 	if (quota == 0) {
 		err = zap_remove(zsb->z_os, *objp, buf, tx);
-		if (err == 0 || err == ENOENT)
-			err = zap_remove(zsb->z_os, used_obj, buf, tx);
-
+		if (err == 0 || err == ENOENT) {
+			switch (type) {
+				case ZFS_PROP_USERQUOTA:
+					err = zap_lookup(zsb->z_os, zsb->z_softuserquota_obj, buf, 8, 1, &otherquota);
+					if (err == ENOENT || otherquota == 0)
+						err = zap_remove(zsb->z_os, used_obj, buf, tx);
+					break;
+				case ZFS_PROP_GROUPQUOTA:
+					err = zap_lookup(zsb->z_os, zsb->z_softgroupquota_obj, buf, 8, 1, &otherquota);
+					if (err == ENOENT || otherquota == 0)
+						err = zap_remove(zsb->z_os, used_obj, buf, tx);
+					break;
+				case ZFS_PROP_SOFTUSERQUOTA:
+					err = zap_lookup(zsb->z_os, zsb->z_userquota_obj, buf, 8, 1, &otherquota);
+					if (err == ENOENT || otherquota == 0)
+						err = zap_remove(zsb->z_os, used_obj, buf, tx);
+					break;
+				case ZFS_PROP_SOFTGROUPQUOTA:
+					err = zap_lookup(zsb->z_os, zsb->z_groupquota_obj, buf, 8, 1, &otherquota);
+					if (err == ENOENT || otherquota == 0)
+						err = zap_remove(zsb->z_os, used_obj, buf, tx);
+					break;
+			}
+		}
 		if (err == ENOENT)
 			err = 0;
 	} else {
@@ -816,7 +838,7 @@ EXPORT_SYMBOL(zfs_fuid_overquota);
 static int
 __zfs_fuid_inspacequota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	char buf[32];
-	uint64_t quota, usedobj, quotaobj;
+	uint64_t quota, quotaobj;
 	int err;
 
 	quotaobj = isgroup ? zsb->z_groupquota_obj : zsb->z_userquota_obj;
@@ -832,7 +854,7 @@ __zfs_fuid_inspacequota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 static int
 __zfs_fuid_inobjquota( zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid ) {
 	char buf[32];
-	uint64_t quota, usedobj, quotaobj;
+	uint64_t quota, quotaobj;
 	int err;
 
 	quotaobj = isgroup ? zsb->z_groupobjquota_obj : zsb->z_userobjquota_obj;
@@ -921,10 +943,10 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	zsb->z_max_blksz = SPA_OLD_MAXBLOCKSIZE;
 	zsb->z_show_ctldir = ZFS_SNAPDIR_VISIBLE;
 	zsb->z_os = os;
-    os->os_replay = zfs_replay_vector;
-    os->os_replay_data = zfs_replay_rawdata;
-    os->os_seg_data_lock = zfs_seg_data_lock;
-    os->os_seg_data_unlock = zfs_seg_data_unlock;
+	os->os_replay = zfs_replay_vector;
+	os->os_replay_data = zfs_replay_rawdata;
+	os->os_seg_data_lock = zfs_seg_data_lock;
+	os->os_seg_data_unlock = zfs_seg_data_unlock;
 
 	error = zfs_get_zplprop(os, ZFS_PROP_VERSION, &zsb->z_version);
 	if (error) {
@@ -1074,7 +1096,7 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	if (error){
 		goto out;
 	}
-/*
+
 	for(i=0;i<NASGROUP_MAP_NUM;i++){
 		bzero(buf, MAXPATHLEN);
 		sprintf(buf, "%s%d", zfs_group_map_zap_obj, i);
@@ -1090,7 +1112,7 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 			error = dmu_tx_assign(tx, TXG_WAIT);
 			if (error) {
 				dmu_tx_abort(tx);
-				cmn_err(CE_WARN, "[Error] %s %d failed in creating %s!", __func__, __LINE__, buf);
+				cmn_err(CE_WARN, "[%s %d] failed in creating %s!", __func__, __LINE__, buf);
 				goto out;
 			}
 			zsb->z_group_map_objs[i] = zap_create(zsb->z_os, DMU_OT_GROUP_MAP,
@@ -1098,26 +1120,25 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 			error = zap_add(zsb->z_os, zsb->z_nas_group_obj, buf, 8, 1, &zsb->z_group_map_objs[i], tx);
 			dmu_tx_commit(tx);
 			if (error != 0){
-				cmn_err(CE_WARN, "[Error] %s %d failed in creating %s!", __func__, __LINE__, buf);
+				cmn_err(CE_WARN, "[%s %d] failed in creating %s!", __func__, __LINE__, buf);
 				goto out;
 			}
 
 			if(debug_nas_group_dtl == 1){
-				cmn_err(CE_WARN, "[INFO] %s %llu", buf, (unsigned long long)zsb->z_group_map_objs[i]);
+				cmn_err(CE_WARN, "[%s %d] %s %llu", __func__, __LINE__, buf, (unsigned long long)zsb->z_group_map_objs[i]);
 			}
 			
 		}
 
 		if(debug_nas_group_dtl == 2){
-			cmn_err(CE_WARN, "[INFO] %s %d %s %llu", __func__, __LINE__, buf, (unsigned long long)zsb->z_group_map_objs[i]);
+			cmn_err(CE_WARN, "[%s %d] %s %llu", __func__, __LINE__, buf, (unsigned long long)zsb->z_group_map_objs[i]);
 		}
 	}
 
 	bzero(buf, MAXPATHLEN);
 	sprintf(buf, "%s%d", zfs_group_dtl_prefix, 0);
 	error = zap_lookup(os, MASTER_NODE_OBJ,
-	    buf,
-	    8, 1, &zsb->z_group_dtl_obj);
+	    buf, 8, 1, &zsb->z_group_dtl_obj);
 	if (error && error != ENOENT)
 		goto out;
 
@@ -1127,8 +1148,8 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	}
 #endif	
 
-	cmn_err(CE_WARN, "[Info] %s %d, zsb->z_group_dtl_obj %llu", 
-		__func__, __LINE__, (unsigned long long)zsb->z_group_dtl_obj);
+	cmn_err(CE_WARN, "[%s %d] os_name=%s, zsb->z_group_dtl_obj %llu", 
+		__func__, __LINE__, osname, (unsigned long long)zsb->z_group_dtl_obj);
 
 	bzero(buf, MAXPATHLEN);
 	sprintf(buf, "%s%d", zfs_group_dtl_prefix, 1);
@@ -1141,10 +1162,10 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	if(zsb->z_group_dtl_obj3 == 0 && ZFS_GROUP_DTL_ENABLE){
 		zfs_group_dtl_init_obj(os, zsb, &zsb->z_group_dtl_obj3, 1);
 	}
-#endif	
+#endif
 
-	cmn_err(CE_WARN, "[Info] %s %d, zsb->z_group_dtl_obj3 %llu", 
-		__func__, __LINE__, (unsigned long long)zsb->z_group_dtl_obj3);
+	cmn_err(CE_WARN, "[%s %d] os_name=%s, zsb->z_group_dtl_obj3 %llu", 
+		__func__, __LINE__, osname, (unsigned long long)zsb->z_group_dtl_obj3);
 
 	bzero(buf, MAXPATHLEN);
 	sprintf(buf, "%s%d", zfs_group_dtl_prefix, 2);
@@ -1160,9 +1181,8 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	}
 #endif
 
-	cmn_err(CE_WARN, "[Info] %s %d, zsb->z_group_dtl_obj4 %llu", 
-		__func__, __LINE__, (unsigned long long)zsb->z_group_dtl_obj4);
-*/
+	cmn_err(CE_WARN, "[%s %d] os_name=%s, zsb->z_group_dtl_obj4 %llu",
+		__func__, __LINE__, osname, (unsigned long long)zsb->z_group_dtl_obj4);
 	
 	mutex_init(&zsb->z_znodes_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&zsb->z_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -1171,9 +1191,6 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	rrm_init(&zsb->z_teardown_lock, B_FALSE);
 	rw_init(&zsb->z_teardown_inactive_lock, NULL, RW_DEFAULT, NULL);
 	rw_init(&zsb->z_fuid_lock, NULL, RW_DEFAULT, NULL);
-	for (i = 0; i != 1024; i++)
-		mutex_init(&zsb->z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
-		
 	
 	size = MIN(1 << (highbit64(zfs_object_mutex_size)-1), ZFS_OBJ_MTX_MAX);
 	zsb->z_hold_size = size;
@@ -1335,9 +1352,6 @@ zfs_sb_free(zfs_sb_t *zsb)
 		mutex_destroy(&zsb->z_hold_locks[i]);
 	}
 
-	for (i = 0; i != 1024; i++)
-		mutex_destroy(&zsb->z_hold_mtx[i]);
-
 	vmem_free(zsb->z_hold_trees, sizeof (avl_tree_t) * size);
 	vmem_free(zsb->z_hold_locks, sizeof (kmutex_t) * size);
 	zfs_mntopts_free(zsb->z_mntopts);
@@ -1351,8 +1365,8 @@ zfs_sb_free(zfs_sb_t *zsb)
 		mutex_destroy(&zsb->z_group_dtl_obj4_mutex);
 		mutex_destroy(&zsb->z_group_dtl_tree4_mutex);
 	}
-//	zfs_multiclus_destroy_group_sync_obj(zsb->z_group_sync_obj);
-//	zsb->z_group_sync_obj = NULL;
+	zfs_multiclus_destroy_group_sync_obj(zsb->z_group_sync_obj);
+	zsb->z_group_sync_obj = NULL;
 	kmem_free(zsb->z_group_map_objs, sizeof(uint64_t)*NASGROUP_MAP_NUM);
 	kmem_free(zsb, sizeof (zfs_sb_t));
 }
@@ -1867,7 +1881,7 @@ zfs_domount(struct super_block *sb, zfs_mntopts_t *zmo, int silent)
 		zsb->z_is_setting_up = B_TRUE;
 		if (zsb->z_os->os_phys->os_type == DMU_OST_ZFS && zsb->z_os->os_is_group) {
 			if (zfs_multiclus_update_record(zsb->z_os->os_group_name, zsb->z_os) == -1)
-				cmn_err(CE_WARN, "zfs_multiclus mod is not ready");
+				cmn_err(CE_WARN, "[%s %d] zfs_multiclus mod is not ready", __func__, __LINE__);
 		}
 #endif
 		error = zfs_sb_setup(zsb, B_TRUE);
@@ -1954,7 +1968,7 @@ zfs_umount(struct super_block *sb)
 	
 	if (os != NULL && os->os_is_group && zfs_multiclus_enable() && ZFS_GROUP_DTL_ENABLE) {
 		zfs_group_dtl_sync_tree134(os);
-		zfs_group_dtl_sync_tree2(os, NULL);
+		zfs_group_dtl_sync_tree2(os, NULL, 0);
 	}
 
 	arc_remove_prune_callback(zsb->z_arc_prune);
@@ -2004,7 +2018,6 @@ EXPORT_SYMBOL(zfs_remount);
 
 static int zfs_fid_get_master_info(zfs_sb_t	*zsb, uint64_t object, uint64_t gen, uint64_t *master_spa, uint64_t *master_os)
 {
-	int i = 0;
 	int err = 0;
 	uint64_t map_obj = 0;
 	char buf[MAXNAMELEN];
@@ -2037,8 +2050,8 @@ zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp)
 	zfs_sb_t	*zsb = sb->s_fs_info;
 	znode_t		*zp;
 	int			i, err;
-	int 		retry = 0;
-	int			record_num = 0;
+//	int 		retry = 0;
+//	int		record_num = 0;
 	uint64_t	object = 0;
 	uint64_t	fid_gen = 0;
 	uint64_t	old_gen = 0;
@@ -2135,7 +2148,7 @@ reget:
 				object = m_object;
 			}
 		}
-		if (err = zfs_zget(zsb, object, &zp)) {
+		if ((err = zfs_zget(zsb, object, &zp))) {
 			if (err && local_regeted == B_FALSE) {
 				local_regeted = B_TRUE;
 				goto reget;
@@ -2218,7 +2231,6 @@ reget:
 		zp->z_overquota = zfs_client_overquota(zsb, zp, QUOTA_ALL );
 	}
 
-	zfs_inquota(zsb, zp);
 	*ipp = ZTOI(zp);
 	ZFS_EXIT(zsb);
 	return (0);
@@ -2471,7 +2483,6 @@ zfs_sb_t *
 zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_check_setting_up)
 {
 	int err, wait_sec;
-//	boolean_t b_hold = B_FALSE;
 	spa_t *spa = NULL;
 	dsl_pool_t *dp = NULL;
 	dsl_dataset_t *dsl_dataset = NULL;
@@ -2513,7 +2524,6 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (NULL);
 	}
-//	VFS_HOLD(zfsvfs->z_vfs);
 	atomic_inc_not_zero(&zsb->z_sb->s_active);
 	mutex_exit(&os->os_user_ptr_lock);
 	wait_sec = 0;
@@ -2525,7 +2535,6 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 		cmn_err(CE_WARN, "%s, %d, zfsvfs is replaying, wait for %d second!", 
 			__func__, __LINE__, wait_sec);*/
 		cmn_err(CE_WARN, "zfsvfs_group_hold: zfsvfs->z_is_setting_up");
-//		VFS_RELE(zfsvfs->z_vfs);
 		deactivate_super(zsb->z_sb);
 		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (NULL);
@@ -2535,7 +2544,6 @@ zfs_sb_group_hold(uint64_t spa_guid, uint64_t objset, void *tag, boolean_t b_che
 	if (zsb->z_unmounted) {
 		cmn_err(CE_WARN, "zfsvfs_group_hold: zfsvfs->z_unmounted");
 		rrm_exit(&zsb->z_teardown_lock, tag);
-//		VFS_RELE(zfsvfs->z_vfs);
 		deactivate_super(zsb->z_sb);
 		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (NULL);
@@ -2549,7 +2557,6 @@ void
 zfs_sb_group_rele(zfs_sb_t *zsb,  void *tag)
 {
 	rrm_exit(&zsb->z_teardown_lock, tag);
-//	VFS_RELE(zfsvfs->z_vfs);
 	deactivate_super(zsb->z_sb);
 }
 
@@ -3031,7 +3038,7 @@ end:
 			z_dirlow->propname[namesize] = '\0';
 		}
 		z_carrier = zfs_group_dtl_carry(NAME_DIRLOWDATA, zp, NULL, NULL, 0,
-			0, z_dirlow, NULL, 0, NULL, NULL);
+			0, z_dirlow, NULL, 0, NULL);
 		kmem_free(z_dirlow, sizeof(zfs_group_dirlow_t));
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
@@ -3044,6 +3051,7 @@ end:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 	}
 	iput(ZTOI(zp));
@@ -3315,13 +3323,15 @@ top:
 		bover = zfs_write_overquota(zsb, zp);
 		zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
 	}
-	zfs_group_broadcast_unflag_overquota(zp, old_dirquota_id);
+	if (zsb->z_os->os_is_group) {
+		zfs_group_broadcast_unflag_overquota(zp, old_dirquota_id);
+	}
 end:
 	dmu_tx_commit(tx);
 	kmem_free(buf, MAXPATHLEN);
 	if(0 == err && zsb->z_os->os_is_group && zsb->z_os->os_is_master){
 		z_carrier = zfs_group_dtl_carry(NAME_DIRQUOTA, zp, path, NULL, 0,
-			0, &dir_obj, NULL, 0, NULL, &quota);
+			0, &dir_obj, NULL, 0, &quota);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = zp->z_id;
@@ -3333,6 +3343,7 @@ end:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 		iput(ZTOI(zp));
 	}else if(0 == err){

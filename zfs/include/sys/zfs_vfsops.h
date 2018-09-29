@@ -168,8 +168,7 @@ typedef struct zfs_sb {
 	uint64_t 	z_isworm;
 	uint64_t	z_autoworm;
 	uint64_t	z_wormrent;
-	
-	kmutex_t	z_hold_mtx[1024];	/* znode hold locks */
+
 	taskq_t	  *notify_taskq;
 	taskq_t	  *overquota_taskq;
 	kmutex_t	z_group_dtl_obj_mutex;

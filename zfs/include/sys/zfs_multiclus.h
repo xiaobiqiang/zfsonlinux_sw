@@ -259,6 +259,7 @@ extern boolean_t zfs_multiclus_enable(void);
 extern boolean_t zfs_multiclus_done(void);
 int zfs_get_group_state(nvlist_t **config, uint64_t *num_group, 
 	uint64_t * breakmark, boolean_t *onceflag);
+int zfs_get_group_znode_info(char *path, nvlist_t **config);
 int zfs_get_group_name(char *poolname, nvlist_t **rmconfig);
 int zfs_get_group_ip(nvlist_t **config);
 int zfs_get_master_ip(char *fsname, nvlist_t **config);
