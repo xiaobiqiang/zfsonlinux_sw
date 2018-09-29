@@ -155,6 +155,10 @@ typedef struct zfs_group_dtl_remove {
 	zfs_group_object_t	group_id;
 	uint64_t	spa_id;
 	uint64_t	os_id;
+	uint64_t	dirid;
+	uint64_t	dirlowdata;
+	uint64_t	dirquota;
+	char	dirname[MAXNAMELEN];
 	char	name[MAXNAMELEN];
 	zfs_group_cred_t	cred;
 	int	flag;
@@ -164,6 +168,10 @@ typedef struct zfs_group_dtl_rmdir {
 	zfs_group_object_t	group_id;
 	uint64_t	spa_id;
 	uint64_t	os_id;
+	uint64_t	dirid;
+	uint64_t	dirlowdata;
+	uint64_t	dirquota;
+	char	dirname[MAXNAMELEN];
 	char	name[MAXNAMELEN];
 	zfs_group_cred_t	cred;
 	int	flag;
@@ -273,8 +281,7 @@ zfs_group_dtl_add(avl_tree_t *ptree, void* value, size_t size);
 
 extern zfs_group_dtl_carrier_t*
 zfs_group_dtl_carry(name_operation_t z_op, znode_t *pzp,	char *name,
-vattr_t *vap, int ex, int mode, void *multiplex1, cred_t *credp, int flag,
-caller_context_t *ct, void* multiplex2);
+vattr_t *vap, int ex, int mode, void *multiplex1, cred_t *credp, int flag, void* multiplex2);
 
 extern int
 zfs_group_dtl_resolve(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node_type_t m_node_type);

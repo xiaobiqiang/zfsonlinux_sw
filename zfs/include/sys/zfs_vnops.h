@@ -129,9 +129,6 @@ extern boolean_t zfs_write_overquota(zfs_sb_t *zsb, struct znode *zp);
 extern int zfs_readdir_server(struct inode *ip, uio_t *uio, cred_t *cr, int *eofp, int flags);
 
 extern void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_tx_t *tx);
-
-extern int zfs_print_znode_info(char *path);
-extern int zfs_enable_disable_double_data(boolean_t double_data);
 extern int zfs_set_double_data(char *double_data_mode);
 extern int zfs_get_double_data(void);
 

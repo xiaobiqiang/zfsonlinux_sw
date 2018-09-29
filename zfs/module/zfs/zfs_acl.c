@@ -54,6 +54,12 @@
 #include <sys/sa.h>
 #include <sys/trace_acl.h>
 #include "fs/fs_subr.h"
+#include <sys/fcntl.h>
+#include <sys/zfs_group.h>
+#include <sys/zfs_group_dtl.h>
+#include <sys/dmu_objset.h>
+
+extern int ZFS_GROUP_DTL_ENABLE;
 
 #define	ALLOW	ACE_ACCESS_ALLOWED_ACE_TYPE
 #define	DENY	ACE_ACCESS_DENIED_ACE_TYPE
@@ -2048,10 +2054,12 @@ zfs_vsec_2_aclp(zfs_sb_t *zsb, umode_t obj_mode,
  * Set a file's ACL
  */
 int
-zfs_setacl(znode_t *zp, vsecattr_t *vsecp, boolean_t skipaclchk, cred_t *cr)
+zfs_setacl(znode_t *zp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
 	zfs_sb_t	*zsb = ZTOZSB(zp);
+	struct inode *ip = ZTOI(zp);
 	zilog_t		*zilog = zsb->z_log;
+	boolean_t skipaclchk = (flag & ATTR_NOACLCHECK) ? B_TRUE : B_FALSE;
 	ulong_t		mask = vsecp->vsa_mask & (VSA_ACE | VSA_ACECNT);
 	dmu_tx_t	*tx;
 	int		error;
@@ -2060,6 +2068,8 @@ zfs_setacl(znode_t *zp, vsecattr_t *vsecp, boolean_t skipaclchk, cred_t *cr)
 	boolean_t	fuid_dirtied;
 	uint64_t	acl_obj;
 	int	err_meta_tx = 0;
+	zfs_group_dtl_carrier_t* z_carrier = NULL;
+	zfs_group_dtl_data_t*	ss_data = NULL;
 
 	if (mask == 0)
 		return (SET_ERROR(ENOSYS));
@@ -2142,8 +2152,30 @@ top:
 
 	if (fuidp)
 		zfs_fuid_info_free(fuidp);
-	dmu_tx_commit(tx);
 
+	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flag & FBackupMaster) == 0
+		&& error == 0 && ZFS_GROUP_DTL_ENABLE){ 
+		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
+			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
+	    	z_carrier = zfs_group_dtl_carry(NAME_ACL, zp, NULL, NULL, 0, 0,
+			    NULL, cr, flag, vsecp);
+			if(z_carrier){
+				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+				ss_data->obj = zp->z_id;
+				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
+				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
+				mutex_enter(&zsb->z_group_dtl_tree2_mutex);
+				gethrestime(&ss_data->gentime);
+				zfs_group_dtl_add(&zsb->z_group_dtl_tree2, ss_data, sizeof(zfs_group_dtl_data_t));
+				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
+				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
+				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
+				zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
+			}
+		}
+	}
+	
+	dmu_tx_commit(tx);
 	if (wait_meta_tx && err_meta_tx != 0) {
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}

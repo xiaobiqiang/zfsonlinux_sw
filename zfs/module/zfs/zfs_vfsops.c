@@ -3038,7 +3038,7 @@ end:
 			z_dirlow->propname[namesize] = '\0';
 		}
 		z_carrier = zfs_group_dtl_carry(NAME_DIRLOWDATA, zp, NULL, NULL, 0,
-			0, z_dirlow, NULL, 0, NULL, NULL);
+			0, z_dirlow, NULL, 0, NULL);
 		kmem_free(z_dirlow, sizeof(zfs_group_dirlow_t));
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
@@ -3051,6 +3051,7 @@ end:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 	}
 	iput(ZTOI(zp));
@@ -3330,7 +3331,7 @@ end:
 	kmem_free(buf, MAXPATHLEN);
 	if(0 == err && zsb->z_os->os_is_group && zsb->z_os->os_is_master){
 		z_carrier = zfs_group_dtl_carry(NAME_DIRQUOTA, zp, path, NULL, 0,
-			0, &dir_obj, NULL, 0, NULL, &quota);
+			0, &dir_obj, NULL, 0, &quota);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = zp->z_id;
@@ -3342,6 +3343,7 @@ end:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 		iput(ZTOI(zp));
 	}else if(0 == err){

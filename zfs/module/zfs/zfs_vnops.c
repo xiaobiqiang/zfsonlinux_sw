@@ -945,7 +945,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	optype = zfs_rw_type_data2(zp, ioflag, &nzp);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_write2(ip, uio, ioflag, cr, NULL);
+		error = zfs_client_write2(ip, uio, ioflag, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -1475,7 +1475,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	optype = zfs_rw_type(zp, ioflag, &nzp);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_write(ip, uio, ioflag, cr, NULL);
+		error = zfs_client_write(ip, uio, ioflag, cr);
 		ZFS_EXIT(zsb);
 		if (TO_DOUBLE_DATA_FILE) {
 			if (!error) {
@@ -2414,8 +2414,7 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 	optype = zfs_vn_lookup_type(zdp, real_nm, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_lookup(dip, real_nm, ipp, NULL, flags, NULL, cr, NULL,
-		    direntflags, realpnp);
+		error = zfs_client_lookup(dip, real_nm, ipp, NULL, flags, NULL, cr, direntflags, realpnp);
 		if(error == 0 && debug_nas_group == 1){
 			zp = ITOZ(*ipp);
 			cmn_err(CE_WARN, "[yzy] %s %d, filename %s, z_id 0x%llx, gen 0x%llx, mas os 0x%llx, mas obj 0x%llx", __func__, __LINE__,
@@ -2741,8 +2740,7 @@ zfs_create(struct inode *dip, char *name, vattr_t *vap, int excl,
 	optype = zfs_vn_dir_type(dzp, flag);
 	if (optype == VN_OP_CLIENT && (flag & FBackupMaster) == 0) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_create(dip, name, vap, excl, mode, ipp, cr, flag, NULL,
-		    vsecp);
+		error = zfs_client_create(dip, name, vap, excl, mode, ipp, cr, flag, vsecp);
 
 		ZFS_EXIT(zsb);
 		return (error);
@@ -3045,11 +3043,11 @@ out:
 			}
 
 			flag_group_file_create = zfs_group_create_data_file(zp, name, bregual, vsecp, vap, excl,
-				mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, NULL);
+				mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, ptx);
 			
 			if (TO_DOUBLE_DATA_FILE) {
 				flag_group_file_create &= zfs_group_create_data2_file(zp, name, bregual, vsecp, vap, excl,
-					mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, NULL);
+					mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, ptx);
 			}
 
 			if (NULL != ptx) {
@@ -3074,7 +3072,7 @@ out:
 			if(strcmp(name, os_name) != 0  && NULL == strstr(name, SMB_STREAM_PREFIX)
 				&& zsb->z_os->os_is_master && ZFS_GROUP_DTL_ENABLE) {
 				z_carrier = zfs_group_dtl_carry(NAME_CREATE, dzp, name, vap, excl,
-					mode, zp, cr, flag, NULL, vsecp);
+					mode, zp, cr, flag, vsecp);
 				if(z_carrier){
 					ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 					ss_data->obj = zp->z_id;
@@ -3163,7 +3161,7 @@ zfs_remove(struct inode *dip, char *name, cred_t *cr, int flags)
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		err = zfs_client_remove(dip, name, cr, NULL, flags);
+		err = zfs_client_remove(dip, name, cr, flags);
 		ZFS_EXIT(zsb);
 		return (err);
 	}
@@ -3208,7 +3206,7 @@ top:
 
 	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master) {
 
-		err = zfs_remove_data_file(dip, zp, name, cr, NULL, flags);
+		err = zfs_remove_data_file(dip, zp, name, cr, flags);
 		if (err != 0) {
 			zfs_dirent_unlock(dl);
 			iput(ZTOI(zp));
@@ -3218,7 +3216,7 @@ top:
 
 		/* TODO: should we reset data1 info in the master file ? */
 		if (TO_DOUBLE_DATA_FILE) {
-			err = zfs_remove_data2_file(dip, zp, name, cr, NULL, flags);
+			err = zfs_remove_data2_file(dip, zp, name, cr, flags);
 			if (err != 0)
 			{
 				zfs_dirent_unlock(dl);
@@ -3246,6 +3244,10 @@ top:
 	if (S_ISDIR(ip->i_mode)) {
 		error = SET_ERROR(EPERM);
 		goto out;
+	}
+
+	if (S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode)) {
+		bUpdateMaster2 = B_TRUE;
 	}
 
 #ifdef HAVE_DNLC
@@ -3360,10 +3362,10 @@ top:
 		}
 		if(strcmp(name, os_name) != 0){
 			z_carrier = zfs_group_dtl_carry(NAME_REMOVE, dzp, name, NULL, 0,
-			    0, NULL, cr, flags, NULL, NULL);
+			    0, NULL, cr, flags, NULL);
 			if(z_carrier){
 				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-				ss_data->obj = dzp->z_id;
+				ss_data->obj = obj;
 				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
 				mutex_enter(&zsb->z_group_dtl_tree2_mutex);
@@ -3372,6 +3374,7 @@ top:
 				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
+				zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);	
 			}
 		}
 	}	
@@ -3450,7 +3453,7 @@ zfs_mkdir(struct inode *dip, char *dirname, vattr_t *vap, struct inode **ipp,
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT && (flags & FBackupMaster) == 0){
 		ZFS_ENTER(zsb);
-		error = zfs_client_mkdir(dip, dirname, vap, ipp, cr, NULL, flags, vsecp);
+		error = zfs_client_mkdir(dip, dirname, vap, ipp, cr, flags, vsecp);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -3633,7 +3636,7 @@ top:
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && ZFS_GROUP_DTL_ENABLE){
 		/* Backup directory Master node. */
 		z_carrier = zfs_group_dtl_carry(NAME_MKDIR, dzp, dirname, vap, 0,
-			0, zp, cr, flags, NULL, vsecp);
+			0, zp, cr, flags, vsecp);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = zp->z_id;
@@ -3710,7 +3713,7 @@ zfs_rmdir(struct inode *dip, char *name, struct inode *cwd, cred_t *cr,
 	optype = zfs_vn_dir_type(dzp, flags);
     if (optype == VN_OP_CLIENT){
         ZFS_ENTER(zsb);
-        error = zfs_client_rmdir(dip, name, cwd, cr, NULL, flags);
+        error = zfs_client_rmdir(dip, name, cwd, cr, flags);
         ZFS_EXIT(zsb);
         return (error);
     }
@@ -3810,10 +3813,10 @@ top:
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_RMDIR, dzp, name, NULL, 0,
-				0, cwd, cr, flags, NULL, NULL);
+				0, cwd, cr, flags, NULL);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-			ss_data->obj = dzp->z_id;
+			ss_data->obj = zp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
 			mutex_enter(&zsb->z_group_dtl_tree2_mutex);
@@ -4818,7 +4821,7 @@ zfs_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 	optype = zfs_vn_op_type(zp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_setattr(ip, vap, flags, cr, NULL);
+		error = zfs_client_setattr(ip, vap, flags, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -4836,7 +4839,7 @@ zfs_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 		vattr_t vap_mode_only ;
 		vap_mode_only.va_mode = vap->va_mode ;
 		vap_mode_only.va_mask = ATTR_MODE ;
-		error = zfs_client_setattr(ip, &vap_mode_only, flags, cr, NULL);
+		error = zfs_client_setattr(ip, &vap_mode_only, flags, cr);
 		if( error ) {
 			ZFS_EXIT(zsb);
 			return error ;
@@ -5428,7 +5431,7 @@ top:
 		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
 			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
 			z_carrier = zfs_group_dtl_carry(NAME_ZNODE_SETATTR, zp, NULL, vap, 0,
-				0, NULL, cr, flags, NULL, NULL);
+				0, NULL, cr, flags, NULL);
 			if(z_carrier){
 				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 				ss_data->obj = zp->z_id;
@@ -5440,6 +5443,7 @@ top:
 				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
+				zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 			}
 		}
 	}
@@ -5628,7 +5632,7 @@ zfs_rename(struct inode *sdip, char *snm, struct inode *tdip, char *tnm,
 	optype = zfs_vn_dir_type(sdzp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_rename(sdip, snm, tdip, tnm, cr, NULL, flags);
+		error = zfs_client_rename(sdip, snm, tdip, tnm, cr, flags);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -5895,9 +5899,9 @@ top:
 	if (tzp){	/* Attempt to remove the existing target */
 		error = zfs_link_destroy(tdl, tzp, tx, zflg, NULL);
 		if (!error && zsb->z_os->os_is_group) {
-			error = zfs_remove_data_file(tdip, tzp, tnm, cr, NULL, flags);
+			error = zfs_remove_data_file(tdip, tzp, tnm, cr, flags);
 			if (TO_DOUBLE_DATA_FILE)
-				error = zfs_remove_data2_file(tdip, tzp, tnm, cr, NULL, flags);
+				error = zfs_remove_data2_file(tdip, tzp, tnm, cr, flags);
 		}
 	}
 
@@ -5958,7 +5962,7 @@ top:
 		&& (flags & FBackupMaster) == 0 && error == 0 && NULL == strstr(snm, SMB_STREAM_PREFIX)
 		&& NULL == strstr(tnm, SMB_STREAM_PREFIX) && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_RENAME, sdzp, snm, NULL, 0,
-				0, tdzp, cr, flags, NULL, tnm);
+				0, tdzp, cr, flags, tnm);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = szid;
@@ -6201,7 +6205,7 @@ top:
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0
 		&& error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_SYMLINK, dzp, name, vap, 0,
-				0, zp, cr, flags, NULL, link);
+				0, zp, cr, flags, link);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = 0;
@@ -6260,7 +6264,7 @@ zfs_readlink(struct inode *ip, uio_t *uio, cred_t *cr, int flags)
 	optype = zfs_vn_op_type(zp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_readlink(ip, uio, cr, NULL);
+		error = zfs_client_readlink(ip, uio, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -6323,7 +6327,7 @@ zfs_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr, int flag
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_link(tdip, sip, name, cr, NULL, flags);
+		error = zfs_client_link(tdip, sip, name, cr, flags);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -6442,7 +6446,7 @@ top:
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2
 		&& (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_LINK, dzp, name, NULL, 0,
-				0, szp, cr, flags, NULL, NULL);
+				0, szp, cr, flags, NULL);
 		if(z_carrier){
 			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = szp->z_id;
@@ -7051,7 +7055,6 @@ EXPORT_SYMBOL(zfs_space);
 
 void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_tx_t *tx)
 {
-//	int i = 0;
 	int err = 0;
 	uint64_t map_obj = 0;
 	char buf[MAXNAMELEN];
@@ -7089,7 +7092,6 @@ void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_t
 
 static int zfs_fid_set_master_info(zfs_sb_t *zsb, znode_t *zp)
 {
-//	int i = 0;
 	int err = 0;
 	uint64_t gen = 0;
 	uint64_t object = 0;
@@ -7276,7 +7278,7 @@ zfs_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 	optype = zfs_vn_op_type(zp, flag);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_getsecattr(ip, vsecp, flag, cr, NULL);
+		error = zfs_client_getsecattr(ip, vsecp, flag, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -7297,17 +7299,13 @@ zfs_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 	znode_t *zp = ITOZ(ip);
 	zfs_sb_t *zsb = ITOZSB(ip);
 	int error;
-	boolean_t skipaclchk = (flag & ATTR_NOACLCHECK) ? B_TRUE : B_FALSE;
 	zilog_t	*zilog = zsb->z_log;
-
 	vn_op_type_t optype;
-	zfs_group_dtl_carrier_t* z_carrier = NULL;
-	zfs_group_dtl_data_t*	ss_data = NULL;
 
 	optype = zfs_vn_op_type(zp, flag);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_setsecattr(ip, vsecp, flag, cr, NULL);
+		error = zfs_client_setsecattr(ip, vsecp, flag, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -7315,31 +7313,10 @@ zfs_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 	ZFS_ENTER(zsb);
 	ZFS_VERIFY_ZP(zp);
 
-	error = zfs_setacl(zp, vsecp, skipaclchk, cr);
+	error = zfs_setacl(zp, vsecp, flag, cr);
 
 	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
-
-	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flag & FBackupMaster) == 0
-		&& error == 0 && ZFS_GROUP_DTL_ENABLE){ 
-		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
-			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
-	    	z_carrier = zfs_group_dtl_carry(NAME_ACL, zp, NULL, NULL, 0, 0,
-			    NULL, cr, flag, NULL, vsecp);
-			if(z_carrier){
-				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-				ss_data->obj = zp->z_id;
-				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
-				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
-				mutex_enter(&zsb->z_group_dtl_tree2_mutex);
-				gethrestime(&ss_data->gentime);
-				zfs_group_dtl_add(&zsb->z_group_dtl_tree2, ss_data, sizeof(zfs_group_dtl_data_t));
-				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
-				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
-				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			}
-		}
-	}
 
 	ZFS_EXIT(zsb);
 	return (error);
@@ -7501,40 +7478,6 @@ zfs_retzcbuf(struct inode *ip, xuio_t *xuio, cred_t *cr)
 	return (0);
 }
 #endif /* HAVE_UIO_ZEROCOPY */
-
-int zfs_print_znode_info(char *path)
-{
-	int error = 0;
-	struct file *filp = NULL;
-	struct inode *ip = NULL;
-	znode_t *zp;
-	if (path == NULL) {
-		return EINVAL;
-	}
-
-	filp = filp_open(path, O_DIRECTORY, 0);
-	if (IS_ERR(filp)){
-		filp = filp_open(path, O_RDONLY, 0444);
-		if (IS_ERR(filp)){
-			cmn_err(CE_WARN, "[%s %d], the path %s is error", __func__, __LINE__, path);
-			return (EINVAL);
-		}
-	}
-
-	ip = filp->f_path.dentry->d_inode;
-	zp = ITOZ(ip);
-	cmn_err(CE_WARN, "%s line(%d) znode(%s) id(%"PRIx64") gen(%"PRIu64") m_spa(%"PRIx64") m_objset(%"PRIx64") m_object(%"PRIx64") d1_spa(%"PRIx64") d1_objset(%"PRIx64") d1_object(%"PRIx64") d2_spa(%"PRIx64") d2_objset(%"PRIx64") d2_object(%"PRIx64")",
-		__func__, __LINE__, path, zp->z_id,  zp->z_gen, zp->z_group_id.master_spa, zp->z_group_id.master_objset, zp->z_group_id.master_object,
-		zp->z_group_id.data_spa, zp->z_group_id.data_objset, zp->z_group_id.data_object, zp->z_group_id.data2_spa, zp->z_group_id.data2_objset, zp->z_group_id.data2_object);
-	filp_close(filp, NULL);
-	return error;
-}
-
-int zfs_enable_disable_double_data(boolean_t double_data)
-{
-	TO_DOUBLE_DATA_FILE = double_data;
-	return TO_DOUBLE_DATA_FILE;
-}
 
 int zfs_set_double_data(char *double_data_mode)
 {

@@ -58,6 +58,7 @@ typedef struct zmc_sync_object
 	kmutex_t lock;
 	kthread_t* thread;
 	boolean_t thread_exit;
+	kcondvar_t thread_cv;
 
 	vnode_t* kf_vp;
 	offset_t kf_fpos;
@@ -108,9 +109,6 @@ int zfs_sync_master_data(struct inode * ip, struct inode * data_ip);
 int zmc_compare_master_data_object_data(zfs_group_object_t* obj, zfs_group_object_t* robj);
 int zmc_compare_master_data_object_master(zfs_group_object_t* obj, zfs_group_object_t* robj);
 int zfs_client_notify_master_data_info(znode_t* zp, zfs_multiclus_node_type_t m_node_type);
-// int zfs_client_do_notify_sync_file_data_info(znode_t* zp, uint64_t dst_spa, uint64_t dst_objset, uint64_t dst_object);
-// int zfs_client_notify_master_data12_info(znode_t* zp, zfs_multiclus_node_type_t m_node_type);
-
 
 
 static void zmc_build_data_msg_header(objset_t *os, zfs_group_header_t *hdr,
@@ -224,29 +222,30 @@ int zfs_multiclus_sync_group_data(char* group_name, char* fs_name, char* output_
 	zmc_sync_thread_arg_t* arg = NULL;
 
 	if (group_name == NULL || fs_name == NULL || output_file == NULL) {
+		cmn_err(CE_WARN, "[%s %d] group_name=%s, fs_name=%s, output_file=%s",
+			__func__, __LINE__, group_name, fs_name, output_file);
 		return EINVAL;
 	}
 
 	if (!zfs_multiclus_enable()) {
-		cmn_err(CE_WARN, "multicluster is disabled.");
+		cmn_err(CE_WARN, "[%s %d] zfs multiclus is disabled.", __func__, __LINE__);
 		return -1;
 	}
 
 	zfs_multiclus_get_group(group_name, &group);
 	if (group == NULL) {
-		cmn_err(CE_WARN, "failed to get group %s.", group_name);
+		cmn_err(CE_WARN, "[%s %d] failed to get group %s.", __func__, __LINE__, group_name);
 		return EINVAL;
 	}
 
 	if (dmu_objset_hold(fs_name, FTAG, &os) != 0) {
-		cmn_err(CE_WARN, "failed to get fs %s.", fs_name);
+		cmn_err(CE_WARN, "[%s %d] failed to get fs %s.", __func__, __LINE__, fs_name);
 		return EINVAL;
 	}
 
 	if (os->os_phys->os_type != DMU_OST_ZFS || os->os_is_group == 0) {
-		cmn_err(CE_WARN, "fs %s is invalid.", fs_name);
+		cmn_err(CE_WARN, "[%s %d] fs %s is invalid.", __func__, __LINE__, fs_name);
 		dmu_objset_rele(os, FTAG);
-
 		return EINVAL;
 	}
 
@@ -255,8 +254,10 @@ int zfs_multiclus_sync_group_data(char* group_name, char* fs_name, char* output_
 	mutex_exit(&os->os_user_ptr_lock);
 
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
+	dmu_objset_rele(os, FTAG);
+	
 	if (sync_obj == NULL) {
-		dmu_objset_rele(os, FTAG);
+		cmn_err(CE_WARN, "[%s %d] get sync_obj failed", __func__, __LINE__);
 		return EINVAL;
 	}
 
@@ -276,22 +277,16 @@ int zfs_multiclus_sync_group_data(char* group_name, char* fs_name, char* output_
 	mutex_enter(&(sync_obj->lock));
 
 	if (sync_obj->thread != NULL) {
-		cmn_err(CE_WARN, "group %s, fs %s is in syncing.", group_name, fs_name);
-
+		cmn_err(CE_WARN, "[%s %d] group %s, fs %s is in syncing.", __func__, __LINE__, 
+			group_name, fs_name);
 		mutex_exit(&(sync_obj->lock));
 		kmem_free(arg, sizeof(zmc_sync_thread_arg_t));
-		dmu_objset_rele(os, FTAG);
-
 		return EBUSY;
 	}
 
 	sync_obj->thread_exit = B_FALSE;
 	sync_obj->thread = kthread_run(zmc_sync_data_worker_thread, (void *)arg, "%s", "zfs_multiclus_sync_data_obj");
-
 	mutex_exit(&(sync_obj->lock));
-
-	dmu_objset_rele(os, FTAG);
-
 	return 0;
 }
 
@@ -305,23 +300,24 @@ void zmc_sync_data_worker_thread(zmc_sync_thread_arg_t* arg)
 	int ret = 0;
 
 	if (!zfs_multiclus_enable()) {
-		cmn_err(CE_WARN, "multicluster is disabled.");
+		cmn_err(CE_WARN, "[%s %d] zfs multiclus is disabled.", __func__, __LINE__);
 		goto out;
 	}
 
 	zfs_multiclus_get_group(arg->group_name, &group);
 	if (group == NULL) {
-		cmn_err(CE_WARN, "failed to get group %s.", arg->group_name);
+		cmn_err(CE_WARN, "[%s %d] failed to get group %s.", __func__, __LINE__, 
+			arg->group_name);
 		goto out;
 	}
 
 	if (dmu_objset_hold(arg->fs_name, FTAG, &os)) {
-		cmn_err(CE_WARN, "failed to get fs %s.", arg->fs_name);
+		cmn_err(CE_WARN, "[%s %d] failed to get fs %s.", __func__, __LINE__, arg->fs_name);
 		goto out;
 	}
 
 	if (os->os_phys->os_type != DMU_OST_ZFS || os->os_is_group == 0) {
-		cmn_err(CE_WARN, "fs %s is invalid.", arg->fs_name);
+		cmn_err(CE_WARN, "[%s %d] fs %s is invalid.", __func__, __LINE__, arg->fs_name);
 		goto out;
 	}
 
@@ -330,61 +326,64 @@ void zmc_sync_data_worker_thread(zmc_sync_thread_arg_t* arg)
 	mutex_exit(&os->os_user_ptr_lock);
 
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
+	dmu_objset_rele(os, FTAG);
+	
 	if (sync_obj == NULL) {
+		cmn_err(CE_WARN, "[%s %d] get sync_obj failed", __func__, __LINE__);
 		goto out;
 	}
 
 	ret = zfs_multiclus_kfcreate(arg->output_file, &(sync_obj->kf_vp));
 	if (ret != 0) {
-		cmn_err(CE_WARN, "failed to create log file, file = %s, error = %d.",
-			arg->output_file, ret);
+		cmn_err(CE_WARN, "[%s %d] failed to create log file, file = %s, error = %d.",
+			__func__, __LINE__, arg->output_file, ret);
 		goto out;
 	}
 	sync_obj->kf_fpos = 0;
 
 	if (arg->check_only) {
-		cmn_err(CE_WARN, "group check is started, group = %s, fs = %s, dir_path = '%s'.",
-			arg->group_name, arg->fs_name, arg->dir_path);
+		cmn_err(CE_WARN, "[%s %d] group check is started, group = %s, fs = %s, dir_path = '%s'.",
+			__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 		zmc_sync_log(sync_obj, "group check is started, group = %s, fs = %s, dir_path = '%s'.",
 			arg->group_name, arg->fs_name, arg->dir_path);
 
 		ret = zmc_check_group_data(group, zsb, arg->dir_path);
 		if (ret == EINTR) {
-			cmn_err(CE_WARN, "group check is stopped, group = %s, fs = %s, dir_path = '%s'.",
-				arg->group_name, arg->fs_name, arg->dir_path);
+			cmn_err(CE_WARN, "[%s %d] group check is stopped, group = %s, fs = %s, dir_path = '%s'.",
+				__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 			zmc_sync_log(sync_obj, "group check is stopped, group = %s, fs = %s, dir_path = '%s'.",
 				arg->group_name, arg->fs_name, arg->dir_path);
 		} else if (ret != 0) {
-			cmn_err(CE_WARN, "group check is completed, sync is needed, group = %s, fs = %s, dir_path = '%s'.",
-				arg->group_name, arg->fs_name, arg->dir_path);
+			cmn_err(CE_WARN, "[%s %d] group check is completed, sync is needed, group = %s, fs = %s, dir_path = '%s'.",
+				__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 			zmc_sync_log(sync_obj, "group check is completed, sync is needed, group = %s, fs = %s, dir_path = '%s'.",
 				arg->group_name, arg->fs_name, arg->dir_path);
 		} else {
-			cmn_err(CE_WARN, "group check is completed, sync is unneeded, group = %s, fs = %s, dir_path = '%s'.",
-				arg->group_name, arg->fs_name, arg->dir_path);
+			cmn_err(CE_WARN, "[%s %d] group check is completed, sync is unneeded, group = %s, fs = %s, dir_path = '%s'.",
+				__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 			zmc_sync_log(sync_obj, "group check is completed, sync is unneeded, group = %s, fs = %s, dir_path = '%s'.",
 				arg->group_name, arg->fs_name, arg->dir_path);
 		}
 	} else {
-		cmn_err(CE_WARN, "group sync is started, group = %s, fs = %s, dir_path = '%s'.",
-			arg->group_name, arg->fs_name, arg->dir_path);
+		cmn_err(CE_WARN, "[%s %d] group sync is started, group = %s, fs = %s, dir_path = '%s'.",
+			__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 		zmc_sync_log(sync_obj, "group sync is started, group = %s, fs = %s, dir_path = '%s'.",
 			arg->group_name, arg->fs_name, arg->dir_path);
 
-		ret = zmc_sync_group_data(group, zsb, arg->dir_path,arg);
+		ret = zmc_sync_group_data(group, zsb, arg->dir_path, arg);
 		if (ret == EINTR) {
-			cmn_err(CE_WARN, "group sync is stopped, group = %s, fs = %s, dir_path = '%s'.",
-				arg->group_name, arg->fs_name, arg->dir_path);
+			cmn_err(CE_WARN, "[%s %d] group sync is stopped, group = %s, fs = %s, dir_path = '%s'.",
+				__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 			zmc_sync_log(sync_obj, "group sync is stopped, group = %s, fs = %s, dir_path = '%s'.",
 				arg->group_name, arg->fs_name, arg->dir_path);
 		} else if (ret != 0) {
-			cmn_err(CE_WARN, "group sync is failed, group = %s, fs = %s, dir_path = '%s', error = %d.",
-				arg->group_name, arg->fs_name, arg->dir_path, ret);
+			cmn_err(CE_WARN, "[%s %d] group sync is failed, group = %s, fs = %s, dir_path = '%s', error = %d.",
+				__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path, ret);
 			zmc_sync_log(sync_obj, "group sync is failed, group = %s, fs = %s, dir_path = '%s', error = %d.",
 				arg->group_name, arg->fs_name, arg->dir_path, ret);
 		} else {
-			cmn_err(CE_WARN, "group sync is completed, group = %s, fs = %s, dir_path = '%s'.",
-				arg->group_name, arg->fs_name, arg->dir_path);
+			cmn_err(CE_WARN, "[%s %d] group sync is completed, group = %s, fs = %s, dir_path = '%s'.",
+				__func__, __LINE__, arg->group_name, arg->fs_name, arg->dir_path);
 			zmc_sync_log(sync_obj, "group sync is completed, group = %s, fs = %s, dir_path = '%s'.",
 				arg->group_name, arg->fs_name, arg->dir_path);
 		}
@@ -402,12 +401,10 @@ out:
 		mutex_exit(&(sync_obj->lock));
 	}
 
-	if (os != NULL) {
-		dmu_objset_rele(os, FTAG);
-	}
-
 	/* allocated in zfs_multiclus_sync_group */
 	kmem_free(arg, sizeof(zmc_sync_thread_arg_t));
+
+	cv_signal(&(sync_obj->thread_cv));
 
 	thread_exit();
 
@@ -423,8 +420,6 @@ int zmc_check_data1_data2(struct inode * ip, struct inode *ip_data1, struct inod
 	znode_t* zp = NULL;
 	znode_t* zp_data1 = NULL;
 	znode_t* zp_data2 = NULL;
-//	znode_t* newtime_zp = NULL;
-//	zfs_group_object_t* newtime_obj = NULL;
 	zfs_group_object_t* obj_data1 = NULL;
 	zfs_group_object_t* obj_data2 = NULL;
 	int error = 0;
@@ -449,8 +444,8 @@ int zmc_check_data1_data2(struct inode * ip, struct inode *ip_data1, struct inod
 	obj_data2 = &(zp_data2->z_group_id);
 	
 	/* compare file name & type */
-	if ((ip_data1->i_mode & S_IFMT) != S_IFREG || (ip_data1->i_mode & S_IFMT) != (ip_data2->i_mode & S_IFMT)
-		||strcmp(zp_data1->z_filename,zp_data1->z_filename) != 0) {
+	if (!S_ISREG(ip_data1->i_mode) || (ip_data1->i_mode & S_IFMT) != (ip_data2->i_mode & S_IFMT)
+		||strcmp(zp_data1->z_filename, zp_data2->z_filename) != 0) {
 		zmc_sync_log(sync_obj, "file %s %lu not matched data1 and data2 (type or filename)",
 			zp->z_filename, zp->z_id);
 		return ZMC_SYNC_DIFF_TYPE;
@@ -578,7 +573,6 @@ int zmc_do_check_file_data(struct inode * pip, struct inode * ip)
 	int error = 0;
 	zmc_sync_obj_t* sync_obj = NULL;
 	zfs_sb_t *zsb;
-//	zfs_multiclus_group_record_t* record = NULL;
 
 	if (ip == NULL)
 		return EINVAL;
@@ -606,7 +600,7 @@ int zmc_do_check_file_data(struct inode * pip, struct inode * ip)
 			zp->z_filename, zp->z_id, error);	
 	}
 
-	/* sync data1 data2 vnode */
+	/* check data1 data2 vnode */
 	error = zmc_check_data1_data2(ip, tmp_ipp_data1, tmp_ipp_data2);
 	if (error != 0) {
 		error = -1;
@@ -717,19 +711,13 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 {
 	zmc_sync_obj_t* sync_obj = NULL;
 	znode_t* root = NULL;
-//	vnode_t* pvp = NULL;
-//	vnode_t* vp = NULL;
 	struct inode * pip = NULL;
 	struct inode * ip = NULL;
 	uint64_t root_id = 0;
 	int error = 0;
 
-	struct file	*filp = NULL, *dirfilp = NULL;
-	char dir_path_tmp[MAXNAMELEN] = {'\0'};
-	char *p = NULL;
-
-
-	group = group;
+	struct file *filp = NULL;
+	char full_dir_path[MAXNAMELEN] = {'\0'};
 
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
 
@@ -740,81 +728,53 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 	}
 
 	if (dir_path == NULL || dir_path[0] == 0) {
-//		VN_HOLD(ZTOV(root));
-//		vp = ZTOV(root);
 		igrab(ZTOI(root));
 		ip = ZTOI(root);
 	} else {
-/*
-		error = lookupnameat(dir_path, UIO_SYSSPACE, (enum symfollow)(FOLLOW | FNOREMOTE), &pvp, &vp, ZTOV(root));
-		if (error != 0) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path, error);
-			VN_RELE(ZTOV(root));
-			return 0;
-		}
-*/
-		filp = filp_open(dir_path, O_RDONLY, 0);
-		if (IS_ERR(filp)) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path, error);
-			iput(ZTOI(root));
-			return 0;
-		}
-		ip = file_inode(filp);	
-//		if (vp == NULL) {
-		if (ip == NULL) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path, error);
-//			VN_RELE(ZTOV(root));
-//			VN_RELE(pvp);
-			iput(ZTOI(root));
-			fput(filp);
-			return 0;
-		}
-		igrab(ip);
+		sprintf(full_dir_path, "%s/%s", zsb->z_mntopts->z_mntpoint, dir_path);
+		if (full_dir_path[strlen(full_dir_path)-1] == '/')
+			full_dir_path[strlen(full_dir_path)-1] = '\0';
 		
-		bcopy(dir_path, dir_path_tmp, strlen(dir_path));
-		p = dir_path_tmp + strlen(dir_path) - 1;
-		while (*p != '/')
-			p--;
-		*p = '\0';
-		dirfilp = filp_open(dir_path_tmp, O_RDONLY, 0);
-		if (IS_ERR(dirfilp)) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path_tmp, error);
+		/*find the dirpath inode*/
+		filp = filp_open(full_dir_path, O_RDONLY, 0);
+		if (IS_ERR(filp)) {
+			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", 
+				full_dir_path, error);
 			iput(ZTOI(root));
-			iput(ip);
-			fput(filp);
-			return 0;
+			return (0);
 		}
-		pip = file_inode(dirfilp);
-		if (pip == NULL) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path_tmp, error);
+		ip = file_inode(filp);
+		if (ip == NULL) {
+			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", 
+				full_dir_path, error);
 			iput(ZTOI(root));
-			iput(ip);
-			fput(filp);
-			fput(dirfilp);
-		}
-		igrab(pip);
-
-
-//		if (vp->v_type != VDIR) {
-		if ((ip->i_mode & S_IFMT) != S_IFDIR){
-			zmc_sync_log(sync_obj, "target path is not a directory, dir_path = '%s'.", dir_path);
-			iput(ZTOI(root));
-			iput(ip);
-			iput(pip);
-			fput(filp);
-			fput(dirfilp);
-			return 0;
+			filp_close(filp, NULL);
+			return (0);
 		}
 
-//		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
-		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
-			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
+		igrab(ip);
+		filp_close(filp, NULL);
+		
+		if (!S_ISDIR(ip->i_mode)) {
+			zmc_sync_log(sync_obj, "target path is not a directory, dir_path = '%s'.", full_dir_path);
 			iput(ZTOI(root));
 			iput(ip);
-			iput(pip);
-			fput(filp);
-			fput(dirfilp);
-			return 0;
+			return (0);
+		}
+		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) != dmu_objset_fsid_guid(zsb->z_os)) {
+			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", full_dir_path);
+			iput(ZTOI(root));
+			iput(ip);
+			return (0);
+		}
+		
+		error = zfs_lookup(ip, "..", &pip, 0, CRED(), NULL, NULL);
+		if (error != 0) {
+			zmc_sync_log(sync_obj, "failed to get parent directory, dir_path='%s', error=%d", 
+				full_dir_path, error);
+			iput(ZTOI(root));
+			iput(ip);
+			return (0);
 		}
 	}
 
@@ -838,11 +798,7 @@ int zmc_check_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, ch
 	if (pip != NULL) {
 		iput(pip);
 	}
-
 	iput(ip);
-
-	fput(filp);
-	fput(dirfilp);
 	return error;
 }
 
@@ -905,103 +861,65 @@ int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, cha
 	uint64_t root_id = 0;
 	int error = 0;
 
-	struct file	*filp = NULL, *dirfilp = NULL;
-	char dir_path_tmp[MAXNAMELEN] = {'\0'};
-	char *p = NULL;
-	
-	group = group;
+	struct file *filp = NULL;
+	char full_dir_path[MAXNAMELEN] = {'\0'};
 	
 	sync_obj = (zmc_sync_obj_t*)(zsb->z_group_sync_obj);
-//	sync_obj = (zmc_sync_obj_t*)(zfsvfs->z_group_sync_obj);
 
 	error = zfs_zget(zsb, zsb->z_root, &root);
-//	error = zfs_zget(zfsvfs, zfsvfs->z_root, &root);
 	if (error != 0) {
 		zmc_sync_log(sync_obj, "failed to get root directory, error = %d.", error);
 		return -1;
 	}
 
 	if (dir_path == NULL || dir_path[0] == 0) {
-//		VN_HOLD(ZTOV(root));
-//		vp = ZTOV(root);
 		igrab(ZTOI(root));
 		ip = ZTOI(root);
 	} else {
-/*
-		error = lookupnameat(dir_path, UIO_SYSSPACE, (enum symfollow)(FOLLOW | FNOREMOTE), &pvp, &vp, ZTOV(root));
-		if (error != 0) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path, error);
-	  		VN_RELE(ZTOV(root));
-			iput(ZTOI(root));
-			return -1;
-		}
-*/
-		filp = filp_open(dir_path, O_RDONLY, 0);
+		sprintf(full_dir_path, "%s/%s", zsb->z_mntopts->z_mntpoint, dir_path);
+		if (full_dir_path[strlen(full_dir_path)-1] == '/')
+			full_dir_path[strlen(full_dir_path)-1] = '\0';
+		
+		/*find the dirpath inode*/
+		filp = filp_open(full_dir_path, O_RDONLY, 0);
 		if (IS_ERR(filp)) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path, error);
+			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", 
+				full_dir_path, error);
 			iput(ZTOI(root));
-			return -1;
+			return (0);
 		}
 		ip = file_inode(filp);
-//		if (vp == NULL) {
 		if (ip == NULL) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path, error);
-//			VN_RELE(ZTOV(root));
-//			VN_RELE(pvp);
+			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", 
+				full_dir_path, error);
 			iput(ZTOI(root));
-			fput(filp);
-			return -1;
+			filp_close(filp, NULL);
+			return (0);
 		}
+
 		igrab(ip);
-
-		bcopy(dir_path, dir_path_tmp, strlen(dir_path));
-		p = dir_path_tmp + strlen(dir_path) - 1;
-		while (*p != '/')
-			p--;
-		*p = '\0';
-		dirfilp = filp_open(dir_path_tmp, O_RDONLY, 0);
-		if (IS_ERR(dirfilp)) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path_tmp, error);
+		filp_close(filp, NULL);
+		
+		if (!S_ISDIR(ip->i_mode)) {
+			zmc_sync_log(sync_obj, "target path is not a directory, dir_path = '%s'.", full_dir_path);
 			iput(ZTOI(root));
 			iput(ip);
-			fput(filp);
+			return (0);
 		}
-		pip = file_inode(dirfilp);
-		if (pip == NULL) {
-			zmc_sync_log(sync_obj, "failed to get target directory, dir_path = '%s', error = %d.", dir_path_tmp, error);
+		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) != dmu_objset_fsid_guid(zsb->z_os)) {
+			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", full_dir_path);
 			iput(ZTOI(root));
 			iput(ip);
-			fput(filp);
-			fput(dirfilp);
+			return (0);
 		}
-		igrab(pip);
-
-//		if (vp->v_type != VDIR) {
-		if ((ip->i_mode & S_IFMT) != S_IFDIR) {
-			zmc_sync_log(sync_obj, "target path is not a directory, dir_path = '%s'.", dir_path);
-//			VN_RELE(ZTOV(root));
-//			VN_RELE(pvp);
-//			VN_RELE(vp);
+		
+		error = zfs_lookup(ip, "..", &pip, 0, CRED(), NULL, NULL);
+		if (error != 0) {
+			zmc_sync_log(sync_obj, "failed to get parent directory, dir_path='%s', error=%d", 
+				full_dir_path, error);
 			iput(ZTOI(root));
-			iput(pip);
 			iput(ip);
-			fput(filp);
-			fput(dirfilp);
-			return -1;
-		}
-
-//		if (memcmp(&(vp->v_vfsp->vfs_fsid), &(zfsvfs->z_vfs->vfs_fsid), sizeof(fsid_t)) != 0) {
-		if (dmu_objset_fsid_guid(ITOZSB(ip)->z_os) == dmu_objset_fsid_guid(zsb->z_os)) {
-			zmc_sync_log(sync_obj, "target path is not in group and fs, dir_path = '%s'.", dir_path);
-//			VN_RELE(ZTOV(root));
-//			VN_RELE(pvp);
-//			VN_RELE(vp);
-			iput(ZTOI(root));
-			iput(pip);
-			iput(ip);
-			fput(filp);
-			fput(dirfilp);
-			return -1;
+			return (0);
 		}
 	}
 
@@ -1013,7 +931,7 @@ int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, cha
 		 * start syncing from root dir:
 		 * no need to sync root dir itself, just sync each dir entry within root dir
 		 */
-		error = zfs_foreach_dir_entry(ip, zmc_sync_master_dir_entry_data,args);
+		error = zfs_foreach_dir_entry(ip, zmc_sync_master_dir_entry_data, args);
 	} else {
 		/*
 		 * start syncing from specified dir:
@@ -1025,10 +943,7 @@ int zmc_sync_group_master_data(zfs_multiclus_group_t* group, zfs_sb_t * zsb, cha
 	if (pip != NULL) {
 		iput(pip);
 	}
-
 	iput(ip);
-	fput(filp);
-	fput(dirfilp);
 	return error;
 }
 
@@ -1104,7 +1019,7 @@ static void zfs_group_build_header_data_backup(objset_t *os,
     msg_op_type_t op_type, msg_orig_type_t orig_type, zfs_group_object_t* z_group_id)
 {
 	hdr->magic = ZFS_GROUP_MAGIC;
-	hdr->msg_type = op_type;
+	hdr->op_type = op_type;
 	hdr->orig_type = orig_type;
 	hdr->wait_flag = (ushort_t)wait_flag;
 	hdr->command = cmd;
@@ -1157,7 +1072,6 @@ static void zfs_group_build_header_data_backup(objset_t *os,
 int zfs_group_create_data_file_node(znode_t *zp, char *name, boolean_t bregual,
 	vsecattr_t *vsecp, vattr_t *vap, int ex, int mode, int flag,
 	uint64_t orig_spa, uint64_t orig_os, uint64_t* dirlowdata, uint64_t* host_id,zfs_group_object_t *z_group_id, int type)
-
 {
 	int err = 0;
 	size_t request_length = 0;
@@ -1209,7 +1123,7 @@ int zfs_group_create_data_file_node(znode_t *zp, char *name, boolean_t bregual,
 	group_object = zp->z_group_id;
 	group_object.master_gen = zp->z_gen;
 	
-	if(type == ZMC_SYNC_SYNC_DATA2){
+	if(type == ZMC_SYNC_SYNC_DATA2) {
 		zfs_group_route_data2(zsb, orig_spa, orig_os, &dst_spa, &dst_os, &dst_root_object,
 			host_id, zp->z_group_id.data_spa, zp->z_group_id.data_objset);
 	} else {
@@ -1351,42 +1265,28 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 	vattr_t va = { 0 };
 	vsecattr_t vsa = { 0 };
 	cred_t* credp = NULL;
-	caller_context_t ct;
 	int error;
 
 	zsb = ZTOZSB(zp);
 	 
 	va.va_mask = ATTR_IATTR_MASK;
-//	error = vp->v_op->vop_getattr(vp, &va, FCLUSTER, kcred, NULL);
 	error = zfs_getattr(ip, &va, FCLUSTER, kcred);
 	if (error != 0) {
 		goto out;
 	}
 	
 	vsa.vsa_mask = VSA_ACE | VSA_ACECNT | VSA_ACE_ACLFLAGS | VSA_ACE_ALLTYPES;
-//	error = vp->v_op->vop_getsecattr(vp, &vsa, FCLUSTER, kcred, NULL);
 	error = zfs_getsecattr(ip, &vsa, FCLUSTER, kcred);
 	if (error != 0) {
 		goto out;
 	}
-		
-//	credp = crget();
+
 	credp = prepare_creds();
 	crsetugid(credp, va.va_uid, va.va_gid);
 
 	if (zsb->z_os->os_is_master) {
-		ct.cc_sysid = BF64_GET(spa_guid(dmu_objset_spa(zsb->z_os)), 32, 32);
-		ct.cc_pid = BF64_GET(spa_guid(dmu_objset_spa(zsb->z_os)), 0, 32);
-		ct.cc_caller_id = dmu_objset_id(zsb->z_os);
-		
-		if (flag & FCLUSTER) {
-			BF64_SET(orig_spa, 32,32, ct.cc_sysid);
-			BF64_SET(orig_spa, 0, 32, ct.cc_pid);
-			orig_os = ct.cc_caller_id;
-		} else {
-			orig_spa = spa_guid(dmu_objset_spa(zsb->z_os));
-			orig_os = dmu_objset_id(zsb->z_os);
-		}
+		orig_spa = spa_guid(dmu_objset_spa(zsb->z_os));
+		orig_os = dmu_objset_id(zsb->z_os);
 	}
 			
 	if((pzp->z_pflags & ZFS_XATTR) == 0
@@ -1413,7 +1313,6 @@ int zmc_create_data1_or_data2_file(struct inode * pip, struct inode * ip,
 
 out:
 	if (credp != NULL) {
-//		crfree(credp);
 		abort_creds(credp);
 	}
 	
@@ -1436,7 +1335,6 @@ int zmc_do_sync_file_data(struct inode * pip, struct inode * ip,void *args)
 	int error = 0;
 	zmc_sync_obj_t* sync_obj = NULL;
 	zfs_sb_t *zsb;
-//	zfs_multiclus_group_record_t* record = NULL;
 	zmc_sync_thread_arg_t* usr_param = (zmc_sync_thread_arg_t*)args;
 
 	if (strstr(ITOZ(ip)->z_filename, SMB_STREAM_PREFIX) != NULL) {
@@ -1457,7 +1355,7 @@ int zmc_do_sync_file_data(struct inode * pip, struct inode * ip,void *args)
 
 	/* get data2 */
 	error = zmc_remote_get_data_node(ip, &tmp_ipp_data2, ZMC_SYNC_SYNC_DATA2);
-	if (error != 0 && usr_param->all_member_online == B_FALSE) {		
+	if (error != 0 && usr_param->all_member_online == B_FALSE) {
 		zmc_sync_log(sync_obj, "failed to get %s %lu data2 on error = %d",
 			zp->z_filename, zp->z_id, error);	
 	}
@@ -1726,7 +1624,6 @@ int zfs_sync_master_data(struct inode * ip, struct inode * data_ip)
 int zmc_sync_data1_data2(struct inode * ip,struct inode *ip_data1, struct inode *ip_data2)
 {
 	zmc_sync_obj_t* sync_obj = NULL;
-//	zfsvfs_t *zfsvfs = NULL;
 	zfs_sb_t *zsb = NULL;
 	znode_t* zp = NULL;
 	znode_t* zp_data1 = NULL;
@@ -1769,7 +1666,7 @@ int zmc_sync_data1_data2(struct inode * ip,struct inode *ip_data1, struct inode 
 	}
 
 	/* get Close to the current time vnode, save in newtime_zp */
-	error = zmc_get_data_recently_time(&newtime_zp,zp_data1,zp_data2);
+	error = zmc_get_data_recently_time(&newtime_zp, zp_data1, zp_data2);
 	if (error != 0) {
 		zmc_sync_log(sync_obj,"fail to get file=%s data1 data2 new time vnode error=%d",zp->z_filename,error);
 		return (error);
@@ -1789,16 +1686,15 @@ int zmc_sync_data1_data2(struct inode * ip,struct inode *ip_data1, struct inode 
 	if (newtime_zp == zp_data1) {
 		if(zp_data1->z_size != zp_data2->z_size || obj_data2->data_status == DATA_NODE_DIRTY) {
 			/* sync zp_data1 to zp_data2 */
-			error = zmc_sync_data_to_data(ip_data1,ip_data2);	
+			error = zmc_sync_data_to_data(ip_data1, ip_data2);	
 			
 			zmc_sync_log(sync_obj, "syncing data-data file %s %lu (size or status diff) on error = %d",
 				zp->z_filename, zp->z_id, error);
-			
 		}
 	} else if (newtime_zp == zp_data2) {
 		if(zp_data1->z_size != zp_data2->z_size || obj_data1->data_status == DATA_NODE_DIRTY) {
 			/* sync data zp_data2 to zp_data1 */
-			error = zmc_sync_data_to_data(ip_data2,ip_data1);
+			error = zmc_sync_data_to_data(ip_data2, ip_data1);
 			zmc_sync_log(sync_obj, "syncing data-data file %s %lu(size or status diff) on error = %d",
 				zp->z_filename, zp->z_id, error);
 		}
@@ -1814,7 +1710,6 @@ int zmc_sync_data_to_data(struct inode * src_ip, struct inode * dst_ip)
 	znode_t *src_zp = NULL;
 	znode_t *dst_zp = NULL;
 	zfs_sb_t *zsb =NULL;
-//	uint64_t off;
 	uint64_t io_flags;
 	zfs_group_data_t *data = NULL;
 	uint64_t msg_len = 0;
@@ -1822,7 +1717,7 @@ int zmc_sync_data_to_data(struct inode * src_ip, struct inode * dst_ip)
 	zfs_group_header_t *msg_header = NULL;
 	int request_length;
 	int reply_lenth;
-	zfs_group_data_read_t *read;
+	zfs_group_data_read_t *read = NULL;
 	
 	read = kmem_zalloc(sizeof(zfs_group_data_read_t), KM_SLEEP);
 
@@ -1835,11 +1730,11 @@ int zmc_sync_data_to_data(struct inode * src_ip, struct inode * dst_ip)
 	io_flags = FCLUSTER;
 
 	msg_len = sizeof (zfs_group_data_msg_t);
-	data_msg = kmem_zalloc(msg_len, KM_SLEEP);
+	data_msg = vmem_zalloc(msg_len, KM_SLEEP);
 	msg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 	data = &data_msg->call.data;
 	data->io_flags = io_flags;
-	data->arg.p.read = *read;
+	bcopy(read, &data->arg.p.read, sizeof(zfs_group_data_read_t));
 	request_length = sizeof(zfs_group_data_msg_t);
 	reply_lenth = data->arg.p.read.len + sizeof(zfs_group_data_msg_t) - 8;
 
@@ -1851,14 +1746,14 @@ int zmc_sync_data_to_data(struct inode * src_ip, struct inode * dst_ip)
 		dst_zp->z_group_id.data_object,
 		MSG_REQUEST, APP_USER);
 
-		src_zp->z_group_id.data2_spa = dst_zp->z_group_id.data_spa;
-		src_zp->z_group_id.data2_objset = dst_zp->z_group_id.data_objset;
-		src_zp->z_group_id.data2_object = dst_zp->z_group_id.data_object;
-		data->id = src_zp->z_group_id;
+	src_zp->z_group_id.data2_spa = dst_zp->z_group_id.data_spa;
+	src_zp->z_group_id.data2_objset = dst_zp->z_group_id.data_objset;
+	src_zp->z_group_id.data2_object = dst_zp->z_group_id.data_object;
+	data->id = src_zp->z_group_id;
 	error = zfs_client_send_to_server(zsb->z_os, msg_header, (zfs_msg_t *)data_msg, B_TRUE);
 
 	if (data_msg != NULL) {
-		kmem_free(data_msg, msg_len);
+		vmem_free(data_msg, msg_len);
 	}
 	if (msg_header != NULL) {
 		kmem_free(msg_header, sizeof(zfs_group_header_t));
@@ -1878,7 +1773,7 @@ static void zmc_build_data_msg_header(objset_t *os, zfs_group_header_t *hdr,
 	msg_orig_type_t orig_type)
 {
 	hdr->magic = ZFS_GROUP_MAGIC;
-	hdr->msg_type = op_type;
+	hdr->op_type = op_type;
 	hdr->orig_type = orig_type;
 	hdr->wait_flag = (ushort_t)wait_flag;
 	hdr->command = cmd;

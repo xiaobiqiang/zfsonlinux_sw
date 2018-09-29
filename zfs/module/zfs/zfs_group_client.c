@@ -142,7 +142,13 @@ void zfs_group_acquire_znode_error(znode_t *zp, zfs_group_object_t *group_object
 {
 	int type;
 	boolean_t lookup_error = B_FALSE;
-	zfs_sb_t *zsb = ZTOZSB(zp);
+	zfs_sb_t *zsb = NULL;
+
+	if (NULL == ZTOI(zp)->i_sb) {
+		zsb = zp->z_zsb;
+	} else {
+		zsb = ZTOZSB(zp);
+	}
 
 	if (zp->z_id != zsb->z_root &&  (group_object->master_spa == 0 || group_object->master_objset ==0 ||
 		group_object->master_object == 0)){
@@ -375,7 +381,7 @@ static void zfs_group_build_header_backup(objset_t *os,
     	zfs_multiclus_node_type_t m_node_type)
 {
 	hdr->magic = ZFS_GROUP_MAGIC;
-	hdr->msg_type = op_type;
+	hdr->op_type = op_type;
 	hdr->orig_type = orig_type;
 	hdr->wait_flag = (ushort_t)wait_flag;
 	hdr->command = cmd;
@@ -591,7 +597,6 @@ static int zfs_group_proc_name(
 	uint64_t request_length;
 	uint64_t reply_length;
 	zfs_sb_t *zsb;
-//	zfs_msg_t *zfs_msg;
 	zfs_group_name_msg_t *name_msg;
 	zfs_group_header_t *msg_header;
 	zfs_group_name_t *np;
@@ -601,7 +606,6 @@ static int zfs_group_proc_name(
 	msg_orig_type_t msg_orig;
 	int param_len = 0;
 	int error;
-//	int r;
 
 	zsb = ZTOZSB(zp);
 	name_msg = kmem_zalloc(sizeof(zfs_group_name_msg_t), KM_SLEEP);
@@ -720,7 +724,6 @@ static int zfs_group_proc_name_backup(
 	uint64_t request_length;
 	uint64_t reply_length;
 	zfs_sb_t *zsb;
-//	zfs_msg_t *zfs_msg;
 	zfs_group_name_msg_t *name_msg;
 	zfs_group_header_t *msg_header;
 	zfs_group_name_t *np;
@@ -730,7 +733,6 @@ static int zfs_group_proc_name_backup(
 	msg_orig_type_t msg_orig;
 	int param_len = 0;
 	int error = 0;
-//	int r;
 	zfs_multiclus_group_record_t *record = NULL;
 	znode_t new_znode = { 0 };
 	
@@ -739,8 +741,12 @@ static int zfs_group_proc_name_backup(
 	char *p = NULL;
 	int lendiff = 0;
 	uint64_t update_node_info = 0;
-	
-	zsb = ZTOZSB(zp);
+
+	if (NULL == ZTOI(zp)->i_sb) {
+		zsb = zp->z_zsb;
+	} else {
+		zsb = ZTOZSB(zp);
+	}
 
 	record = zfs_multiclus_get_group_master(zsb->z_os->os_group_name, m_node_type);
 	if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
@@ -909,7 +915,6 @@ static int zfs_group_proc_name_backup(
 			error = 0;
 			goto out;
 		}else{
-//			new_znode = *zp;
 			bcopy(zp, &new_znode, sizeof(znode_t));
 			mutex_init(&new_znode.z_lock, NULL, MUTEX_DEFAULT, NULL);
 			if(zfs_group_proc_znode(&new_znode, ZNODE_SEARCH, &m_node_type, credp, B_FALSE) == 0){
@@ -1012,7 +1017,7 @@ static int zfs_group_proc_name_backup(
 	
 	request_length = param_len;
 
-	zfs_group_build_header_backup(ZTOZSB(zp)->z_os, msg_header, ZFS_GROUP_CMD_NAME_BACKUP,
+	zfs_group_build_header_backup(zsb->z_os, msg_header, ZFS_GROUP_CMD_NAME_BACKUP,
 	    SHARE_WAIT, op,
 	    request_length, reply_length, dst_spa, dst_os, dst_object,
 	    dst_object,
@@ -1378,7 +1383,6 @@ int zfs_client_read_data(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	int error;
 	uint64_t off;
 	uint64_t len;
-//	size_t cbytes;
 	zfs_group_data_read_t *read;
 	off = uiop->uio_loffset;
 	len = bytes;
@@ -1405,7 +1409,6 @@ int zfs_client_read_data2(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	int error;
 	uint64_t off;
 	uint64_t len;
-//	size_t cbytes;
 	zfs_group_data_read_t *read;
 	off = uiop->uio_loffset;
 	len = bytes ;
@@ -1574,8 +1577,6 @@ int zfs_client_write_data(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	int error;
 	uint64_t off;
 	uint64_t len;
-//	size_t cbytes;
-//	uint64_t total_len;
 	zfs_group_data_write_t *write;
 
 	off = uiop->uio_loffset;
@@ -1605,8 +1606,6 @@ zfs_client_write_data2(zfs_sb_t *zsb, znode_t *zp, uio_t *uiop,
 	int error;
 	uint64_t off;
 	uint64_t len;
-//	size_t cbytes;
-//	uint64_t total_len;
 	zfs_group_data_write_t *write;
 
 	off = uiop->uio_loffset;
@@ -1635,9 +1634,10 @@ zfs_group_proc_znode(
 	znode_t *zp, znode_operation_t op, void *ptr,	
 	cred_t *credp, boolean_t watting)
 {
+	zfs_sb_t *zsb = NULL;
 	char msg[128];
 	const char *znode_op = "";
-	objset_t *os;
+	objset_t *os = NULL;
 	zfs_group_znode_msg_t *znode_msg;
 	zfs_group_header_t *msg_header = NULL;
 	zfs_group_znode_t *znp;
@@ -1645,23 +1645,26 @@ zfs_group_proc_znode(
 	share_flag_t wait_flag;
 	boolean_t force_sync;
 	int error;
-//	int r;
-//	boolean_t grabbed_mutex = FALSE;
-//	int unset_nb = 0;
 	zfs_multiclus_node_type_t *m_node_type_p = NULL;
 	zfs_multiclus_group_record_t *record = NULL;
-	uint64_t dst_spa = 0, dst_os = 0; //, dst_obj = 0;
+	uint64_t dst_spa = 0, dst_os = 0;
 
 	znode_msg = kmem_zalloc(sizeof (zfs_group_znode_msg_t), KM_SLEEP);
 	msg_header = kmem_zalloc(sizeof(zfs_group_header_t), KM_SLEEP);
 	znp = &znode_msg->call.znode;
 	zfs_group_set_cred(credp, &znp->cred);
 	wait_flag = SHARE_WAIT;
-	force_sync = TRUE;
-	os = ZTOZSB(zp)->z_os;
+	force_sync = B_TRUE;
+
+	if (NULL == ZTOI(zp)->i_sb) {
+		zsb = zp->z_zsb;
+	} else {
+		zsb = ZTOZSB(zp);
+	}
+	os = zsb->z_os;
 
 
-	if (zp->z_id == ZTOZSB(zp)->z_root) {
+	if (zp->z_id == zsb->z_root) {
 		zp->z_group_id.master_spa = os->os_master_spa;
 		zp->z_group_id.master_objset = os->os_master_os;
 		zp->z_group_id.master_object = os->os_master_root;
@@ -1700,7 +1703,7 @@ zfs_group_proc_znode(
 		znode_op = "Search";
 
 		m_node_type_p = (zfs_multiclus_node_type_t *)ptr;
-		record = zfs_multiclus_get_group_master(ZTOZSB(zp)->z_os->os_group_name, *m_node_type_p);
+		record = zfs_multiclus_get_group_master(zsb->z_os->os_group_name, *m_node_type_p);
 		if(record == NULL || record->node_status.status == ZFS_MULTICLUS_NODE_OFFLINE){
 			error = ENOENT;
 			goto out;
@@ -1724,7 +1727,7 @@ zfs_group_proc_znode(
 	}
 
 	if(op == ZNODE_FREE){
-		zfs_group_build_header(ZTOZSB(zp)->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
+		zfs_group_build_header(zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
 		    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
 		    znp->id.data_spa, znp->id.data_objset,
 	    	znp->id.data_object,
@@ -1734,7 +1737,7 @@ zfs_group_proc_znode(
 	    	zp->z_group_id.data_object,
 	    	MSG_REQUEST, APP_USER);
 	}else{
-		zfs_group_build_header(ZTOZSB(zp)->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
+		zfs_group_build_header(zsb->z_os, msg_header, ZFS_GROUP_CMD_ZNODE,
 		    wait_flag, op, sizeof (zfs_group_znode_msg_t), sizeof (zfs_group_znode_msg_t),
 		    op == ZNODE_SEARCH ? dst_spa : znp->id.master_spa, op == ZNODE_SEARCH ? dst_os: znp->id.master_objset,
 	    	zp->z_group_id.master_object,
@@ -1745,7 +1748,7 @@ zfs_group_proc_znode(
 	    	MSG_REQUEST, APP_USER);
 	}
 	
-	if ((error = zfs_client_send_to_server(ZTOZSB(zp)->z_os, msg_header, (zfs_msg_t *)znode_msg, watting)) == 0) {
+	if ((error = zfs_client_send_to_server(zsb->z_os, msg_header, (zfs_msg_t *)znode_msg, watting)) == 0) {
 		z2p = (zfs_group_znode2_t *)znp;
 		mutex_enter(&zp->z_lock);
 		zfs_group_znode_reset_phys(zp, &z2p->zrec.object_phy);
@@ -1770,18 +1773,13 @@ zfs_group_proc_znode_backup(
 	znode_t *zp, znode_operation_t op, void *ptr,	
 	cred_t *credp, zfs_multiclus_node_type_t m_node_type)
 {
-//	char msg[128];
 	const char *znode_op;
 	zfs_group_znode_msg_t *znode_msg = NULL;
 	zfs_group_header_t *msg_header = NULL;
 	zfs_group_znode_t *znp;
-//	zfs_group_znode2_t *z2p;
 	share_flag_t wait_flag;
 	boolean_t force_sync;
 	int error = 0;
-//	int r;
-//	boolean_t grabbed_mutex = FALSE;
-//	int unset_nb = 0;
 	zfs_multiclus_group_record_t *record = NULL;
 	zfs_sb_t *zsb = NULL;
 	uint64_t dst_spa = 0;
@@ -1845,7 +1843,6 @@ zfs_group_proc_znode_backup(
 		dst_spa == 0 || dst_os == 0 || dst_object == 0){
 		
 		if(NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
-//			new_znode = *zp;
 			bcopy(zp, &new_znode, sizeof(znode_t));
 			mutex_init(&new_znode.z_lock, NULL, MUTEX_DEFAULT, NULL);
 			if(zfs_group_proc_znode(&new_znode, ZNODE_SEARCH, &m_node_type, credp, B_FALSE) == 0){
@@ -2102,7 +2099,6 @@ error:
 int 
 zfs_group_get_attr_from_data2_node(zfs_sb_t *zsb, znode_t *master_znode)
 {
-//	boolean_t bover;
 	zfs_group_cmd_arg_t cmd_arg;
 	fs_data_file_attr_t *fs_data_filesize = kmem_zalloc(sizeof(fs_data_file_attr_t), KM_SLEEP);
 	dmu_tx_t *tx;
@@ -2307,7 +2303,6 @@ zfs_group_proc_notify(objset_t *os,
 int zfs_client_do_notify_file_space(zfs_sb_t * zsb, zfs_group_notify_file_space_t* file_notify,
 	uint64_t master_spa, uint64_t master_os, uint64_t master_object, uint64_t master_gen)
 {
-//	znode_t* dst_zp = NULL;
 	zfs_multiclus_group_record_t *dst_recordp = NULL;
 
 	if (master_spa == -1 || master_os == -1 || master_object == -1
@@ -2672,12 +2667,8 @@ void zfs_client_notify_data_file_dirty_tq(void* arg)
 static void
 zfs_group_from_xvattr(zfs_group_name_attr_t *zg_attr, xvattr_t *xvap)
 {
-//	uint32_t	*bitmap;
 	uint64_t	*attrs;
-//	uint64_t	*crtime;
 	xoptattr_t	*xoap;
-//	void		*scanstamp;
-//	int		i;
 
 	xoap = xva_getxoptattr(xvap);
 	ASSERT(xoap);
@@ -2839,8 +2830,7 @@ zfs_group_create_extra_t *zfs_group_get_create_extra(char *name, vattr_t *vap,
 
 
 int zfs_client_create(struct inode *pip, char *name, vattr_t *vap, int ex,
-    int mode, struct inode **ipp, cred_t *credp, int flag, caller_context_t *ct,
-    vsecattr_t *vsap)
+    int mode, struct inode **ipp, cred_t *credp, int flag, vsecattr_t *vsap)
 {
 	size_t namesize;
 	size_t aclsize;
@@ -3031,13 +3021,8 @@ int remove_master_obj_by_mx_group_id(znode_t *zp, dmu_tx_t *tx)
 */
 
 int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, int ex,
-    int mode, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct,
-    vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type)
+    int mode, znode_t *zp, cred_t *credp, int flag, vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type)
 {
-//	char *cp;
-//	char *tmp_cp;
-//	uint64_t cp_len;
-
 	size_t namesize;
 	size_t aclsize;
 	size_t xvatsize;
@@ -3151,26 +3136,16 @@ int zfs_client_create_backup(znode_t *pzp,	char *name, vattr_t *vap, int ex,
 int
 zfs_client_lookup(struct inode *pip, char *cp, struct inode **ipp, 
 	pathname_t *pnp, int flags, struct inode *rdir, cred_t *credp, 
-	caller_context_t *ct, int *defp, struct pathname *rpnp)
+	int *defp, struct pathname *rpnp)
 {
 	int error;
-//	uint32_t hash;
 	uint64_t cp_len;
 	znode_t *pzp;
 	znode_t *zp;
-//	vnode_t *vp;
 	zfs_group_znode_record_t *nrec;
 	zfs_group_name_arg_t narg;
 
 	bzero(&narg, sizeof(zfs_group_name_arg_t));
-
-/*
-	vp = dnlc_lookup(pvp, cp);
-	if (vp != NULL) {
-		dnlc_remove(pvp, cp);
-		VN_RELE(vp);
-	}
-*/
 
 	cp_len = (cp != NULL) ? strlen(cp) : 0;
 	pzp = ITOZ(pip);
@@ -3184,7 +3159,6 @@ zfs_client_lookup(struct inode *pip, char *cp, struct inode **ipp,
 			*ipp = ZTOI(zp);
 		} else {
 			*ipp = ZTOI(pzp);
-//			VN_HOLD(*vpp);
 			igrab(*ipp);
 			zp = pzp;
 		}
@@ -3200,24 +3174,15 @@ zfs_client_lookup(struct inode *pip, char *cp, struct inode **ipp,
 	return (error);
 }
 
-int zfs_client_remove(struct inode *pip, char *cp, 
-	cred_t *credp, caller_context_t *ct, int flag)
+int zfs_client_remove(struct inode *pip, char *cp, cred_t *credp, int flag)
 {
 	int error;
 	int cp_len;
-//	vnode_t *vp;
 	zfs_group_znode_record_t *nrec;
 
 	nrec = kmem_alloc(sizeof (zfs_group_znode_record_t), KM_SLEEP);
 
 	cp_len = (cp != NULL) ? strlen(cp) : 0;
-/*
-	vp = dnlc_lookup(pvp, cp);
-	if (vp != NULL) {
-		dnlc_remove(pvp, cp);
-		VN_RELE(vp);
-	}
-*/
 
 	error = zfs_group_proc_name(ITOZ(pip), NAME_REMOVE, NULL, flag, cp, cp_len, NULL,
 	    0, credp, nrec);
@@ -3229,8 +3194,7 @@ int zfs_client_remove(struct inode *pip, char *cp,
 
 
 int zfs_client_remove_backup(znode_t *dzp,
-    char *cp, cred_t *credp, caller_context_t *ct,
-    int flag, zfs_multiclus_node_type_t m_node_type)
+    char *cp, cred_t *credp, int flag, zfs_multiclus_node_type_t m_node_type)
 {
 	int error;
 	int cp_len;
@@ -3960,8 +3924,7 @@ int zfs_group_create_data2_file(znode_t *zp, char *name, boolean_t bregual,
 }
 
 
-int zfs_remove_data_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp, 
-	caller_context_t *ct, int flag)
+int zfs_remove_data_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp, int flag)
 {
 	char new_name[MAXNAMELEN] = { 0 };
 	int err = 0;
@@ -3980,10 +3943,7 @@ int zfs_remove_data_file(struct inode *pip, znode_t* zp, char *cp, cred_t *credp
 	return (err == ENOENT || err == EGHOLD) ? 0 : err;
 }
 
-
-
-int zfs_remove_data2_file(struct inode *pip, znode_t* zp, char* cp, cred_t* credp, 
-	caller_context_t* ct, int flag)
+int zfs_remove_data2_file(struct inode *pip, znode_t* zp, char* cp, cred_t* credp, int flag)
 {
 	zfs_group_object_t id = { 0 };
 	char new_name[MAXNAMELEN] = { 0 };
@@ -4013,9 +3973,8 @@ int zfs_remove_data2_file(struct inode *pip, znode_t* zp, char* cp, cred_t* cred
 
 
 int zfs_client_mkdir(struct inode *pip, char *cp, vattr_t *vap, struct inode **ipp,	
-    cred_t *credp, caller_context_t *ct, int flag, vsecattr_t *vsap)
+    cred_t *credp, int flag, vsecattr_t *vsap)
 {
-//	int cp_len;
 	znode_t *pzp;
 	znode_t *zp;
 
@@ -4023,9 +3982,6 @@ int zfs_client_mkdir(struct inode *pip, char *cp, vattr_t *vap, struct inode **i
 	size_t aclsize;
 	size_t xvatsize;
 	zfs_group_create_extra_t *create_extra;
-
-//	zfs_group_name_attr_t *zg_attr;
-//	zfs_group_name_acl_t *zg_acl;
 
 	zfs_group_name_mkdir_t mkdir;
 	zfs_group_znode_record_t *nrec;
@@ -4036,13 +3992,7 @@ int zfs_client_mkdir(struct inode *pip, char *cp, vattr_t *vap, struct inode **i
 	aclsize = 0;
 	xvatsize =0;
 	create_extra = NULL;
-/*
-	vp = dnlc_lookup(pvp, cp);
-	if (vp != NULL) {
-		dnlc_remove(pvp, cp);
-		VN_RELE(vp);
-	}
-*/
+
 	create_extra = zfs_group_get_create_extra(cp, vap, vsap, &namesize, &xvatsize,
 					    &aclsize, NULL, 0);
 	mkdir.name_len = namesize;
@@ -4075,17 +4025,12 @@ int zfs_client_mkdir(struct inode *pip, char *cp, vattr_t *vap, struct inode **i
 }
 
 int zfs_client_mkdir_backup(znode_t *pzp, char *cp, vattr_t *vap, znode_t *zp,	
-    cred_t *credp, caller_context_t *ct, int flag, vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type)
+    cred_t *credp, int flag, vsecattr_t *vsap, zfs_multiclus_node_type_t m_node_type)
 {
-//	int cp_len;
-
 	size_t namesize;
 	size_t aclsize;
 	size_t xvatsize;
 	zfs_group_create_extra_t *create_extra;
-
-//	zfs_group_name_attr_t *zg_attr;
-//	zfs_group_name_acl_t *zg_acl;
 
 	zfs_group_name_mkdir_t mkdir;
 	zfs_group_znode_record_t *nrec;
@@ -4198,30 +4143,18 @@ OUT:
 }
 
 
-int zfs_client_rmdir(struct inode *pip, char *cp, struct inode *cdir, cred_t *credp,
-    caller_context_t *ct, int flag)
+int zfs_client_rmdir(struct inode *pip, char *cp, struct inode *cdir, cred_t *credp, int flag)
 {
 	int cp_len;
 	int error;
-//	vnode_t *vp;
 	zfs_group_znode_record_t *nrec;
 
 	nrec = kmem_alloc(sizeof (zfs_group_znode_record_t), KM_SLEEP);
 
 	cp_len = (cp != NULL) ? strlen(cp) : 0;
 
-/*
-	vp = dnlc_lookup(pvp, cp);
-	if (vp != NULL) {
-		dnlc_remove(pvp, cp);
-		VN_RELE(vp);
-	}
-*/
-
-
 	error = zfs_group_proc_name(ITOZ(pip), NAME_RMDIR, NULL, flag, cp, cp_len, NULL,
 	    0, credp, nrec);
-
 
 	zfs_fid_remove_master_info(ITOZSB(pip), nrec->object_id.master_spa, nrec->object_phy.zp_gen, NULL);
 
@@ -4230,7 +4163,7 @@ int zfs_client_rmdir(struct inode *pip, char *cp, struct inode *cdir, cred_t *cr
 }
 
 int zfs_client_rmdir_backup(znode_t *dzp, char *cp, struct inode *cdir, cred_t *credp,
-    caller_context_t *ct, int flag, zfs_multiclus_node_type_t m_node_type)
+    int flag, zfs_multiclus_node_type_t m_node_type)
 {
 	int cp_len;
 	int error;
@@ -4359,7 +4292,7 @@ int	zfs_client_symlink(struct inode *pip, char *cp, vattr_t *vap, char *tnm,
 
 int	zfs_client_symlink_backup(
 	znode_t *dzp, char *cp, vattr_t *vap, znode_t *zp, char *tnm,		
-	cred_t *credp, caller_context_t *ct,int flag, zfs_multiclus_node_type_t m_node_type)
+	cred_t *credp, int flag, zfs_multiclus_node_type_t m_node_type)
 {
 	int error;
 	int cp_len;
@@ -4426,17 +4359,14 @@ OUT:
 
 
 int
-zfs_client_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr,
-    caller_context_t *ct, int flags)
+zfs_client_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr, int flags)
 {
 	int cp_len;
-//	znode_t *dzp;
 	zfs_group_name_link_t link;
 	znode_t *zp;
 	int error = 0;
 
 	cp_len = (name != NULL) ? strlen(name) : 0;
-//	zp = VTOZ(svp);
 	zp = ITOZ(sip);
 	link.id = zp->z_group_id;
 
@@ -4448,7 +4378,7 @@ zfs_client_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr,
 
 int
 zfs_client_link_backup(znode_t *dzp, znode_t *szp, char *name, cred_t *cr,
-    caller_context_t *ct, int flags, zfs_multiclus_node_type_t m_node_type)
+    int flags, zfs_multiclus_node_type_t m_node_type)
 {
 	int cp_len;
 	zfs_group_name_link_t link;
@@ -4464,7 +4394,7 @@ zfs_client_link_backup(znode_t *dzp, znode_t *szp, char *name, cred_t *cr,
 
 
 int
-zfs_client_readlink(struct inode *ip, uio_t *uio, cred_t *cr, caller_context_t *ct)
+zfs_client_readlink(struct inode *ip, uio_t *uio, cred_t *cr)
 {
 	int error;
 	znode_t *zp = ITOZ(ip);
@@ -4476,12 +4406,11 @@ zfs_client_readlink(struct inode *ip, uio_t *uio, cred_t *cr, caller_context_t *
 
 
 int
-zfs_client_rename(struct inode *sdip, char *snm, struct inode *tdip, char *tnm, cred_t *cr,
-    caller_context_t *ct, int flags)
+zfs_client_rename(struct inode *sdip, char *snm, struct inode *tdip, 
+	char *tnm, cred_t *cr, int flags)
 {
 	int cp_len;
 	int error;
-//	vnode_t *realvp;
 	zfs_group_name_rename_t rename;
 	znode_t *opzp, *npzp;
 
@@ -4493,23 +4422,18 @@ zfs_client_rename(struct inode *sdip, char *snm, struct inode *tdip, char *tnm, 
 	rename.nsize = strlen(tnm);
 	rename.new_parent_id = npzp->z_group_id;
 
-	if ((error = zfs_group_proc_name(opzp, NAME_RENAME, &rename,
-		    sizeof (rename), snm, cp_len, tnm, flags, cr, NULL)) == 0) {
-//			dnlc_remove(sdvp, snm);
-//			dnlc_remove(tdvp, tnm);
-	}
+	error = zfs_group_proc_name(opzp, NAME_RENAME, &rename,
+		    sizeof (rename), snm, cp_len, tnm, flags, cr, NULL);
 
-	return (0);
+	return (error);
 }
 
 int
 zfs_client_rename_backup(znode_t *opzp, char *snm, znode_t *npzp,
-    char *tnm, cred_t *cr,
-    caller_context_t *ct, int flags, zfs_multiclus_node_type_t m_node_type)
+    char *tnm, cred_t *cr, int flags, zfs_multiclus_node_type_t m_node_type)
 {
 	int cp_len;
 	int error;
-//	vnode_t *realvp;
 	zfs_group_name_rename_t rename;
 
 	cp_len = (snm != NULL) ? strlen(snm) : 0;
@@ -4524,14 +4448,9 @@ zfs_client_rename_backup(znode_t *opzp, char *snm, znode_t *npzp,
 	return (error);
 }
 
-
-
-
-int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr,
-    caller_context_t *ct)
+int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 {
-    znode_t *zp;
-//	uint_t mask;
+	znode_t *zp;
 	zfs_group_znode_setattr_t *setattrp;
 	int error;
 
@@ -4553,9 +4472,8 @@ int zfs_client_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr,
 }
 
 int zfs_client_setattr_backup(znode_t *zp, vattr_t *vap, int flags, cred_t *cr,
-    caller_context_t *ct, zfs_multiclus_node_type_t m_node_type)
+    zfs_multiclus_node_type_t m_node_type)
 {
-//	uint_t mask;
 	zfs_group_znode_setattr_t *setattrp;
 	int error;
 
@@ -4595,7 +4513,6 @@ int zfs_get_masterroot_attr(struct inode *ip, znode_t **tmp_root_zp)
 int zfs_client_access(struct inode *ip, int mode, int flag, cred_t *cr)
 {
 	znode_t *zp;
-//	uint_t mask;
 	zfs_group_znode_access_t access;
 	int error;
 
@@ -4609,16 +4526,13 @@ int zfs_client_access(struct inode *ip, int mode, int flag, cred_t *cr)
 
 
 
-int zfs_client_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr,
-    caller_context_t *ct)
+int zfs_client_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
 	int error;
 	znode_t *zp;
 
 	size_t acl_len;
 	zfs_group_name_acl_t *zg_acl;
-//	char *tmp_acls;
-
 
 	error = 0;
 	acl_len = 0;
@@ -4638,14 +4552,12 @@ int zfs_client_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t 
 }
 
 int zfs_client_setsecattr_backup(znode_t *zp, vsecattr_t *vsecp, int flag, cred_t *cr,
-    caller_context_t *ct, zfs_multiclus_node_type_t m_node_type)
+    zfs_multiclus_node_type_t m_node_type)
 {
 	int error;
 
 	size_t acl_len;
 	zfs_group_name_acl_t *zg_acl;
-//	char *tmp_acls;
-
 
 	error = 0;
 	acl_len = 0;
@@ -4753,7 +4665,7 @@ zfs_client_read2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 }
 
 int
-zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
+zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 {
 	znode_t* zp = NULL;
 	zfs_group_dirty_notify_para_t* notify_para = NULL;
@@ -4794,17 +4706,12 @@ zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_co
 		zp->z_group_id.data_status = DATA_NODE_DIRTY;
 
 		notify_para = kmem_zalloc(sizeof(zfs_group_dirty_notify_para_t), KM_SLEEP);
-		//notify_para->znode = *zp;
 		bcopy(zp, &notify_para->znode, sizeof(znode_t));
 		notify_para->dirty_flag = DATA_NODE_DIRTY;
 		notify_para->data_no = DATA_FILE1;
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
 
-/*
-		if (ddi_taskq_dispatch(zfsvfs->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, DDI_NOSLEEP) != DDI_SUCCESS) {
-*/
 //		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
 //				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
@@ -4815,7 +4722,7 @@ zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_co
 }
 
 int
-zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
+zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 {
 	znode_t* zp = NULL;
 	zfs_group_dirty_notify_para_t* notify_para = NULL;
@@ -4854,16 +4761,12 @@ zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_c
 		zp->z_group_id.data2_status = DATA_NODE_DIRTY;
 
 		notify_para = kmem_zalloc(sizeof(zfs_group_dirty_notify_para_t), KM_SLEEP);
-		//notify_para->znode = *zp;
 		bcopy(zp, &notify_para->znode, sizeof(znode_t));
 		notify_para->dirty_flag = DATA_NODE_DIRTY;
 		notify_para->data_no = DATA_FILE2;
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
-/*
-		if (ddi_taskq_dispatch(zfsvfs->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-				(void*)notify_para, DDI_NOSLEEP) != DDI_SUCCESS) {
-*/
+
 //		if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
 //				(void*)notify_para, TQ_NOSLEEP) == 0) {
 			zfs_client_notify_data_file_dirty_tq((void*)notify_para);
@@ -4911,11 +4814,9 @@ zfs_client_write2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr, caller_c
 // }
 
 int
-zfs_client_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr,
-    caller_context_t *ct)
+zfs_client_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
 	int error;
-//	size_t len;
 	znode_t *zp;
 	zfs_group_name_acl_t zg_acl;
 
@@ -5107,7 +5008,6 @@ void zfs_client_overquota_tq(void* arg)
 	zfs_group_overquota_para_t *overquota_para = (zfs_group_overquota_para_t *)arg;
 	zfs_sb_t *zsb = NULL;	
 	znode_t *zp = NULL;
-//	znode_t *qzp = NULL;
 	if (overquota_para != NULL) {
 
 		zsb = zfs_sb_group_hold(overquota_para->spa_id, overquota_para->objset, FTAG, B_FALSE);
@@ -5202,7 +5102,7 @@ int zfs_client_set_dirquota_backup(znode_t *zp, uint64_t object,
 {
 	int err = 0;
 	int remote_err = 0;
-	zfs_group_cmd_arg_t cmd_arg; // = {0};
+	zfs_group_cmd_arg_t cmd_arg = {0};
 	zfs_cl_set_dirquota_t *dirquota = NULL;
 
 	dirquota = kmem_zalloc(sizeof(zfs_cl_set_dirquota_t), KM_SLEEP);
@@ -5249,7 +5149,6 @@ int zfs_client_get_dirlowdata(zfs_sb_t *zsb,
     znode_t *zp, zfs_dirlowdata_t *dirlowdata)
 {
 	int err = 0;
-//	boolean_t bover;
 	zfs_group_cmd_arg_t cmd_arg;
 	fs_dir_lowdata_t *fs_dirlowdata = kmem_zalloc(sizeof(fs_dir_lowdata_t), KM_SLEEP);
 
@@ -5368,7 +5267,6 @@ int zfs_client_send_to_server(objset_t *os, zfs_group_header_t *msg_header, zfs_
 	int	tx_error = 0;
 	int	local_tx_cnt = 0;
 	int	remote_tx_cnt = 0;
-//	int	repeat = 0;
 	int	retry = 0;
 	uint64_t	dst_spa = 0;
 	uint64_t	dst_os = 0;
@@ -5379,8 +5277,6 @@ int zfs_client_send_to_server(objset_t *os, zfs_group_header_t *msg_header, zfs_
 	zfs_sb_t *zsb = NULL;
 	zfs_msg_t	*nmsg_data = NULL;
 	zfs_group_header_t	*nmsg_header = NULL;
-//	pool_state_t	pool_state = 0;
-
 
 	b_enable = zfs_multiclus_enable();
 	if (!b_enable)

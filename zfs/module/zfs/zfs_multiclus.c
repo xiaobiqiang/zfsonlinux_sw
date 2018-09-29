@@ -1,6 +1,7 @@
 #ifdef _KERNEL
 #include <sys/ddi.h>
 #include <sys/byteorder.h>
+#include <sys/sysmacros.h>
 #include <sys/atomic.h>
 #include <sys/sysmacros.h>
 #include <sys/cmn_err.h>
@@ -813,7 +814,6 @@ zfs_multiclus_workers_finit(void)
 	}
 	/*finit action taskq*/
 	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq);
-//	ddi_taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_taskq);
 	vmem_free(zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes,
 	    sizeof (zfs_multiclus_worker_t) * zfs_multiclus_server_nworkers);
 	zfs_multiclus_global_workers.zfs_multiclus_action_workers.zfs_multiclus_action_worker_nodes = NULL;
@@ -842,7 +842,6 @@ zfs_multiclus_workers_finit(void)
 	}
 	/*finit rx taskq*/
 	taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_taskq);
-//	ddi_taskq_destroy(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_taskq);
 	kmem_free(zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes,
 	    sizeof (zfs_multiclus_worker_t) * zfs_multiclus_rx_mp_worker_nworkers);
 	zfs_multiclus_global_workers.zfs_multiclus_rx_workers.zfs_multiclus_rx_worker_nodes = NULL;
@@ -877,13 +876,16 @@ zfs_multiclus_hash_tmchk_thr_work(void *arg)
 	mutex_enter(&hash_header->hash_tmchk_thr_lock);
 	hash_header->hash_tmchk_thr_running = B_TRUE;
 	
-	while(!hash_header->hash_tmchk_thr_exit) {
+	while(1) {
 		time = drv_usectohz(ZFS_MULTICLUS_RX_HASH_CHECK);
 		zfs_multiclus_hash_tmchk_thr_wait(&cpr, &hash_header->hash_tmchk_thr_cv,
 		    time, &hash_header->hash_tmchk_thr_lock);
 
-		if (hash_header->hash_tmchk_thr_exit)
+		if (kthread_should_stop()) {
+			cmn_err(CE_WARN, "[%s %d] thread exit", __func__, __LINE__);
 			break;
+		}
+
 		if (timeout_chk_flag)
 			zfs_multiclus_rx_operate_check(hash_header);
 	}
@@ -1339,7 +1341,6 @@ static void
 zfs_multiclus_update_group(zfs_group_header_t *msg_header, zfs_msg_t *msg_data)
 {
 	int i = 0;
-//	int j = 0, k = 0;
 	boolean_t find = B_FALSE;
 	int group_name_len = 16;
 	zfs_multiclus_group_record_t *group = (zfs_multiclus_group_record_t *)msg_data;
@@ -1388,7 +1389,6 @@ zfs_multiclus_write_group_reply_msg(void *group_msg, zfs_group_header_t *msg_hea
 {
 	uint32_t	data_len = 0;
 	char	*data = NULL;
-//	char	group_name[16];
 	zfs_group_header_t	*head = NULL;
 
 	if (!zfs_multiclus_enable()) {
@@ -1893,7 +1893,6 @@ uint64_t zfs_multiclus_get_log_index(void)
 uint64_t zfs_multiclus_get_all_record(zfs_group_info_t *gs, char **gname, 
 	uint64_t *master, uint64_t *num_group, uint64_t *breakmark, boolean_t* onceflag)
 {
-//	zfs_multiclus_group_record_t* record = NULL;
 	int i = 0;
 	int j = 0;
 	int gnum = 0;
@@ -2165,6 +2164,46 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 	return (0);
 }
 
+int
+zfs_get_group_znode_info(char *path, nvlist_t **config)
+{
+	nvlist_t *nv = NULL;
+	struct file *filp = NULL;
+	struct inode *ip = NULL;
+	znode_t *zp;
+	zfs_group_object_t *zp_info = NULL;
+	
+	if (path == NULL) {
+		*config = NULL;
+		return EINVAL;
+	}
+
+	filp = filp_open(path, O_DIRECTORY, 0);
+	if (IS_ERR(filp)){
+		filp = filp_open(path, O_RDONLY, 0444);
+		if (IS_ERR(filp)){
+			cmn_err(CE_WARN, "[%s %d], the path %s is error", __func__, __LINE__, path);
+			*config = NULL;
+			return (EINVAL);
+		}
+	}
+
+	ip = filp->f_path.dentry->d_inode;
+	zp = ITOZ(ip);
+
+	zp_info = kmem_zalloc(sizeof(zfs_group_object_t), KM_SLEEP);
+	bcopy(&zp->z_group_id, zp_info, sizeof(zfs_group_object_t));
+	VERIFY(nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) == 0);
+	VERIFY(nvlist_add_uint64_array(nv, ZPOOL_CONFIG_MULTICLUS_ZNODEINFO,
+	    (uint64_t *)zp_info, (sizeof(zfs_group_object_t) / sizeof(uint64_t)) ) == 0);
+
+	*config = nv;
+	kmem_free(zp_info, sizeof(zfs_group_object_t));
+	filp_close(filp, NULL);
+	return (0);
+}
+
+
 // int zfs_get_group_name(char *poolname, nvlist_t **rmconfig)
 // {
 // 	int err=0;
@@ -2208,7 +2247,6 @@ int zfs_get_group_state(nvlist_t **config, uint64_t *num_group ,
 int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 {
 	int err;
-//	boolean_t b_hold = B_FALSE;
 	spa_t *spa = NULL;
 	dsl_pool_t *dp = NULL;
 	dsl_dataset_t *dsl_dataset = NULL;
@@ -2237,10 +2275,8 @@ int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 
 	if (os == NULL ) {
 		cmn_err(CE_WARN, "zfs_group_hold: os == NULL");
-//		dsl_dataset_rele(dsl_dataset, FTAG);
 		return (-1);
 	}
-//	dsl_dataset_rele(dsl_dataset, FTAG);
 	dmu_objset_name(os, fsname);
 
 	return (0);
@@ -3299,12 +3335,8 @@ walk_hash_rx_timeout_callback(mod_hash_key_t key, mod_hash_val_t *val,
 {
 	zfs_multiclus_hash_t *hash_member = (zfs_multiclus_hash_t *)val;
 	list_t *rx_timeout_list = (list_t *)arg;
-//	zfs_msg_t *data = (zfs_msg_t *)hash_member->datap;
 	zfs_group_header_t *msg_header = (zfs_group_header_t *)hash_member->omsg_header;
 	uint64_t time_tmp = 0;
-//	zfs_multiclus_worker_para_t *work_para = NULL;
-//	uint64_t ntask = 0;
-//	uint64_t npara = 0;
 	int timeout = 0;
 
 	if ((msg_header->command == ZFS_GROUP_CMD_DATA) && (msg_header->operation == DATA_WRITE))
@@ -3414,10 +3446,7 @@ zfs_multiclus_load_config(void)
 	uint64_t fsize;
 	char *buf = NULL;
 	char *buf_tmp = NULL;
-//	int i = 0, j = 0;
 	int j = 0;
-//	boolean_t name = B_FALSE;
-//	boolean_t addr = B_FALSE;
 
 	file = kobj_open_file("/etc/fsgroup/rpc_port.conf");
 

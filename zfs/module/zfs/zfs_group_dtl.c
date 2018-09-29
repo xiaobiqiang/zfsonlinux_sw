@@ -590,11 +590,8 @@ zfs_group_dtl_sync_tree2_nolock(objset_t *os, dmu_tx_t *ptx, zfs_sb_t *zsb)
 	
 	if(avl_numnodes(ptree) == 0){
 		mutex_exit(ptree_mutex);
-		cmn_err(CE_WARN, "[%s %d] avl_numnodes of tree2 is 0", __func__, __LINE__);
 		return;
 	} 
-
-	cmn_err(CE_WARN, "[%s %d] avl_numnodes of tree2 is %d", __func__, __LINE__, (int)(avl_numnodes(ptree)));
 
 	mutex_enter(&zsb->z_group_dtl_obj_mutex);
 	mutex_enter(&zsb->z_group_dtl_obj3_mutex);
@@ -612,8 +609,6 @@ zfs_group_dtl_sync_tree2_nolock(objset_t *os, dmu_tx_t *ptx, zfs_sb_t *zsb)
 	bcopy(db->db_data, &dtl_header, sizeof (zfs_group_dtl_obj_t));
 	obj_size = dtl_header.end_pos;
 
-	cmn_err(CE_WARN, "[%s %d] obj_size=%"PRIu64"", __func__, __LINE__, obj_size);
-
 	err = dmu_bonus_hold(os, dtl_obj3, FTAG, &db3);
 	if(err != 0){
 		dmu_buf_rele(db, FTAG);
@@ -626,8 +621,6 @@ zfs_group_dtl_sync_tree2_nolock(objset_t *os, dmu_tx_t *ptx, zfs_sb_t *zsb)
 	}
 	bcopy(db3->db_data, &dtl_header3, sizeof (zfs_group_dtl_obj_t));
 	obj3_size = dtl_header3.end_pos;
-
-	cmn_err(CE_WARN, "[%s %d] obj3_size=%"PRIu64"", __func__, __LINE__, obj3_size);
 
 	err = dmu_bonus_hold(os, dtl_obj4, FTAG, &db4);
 	if(err != 0){
@@ -642,8 +635,6 @@ zfs_group_dtl_sync_tree2_nolock(objset_t *os, dmu_tx_t *ptx, zfs_sb_t *zsb)
 	}
 	bcopy(db4->db_data, &dtl_header4, sizeof (zfs_group_dtl_obj_t));
 	obj4_size = dtl_header4.end_pos;
-
-	cmn_err(CE_WARN, "[%s %d] obj4_size=%"PRIu64"", __func__, __LINE__, obj4_size);
 	
 	bufsize = (avl_numnodes(ptree)) * nodedatasize;
 	bufsize = MIN(bufsize, 1ULL << ZFS_GROUP_DTL_BLOCKSHIFT);
@@ -1295,8 +1286,7 @@ void zfs_group_dtl_test(char *fsname)
 #ifdef _KERNEL
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_create(name_operation_t z_op, znode_t *pzp,	char *name,
-vattr_t *vap, int ex, int mode, znode_t *zp, cred_t *credp, int flag, 
-caller_context_t *ct, vsecattr_t *vsap)
+vattr_t *vap, int ex, int mode, znode_t *zp, cred_t *credp, int flag, vsecattr_t *vsap)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1367,7 +1357,7 @@ caller_context_t *ct, vsecattr_t *vsap)
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_remove(name_operation_t z_op, znode_t *pzp, char *name,
- cred_t *credp, int flag, caller_context_t *ct)
+ cred_t *credp, int flag)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1382,7 +1372,11 @@ zfs_group_dtl_carry_remove(name_operation_t z_op, znode_t *pzp, char *name,
 	z_carrier->z_dtl.remove.group_id = pzp->z_group_id;
 	z_carrier->z_dtl.remove.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.remove.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
-
+	z_carrier->z_dtl.remove.dirid = pzp->z_id;
+	z_carrier->z_dtl.remove.dirlowdata = pzp->z_dirlowdata;
+	z_carrier->z_dtl.remove.dirquota = pzp->z_dirquota;
+	bcopy(pzp->z_filename, z_carrier->z_dtl.remove.dirname, MAXNAMELEN);
+	
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
 	if (namesize > 0) {
@@ -1399,7 +1393,7 @@ zfs_group_dtl_carry_remove(name_operation_t z_op, znode_t *pzp, char *name,
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_mkdir(name_operation_t z_op, znode_t *pzp, char *name, 
-vattr_t *vap, znode_t *zp,	cred_t *credp, caller_context_t *ct, int flag, vsecattr_t *vsap)
+vattr_t *vap, znode_t *zp,	cred_t *credp, int flag, vsecattr_t *vsap)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1460,7 +1454,7 @@ vattr_t *vap, znode_t *zp,	cred_t *credp, caller_context_t *ct, int flag, vsecat
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_rmdir(name_operation_t z_op, znode_t *pzp, char *name,
- struct inode *cdir, cred_t *credp, int flag, caller_context_t *ct)
+ struct inode *cdir, cred_t *credp, int flag)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1475,6 +1469,10 @@ zfs_group_dtl_carry_rmdir(name_operation_t z_op, znode_t *pzp, char *name,
 	z_carrier->z_dtl.rmdir.group_id = pzp->z_group_id;
 	z_carrier->z_dtl.rmdir.os_id = dmu_objset_id(ZTOZSB(pzp)->z_os);
 	z_carrier->z_dtl.rmdir.spa_id = spa_guid(dmu_objset_spa(ZTOZSB(pzp)->z_os));
+	z_carrier->z_dtl.rmdir.dirid = pzp->z_id;
+	z_carrier->z_dtl.rmdir.dirlowdata = pzp->z_dirlowdata;
+	z_carrier->z_dtl.rmdir.dirquota = pzp->z_dirquota;
+	bcopy(pzp->z_filename, z_carrier->z_dtl.rmdir.dirname, MAXNAMELEN);
 
 	if (name != NULL)
 		namesize = MIN(strlen(name), MAXNAMELEN-1);
@@ -1492,7 +1490,7 @@ zfs_group_dtl_carry_rmdir(name_operation_t z_op, znode_t *pzp, char *name,
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_link(name_operation_t z_op, znode_t *dzp,	char *name,
- znode_t *szp, cred_t *credp, int flag, caller_context_t *ct)
+ znode_t *szp, cred_t *credp, int flag)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1529,7 +1527,7 @@ zfs_group_dtl_carry_link(name_operation_t z_op, znode_t *dzp,	char *name,
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_rename(name_operation_t z_op, znode_t *ozp, char *name,
-znode_t *nzp, cred_t *credp, int flag, caller_context_t *ct, char* newname)
+znode_t *nzp, cred_t *credp, int flag, char* newname)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1573,7 +1571,7 @@ znode_t *nzp, cred_t *credp, int flag, caller_context_t *ct, char* newname)
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_symlink(name_operation_t z_op, znode_t *dzp, char *name,
-vattr_t *vap, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct, char *target)
+vattr_t *vap, znode_t *zp, cred_t *credp, int flag, char *target)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	int namesize = 0;
@@ -1632,7 +1630,7 @@ vattr_t *vap, znode_t *zp, cred_t *credp, int flag, caller_context_t *ct, char *
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_acl(name_operation_t z_op, znode_t *zp, cred_t *credp,
-int flag, caller_context_t *ct, vsecattr_t *vsap)
+int flag, vsecattr_t *vsap)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 
@@ -1675,7 +1673,7 @@ int flag, caller_context_t *ct, vsecattr_t *vsap)
 
 static zfs_group_dtl_carrier_t *
 zfs_group_dtl_carry_acl2(name_operation_t z_op, znode_t *zp,
-vattr_t *vap, cred_t *credp, int flag, caller_context_t *ct)
+vattr_t *vap, cred_t *credp, int flag)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 
@@ -1780,8 +1778,7 @@ zfs_group_dtl_carry_dirlowdata(name_operation_t z_op, znode_t *zp,
 
 zfs_group_dtl_carrier_t*	
 zfs_group_dtl_carry(name_operation_t z_op, znode_t *pzp,	char *name,
-vattr_t *vap, int ex, int mode, void* multiplex1, cred_t *credp, int flag, 
-caller_context_t *ct, void* multiplex2)
+vattr_t *vap, int ex, int mode, void* multiplex1, cred_t *credp, int flag, void* multiplex2)
 {
 	zfs_group_dtl_carrier_t *z_carrier = NULL;
 	
@@ -1792,13 +1789,12 @@ caller_context_t *ct, void* multiplex2)
 			znode_t *zp = (znode_t *)multiplex1;
 			vsecattr_t *vsap = (vsecattr_t *)multiplex2;
 			z_carrier = zfs_group_dtl_carry_create(z_op, pzp, name, vap, ex, mode, 
-				zp, credp, flag, ct, vsap);
+				zp, credp, flag, vsap);
 			break;
 		}
 		case NAME_REMOVE:
 		{
-			z_carrier = zfs_group_dtl_carry_remove(z_op, pzp, name, credp, 
-				flag, ct);
+			z_carrier = zfs_group_dtl_carry_remove(z_op, pzp, name, credp, flag);
 			break;
 		}
 		case NAME_MKDIR:
@@ -1806,20 +1802,19 @@ caller_context_t *ct, void* multiplex2)
 			znode_t *zp = (znode_t *)multiplex1;
 			vsecattr_t *vsap = (vsecattr_t *)multiplex2;
 			z_carrier = zfs_group_dtl_carry_mkdir(z_op, pzp,name,vap, 
-				zp, credp, ct, flag, vsap);
+				zp, credp, flag, vsap);
 			break;	
 		}
 		case NAME_RMDIR:
 		{
 			struct inode *cdir = (struct inode *)multiplex1;
-			z_carrier = zfs_group_dtl_carry_rmdir(z_op, pzp, name, cdir, credp, flag, ct);
+			z_carrier = zfs_group_dtl_carry_rmdir(z_op, pzp, name, cdir, credp, flag);
 			break;
 		}
 		case NAME_LINK:
 		{
 			znode_t *szp = (znode_t *)multiplex1;
-			z_carrier = zfs_group_dtl_carry_link(z_op, pzp, name, szp, credp, 
-				flag, ct);
+			z_carrier = zfs_group_dtl_carry_link(z_op, pzp, name, szp, credp, flag);
 			break;
 		}
 		case NAME_RENAME:
@@ -1827,7 +1822,7 @@ caller_context_t *ct, void* multiplex2)
 			znode_t *nzp = (znode_t *)multiplex1;
 			char *newname = (char *)multiplex2;
 			z_carrier = zfs_group_dtl_carry_rename(z_op, pzp, name, nzp, credp, 
-				flag, ct, newname);
+				flag, newname);
 			break;
 		}
 		case NAME_SYMLINK:
@@ -1835,18 +1830,18 @@ caller_context_t *ct, void* multiplex2)
 			znode_t *zp = (znode_t *)multiplex1;
 			char *target = (char *)multiplex2;
 			z_carrier = zfs_group_dtl_carry_symlink(z_op, pzp, name, vap, zp, credp, 
-				flag, ct, target);
+				flag, target);
 			break;
 		}
 		case NAME_ACL:
 		{
 			vsecattr_t *vsap = (vsecattr_t *)multiplex2;
-			z_carrier = zfs_group_dtl_carry_acl(z_op, pzp, credp, flag, ct, vsap);
+			z_carrier = zfs_group_dtl_carry_acl(z_op, pzp, credp, flag, vsap);
 			break;
 		}
 		case NAME_ZNODE_SETATTR:
 		{
-			z_carrier = zfs_group_dtl_carry_acl2(z_op, pzp, vap, credp, flag, ct);
+			z_carrier = zfs_group_dtl_carry_acl2(z_op, pzp, vap, credp, flag);
 			break;
 		}
 		case NAME_DIRQUOTA:
@@ -1958,7 +1953,7 @@ zfs_group_dtl_resolve_create(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 	credp = zfs_group_getcred(&z_carrier->z_dtl.create.cred);
 	err = zfs_client_create_backup(pzp, z_carrier->z_dtl.create.name, vap, 
 		z_carrier->z_dtl.create.ex, z_carrier->z_dtl.create.mode, zp, credp, 
-		z_carrier->z_dtl.create.flag, NULL, vsap, m_node_type);
+		z_carrier->z_dtl.create.flag, vsap, m_node_type);
 	if(err == 0){
 		tx = dmu_tx_create(zsb->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
@@ -1975,7 +1970,6 @@ zfs_group_dtl_resolve_create(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 	}
 	
 out:
-//	crfree(credp);
 	abort_creds(credp);
 	iput(ZTOI(pzp));
 	iput(ZTOI(zp));
@@ -1987,6 +1981,8 @@ static int
 zfs_group_dtl_resolve_remove(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node_type_t m_node_type)
 {
 	znode_t pzp = { 0 };
+	znode_t *dzp = NULL;
+	int zget_err = 0;
 	int err = 0;
 	cred_t *credp = NULL;
 	zfs_sb_t *zsb = NULL;
@@ -1994,29 +1990,37 @@ zfs_group_dtl_resolve_remove(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 	zsb = zfs_sb_group_hold(z_carrier->z_dtl.remove.spa_id, 
 		z_carrier->z_dtl.remove.os_id, FTAG, B_FALSE);
 	
-	if (zsb == NULL) {
-		cmn_err(CE_WARN, "%s:get target zfsvfs_t pointer fail!", __func__);
+	if(zsb){
+		zget_err = zfs_zget(zsb, z_carrier->z_dtl.rmdir.dirid, &dzp);
+		if (zget_err) {
+			/*
+			 * reconstruct the parent znode
+			 *
+			 * Note:
+			 * we may need to reconstruct more fields in the faked znode later;
+			 * currently, it is enough to reconstruct z_zfsvfs and z_group_id,
+			 * based on the usage in zfs_group_proc_name_backup
+			 */
+			pzp.z_zsb= zsb;
+			pzp.z_group_id = z_carrier->z_dtl.remove.group_id;
+			pzp.z_id = z_carrier->z_dtl.remove.dirid;
+			pzp.z_dirlowdata = z_carrier->z_dtl.remove.dirlowdata;
+			pzp.z_dirquota = z_carrier->z_dtl.remove.dirquota;
+			bcopy(z_carrier->z_dtl.remove.dirname, pzp.z_filename, MAXNAMELEN);
+			dzp = &pzp;
+		}
+	}else{
+		cmn_err(CE_WARN, "%s:get directory zfsvfs_t pointer fail!", __func__);
 		return (EINVAL);
 	}
 
-	/*
-	 * reconstruct the parent znode
-	 *
-	 * Note:
-	 * we may need to reconstruct more fields in the faked znode later;
-	 * currently, it is enough to reconstruct z_zfsvfs and z_group_id,
-	 * based on the usage in zfs_group_proc_name_backup
-	 */
-	pzp.z_zsb= zsb;
-	pzp.z_group_id = z_carrier->z_dtl.remove.group_id;
-
 	credp = zfs_group_getcred(&z_carrier->z_dtl.remove.cred);
-	err = zfs_client_remove_backup(&pzp, z_carrier->z_dtl.remove.name,
-		credp, NULL, z_carrier->z_dtl.remove.flag, m_node_type);
-	
-//out:
-//	crfree(credp);
+	err = zfs_client_remove_backup(dzp, z_carrier->z_dtl.remove.name,
+		credp, z_carrier->z_dtl.remove.flag, m_node_type);
+
 	abort_creds(credp);
+	if (zget_err == 0)
+		iput(ZTOI(dzp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
 }
@@ -2103,7 +2107,7 @@ zfs_group_dtl_resolve_mkdir(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_no
 	}
 	credp = zfs_group_getcred(&z_carrier->z_dtl.mkdir.cred);
 	err = zfs_client_mkdir_backup(pzp, z_carrier->z_dtl.mkdir.name, vap, 
-		zp, credp, NULL, z_carrier->z_dtl.mkdir.flag, vsap, m_node_type);
+		zp, credp, z_carrier->z_dtl.mkdir.flag, vsap, m_node_type);
 	
 	if(err == 0){
 		tx = dmu_tx_create(zsb->z_os);
@@ -2122,7 +2126,6 @@ zfs_group_dtl_resolve_mkdir(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_no
 	}
 	
 out:
-//	crfree(credp);
 	abort_creds(credp);
 	iput(ZTOI(pzp));
 	iput(ZTOI(zp));
@@ -2135,36 +2138,46 @@ static int
 zfs_group_dtl_resolve_rmdir(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node_type_t m_node_type)
 {
 	znode_t pzp = { 0 };
+	znode_t *dzp = NULL;
 	int err = 0;
+	int zget_err = 0;
 	cred_t *credp = NULL;
 	zfs_sb_t *zsb = NULL;
  
 	zsb = zfs_sb_group_hold(z_carrier->z_dtl.rmdir.spa_id, 
 		z_carrier->z_dtl.rmdir.os_id, FTAG, B_FALSE);
 
-	if (zsb == NULL) {
-		cmn_err(CE_WARN, "%s:get target zfsvfs_t pointer fail!", __func__);
+	if(zsb){
+		zget_err = zfs_zget(zsb, z_carrier->z_dtl.rmdir.dirid, &dzp);
+		if (zget_err) {
+			/*
+			 * reconstruct the parent znode
+			 *
+			 * Note:
+			 * we may need to reconstruct more fields in the faked znode later;
+			 * currently, it is enough to reconstruct z_zfsvfs and z_group_id,
+			 * based on the usage in zfs_group_proc_name_backup
+			 */
+			pzp.z_zsb= zsb;
+			pzp.z_group_id = z_carrier->z_dtl.rmdir.group_id;
+			pzp.z_id = z_carrier->z_dtl.rmdir.dirid;
+			pzp.z_dirlowdata = z_carrier->z_dtl.rmdir.dirlowdata;
+			pzp.z_dirquota = z_carrier->z_dtl.rmdir.dirquota;
+			bcopy(z_carrier->z_dtl.rmdir.dirname, pzp.z_filename, MAXNAMELEN);
+			dzp = &pzp;
+		}
+	}else{
+		cmn_err(CE_WARN, "%s:get directory zfsvfs_t pointer fail!", __func__);
 		return (EINVAL);
 	}
 
-	/*
-	 * reconstruct the parent znode
-	 *
-	 * Note:
-	 * we may need to reconstruct more fields in the faked znode later;
-	 * currently, it is enough to reconstruct z_zfsvfs and z_group_id,
-	 * based on the usage in zfs_group_proc_name_backup
-	 */
-	pzp.z_zsb = zsb;
-	pzp.z_group_id = z_carrier->z_dtl.remove.group_id;
-
 	credp = zfs_group_getcred(&z_carrier->z_dtl.rmdir.cred);
-	err = zfs_client_rmdir_backup(&pzp, z_carrier->z_dtl.rmdir.name, NULL, 
-		credp, NULL, z_carrier->z_dtl.rmdir.flag, m_node_type);
-	
-//out:
-//	crfree(credp);
+	err = zfs_client_rmdir_backup(dzp, z_carrier->z_dtl.rmdir.name, NULL, 
+		credp, z_carrier->z_dtl.rmdir.flag, m_node_type);
+
 	abort_creds(credp);
+	if (zget_err == 0)
+		iput(ZTOI(dzp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
 }
@@ -2226,10 +2239,8 @@ zfs_group_dtl_resolve_link(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_nod
 	}
 	credp = zfs_group_getcred(&z_carrier->z_dtl.link.cred);
 	err = zfs_client_link_backup(dzp, szp, z_carrier->z_dtl.link.name,
-		credp, NULL, z_carrier->z_dtl.link.flag, m_node_type);
-	
-//out:
-//	crfree(credp);
+		credp, z_carrier->z_dtl.link.flag, m_node_type);
+
 	abort_creds(credp);
 	iput(ZTOI(dzp));
 	iput(ZTOI(szp));
@@ -2264,10 +2275,8 @@ zfs_group_dtl_resolve_rename(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_n
 	nzp->z_group_id = z_carrier->z_dtl.rename.new_group_id;
 	credp = zfs_group_getcred(&z_carrier->z_dtl.rename.cred);
 	err = zfs_client_rename_backup(ozp, z_carrier->z_dtl.rename.name, nzp, 
-		z_carrier->z_dtl.rename.newname, credp, NULL, z_carrier->z_dtl.rename.flag, m_node_type);
-	
-//out:
-//	crfree(credp);
+		z_carrier->z_dtl.rename.newname, credp, z_carrier->z_dtl.rename.flag, m_node_type);
+
 	abort_creds(credp);
 	zfs_sb_group_rele(zsb, FTAG);
 	kmem_free(ozp, sizeof(znode_t));
@@ -2346,7 +2355,7 @@ zfs_group_dtl_resolve_symlink(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_
 
 	credp = zfs_group_getcred(&z_carrier->z_dtl.symlink.cred);
 	err = zfs_client_symlink_backup(pzp, z_carrier->z_dtl.symlink.name, vap, zp,
-		z_carrier->z_dtl.symlink.target, credp, NULL, z_carrier->z_dtl.symlink.flag, m_node_type);
+		z_carrier->z_dtl.symlink.target, credp, z_carrier->z_dtl.symlink.flag, m_node_type);
 	if(err == 0){
 		tx = dmu_tx_create(zsb->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
@@ -2363,7 +2372,6 @@ zfs_group_dtl_resolve_symlink(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_
 	}
 	
 out:
-//	crfree(credp);
 	abort_creds(credp);
 	iput(ZTOI(pzp));
 	iput(ZTOI(zp));
@@ -2416,10 +2424,8 @@ zfs_group_dtl_resolve_acl(zfs_group_dtl_carrier_t *z_carrier, zfs_multiclus_node
 	
 	credp = zfs_group_getcred(&z_carrier->z_dtl.setsecattr.cred);
 	err = zfs_client_setsecattr_backup(pzp, vsap, 
-		z_carrier->z_dtl.setsecattr.flag, credp, NULL, m_node_type);
-	
-//out:
-//	crfree(credp);
+		z_carrier->z_dtl.setsecattr.flag, credp, m_node_type);
+
 	abort_creds(credp);
 	iput(ZTOI(pzp));
 	zfs_sb_group_rele(zsb, FTAG);
@@ -2472,19 +2478,13 @@ zfs_group_dtl_resolve_znode_setattr(zfs_group_dtl_carrier_t *z_carrier, zfs_mult
 	}
 	credp = zfs_group_getcred(&z_carrier->z_dtl.setattr.cred);
 	err = zfs_client_setattr_backup(pzp, (vattr_t*)xvap, z_carrier->z_dtl.setattr.flag,
-		credp, NULL, m_node_type);
-	
-//out:
-//	crfree(credp);
+		credp, m_node_type);
+
 	abort_creds(credp);
 	iput(ZTOI(pzp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
 }
-
-
-
-
 
 static int
 zfs_group_dtl_resolve_dirquota(zfs_group_dtl_carrier_t *z_carrier, 
@@ -2523,8 +2523,7 @@ zfs_group_dtl_resolve_dirquota(zfs_group_dtl_carrier_t *z_carrier,
 	
 	err = zfs_client_set_dirquota_backup(zp, z_carrier->z_dtl.dirquota.obj_id,
 		z_carrier->z_dtl.dirquota.path, z_carrier->z_dtl.dirquota.quota, m_node_type);
-	
-//out:
+
 	iput(ZTOI(zp));
 	zfs_sb_group_rele(zsb, FTAG);
 	return (err);
@@ -2756,7 +2755,6 @@ zfs_group_dtl_thread_worker(void* arg)
 				mutex_enter(ptree_mutex);
 				count = avl_numnodes(ptree);
 				mutex_exit(ptree_mutex);
-				cmn_err(CE_WARN, "[%s %d] count=%d", __func__, __LINE__, count);
 				if(count > 0)
 					break;
 			}
@@ -2771,8 +2769,6 @@ zfs_group_dtl_thread_worker(void* arg)
 			record = zfs_multiclus_get_group_master(zsb->z_os->os_group_name, master_type);
 		}else{
 			record = NULL;
-			cmn_err(CE_WARN, "[%s %d] group %s master_type=%d is NULL", __func__, __LINE__, 
-				zsb->z_os->os_group_name, master_type);
 		}
 
 		if(record != NULL && record->node_status.status != ZFS_MULTICLUS_NODE_OFFLINE){
@@ -2809,7 +2805,6 @@ zfs_group_dtl_thread_worker(void* arg)
 				if(dtlerror == 0){
 					avl_remove(ptree, old_dn);
 					kmem_free(old_dn, sizeof(zfs_group_dtl_node_t));
-					cmn_err(CE_WARN, "[%s %d] avl_remove, op=%d, count=%d", __func__, __LINE__, z_carrier->z_op, (int)(avl_numnodes(ptree)));
 				}
 				
 				if(1 == debug_nas_group_dtl){
@@ -2918,7 +2913,4 @@ stop_zfs_group_dtl_thread(objset_t *os)
 #endif
 	return (B_TRUE);
 }
-
-
-
 

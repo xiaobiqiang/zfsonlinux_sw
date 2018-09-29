@@ -5339,6 +5339,34 @@ int zfs_multiclus_clean_dtltree(zfs_cmd_t *zc)
 	return error;
 }
 
+boolean_t zfs_multiclus_get_znodeinfo(zfs_cmd_t *zc)
+{
+	boolean_t gstatus;
+	nvlist_t *config;
+	
+	gstatus = zfs_multiclus_enable();
+	if(B_FALSE == gstatus)
+	{
+		strcpy(zc->zc_string, "down");
+	}
+	else
+	{
+		zfs_get_group_znode_info(zc->zc_top_ds, &config);
+		if(config != NULL) 
+		{
+			strcpy(zc->zc_string, "up");
+			put_nvlist(zc, config);
+			nvlist_free(config);
+		}
+		else
+		{
+			strcpy(zc->zc_string, "Null");
+			return (B_TRUE);
+		}
+	}
+	return (B_TRUE);
+}
+
 static int
 zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 {
@@ -5348,11 +5376,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 	switch (zc->zc_cookie)
 	{
 		case ZNODE_INFO:
-			error = zfs_print_znode_info(zc->zc_top_ds);
-			break;
-		case DOUBLE_DATA:
-			mode = zfs_enable_disable_double_data((boolean_t)zc->zc_obj);
-			zc->zc_sendobj = (uint64_t)mode;
+			zfs_multiclus_get_znodeinfo(zc);
 			break;
 		case SET_DOUBLE_DATA:
 			mode = zfs_set_double_data((char*)zc->zc_value);
@@ -5414,7 +5438,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 		case CLEAN_MULTICLUS_DTLTREE:
 			error = zfs_multiclus_clean_dtltree(zc);
 			break;
-/*
+
 		case SYNC_MULTICLUS_GROUP:
 			if (zc->zc_multiclus_pad[1] == 0) {
 				error = zfs_multiclus_sync_group(zc->zc_value, zc->zc_string, zc->zc_output_file, zc->zc_top_ds, zc->zc_multiclus_pad[0] != 0);
@@ -5430,7 +5454,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 				error = zfs_multiclus_stop_sync(zc->zc_value, zc->zc_string);
 			}
 			break;
-*/
+
 		default:
 			break;
 	}
