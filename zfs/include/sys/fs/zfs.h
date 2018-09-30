@@ -705,6 +705,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_MULTICLUS_FSNAME	"multiclus_fsname"
 #define	ZPOOL_CONFIG_MULTICLUS		"multiclus_stats"
 #define	ZPOOL_CONFIG_MULTICLUS_ZNODEINFO	"multiclus_znodeinfo"
+#define	ZPOOL_CONFIG_MULTICLUS_ZFILENAME	"multiclus_zfilename"
 
 #define	ZFS_RPC_GROUP_IP		"group_ipaddr"
 #define	ZFS_RPC_MASTER_IP		"master_ipaddr"

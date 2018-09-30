@@ -3570,6 +3570,7 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 	nvlist_t *config = NULL;
 	uint_t cnt = 0;
 	zfs_group_object_t *zp_info = NULL;
+	char *filename = NULL;
 	
 	if (zcmd_alloc_dst_nvlist(hdl, zc, 0) != 0){
 		printf("zcmd_alloc_dst_nvlist: NULL\r\n");
@@ -3590,7 +3591,10 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 		/* nvlist_print(stdout, config); */
 		verify(nvlist_lookup_uint64_array(config, 
 			ZPOOL_CONFIG_MULTICLUS_ZNODEINFO,	(uint64_t **)&zp_info, &cnt) == 0);
+		verify(nvlist_lookup_string(config, ZPOOL_CONFIG_MULTICLUS_ZFILENAME, &filename) == 0);
+		
 		printf("\tPath: %s\n", zc->zc_top_ds);
+		printf("\tz_filename: %s\n", filename);
 		printf("\tMaster\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master_spa, zp_info->master_objset, zp_info->master_object);
 		printf("\tMaster2\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master2_spa, zp_info->master2_objset, zp_info->master2_object);
 		printf("\tMaster3\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->master3_spa, zp_info->master3_objset, zp_info->master3_object);

@@ -2196,6 +2196,8 @@ zfs_get_group_znode_info(char *path, nvlist_t **config)
 	VERIFY(nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) == 0);
 	VERIFY(nvlist_add_uint64_array(nv, ZPOOL_CONFIG_MULTICLUS_ZNODEINFO,
 	    (uint64_t *)zp_info, (sizeof(zfs_group_object_t) / sizeof(uint64_t)) ) == 0);
+	VERIFY(nvlist_add_string(nv, ZPOOL_CONFIG_MULTICLUS_ZFILENAME, 
+		(const char *)zp->z_filename) == 0);
 
 	*config = nv;
 	kmem_free(zp_info, sizeof(zfs_group_object_t));
