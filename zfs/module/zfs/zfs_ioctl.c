@@ -203,6 +203,7 @@
 
 kmutex_t zfsdev_state_lock;
 zfsdev_state_t *zfsdev_state_list;
+extern int ZFS_GROUP_DTL_ENABLE;
 
 extern void zfs_init(void);
 extern void zfs_fini(void);
@@ -5335,7 +5336,10 @@ int zfs_multiclus_clean_dtltree(zfs_cmd_t *zc)
 		return (error);
 	}
 
-	zfs_group_dtl_reset(os, NULL);
+	if (ZFS_GROUP_DTL_ENABLE) {
+		zfs_group_dtl_reset(os, NULL);
+	}
+	
 	dmu_objset_rele(os, FTAG);
 	return error;
 }

@@ -1938,12 +1938,12 @@ tx_again:
 		 */
 		 if (update_old_zsize) {
 			uint64_t end_size = old_zp->z_size;
-			if (old_zp->z_size < zp->z_size) {
+			while (old_zp->z_size < zp->z_size) {
 				atomic_cas_64(&old_zp->z_size, end_size, zp->z_size);
 			}
 
 			end_size = (uint64_t)old_zp->z_nblks;
-			if ((uint64_t)old_zp->z_nblks < nblks) {
+			while ((uint64_t)old_zp->z_nblks < nblks) {
 				atomic_cas_64((uint64_t *)&old_zp->z_nblks, end_size, nblks);
 			}
 
@@ -3364,7 +3364,7 @@ top:
 			z_carrier = zfs_group_dtl_carry(NAME_REMOVE, dzp, name, NULL, 0,
 			    0, NULL, cr, flags, NULL);
 			if(z_carrier){
-				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+				ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 				ss_data->obj = obj;
 				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -3638,7 +3638,7 @@ top:
 		z_carrier = zfs_group_dtl_carry(NAME_MKDIR, dzp, dirname, vap, 0,
 			0, zp, cr, flags, vsecp);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = zp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -3815,7 +3815,7 @@ top:
 		z_carrier = zfs_group_dtl_carry(NAME_RMDIR, dzp, name, NULL, 0,
 				0, cwd, cr, flags, NULL);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = zp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -5433,7 +5433,7 @@ top:
 			z_carrier = zfs_group_dtl_carry(NAME_ZNODE_SETATTR, zp, NULL, vap, 0,
 				0, NULL, cr, flags, NULL);
 			if(z_carrier){
-				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+				ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 				ss_data->obj = zp->z_id;
 				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -5964,7 +5964,7 @@ top:
 		z_carrier = zfs_group_dtl_carry(NAME_RENAME, sdzp, snm, NULL, 0,
 				0, tdzp, cr, flags, tnm);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = szid;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -6207,7 +6207,7 @@ top:
 		z_carrier = zfs_group_dtl_carry(NAME_SYMLINK, dzp, name, vap, 0,
 				0, zp, cr, flags, link);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = 0;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -6448,7 +6448,7 @@ top:
 		z_carrier = zfs_group_dtl_carry(NAME_LINK, dzp, name, NULL, 0,
 				0, szp, cr, flags, NULL);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = szp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));

@@ -75,10 +75,6 @@
 #include <linux/percpu_counter.h>
 #include <linux/security.h>
 
-
-int vget_repeat_times = 1000;
-int vget_failover_time = 210;
-int vget_slow_retry_time = 10;
 int group_get_fsstat = 0;
 
 extern int ZFS_GROUP_DTL_ENABLE;
@@ -2044,14 +2040,14 @@ static int zfs_fid_get_master_info(zfs_sb_t	*zsb, uint64_t object, uint64_t gen,
 	return 0;
 }
 
+
+int remote_vget_repeat_times = 2000;   /*200 sec*/
 int
 zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp)
 {
 	zfs_sb_t	*zsb = sb->s_fs_info;
 	znode_t		*zp;
 	int			i, err;
-//	int 		retry = 0;
-//	int		record_num = 0;
 	uint64_t	object = 0;
 	uint64_t	fid_gen = 0;
 	uint64_t	old_gen = 0;
@@ -2064,8 +2060,8 @@ zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp)
 	uint64_t	m_spa = 0;
 	uint64_t	m_objset = 0;
 	uint64_t	m_object = 0;
-	boolean_t	remote_regeted = B_FALSE;
 	boolean_t	local_regeted = B_FALSE;
+	int 		retry = 0;
 	char		buf[MAXNAMELEN];
 
 	*ipp = NULL;
@@ -2161,8 +2157,9 @@ reget:
 	} else {
 		err = zfs_group_zget(zsb, object, &zp, m_spa, m_objset, fid_gen, B_FALSE);
 		if (err) {
-			if (remote_regeted == B_FALSE) {
-				remote_regeted = B_TRUE;
+			if (retry < remote_vget_repeat_times) {
+				zfs_group_wait(ZFS_MULTICLUS_SECOND/10);
+				retry++;
 				goto reget;
 			}
 			cmn_err(CE_WARN, "long fid return error4, object=%lld, err: %d", (longlong_t)object, err);

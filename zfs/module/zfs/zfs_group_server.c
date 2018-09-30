@@ -2542,14 +2542,14 @@ zfs_group_get_relativepath(znode_t *zp, zfs_group_znode2_t *z2p)
                        }
                        bcopy(path_tmp, path, MAXNAMELEN);
                        err = zfs_lookup(tmp_ip, "..", &pip, 0, CRED(), NULL, NULL);
-                       if (ITOZ(tmp_ip) != zp)
+                       if (ITOZ(tmp_ip)->z_id != zp->z_id)
                                iput(tmp_ip);
                        if (err != 0){
                                return err;
                        }
                        tmp_ip = pip;
                }
-               if (ITOZ(tmp_ip) != zp)
+               if (ITOZ(tmp_ip)->z_id != zp->z_id)
                        iput(tmp_ip);
                bcopy(path, z2p->relativepath, MAXNAMELEN);
        }

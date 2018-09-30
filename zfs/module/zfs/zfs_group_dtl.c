@@ -142,7 +142,6 @@ zfs_group_dtl_add(avl_tree_t *ptree, void* value, size_t size)
 	ss = avl_find(ptree, ssearch, &where);
 
 	if (ss != NULL) {
-		cmn_err(CE_WARN, "[%s %d] ss is not NULL", __func__, __LINE__);
 		kmem_free(ssearch, sizeof(zfs_group_dtl_node_t));
 		return;
 	}
@@ -2741,7 +2740,7 @@ zfs_group_dtl_thread_worker(void* arg)
 		
 		do {
 			if (pdtlthread->z_group_dtl_thr_exit){
-				cmn_err(CE_WARN, "[%s %d] thread exit", __func__, __LINE__);
+				cmn_err(CE_WARN, "[%s %d] master_type=%d, thread exit", __func__, __LINE__, master_type);
 				goto out;
 			}
 
@@ -2781,7 +2780,7 @@ zfs_group_dtl_thread_worker(void* arg)
 						    __func__, __LINE__, (unsigned long long)count, master_type);
 					}
 					mutex_exit(ptree_mutex);
-					cmn_err(CE_WARN, "[%s %d] thread exit", __func__, __LINE__);
+					cmn_err(CE_WARN, "[%s %d] master_type=%d, thread exit", __func__, __LINE__, master_type);
 					goto out;
 				}
 
@@ -2884,7 +2883,7 @@ stop_zfs_group_dtl_thread(objset_t *os)
 #ifdef _KERNEL
 	clock_t time = 0;
 
-	time = drv_usectohz(ZFS_GROUP_DTL_SECOND_CVWAIT_TIME);
+	time = drv_usectohz(2 * ZFS_GROUP_DTL_SECOND_CVWAIT_TIME);
 	
 	if (os->os_group_dtl_th.z_group_dtl_thread != NULL) {
 		os->os_group_dtl_th.z_group_dtl_thr_exit = B_TRUE;

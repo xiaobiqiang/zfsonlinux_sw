@@ -58,7 +58,7 @@ typedef struct zfs_group_dtl_data {
 	uint64_t	obj;
 	timestruc_t	gentime;
 	uint64_t	data_size;
-	uint8_t	data[2048]; /* data on map */
+	uint8_t	data[1992]; /* data on map */
 } zfs_group_dtl_data_t;
 
 typedef struct zfs_group_dtl_node {
