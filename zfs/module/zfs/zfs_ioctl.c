@@ -2363,6 +2363,53 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 }
 
 
+static int
+zfs_get_spaces(const char *name, uint64_t *space, uint64_t is_multiclus_stat)
+{
+	nvlist_t *config = NULL, *rmconfig = NULL;
+	int error;
+	int ret = 0;
+	uint_t c;
+	vdev_stat_t remotevs, *oldvs, newvs={0};
+	nvlist_t *oldnvroot;
+	objset_t *os = NULL;
+	uint64_t spa_id;
+	spa_t *spa;
+	char poolname[MAXNAMELEN];
+	
+	if (error = dmu_objset_hold(name, FTAG, &os)) {
+		cmn_err(CE_WARN, "[%s %d] can not hold %s, error=%d", __func__, __LINE__, name, error);
+		return (error);
+	}
+	
+	spa = dmu_objset_spa(os);
+	strncpy(poolname, spa->spa_name, strlen(spa->spa_name));
+	poolname[strlen(spa->spa_name)] = '\0';
+
+	dmu_objset_rele(os, FTAG);
+
+	error = spa_get_stats(poolname, &config, NULL, 0);
+	if (config != NULL) {
+		VERIFY(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE, &oldnvroot) == 0);
+		VERIFY(nvlist_lookup_uint64_array(oldnvroot,
+			ZPOOL_CONFIG_VDEV_STATS, (uint64_t **)&oldvs, &c) == 0);
+		bcopy(oldvs, &newvs, sizeof(vdev_stat_t));
+
+		if(is_multiclus_stat)
+		{
+			ret = zfs_get_group_iostat(poolname, &remotevs, &rmconfig);
+			if(!ret){
+				newvs.vs_space += remotevs.vs_space;
+				nvlist_free(rmconfig);
+			}
+		}
+		*space = newvs.vs_space;
+		nvlist_free(config);
+	} else {
+		ret = error;
+	}
+	return (ret);
+}
 
 static int
 zfs_prop_set_userquota(const char *dsname, nvpair_t *pair)
@@ -2375,6 +2422,7 @@ zfs_prop_set_userquota(const char *dsname, nvpair_t *pair)
 	zfs_userquota_prop_t type;
 	uint64_t rid;
 	uint64_t quota;
+	uint64_t space;
 	zfs_sb_t *zsb;
 	int err;
 
@@ -2402,12 +2450,82 @@ zfs_prop_set_userquota(const char *dsname, nvpair_t *pair)
 
 	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
 	if (err == 0) {
-		err = zfs_set_userquota(zsb, type, domain, rid, quota);
+		err = zfs_get_spaces(dsname, &space, zsb->z_os->os_is_group);
+		if (err == 0){
+			if (quota > space) {
+				err = EINVAL;
+			} else {
+				if (zsb->z_os->os_is_group && 
+					zsb->z_os->os_is_master == 0 && 
+					zsb->z_os->os_node_type == OS_NODE_TYPE_SLAVE) {
+					err = EINVAL;
+					/* err = zfs_client_set_userquota(zsb, type, domain, rid, quota); */
+				} else {
+					err = zfs_set_userquota(zsb, type, domain, rid, quota);
+				}
+			}
+		}
+		zfs_sb_rele(zsb, FTAG);
+	}
+	return (err);
+}
+
+
+static int
+zfs_prop_set_dirquota(const char *dsname, nvpair_t *pair)
+{
+	const char *propname = nvpair_name(pair);
+	uint64_t *valary;
+	unsigned int vallen;
+	char *path;
+	char *dash;
+	uint64_t object;
+	uint64_t quota;
+	uint64_t space;
+	zfs_sb_t *zsb;
+	int err;
+
+	if (nvpair_type(pair) == DATA_TYPE_NVLIST) {
+		nvlist_t *attrs;
+		VERIFY(nvpair_value_nvlist(pair, &attrs) == 0);
+		if (nvlist_lookup_nvpair(attrs, ZPROP_VALUE, &pair) != 0)
+			return (SET_ERROR(EINVAL));
+	}
+
+	/*
+	 * A correctly constructed propname is encoded as
+	 * userquota@<rid>-<domain>.
+	 */
+	if ((dash = strchr(propname, '@')) == NULL ||
+	    nvpair_value_uint64_array(pair, &valary, &vallen) != 0 ||
+	    vallen != 2)
+		return (EINVAL);
+
+	path = dash + 1;
+	object = valary[0];
+	quota = valary[1];
+
+	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
+	if (err == 0) {
+		err = zfs_get_spaces(dsname, &space, zsb->z_os->os_is_group);
+		if (err == 0){
+			if (quota > space) {
+				err = EINVAL;
+			} else {
+				if (zsb->z_os->os_is_group && 
+					zsb->z_os->os_is_master == 0) {
+					err = zfs_client_set_dirquota(zsb, object, path, quota);
+				} else {
+					err = zfs_set_dir_quota(zsb, object, path,  quota);
+				}
+			}
+		}
 		zfs_sb_rele(zsb, FTAG);
 	}
 
 	return (err);
 }
+
 
 /*
  * If the named property is one that has a special function to set its value,
@@ -2429,6 +2547,9 @@ zfs_prop_set_special(const char *dsname, zprop_source_t source,
 	if (prop == ZPROP_INVAL) {
 		if (zfs_prop_userquota(propname))
 			return (zfs_prop_set_userquota(dsname, pair));
+		if (zfs_prop_dirquota(propname)) {
+			return (zfs_prop_set_dirquota(dsname, pair));
+		}
 		return (-1);
 	}
 
@@ -2549,7 +2670,7 @@ retry:
 			if (zfs_prop_user(propname)) {
 				if (nvpair_type(propval) != DATA_TYPE_STRING)
 					err = SET_ERROR(EINVAL);
-			} else if (zfs_prop_userquota(propname)) {
+			} else if (zfs_prop_userquota(propname) || zfs_prop_dirquota(propname)) {
 				if (nvpair_type(propval) !=
 				    DATA_TYPE_UINT64_ARRAY)
 					err = SET_ERROR(EINVAL);
@@ -3765,6 +3886,20 @@ zfs_check_settable(const char *dsname, nvpair_t *pair, cred_t *cr)
 				/* USERUSED and GROUPUSED are read-only */
 				return (SET_ERROR(EINVAL));
 			}
+
+			if ((err = zfs_secpolicy_write_perms(dsname, perm, cr)))
+				return (err);
+			return (0);
+		}
+
+		if (!issnap && zfs_prop_dirquota(propname)) {
+			const char *perm = NULL;
+			const char *dq_prefix = zfs_dirquota_prefixex;
+
+			if (strncmp(propname, dq_prefix, strlen(dq_prefix)) == 0)
+				perm = ZFS_DELEG_PERM_DIRQUOTA;
+			else
+				return (SET_ERROR(EINVAL));
 
 			if ((err = zfs_secpolicy_write_perms(dsname, perm, cr)))
 				return (err);

@@ -2565,7 +2565,7 @@ int zfs_get_dirquota(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirquota_t *dirquota)
 
 	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0)
 		return (ENOENT);
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	sprintf(buf, DIR_QUOTA_FORMAT, zfs_dirquota_prefixex, 
 	    (longlong_t)dir_obj);
 
@@ -2587,7 +2587,7 @@ int zfs_get_dirquota(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirquota_t *dirquota)
 	error = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, 1, MAXPATHLEN, 
 	    &dirquota->zq_path);
 
-	kmem_free(buf, MAXPATHLEN);
+	vmem_free(buf, MAXPATHLEN);
 	return (error);
 
 }
@@ -2647,7 +2647,7 @@ boolean_t zfs_dir_overquota(zfs_sb_t *zsb, znode_t *zp, uint64_t dirquota_index)
 	zfs_dirquota_t *dir_quota;
 	int err;
 
-	dir_quota = kmem_zalloc(sizeof(zfs_dirquota_t), KM_SLEEP);
+	dir_quota = vmem_zalloc(sizeof(zfs_dirquota_t), KM_SLEEP);
 	err = zfs_get_dirquota(zsb, dirquota_index, dir_quota);
 
 	if (err != 0 || dir_quota->zq_value > dir_quota->zq_used)
@@ -2655,7 +2655,7 @@ boolean_t zfs_dir_overquota(zfs_sb_t *zsb, znode_t *zp, uint64_t dirquota_index)
 	else
 		over_quota = B_TRUE;
 
-	kmem_free(dir_quota, sizeof(zfs_dirquota_t));
+	vmem_free(dir_quota, sizeof(zfs_dirquota_t));
 
 	return (over_quota);
 
@@ -2688,7 +2688,7 @@ int zfs_set_overquota(zfs_sb_t *zsb, uint64_t dir_obj, boolean_t overquota, bool
 	dmu_tx_t *tx;
 	boolean_t waited = B_FALSE;
 
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	objp = &zsb->z_dirquota_obj;
 
 if (!tx_para) {
@@ -2703,7 +2703,7 @@ if (!tx_para) {
 				goto top;
 			}
 			dmu_tx_abort(tx);
-			kmem_free(buf, MAXPATHLEN);
+			vmem_free(buf, MAXPATHLEN);
 			return (err);
 		}
 } else {
@@ -2734,7 +2734,7 @@ if (!tx_para) {
 	}
 	if (!tx_para)
 		dmu_tx_commit(tx);
-	kmem_free(buf, MAXPATHLEN);
+	vmem_free(buf, MAXPATHLEN);
 	return err;
 }
 
@@ -2744,12 +2744,12 @@ boolean_t zfs_get_overquota(zfs_sb_t *zsb, uint64_t dir_obj)
 	int err;
 	boolean_t overquota = B_FALSE;
 
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 
 	sprintf(buf, DIR_OVERQUOTQ_FORMAT, zfs_overquota_prefixex, (longlong_t)dir_obj);
 	err = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, sizeof(boolean_t), 1, &overquota);
 
-	kmem_free(buf, MAXPATHLEN);
+	vmem_free(buf, MAXPATHLEN);
 	return overquota;
 }
 
@@ -2764,7 +2764,7 @@ void zfs_dir_updatequota(zfs_sb_t *zsb, znode_t *zp, uint64_t update_size,
 	if (zp->z_dirquota == 0)
 		return;
 
-	buf = kmem_zalloc(MAXNAMELEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXNAMELEN, KM_SLEEP);
 
 	sprintf(buf, DIR_QUOTA_FORMAT, zfs_dirquota_prefixex, (longlong_t)zp->z_dirquota);
 	err = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, 8, 1, &quota);
@@ -2778,7 +2778,7 @@ void zfs_dir_updatequota(zfs_sb_t *zsb, znode_t *zp, uint64_t update_size,
 	    (longlong_t)zp->z_dirquota);
 	err = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, 8, 1, &used);
 	if (err != 0 && err != ENOENT){
-		kmem_free(buf, MAXNAMELEN);
+		vmem_free(buf, MAXNAMELEN);
 		return;
 	}
 	if (update_op == EXPAND_SPACE)
@@ -2792,7 +2792,7 @@ void zfs_dir_updatequota(zfs_sb_t *zsb, znode_t *zp, uint64_t update_size,
 
 	zap_update(zsb->z_os, zsb->z_dirquota_obj, buf, 
 	    sizeof(uint64_t), 1, &used, tx);
-	kmem_free(buf, MAXNAMELEN);
+	vmem_free(buf, MAXNAMELEN);
 }
 
 
@@ -2843,7 +2843,6 @@ zfs_del_dirquota(zfs_sb_t *zsb, uint64_t dir_obj)
 	int err;
 	uint64_t *objp;
 	dmu_tx_t *tx;
-//	znode_t *zp;
 	boolean_t waited = B_FALSE;
 
 	
@@ -2854,7 +2853,7 @@ zfs_del_dirquota(zfs_sb_t *zsb, uint64_t dir_obj)
 		|| zsb->z_dirquota_obj == 0)
 		return (EINVAL);
 
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	objp = &zsb->z_dirquota_obj;
 
 top:
@@ -2870,7 +2869,7 @@ top:
 			goto top;
 		}
 		dmu_tx_abort(tx);
-		kmem_free(buf, MAXPATHLEN);
+		vmem_free(buf, MAXPATHLEN);
 		return (err);
 	}
 
@@ -2887,7 +2886,7 @@ top:
 	zap_remove(zsb->z_os, *objp, buf, tx);
 	
 	dmu_tx_commit(tx);
-	kmem_free(buf, MAXPATHLEN);
+	vmem_free(buf, MAXPATHLEN);
 	return (err);
 }
 
@@ -2922,17 +2921,17 @@ zfs_set_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, char *path,
 	} 
 
 
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	objp = &zsb->z_dirlowdata_obj;
 
 	err = zfs_zget(zsb, dir_obj, &zp);
 	if (err) {
-		kmem_free(buf, MAXPATHLEN);
+		vmem_free(buf, MAXPATHLEN);
 		return err;
 	}
 
 	if (!zfs_dirempty(zp) && (zp->z_dirlowdata !=  dir_obj)) {
-		kmem_free(buf, MAXPATHLEN);
+		vmem_free(buf, MAXPATHLEN);
 		iput(ZTOI(zp));
 		return (EINVAL);
 	}
@@ -2951,7 +2950,7 @@ top:
 			dmu_tx_abort(tx);
 			goto top;
 		}
-		kmem_free(buf, MAXPATHLEN);
+		vmem_free(buf, MAXPATHLEN);
 		iput(ZTOI(zp));
 		dmu_tx_abort(tx);
 		return (err);
@@ -3016,8 +3015,8 @@ top:
 	
 end:	
 	dmu_tx_commit(tx);
-	kmem_free(buf, MAXPATHLEN);
-	if(0 == err && zsb->z_os->os_is_group && zsb->z_os->os_is_master){
+	vmem_free(buf, MAXPATHLEN);
+	if(0 == err && zsb->z_os->os_is_group && zsb->z_os->os_is_master && ZFS_GROUP_DTL_ENABLE){
 		z_dirlow = kmem_zalloc(sizeof(zfs_group_dirlow_t), KM_SLEEP);
 		z_dirlow->dir_obj = dir_obj;
 		z_dirlow->value = new_value;
@@ -3068,7 +3067,7 @@ int zfs_get_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirlowdata_t *dir_lowda
 		return (EINVAL); 
 	} 
 
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	sprintf(buf, DIR_LOWDATA_FORMAT, zfs_dirlowdata_prefixex, (longlong_t)dir_obj);
 		
 	error = zap_lookup(zsb->z_os, zsb->z_dirlowdata_obj, buf, 8, 1, 
@@ -3115,7 +3114,7 @@ int zfs_get_dir_low(zfs_sb_t *zsb, uint64_t dir_obj, zfs_dirlowdata_t *dir_lowda
 			    &dir_lowdata->lowdata_path);
 
 end:
-	kmem_free(buf, MAXPATHLEN);
+	vmem_free(buf, MAXPATHLEN);
 	return (error);
 }
 
@@ -3129,15 +3128,11 @@ int zfs_get_dir_lowdata_many(zfs_sb_t *zsb,  uint64_t *cookiep,
 	char *endp;
 	objset_t *os;
 	zap_cursor_t zc;
-	char *key;
 	zap_attribute_t za;
-//	uint64_t used;
 	zfs_dirlowdata_t *buf = vbuf;
 	uint64_t obj;
 	void *prop;
 
-
-	key = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	obj = zsb->z_dirlowdata_obj;
 	os = zsb->z_os;
 
@@ -3187,7 +3182,6 @@ int zfs_get_dir_lowdata_many(zfs_sb_t *zsb,  uint64_t *cookiep,
 	if (error == ENOENT)
 		error = 0;
 
-	kmem_free(key, MAXPATHLEN);
 	ASSERT3U((uintptr_t)buf - (uintptr_t)vbuf, <=, *bufsizep);
 	*bufsizep = (uintptr_t)buf - (uintptr_t)vbuf;
 	*cookiep = zap_cursor_serialize(&zc);
@@ -3224,7 +3218,7 @@ zfs_set_dir_quota(zfs_sb_t *zsb, uint64_t dir_obj, char *path,
 		zsb->z_os->os_node_type == OS_NODE_TYPE_SLAVE)
 		return (EINVAL);
 
-	buf = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	buf = vmem_zalloc(MAXPATHLEN, KM_SLEEP);
 	objp = &zsb->z_dirquota_obj;
 top:
 	tx = dmu_tx_create(zsb->z_os);
@@ -3242,7 +3236,7 @@ top:
 			goto top;
 		}
 		dmu_tx_abort(tx);
-		kmem_free(buf, MAXPATHLEN);
+		vmem_free(buf, MAXPATHLEN);
 		return (err);
 	}
 
@@ -3325,8 +3319,8 @@ top:
 	}
 end:
 	dmu_tx_commit(tx);
-	kmem_free(buf, MAXPATHLEN);
-	if(0 == err && zsb->z_os->os_is_group && zsb->z_os->os_is_master){
+	vmem_free(buf, MAXPATHLEN);
+	if(0 == err && zsb->z_os->os_is_group && zsb->z_os->os_is_master && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_DIRQUOTA, zp, path, NULL, 0,
 			0, &dir_obj, NULL, 0, &quota);
 		if(z_carrier){

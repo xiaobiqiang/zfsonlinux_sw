@@ -4427,6 +4427,9 @@ zfs_do_receive(int argc, char **argv)
 #define	ZFS_DELEG_PERM_GROUPOBJUSED	"groupobjused"
 #define	ZFS_DELEG_PERM_USERUSED		"userused"
 #define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
+
+#define	ZFS_DELEG_PERM_DIRQUOTA	"dirquota"
+
 #define	ZFS_DELEG_PERM_HOLD		"hold"
 #define	ZFS_DELEG_PERM_RELEASE		"release"
 #define	ZFS_DELEG_PERM_DIFF		"diff"
@@ -4461,6 +4464,9 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_USEROBJQUOTA, ZFS_DELEG_NOTE_USEROBJQUOTA },
 	{ ZFS_DELEG_PERM_USERUSED, ZFS_DELEG_NOTE_USERUSED },
 	{ ZFS_DELEG_PERM_USEROBJUSED, ZFS_DELEG_NOTE_USEROBJUSED },
+
+	{ZFS_DELEG_PERM_DIRQUOTA, ZFS_DELEG_NOTE_DIRQUOTA},
+	
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
 

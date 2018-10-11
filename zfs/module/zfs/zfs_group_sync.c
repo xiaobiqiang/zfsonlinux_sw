@@ -714,14 +714,15 @@ int zfs_multiclus_stop_sync(char* group_name, char* fs_name)
 	clock_t time = drv_usectohz(10000000);
 
 	if (group_name == NULL || fs_name == NULL) {
-		cmn_err(CE_WARN, "[%s %d] group_name=%s,  fs_name=%s", __func__, __LINE__,
+		cmn_err(CE_WARN, "[%s %d] group_name=%s, fs_name=%s", __func__, __LINE__,
 			group_name, fs_name);
 		return EINVAL;
 	}
 
 	zfs_multiclus_get_group(group_name, &group);
 	if (group == NULL) {
-		cmn_err(CE_WARN, "[%s %d] failed to get group %s.", __func__, __LINE__, group_name);
+		cmn_err(CE_WARN, "[%s %d] failed to get group %s, fs_name=%s", __func__, __LINE__, 
+			group_name, fs_name);
 		return EINVAL;
 	}
 

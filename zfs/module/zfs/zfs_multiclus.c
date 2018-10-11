@@ -2252,7 +2252,6 @@ int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 	spa_t *spa = NULL;
 	dsl_pool_t *dp = NULL;
 	dsl_dataset_t *dsl_dataset = NULL;
-	objset_t *os = NULL;
 	
 	mutex_enter(&spa_namespace_lock);
 	spa = spa_by_guid(spa_guid, 0);
@@ -2271,16 +2270,8 @@ int zfs_multiclus_get_fsname(uint64_t spa_guid, uint64_t objset, char *fsname)
 	if (dsl_dataset == NULL)
 		return (-1);
 
-	err = dmu_objset_from_ds(dsl_dataset, &os);
-	if (err != 0)
-		cmn_err(CE_WARN, "dmu_objset_from_ds errno:%d", err);	
-
-	if (os == NULL ) {
-		cmn_err(CE_WARN, "zfs_group_hold: os == NULL");
-		return (-1);
-	}
-	dmu_objset_name(os, fsname);
-
+	dsl_dataset_name(dsl_dataset, fsname);
+	dsl_dataset_rele(dsl_dataset, FTAG);
 	return (0);
 }
 

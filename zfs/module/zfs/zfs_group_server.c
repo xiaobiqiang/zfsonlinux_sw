@@ -3303,7 +3303,7 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 	case SC_FS_DIRLOWDATA: {
 		if (!(zsb->z_os->os_is_master && msg_header->orig_type == APP_GROUP)) {
 			znode_t *zp;
-			fs_dir_lowdata_t *dirlowdata = kmem_zalloc(sizeof(fs_dir_lowdata_t), KM_SLEEP);
+			fs_dir_lowdata_t *dirlowdata = vmem_zalloc(sizeof(fs_dir_lowdata_t), KM_SLEEP);
 			bcopy(cmd_arg, dirlowdata, cmd_arg_size);
 			error = zfs_zget(zsb, dirlowdata->master_object, &zp);
 			if (error == 0) {
@@ -3317,18 +3317,18 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 				iput(ZTOI(zp));
 				bcopy(dirlowdata, cmd_return, sizeof(fs_dir_lowdata_t));
 			}
-			kmem_free(dirlowdata, sizeof(fs_dir_lowdata_t));
+			vmem_free(dirlowdata, sizeof(fs_dir_lowdata_t));
 		}
 	}
 	break;
 	
 	case SC_FS_DIRQUOTA: {
 		if (!(zsb->z_os->os_is_master && msg_header->orig_type == APP_GROUP)) {
-			zfs_cl_set_dirquota_t *dirquota = kmem_zalloc(sizeof(zfs_cl_set_dirquota_t), 
+			zfs_cl_set_dirquota_t *dirquota = vmem_zalloc(sizeof(zfs_cl_set_dirquota_t), 
 											    KM_SLEEP);
 			bcopy(cmd_arg, dirquota, cmd_arg_size);
 			error = zfs_set_dir_quota(zsb, dirquota->object, dirquota->path, dirquota->quota);
-			kmem_free(dirquota, sizeof(zfs_cl_set_dirquota_t));
+			vmem_free(dirquota, sizeof(zfs_cl_set_dirquota_t));
 			bcopy(&error, cmd_return, sizeof(int));
 		}
 	}
@@ -3337,14 +3337,14 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 	case SC_FS_USERQUOTA: {
 		if (!(zsb->z_os->os_is_master && msg_header->orig_type == APP_GROUP)) {
 			uint64_t rid = 0;
-			zfs_cl_set_userquota_t *userquota = kmem_zalloc(sizeof(zfs_cl_set_userquota_t), 
+			zfs_cl_set_userquota_t *userquota = vmem_zalloc(sizeof(zfs_cl_set_userquota_t), 
 												    KM_SLEEP);
 			bcopy(cmd_arg, userquota, cmd_arg_size);
 
 			/** get rid from username **/
 			
 			error = zfs_set_userquota(zsb, userquota->type, userquota->domain, rid, userquota->quota);
-			kmem_free(userquota, sizeof(zfs_cl_set_userquota_t));
+			vmem_free(userquota, sizeof(zfs_cl_set_userquota_t));
 			bcopy(&error, cmd_return, sizeof(int));
 		}
 	}
@@ -3567,8 +3567,8 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 	char	dsname[MAX_FSNAME_LEN]={0};
 	void	*dirld_return = NULL;
 	zfs_sb_t  *zsb = NULL;
-	dir_lowdata_t	*dl_info = kmem_zalloc(sizeof(dir_lowdata_t), KM_SLEEP);
-	dir_lowdata_carrier_t	*dirld_carrier = kmem_zalloc(sizeof(dir_lowdata_carrier_t), KM_SLEEP);
+	dir_lowdata_t	*dl_info = vmem_zalloc(sizeof(dir_lowdata_t), KM_SLEEP);
+	dir_lowdata_carrier_t	*dirld_carrier = vmem_zalloc(sizeof(dir_lowdata_carrier_t), KM_SLEEP);
 	zfs_group_stat_msg_t	*stat_msg = (zfs_group_stat_msg_t *)server_para->msg_data; 
 	zfs_group_header_t	*msg_header = server_para->msg_header;
 	zfs_group_iostat_t	*stat = &stat_msg->call.stat;
@@ -3660,12 +3660,12 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 			zfs_dirquota_t *dirquota = NULL;
 			bcopy(dirld_return, dl_info, dirld_arg_size);
 
-			dirquota = kmem_zalloc(sizeof(zfs_dirquota_t), KM_SLEEP);
+			dirquota = vmem_zalloc(sizeof(zfs_dirquota_t), KM_SLEEP);
 
 			zsb = zfs_sb_group_hold(msg_header->server_spa, msg_header->server_os, FTAG, B_TRUE);
 			if (zsb == NULL){	
 				if(NULL != dirquota)
-					kmem_free(dirquota, sizeof(zfs_dirquota_t));
+					vmem_free(dirquota, sizeof(zfs_dirquota_t));
 				error = EGHOLD;
 				goto out;
 			}
@@ -3680,7 +3680,7 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 			
 			bcopy(dirquota, dirld_return, dirld_return_size);
 			if(NULL != dirquota)
-				kmem_free(dirquota, sizeof(zfs_dirquota_t));
+				vmem_free(dirquota, sizeof(zfs_dirquota_t));
 			zfs_sb_group_rele(zsb, FTAG);
 		}
 			break;
@@ -3692,9 +3692,9 @@ static int zfs_group_server_process_dirld(zfs_group_server_para_t *server_para)
 	
 out:
 	if(NULL != dirld_carrier)
-		kmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
+		vmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
 	if(NULL != dl_info)
-		kmem_free(dl_info, sizeof(dir_lowdata_t));
+		vmem_free(dl_info, sizeof(dir_lowdata_t));
 	return (error);
 }
 

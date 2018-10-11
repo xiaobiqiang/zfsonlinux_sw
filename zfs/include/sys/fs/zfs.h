@@ -173,6 +173,7 @@ typedef enum {
 	ZFS_PROP_LUN_HOST,
 	ZFS_PROP_LUN_GUID,
 	ZFS_PROP_LUN_THIN_THRESHOLD,
+	ZFS_PROP_DIRQUOTA,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -445,6 +446,11 @@ typedef enum {
 	ZFS_LOWDATA_CRITERIA_ATIME = 0,
 	ZFS_LOWDATA_CRITERIA_CTIME = 1
 } zfs_lowdata_criteria_t;
+
+typedef enum {
+	ZFS_DIRQUOTA_OFF = 0,
+	ZFS_DIRQUOTA_ON = 1
+} zfs_dirquota_type_t;
 
 /*
  * On-disk version number.
