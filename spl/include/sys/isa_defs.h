@@ -162,6 +162,23 @@
 
 #define	_SUNOS_VTOC_16
 
+/* sw_64 arch specific defines */
+#elif defined(__sw_64) || defined(__sw_64__)
+
+#if !defined(__sw_64)
+#define	__sw_64
+#endif
+
+#if !defined(_LITTLE_ENDIAN)
+#define	_LITTLE_ENDIAN
+#endif
+
+#if !defined(_LP64)
+#define	_LP64
+#endif
+
+#define	_SUNOS_VTOC_16
+
 #else
 /*
  * Currently supported:
