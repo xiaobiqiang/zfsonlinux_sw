@@ -229,6 +229,7 @@ extern "C" {
 #define	ESC_ZFS_VDEV_CLEAR	"ESC_ZFS_vdev_clear"
 #define	ESC_ZFS_VDEV_CHECK	"ESC_ZFS_vdev_check"
 #define	ESC_ZFS_VDEV_METASPARE	"ESC_ZFS_vdev_metaspare"
+#define	ESC_ZFS_VDEV_LOWSPARE	"ESC_ZFS_vdev_lowspare"
 
 #ifdef	__cplusplus
 }

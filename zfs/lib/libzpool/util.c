@@ -149,8 +149,10 @@ show_pool_stats(spa_t *spa)
 
 	show_vdev_stats(name, ZPOOL_CONFIG_CHILDREN, nvroot, 0);
 	show_vdev_stats(NULL, ZPOOL_CONFIG_L2CACHE, nvroot, 0);
-	show_vdev_stats(NULL, ZPOOL_CONFIG_METASPARES, nvroot, 0);
 	show_vdev_stats(NULL, ZPOOL_CONFIG_SPARES, nvroot, 0);
+	show_vdev_stats(NULL, ZPOOL_CONFIG_METASPARES, nvroot, 0);
+	show_vdev_stats(NULL, ZPOOL_CONFIG_LOWSPARES, nvroot, 0);
+	show_vdev_stats(NULL, ZPOOL_CONFIG_MIRRORSPARES, nvroot, 0);
 
 	nvlist_free(config);
 }

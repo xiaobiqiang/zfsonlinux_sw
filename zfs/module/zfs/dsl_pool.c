@@ -670,6 +670,29 @@ dsl_pool_adjustedsize(dsl_pool_t *dp, boolean_t netfree)
 	return (space - resv);
 }
 
+uint64_t
+dsl_low_adjustedsize(dsl_pool_t *dp, boolean_t netfree)
+{
+	uint64_t space, resv;
+
+	/*
+	 * Reserve about 3.1% (1/32), or at least 32MB, for allocation
+	 * efficiency.
+	 * XXX The intent log is not accounted for, so it must fit
+	 * within this slop.
+	 *
+	 * If we're trying to assess whether it's OK to do a free,
+	 * cut the reservation in half to allow forward progress
+	 * (e.g. make it possible to rm(1) files from a full pool).
+	 */
+	space = metaslab_class_get_space(spa_low_class(dp->dp_spa));
+	resv = MAX(space >> 5, SPA_MINDEVSIZE >> 1);
+	if (netfree)
+		resv >>= 1;
+
+	return (space - resv);
+}
+
 boolean_t
 dsl_pool_need_dirty_delay(dsl_pool_t *dp)
 {

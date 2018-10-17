@@ -654,6 +654,22 @@ extern void spa_metaspare_activate(vdev_t *vd);
 extern boolean_t spa_has_metas(spa_t *spa);
 extern boolean_t spa_has_metaspare(spa_t *, uint64_t guid);
 
+/* low data spare state (which is global across all pools) */
+extern void spa_lowspare_add(vdev_t *vd);
+extern void spa_lowspare_remove(vdev_t *vd);
+extern boolean_t spa_lowspare_exists(uint64_t guid, uint64_t *pool, int *refcnt);
+extern void spa_lowspare_activate(vdev_t *vd);
+extern boolean_t spa_has_lows(spa_t *spa);
+extern boolean_t spa_has_lowspare(spa_t *spa, uint64_t guid);
+
+
+/* mirror mode spare state (which is global across all pools) */
+extern void spa_mirrorspare_add(vdev_t *vd);
+extern void spa_mirrorspare_remove(vdev_t *vd);
+extern boolean_t spa_mirrorspare_exists(uint64_t guid, uint64_t *pool, int *refcnt);
+extern void spa_mirrorspare_activate(vdev_t *vd);
+extern boolean_t spa_has_mirrorspare(spa_t *, uint64_t guid);
+
 /* spare state (which is global across all pools) */
 extern void spa_spare_add(vdev_t *vd);
 extern void spa_spare_remove(vdev_t *vd);
@@ -820,6 +836,7 @@ extern boolean_t spa_deflate(spa_t *spa);
 extern metaslab_class_t *spa_normal_class(spa_t *spa);
 extern metaslab_class_t *spa_log_class(spa_t *spa);
 extern metaslab_class_t *spa_meta_class(spa_t *spa);
+extern metaslab_class_t *spa_low_class(spa_t *spa);
 extern void spa_evicting_os_register(spa_t *, objset_t *os);
 extern void spa_evicting_os_deregister(spa_t *, objset_t *os);
 extern void spa_evicting_os_wait(spa_t *spa);

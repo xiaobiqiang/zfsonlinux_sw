@@ -753,6 +753,13 @@ zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
     zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb)
 {
 	zio_t *zio;
+	zio_priority_t real_priority;
+
+	if (zp != NULL && zp->zp_app_low == B_TRUE) {
+		real_priority = ZIO_PRIORITY_ASYNC_WRITE;
+	} else {
+		real_priority = priority;
+	}
 
 	ASSERT(zp->zp_checksum >= ZIO_CHECKSUM_OFF &&
 	    zp->zp_checksum < ZIO_CHECKSUM_FUNCTIONS &&
@@ -764,7 +771,7 @@ zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	    zp->zp_copies <= spa_max_replication(spa));
 
 	zio = zio_create(pio, spa, txg, bp, data, size, done, private,
-	    ZIO_TYPE_WRITE, priority, flags, NULL, 0, zb,
+	    ZIO_TYPE_WRITE, real_priority, flags, NULL, 0, zb,
 	    ZIO_STAGE_OPEN, (flags & ZIO_FLAG_DDT_CHILD) ?
 	    ZIO_DDT_CHILD_WRITE_PIPELINE : ZIO_WRITE_PIPELINE);
 
@@ -2114,6 +2121,7 @@ zio_write_gang_block(zio_t *pio)
 		zp.zp_dedup_verify = B_FALSE;
 		zp.zp_nopwrite = B_FALSE;
 		zp.zp_app_meta = pio->io_prop.zp_app_meta;
+		zp.zp_app_low = pio->io_prop.zp_app_low;
 
 		zio_nowait(zio_write(zio, spa, txg, &gbh->zg_blkptr[g],
 		    (char *)pio->io_data + (pio->io_size - resid), lsize, &zp,
@@ -2613,7 +2621,9 @@ zio_dva_allocate(zio_t *zio)
 			prop_p->zp_type !=DMU_OT_ZVOL )
 		|| (prop_p->zp_level > 0 || prop_p->zp_app_meta)))) {
 		mc = spa->spa_meta_class;
-	}else {
+	} else if (spa_has_lows(spa) && prop_p->zp_app_low) {
+		mc = spa->spa_low_class;
+	} else {
 		mc = spa->spa_normal_class;
 	}
 
@@ -2622,14 +2632,25 @@ space_alloc:
 	    zio->io_prop.zp_copies, zio->io_txg, NULL, flags);
 
 	if (error) {
-		if ((error == ENOSPC) && (mc == spa->spa_meta_class)) {
-			mc = spa->spa_normal_class;
-			goto space_alloc;
+		if ((error == ENOSPC) && (mc != spa->spa_low_class)) {
+			if (mc == spa->spa_meta_class) {
+				if (spa->spa_normal_class != NULL) {
+					mc = spa->spa_normal_class;
+				} else {
+					mc = spa->spa_low_class;
+				}
+			} else if (mc == spa->spa_normal_class) {
+				mc = spa->spa_low_class;
+			}
+
+			if (mc != NULL) {
+				goto space_alloc;
+			}
 		}
 		spa_dbgmsg(spa, "%s: metaslab allocation failure: zio %p, "
 		    "size %llu, error %d", spa_name(spa), zio, zio->io_size,
 		    error);
-		if (error == ENOSPC && zio->io_size > SPA_MINBLOCKSIZE)
+		if (error == ENOSPC && zio->io_size > SPA_MINBLOCKSIZE && mc != spa->spa_low_class)
 			return (zio_write_gang_block(zio));
 		zio->io_error = error;
 	}

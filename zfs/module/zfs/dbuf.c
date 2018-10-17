@@ -746,7 +746,7 @@ dbuf_read_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 }
 
 static int
-dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
+dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags, boolean_t lowdata)
 {
 	dnode_t *dn;
 	zbookmark_phys_t zb;
@@ -825,7 +825,7 @@ dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
 }
 
 int
-dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
+dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags, boolean_t lowdata)
 {
 	int err = 0;
 	boolean_t havepzio = (zio != NULL);
@@ -865,7 +865,7 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 		if (zio == NULL)
 			zio = zio_root(spa, NULL, NULL, ZIO_FLAG_CANFAIL);
 
-		err = dbuf_read_impl(db, zio, &flags);
+		err = dbuf_read_impl(db, zio, &flags, lowdata);
 
 		/* dbuf_read_impl has dropped db_mtx for us */
 
@@ -1677,6 +1677,8 @@ dmu_buf_will_dirty(dmu_buf_t *db_fake, dmu_tx_t *tx)
     dbuf_dirty_record_t *dr = NULL;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)db_fake;
 	int rf = DB_RF_MUST_SUCCEED | DB_RF_NOPREFETCH;
+	uint64_t txg = tx->tx_txg;
+	uint64_t txg_id = txg & TXG_MASK;
 
 	ASSERT(tx->tx_txg != 0);
 	ASSERT(!refcount_is_zero(&db->db_holds));
@@ -1685,7 +1687,7 @@ dmu_buf_will_dirty(dmu_buf_t *db_fake, dmu_tx_t *tx)
 	if (RW_WRITE_HELD(&DB_DNODE(db)->dn_struct_rwlock))
 		rf |= DB_RF_HAVESTRUCT;
 	DB_DNODE_EXIT(db);
-	(void) dbuf_read(db, NULL, rf);
+	(void) dbuf_read(db, NULL, rf, db->db_low_data[txg_id]);
     dr = dbuf_dirty(db, tx);
 #ifdef _KERNEL
     if (dr != NULL)
@@ -1917,7 +1919,8 @@ dbuf_direct_write(dmu_buf_impl_t *db,  dmu_tx_t *tx)
     SET_BOOKMARK(&zb, os->os_dsl_dataset->ds_object,
         db->db.db_object, db->db_level, db->db_blkid);
     wp_flag = 0;
-    dmu_write_policy(os, DB_DNODE(db), db->db_level, wp_flag, &zp, db->db_app_meta[txg_id]);
+    dmu_write_policy(os, DB_DNODE(db), db->db_level, 
+		wp_flag, &zp, db->db_app_meta[txg_id], db->db_low_data[txg_id]);
 
     blk_record = kmem_zalloc(sizeof(dbuf_blkptr_record_t), KM_SLEEP);
     blk_record->seq = db->db_blkptr_seq[txg_id];
@@ -2073,7 +2076,7 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		if (err)
 			return (err);
 		err = dbuf_read(*parentp, NULL,
-		    (DB_RF_HAVESTRUCT | DB_RF_NOPREFETCH | DB_RF_CANFAIL));
+		    (DB_RF_HAVESTRUCT | DB_RF_NOPREFETCH | DB_RF_CANFAIL), B_FALSE);
 		if (err) {
 			dbuf_rele(*parentp, NULL);
 			*parentp = NULL;
@@ -2129,6 +2132,7 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	for (i = 0; i < TXG_SIZE; i++) {
 		db->db_ctrl_data[i] = 0;
 		db->db_app_meta[i] = 0;
+		db->db_low_data[i] = 0;
 		list_create(&db->db_blkptr_list[i],  sizeof (dbuf_blkptr_record_t),
 			    offsetof(dbuf_blkptr_record_t, db_blkptr_node));
 	}
@@ -2833,7 +2837,7 @@ dbuf_sync_indirect(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 	/* Read the block if it hasn't been read yet. */
 	if (db->db_buf == NULL) {
 		mutex_exit(&db->db_mtx);
-		(void) dbuf_read(db, NULL, DB_RF_MUST_SUCCEED);
+		(void) dbuf_read(db, NULL, DB_RF_MUST_SUCCEED, B_FALSE);
 		mutex_enter(&db->db_mtx);
 	}
 	ASSERT3U(db->db_state, ==, DB_CACHED);
@@ -3274,6 +3278,7 @@ dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 	db->db_dirtycnt -= 1;
 	db->db_data_pending = NULL;
 	db->db_app_meta[txg_off] = B_FALSE;
+	db->db_low_data[txg_off] = B_FALSE;
 	dbuf_rele_and_unlock(db, (void *)(uintptr_t)tx->tx_txg);
 }
 
@@ -3392,7 +3397,7 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx)
 		wp_flag = WP_SPILL;
 	wp_flag |= (db->db_state == DB_NOFILL) ? WP_NOFILL : 0;
 
-	dmu_write_policy(os, dn, db->db_level, wp_flag, &zp, db->db_app_meta[txg_id]);
+	dmu_write_policy(os, dn, db->db_level, wp_flag, &zp, db->db_app_meta[txg_id], db->db_low_data[txg_id]);
 	DB_DNODE_EXIT(db);
 
 	if (db->db_level == 0 &&

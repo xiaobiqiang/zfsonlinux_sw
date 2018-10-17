@@ -99,6 +99,7 @@ typedef enum zti_modes {
 #define	ZTI_ONE		ZTI_N(1)
 
 #define	ESC_ZFS_VDEV_METASPARE	"ESC_ZFS_vdev_metaspare"
+#define	ESC_ZFS_VDEV_LOWSPARE	"ESC_ZFS_vdev_lowspare"
 
 typedef struct zio_taskq_info {
 	zti_modes_t zti_mode;
@@ -1083,8 +1084,9 @@ spa_activate(spa_t *spa, int mode)
 	spa->spa_mode = mode;
 
 	spa->spa_normal_class = metaslab_class_create(spa, zfs_metaslab_ops);
-	spa->spa_meta_class = metaslab_class_create(spa, zfs_metaslab_ops);
 	spa->spa_log_class = metaslab_class_create(spa, zfs_metaslab_ops);
+	spa->spa_meta_class = metaslab_class_create(spa, zfs_metaslab_ops);
+	spa->spa_low_class = metaslab_class_create(spa, zfs_metaslab_ops);
 
 	/* Try to create a covering process */
 	mutex_enter(&spa->spa_proc_lock);
@@ -1202,6 +1204,9 @@ spa_deactivate(spa_t *spa)
 
 	metaslab_class_destroy(spa->spa_meta_class);
 	spa->spa_meta_class = NULL;
+
+	metaslab_class_destroy(spa->spa_low_class);
+	spa->spa_low_class = NULL;
 
 	/*
 	 * If this was part of an import or the open otherwise failed, we may
@@ -1393,6 +1398,31 @@ spa_unload(spa_t *spa)
 	}
 	spa->spa_metaspares.sav_count = 0;
 
+	for (i = 0; i < spa->spa_lowspares.sav_count; i++)
+			vdev_free(spa->spa_lowspares.sav_vdevs[i]);
+	if (spa->spa_lowspares.sav_vdevs) {
+		kmem_free(spa->spa_lowspares.sav_vdevs,
+			spa->spa_lowspares.sav_count * sizeof (void *));
+			spa->spa_lowspares.sav_vdevs = NULL;
+	}
+	if (spa->spa_lowspares.sav_config) {
+		nvlist_free(spa->spa_lowspares.sav_config);
+		spa->spa_lowspares.sav_config = NULL;
+	}
+	spa->spa_lowspares.sav_count = 0;
+
+	for (i = 0; i < spa->spa_mirrorspares.sav_count; i++)
+		vdev_free(spa->spa_mirrorspares.sav_vdevs[i]);
+	if (spa->spa_mirrorspares.sav_vdevs) {
+		kmem_free(spa->spa_mirrorspares.sav_vdevs,
+		    spa->spa_mirrorspares.sav_count * sizeof (void *));
+		spa->spa_mirrorspares.sav_vdevs = NULL;
+	}
+	if (spa->spa_mirrorspares.sav_config) {
+		nvlist_free(spa->spa_mirrorspares.sav_config);
+		spa->spa_mirrorspares.sav_config = NULL;
+	}
+	spa->spa_mirrorspares.sav_count = 0;
 
 	spa->spa_async_suspended = 0;
 
@@ -1622,6 +1652,219 @@ spa_load_metaspares(spa_t *spa)
 		nvlist_free(metaspares[i]);
 	kmem_free(metaspares, spa->spa_metaspares.sav_count * sizeof (void *));
 }
+
+
+static void
+spa_load_lowspares(spa_t *spa)
+{
+	nvlist_t **lowspares;
+	uint_t nlowspares;
+	int i;
+	vdev_t *vd, *tvd;
+
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
+
+	/*
+	 * First, close and free any existing spare vdevs.
+	 */
+	for (i = 0; i < spa->spa_lowspares.sav_count; i++) {
+		vd = spa->spa_lowspares.sav_vdevs[i];
+		/* Undo the call to spa_activate() below */
+		if ((tvd = spa_lookup_by_guid(spa, vd->vdev_guid,
+		    B_FALSE)) != NULL && tvd->vdev_islowspare)
+			spa_lowspare_remove(tvd);
+		vdev_close(vd);
+		vdev_free(vd);
+	}
+
+	if (spa->spa_lowspares.sav_vdevs)
+		kmem_free(spa->spa_lowspares.sav_vdevs,
+		    spa->spa_lowspares.sav_count * sizeof (void *));
+
+	if (spa->spa_lowspares.sav_config == NULL)
+		nlowspares = 0;
+	else
+		VERIFY(nvlist_lookup_nvlist_array(spa->spa_lowspares.sav_config,
+		    ZPOOL_CONFIG_LOWSPARES, &lowspares, &nlowspares) == 0);
+
+	spa->spa_lowspares.sav_count = (int)nlowspares;
+	spa->spa_lowspares.sav_vdevs = NULL;
+	if (nlowspares == 0)
+		return;
+	/*
+	 * Construct the array of vdevs, opening them to get status in the
+	 * process.   For each spare, there is potentially two different vdev_t
+	 * structures associated with it: one in the list of spares (used only
+	 * for basic validation purposes) and one in the active vdev
+	 * configuration (if it's spared in).  During this phase we open and
+	 * validate each vdev on the spare list.  If the vdev also exists in the
+	 * active configuration, then we also mark this vdev as an active spare.
+	 */
+	spa->spa_lowspares.sav_vdevs = kmem_alloc(nlowspares * sizeof (void *),
+	    KM_SLEEP);
+	for (i = 0; i < spa->spa_lowspares.sav_count; i++) {
+		VERIFY(spa_config_parse(spa, &vd, lowspares[i], NULL, 0,
+		    VDEV_ALLOC_LOWSPARE) == 0);
+		ASSERT(vd != NULL);
+
+		spa->spa_lowspares.sav_vdevs[i] = vd;
+
+		if ((tvd = spa_lookup_by_guid(spa, vd->vdev_guid,
+		    B_FALSE)) != NULL) {
+			if (!tvd->vdev_islowspare)
+				spa_lowspare_add(tvd);
+
+			/*
+			 * We only mark the spare active if we were successfully
+			 * able to load the vdev.  Otherwise, importing a pool
+			 * with a bad active spare would result in strange
+			 * behavior, because multiple pool would think the spare
+			 * is actively in use.
+			 *
+			 * There is a vulnerability here to an equally bizarre
+			 * circumstance, where a dead active spare is later
+			 * brought back to life (onlined or otherwise).  Given
+			 * the rarity of this scenario, and the extra complexity
+			 * it adds, we ignore the possibility.
+			 */
+			if (!vdev_is_dead(tvd))
+				spa_lowspare_activate(tvd);
+		}
+
+		vd->vdev_top = vd;
+		vd->vdev_aux = &spa->spa_lowspares;
+
+		if (vdev_open(vd) != 0)
+			continue;
+		if (vdev_validate_aux(vd) == 0)
+			spa_lowspare_add(vd);
+	}
+
+	/*
+	 * Recompute the stashed list of spares, with status information
+	 * this time.
+	 */
+	VERIFY(nvlist_remove(spa->spa_lowspares.sav_config, ZPOOL_CONFIG_LOWSPARES,
+	    DATA_TYPE_NVLIST_ARRAY) == 0);
+
+	lowspares = kmem_alloc(spa->spa_lowspares.sav_count * sizeof (void *),
+	    KM_SLEEP);
+	for (i = 0; i < spa->spa_lowspares.sav_count; i++)
+		lowspares[i] = vdev_config_generate(spa,
+		    spa->spa_lowspares.sav_vdevs[i], B_TRUE, VDEV_CONFIG_LOWSPARE);
+	VERIFY(nvlist_add_nvlist_array(spa->spa_lowspares.sav_config,
+	    ZPOOL_CONFIG_LOWSPARES, lowspares, spa->spa_lowspares.sav_count) == 0);
+	for (i = 0; i < spa->spa_lowspares.sav_count; i++)
+		nvlist_free(lowspares[i]);
+	kmem_free(lowspares, spa->spa_lowspares.sav_count * sizeof (void *));
+}
+
+
+static void
+spa_load_mirrorspares(spa_t *spa)
+{
+	nvlist_t **mirrorspares;
+	uint_t nmirrorspares;
+	int i;
+	vdev_t *vd, *tvd;
+
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
+
+	/*
+	 * First, close and free any existing spare vdevs.
+	 */
+	for (i = 0; i < spa->spa_mirrorspares.sav_count; i++) {
+		vd = spa->spa_mirrorspares.sav_vdevs[i];
+		/* Undo the call to spa_activate() below */
+		if ((tvd = spa_lookup_by_guid(spa, vd->vdev_guid,
+		    B_FALSE)) != NULL && tvd->vdev_ismirrorspare)
+			spa_mirrorspare_remove(tvd);
+		vdev_close(vd);
+		vdev_free(vd);
+	}
+
+	if (spa->spa_mirrorspares.sav_vdevs)
+		kmem_free(spa->spa_mirrorspares.sav_vdevs,
+		    spa->spa_mirrorspares.sav_count * sizeof (void *));
+
+	if (spa->spa_mirrorspares.sav_config == NULL)
+		nmirrorspares = 0;
+	else
+		VERIFY(nvlist_lookup_nvlist_array(spa->spa_mirrorspares.sav_config,
+		    ZPOOL_CONFIG_MIRRORSPARES, &mirrorspares, &nmirrorspares) == 0);
+
+	spa->spa_mirrorspares.sav_count = (int)nmirrorspares;
+	spa->spa_mirrorspares.sav_vdevs = NULL;
+	if (nmirrorspares == 0)
+		return;
+	/*
+	 * Construct the array of vdevs, opening them to get status in the
+	 * process.   For each spare, there is potentially two different vdev_t
+	 * structures associated with it: one in the list of spares (used only
+	 * for basic validation purposes) and one in the active vdev
+	 * configuration (if it's spared in).  During this phase we open and
+	 * validate each vdev on the spare list.  If the vdev also exists in the
+	 * active configuration, then we also mark this vdev as an active spare.
+	 */
+	spa->spa_mirrorspares.sav_vdevs = kmem_alloc(nmirrorspares * sizeof (void *),
+	    KM_SLEEP);
+	for (i = 0; i < spa->spa_mirrorspares.sav_count; i++) {
+		VERIFY(spa_config_parse(spa, &vd, mirrorspares[i], NULL, 0,
+		    VDEV_ALLOC_MIRRORSPARE) == 0);
+		ASSERT(vd != NULL);
+
+		spa->spa_mirrorspares.sav_vdevs[i] = vd;
+
+		if ((tvd = spa_lookup_by_guid(spa, vd->vdev_guid,
+		    B_FALSE)) != NULL) {
+			if (!tvd->vdev_ismirrorspare)
+				spa_mirrorspare_add(tvd);
+
+			/*
+			 * We only mark the spare active if we were successfully
+			 * able to load the vdev.  Otherwise, importing a pool
+			 * with a bad active spare would result in strange
+			 * behavior, because multiple pool would think the spare
+			 * is actively in use.
+			 *
+			 * There is a vulnerability here to an equally bizarre
+			 * circumstance, where a dead active spare is later
+			 * brought back to life (onlined or otherwise).  Given
+			 * the rarity of this scenario, and the extra complexity
+			 * it adds, we ignore the possibility.
+			 */
+			if (!vdev_is_dead(tvd))
+				spa_mirrorspare_activate(tvd);
+		}
+
+		vd->vdev_top = vd;
+		vd->vdev_aux = &spa->spa_mirrorspares;
+
+		if (vdev_open(vd) != 0)
+			continue;
+		if (vdev_validate_aux(vd) == 0)
+			spa_mirrorspare_add(vd);
+	}
+
+	/*
+	 * Recompute the stashed list of spares, with status information
+	 * this time.
+	 */
+	VERIFY(nvlist_remove(spa->spa_mirrorspares.sav_config, ZPOOL_CONFIG_MIRRORSPARES,
+	    DATA_TYPE_NVLIST_ARRAY) == 0);
+
+	mirrorspares = kmem_alloc(spa->spa_mirrorspares.sav_count * sizeof (void *),
+	    KM_SLEEP);
+	for (i = 0; i < spa->spa_mirrorspares.sav_count; i++)
+		mirrorspares[i] = vdev_config_generate(spa,
+		    spa->spa_mirrorspares.sav_vdevs[i], B_TRUE, VDEV_CONFIG_MIRRORSPARE);
+	VERIFY(nvlist_add_nvlist_array(spa->spa_mirrorspares.sav_config,
+	    ZPOOL_CONFIG_MIRRORSPARES, mirrorspares, spa->spa_mirrorspares.sav_count) == 0);
+	for (i = 0; i < spa->spa_mirrorspares.sav_count; i++)
+		nvlist_free(mirrorspares[i]);
+	kmem_free(mirrorspares, spa->spa_mirrorspares.sav_count * sizeof (void *));
+}
+
 
 /*
  * Load (or re-load) the current list of vdevs describing the active l2cache for
@@ -2818,6 +3061,40 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		spa->spa_metaspares.sav_sync = B_TRUE;
 	}
 
+	error = spa_dir_prop(spa, DMU_POOL_LOWSPARES, 
+			&spa->spa_lowspares.sav_object);
+	if (error != 0 && error != ENOENT)
+		return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
+	if (error == 0 && type != SPA_IMPORT_ASSEMBLE) {
+		ASSERT(spa_version(spa) >= SPA_VERSION_LOWSPARES);
+		if (load_nvlist(spa, spa->spa_lowspares.sav_object,
+			&spa->spa_lowspares.sav_config) != 0)
+			return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
+	
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		spa_load_lowspares(spa);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+	} else if (error == 0) {
+		spa->spa_lowspares.sav_sync = B_TRUE;
+	}
+
+	error = spa_dir_prop(spa, DMU_POOL_MIRRORSPARES, 
+		&spa->spa_mirrorspares.sav_object);
+	if (error != 0 && error != ENOENT)
+		return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
+	if (error == 0 && type != SPA_IMPORT_ASSEMBLE) {
+		ASSERT(spa_version(spa) >= SPA_VERSION_MIRRORSPARES);
+		if (load_nvlist(spa, spa->spa_mirrorspares.sav_object,
+		    &spa->spa_mirrorspares.sav_config) != 0)
+			return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
+
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		spa_load_mirrorspares(spa);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+	} else if (error == 0) {
+		spa->spa_mirrorspares.sav_sync = B_TRUE;
+	}
+
 	/*
 	 * Load any level 2 ARC devices for this pool.
 	 */
@@ -2876,6 +3153,8 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 			spa_aux_check_removed(&spa->spa_spares);
 			spa_aux_check_removed(&spa->spa_l2cache);
 			spa_aux_check_removed(&spa->spa_metaspares);
+			spa_aux_check_removed(&spa->spa_lowspares);
+			spa_aux_check_removed(&spa->spa_mirrorspares);
 		}
 	}
 
@@ -3472,6 +3751,101 @@ spa_add_metaspares(spa_t *spa, nvlist_t *config)
 	}
 }
 
+
+static void
+spa_add_lowspares(spa_t *spa, nvlist_t *config)
+{
+	nvlist_t **lowspares;
+	uint_t i, nlowspares;
+	nvlist_t *nvroot;
+	uint64_t guid;
+	vdev_stat_t *vs;
+	uint_t vsc;
+	uint64_t pool;
+
+	ASSERT(spa_config_held(spa, SCL_CONFIG, RW_READER));
+
+	if (spa->spa_lowspares.sav_count == 0)
+		return;
+
+	VERIFY(nvlist_lookup_nvlist(config,
+	    ZPOOL_CONFIG_VDEV_TREE, &nvroot) == 0);
+	VERIFY(nvlist_lookup_nvlist_array(spa->spa_lowspares.sav_config,
+	    ZPOOL_CONFIG_LOWSPARES, &lowspares, &nlowspares) == 0);
+	if (nlowspares != 0) {
+		VERIFY(nvlist_add_nvlist_array(nvroot,
+		    ZPOOL_CONFIG_LOWSPARES, lowspares, nlowspares) == 0);
+		VERIFY(nvlist_lookup_nvlist_array(nvroot,
+		    ZPOOL_CONFIG_LOWSPARES, &lowspares, &nlowspares) == 0);
+
+		/*
+		 * Go through and find any spares which have since been
+		 * repurposed as an active spare.  If this is the case, update
+		 * their status appropriately.
+		 */
+		for (i = 0; i < nlowspares; i++) {
+			VERIFY(nvlist_lookup_uint64(lowspares[i],
+			    ZPOOL_CONFIG_GUID, &guid) == 0);
+			if (spa_lowspare_exists(guid, &pool, NULL) &&
+			    pool != 0ULL) {
+				VERIFY(nvlist_lookup_uint64_array(
+				    lowspares[i], ZPOOL_CONFIG_VDEV_STATS,
+				    (uint64_t **)&vs, &vsc) == 0);
+				vs->vs_state = VDEV_STATE_CANT_OPEN;
+				vs->vs_aux = VDEV_AUX_SPARED;
+			}
+		}
+	}
+}
+
+
+static void
+spa_add_mirrorspares(spa_t *spa, nvlist_t *config)
+{
+	nvlist_t **mirrorspares;
+	uint_t i, nmirrorspares;
+	nvlist_t *nvroot;
+	uint64_t guid;
+	vdev_stat_t *vs;
+	uint_t vsc;
+	uint64_t pool;
+
+	ASSERT(spa_config_held(spa, SCL_CONFIG, RW_READER));
+
+	if (spa->spa_mirrorspares.sav_count == 0)
+		return;
+
+	VERIFY(nvlist_lookup_nvlist(config,
+	    ZPOOL_CONFIG_VDEV_TREE, &nvroot) == 0);
+	VERIFY(nvlist_lookup_nvlist_array(spa->spa_mirrorspares.sav_config,
+	    ZPOOL_CONFIG_MIRRORSPARES, &mirrorspares, &nmirrorspares) == 0);
+	if (nmirrorspares != 0) {
+		VERIFY(nvlist_add_nvlist_array(nvroot,
+		    ZPOOL_CONFIG_MIRRORSPARES, mirrorspares, nmirrorspares) == 0);
+		VERIFY(nvlist_lookup_nvlist_array(nvroot,
+		    ZPOOL_CONFIG_MIRRORSPARES, &mirrorspares, &nmirrorspares) == 0);
+
+		/*
+		 * Go through and find any spares which have since been
+		 * repurposed as an active spare.  If this is the case, update
+		 * their status appropriately.
+		 */
+		for (i = 0; i < nmirrorspares; i++) {
+			VERIFY(nvlist_lookup_uint64(mirrorspares[i],
+			    ZPOOL_CONFIG_GUID, &guid) == 0);
+			if (spa_mirrorspare_exists(guid, &pool, NULL) &&
+			    pool != 0ULL) {
+				VERIFY(nvlist_lookup_uint64_array(
+				    mirrorspares[i], ZPOOL_CONFIG_VDEV_STATS,
+				    (uint64_t **)&vs, &vsc) == 0);
+				vs->vs_state = VDEV_STATE_CANT_OPEN;
+				vs->vs_aux = VDEV_AUX_SPARED;
+			}
+		}
+	}
+}
+
+
 static void
 spa_feature_stats_from_disk(spa_t *spa, nvlist_t *features)
 {
@@ -3593,6 +3967,8 @@ spa_get_stats(const char *name, nvlist_t **config,
 
 			spa_add_spares(spa, *config);
 			spa_add_metaspares(spa, *config);
+			spa_add_lowspares(spa, *config);
+			spa_add_mirrorspares(spa, *config);
 			spa_add_l2cache(spa, *config);
 			spa_add_feature_stats(spa, *config);
 		}
@@ -3700,7 +4076,9 @@ spa_validate_aux_devs(spa_t *spa, nvlist_t *nvroot, uint64_t crtxg, int mode,
 		vdev_free(vd);
 
 		if (error &&
-		    (mode != VDEV_ALLOC_SPARE && mode != VDEV_ALLOC_L2CACHE && mode != VDEV_ALLOC_METASPARE))
+		    (mode != VDEV_ALLOC_SPARE && mode != VDEV_ALLOC_L2CACHE && 
+		    mode != VDEV_ALLOC_METASPARE && mode != VDEV_ALLOC_MIRRORSPARE &&
+		     mode != VDEV_ALLOC_LOWSPARE))
 			goto out;
 		else
 			error = 0;
@@ -3729,6 +4107,18 @@ spa_validate_aux(spa_t *spa, nvlist_t *nvroot, uint64_t crtxg, int mode)
 		&spa->spa_metaspares, ZPOOL_CONFIG_METASPARES, SPA_VERSION_METASPARES,
 		VDEV_LABEL_METASPARE)) != 0)
 		return (0);
+
+	if ((error = spa_validate_aux_devs(spa, nvroot, crtxg, mode,
+	    &spa->spa_lowspares, ZPOOL_CONFIG_LOWSPARES, SPA_VERSION_LOWSPARES,
+	    VDEV_LABEL_LOWSPARE)) != 0) {
+		return (error);
+	}
+
+	if ((error = spa_validate_aux_devs(spa, nvroot, crtxg, mode,
+	    &spa->spa_mirrorspares, ZPOOL_CONFIG_MIRRORSPARES, SPA_VERSION_MIRRORSPARES,
+	    VDEV_LABEL_MIRRORSPARE)) != 0) {
+		return (error);
+	}
 
 	return (spa_validate_aux_devs(spa, nvroot, crtxg, mode,
 	    &spa->spa_l2cache, ZPOOL_CONFIG_L2CACHE, SPA_VERSION_L2CACHE,
@@ -3817,8 +4207,8 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	dmu_tx_t *tx;
 	int error = 0;
 	uint64_t txg = TXG_INITIAL;
-	nvlist_t **spares, **l2cache, **metaspares;
-	uint_t nspares, nl2cache, nmetaspares;
+	nvlist_t **spares, **l2cache, **metaspares, **lowspares, **mirrorspares;
+	uint_t nspares, nl2cache, nmetaspares, nlowspares, nmirrorspares;
 	uint64_t version, obj;
 	boolean_t has_features;
 	nvpair_t *elem;
@@ -3925,15 +4315,13 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	}
 
 	/*
-	 * Get the list of meta data spares, if specified.
+	 * Get the list of spares, if specified.
 	 */
-
-	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
-	    &metaspares, &nmetaspares) == 0) {
-	    /* if metaspare smaller than meta data disk ,create pool fault */
-	    if (nmetaspares != 0){
-			error = spa_prejudge_spare(spa, metaspares, nmetaspares,1);
-				
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_SPARES,
+		&spares, &nspares) == 0) {
+		/* if spare smaller than data disk ,create pool fault */
+		if (nspares != 0){
+			error = spa_prejudge_spare(spa, spares, nspares,0);	
 			if (error != 0) {
 				spa_unload(spa);
 				spa_deactivate(spa);
@@ -3941,7 +4329,34 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 				mutex_exit(&spa_namespace_lock);
 				return (error);
 			}
-	    }
+		}
+		VERIFY(nvlist_alloc(&spa->spa_spares.sav_config, NV_UNIQUE_NAME,
+		    KM_SLEEP) == 0);
+		VERIFY(nvlist_add_nvlist_array(spa->spa_spares.sav_config,
+		    ZPOOL_CONFIG_SPARES, spares, nspares) == 0);
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		spa_load_spares(spa);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+		spa->spa_spares.sav_sync = B_TRUE;
+	}
+
+	/*
+	 * Get the list of meta data spares, if specified.
+	 */
+
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+		&metaspares, &nmetaspares) == 0) {
+		/* if metaspare smaller than meta data disk ,create pool fault */
+		if (nmetaspares != 0){
+			error = spa_prejudge_spare(spa, metaspares, nmetaspares,1);	
+			if (error != 0) {
+				spa_unload(spa);
+				spa_deactivate(spa);
+				spa_remove(spa);
+				mutex_exit(&spa_namespace_lock);
+				return (error);
+			}
+		}
 		VERIFY(nvlist_alloc(&spa->spa_metaspares.sav_config,
 		    NV_UNIQUE_NAME, KM_SLEEP) == 0);
 		VERIFY(nvlist_add_nvlist_array(spa->spa_metaspares.sav_config,
@@ -3953,18 +4368,34 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	}
 
 	/*
-	 * Get the list of spares, if specified.
+	 * Get the list of low data spares, if specified.
 	 */
-	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_SPARES,
-	    &spares, &nspares) == 0) {
-		VERIFY(nvlist_alloc(&spa->spa_spares.sav_config, NV_UNIQUE_NAME,
-		    KM_SLEEP) == 0);
-		VERIFY(nvlist_add_nvlist_array(spa->spa_spares.sav_config,
-		    ZPOOL_CONFIG_SPARES, spares, nspares) == 0);
+	
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_LOWSPARES,
+		&lowspares, &nlowspares) == 0) {
+		VERIFY(nvlist_alloc(&spa->spa_lowspares.sav_config,
+			NV_UNIQUE_NAME, KM_SLEEP) == 0);
+		VERIFY(nvlist_add_nvlist_array(spa->spa_lowspares.sav_config,
+			ZPOOL_CONFIG_LOWSPARES, lowspares, nlowspares) == 0);
 		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-		spa_load_spares(spa);
+		spa_load_lowspares(spa);
 		spa_config_exit(spa, SCL_ALL, FTAG);
-		spa->spa_spares.sav_sync = B_TRUE;
+		spa->spa_lowspares.sav_sync = B_TRUE;
+	}
+
+	/*
+	 * Get the list of mirror mode spares, if specified.
+	 */
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_MIRRORSPARES,
+	    &mirrorspares, &nmirrorspares) == 0) {
+		VERIFY(nvlist_alloc(&spa->spa_mirrorspares.sav_config,
+		    NV_UNIQUE_NAME, KM_SLEEP) == 0);
+		VERIFY(nvlist_add_nvlist_array(spa->spa_mirrorspares.sav_config,
+		    ZPOOL_CONFIG_MIRRORSPARES, mirrorspares, nmirrorspares) == 0);
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		spa_load_mirrorspares(spa);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+		spa->spa_mirrorspares.sav_sync = B_TRUE;
 	}
 
 	/*
@@ -4104,8 +4535,8 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 	uint64_t readonly = B_FALSE;
 	int error;
 	nvlist_t *nvroot;
-	nvlist_t **spares, **l2cache, **metaspares;
-	uint_t nspares, nl2cache, nmetaspares;
+	nvlist_t **spares, **l2cache, **metaspares, **lowspares, **mirrorspares;
+	uint_t nspares, nl2cache, nmetaspares, nlowspares, nmirrorspares;
 
 	/*
 	 * If a pool with this name exists, return failure.
@@ -4191,6 +4622,16 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 		spa->spa_metaspares.sav_config = NULL;
 		spa_load_metaspares(spa);
 	}
+	if (spa->spa_lowspares.sav_config) {
+		nvlist_free(spa->spa_lowspares.sav_config);
+		spa->spa_lowspares.sav_config = NULL;
+		spa_load_lowspares(spa);
+	}
+	if (spa->spa_mirrorspares.sav_config) {
+		nvlist_free(spa->spa_mirrorspares.sav_config);
+		spa->spa_mirrorspares.sav_config = NULL;
+		spa_load_mirrorspares(spa);
+	}
 
 	VERIFY(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 	    &nvroot) == 0);
@@ -4265,6 +4706,36 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 		spa_config_exit(spa, SCL_ALL, FTAG);
 		spa->spa_metaspares.sav_sync = B_TRUE;
 	}
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_LOWSPARES,
+	    &lowspares, &nlowspares) == 0) {
+		if (spa->spa_lowspares.sav_config)
+			VERIFY(nvlist_remove(spa->spa_lowspares.sav_config,
+			    ZPOOL_CONFIG_LOWSPARES, DATA_TYPE_NVLIST_ARRAY) == 0);
+		else
+			VERIFY(nvlist_alloc(&spa->spa_lowspares.sav_config,
+			    NV_UNIQUE_NAME, KM_SLEEP) == 0);
+		VERIFY(nvlist_add_nvlist_array(spa->spa_lowspares.sav_config,
+		    ZPOOL_CONFIG_LOWSPARES, lowspares, nlowspares) == 0);
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		spa_load_lowspares(spa);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+		spa->spa_lowspares.sav_sync = B_TRUE;
+	}
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_MIRRORSPARES,
+	    &mirrorspares, &nmirrorspares) == 0) {
+		if (spa->spa_mirrorspares.sav_config)
+			VERIFY(nvlist_remove(spa->spa_mirrorspares.sav_config,
+			    ZPOOL_CONFIG_MIRRORSPARES, DATA_TYPE_NVLIST_ARRAY) == 0);
+		else
+			VERIFY(nvlist_alloc(&spa->spa_mirrorspares.sav_config,
+			    NV_UNIQUE_NAME, KM_SLEEP) == 0);
+		VERIFY(nvlist_add_nvlist_array(spa->spa_mirrorspares.sav_config,
+		    ZPOOL_CONFIG_MIRRORSPARES, mirrorspares, nmirrorspares) == 0);
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		spa_load_mirrorspares(spa);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+		spa->spa_mirrorspares.sav_sync = B_TRUE;
+	}
 
 	/*
 	 * Check for any removed devices.
@@ -4273,6 +4744,8 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 		spa_aux_check_removed(&spa->spa_spares);
 		spa_aux_check_removed(&spa->spa_l2cache);
 		spa_aux_check_removed(&spa->spa_metaspares);
+		spa_aux_check_removed(&spa->spa_mirrorspares);
+		spa_aux_check_removed(&spa->spa_lowspares);
 	}
 
 	if (spa_writeable(spa)) {
@@ -4381,6 +4854,8 @@ spa_tryimport(nvlist_t *tryconfig)
 		spa_add_spares(spa, config);
 		spa_add_l2cache(spa, config);
 		spa_add_metaspares(spa, config);
+		spa_add_lowspares(spa, config);
+		spa_add_mirrorspares(spa, config);
 		spa_config_exit(spa, SCL_CONFIG, FTAG);
 	}
 
@@ -4695,8 +5170,8 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	int error;
 	vdev_t *rvd = spa->spa_root_vdev;
 	vdev_t *vd, *tvd;
-	nvlist_t **spares, **l2cache, **metaspares;
-	uint_t nspares, nl2cache, nmetaspares;
+	nvlist_t **spares, **l2cache, **metaspares, **lowspares, **mirrorspares;
+	uint_t nspares, nl2cache, nmetaspares, nlowspares, nmirrorspares;
 	int c;
 
 	ASSERT(spa_writeable(spa));
@@ -4715,12 +5190,18 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES, &metaspares,
 	    &nmetaspares) != 0)
 		nmetaspares = 0;
-
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_LOWSPARES, &lowspares,
+	    &nlowspares) != 0)
+		nlowspares = 0;
+	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_MIRRORSPARES, &mirrorspares,
+		&nmirrorspares) != 0)
+		nmirrorspares = 0;
 	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_L2CACHE, &l2cache,
 	    &nl2cache) != 0)
 		nl2cache = 0;
 
-	if (vd->vdev_children == 0 && nspares == 0 && nl2cache == 0 && nmetaspares == 0)
+	if (vd->vdev_children == 0 && nspares == 0 && nl2cache == 0 && 
+		nmetaspares == 0 && nlowspares == 0 && nmirrorspares == 0)
 		return (spa_vdev_exit(spa, vd, txg, EINVAL));
 
 	if (vd->vdev_children != 0 &&
@@ -4734,6 +5215,12 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	if ((error = spa_validate_aux(spa, nvroot, txg, VDEV_ALLOC_ADD)) != 0)
 		return (spa_vdev_exit(spa, vd, txg, error));
 
+	/* if the spare is smaller than data,return fail*/
+	if (nspares != 0) {
+		if((error= spa_prejudge_spare(spa, spares, nspares,0)) != 0)
+			return (spa_vdev_exit(spa, vd, txg, error));
+	}
+	
 	if(nmetaspares != 0) {	
 		if ((error = spa_prejudge_spare(spa, metaspares, nmetaspares,1))!= 0)
 			return (spa_vdev_exit(spa, vd, txg, error));
@@ -4772,6 +5259,20 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 		    ZPOOL_CONFIG_METASPARES);
 		spa_load_metaspares(spa);
 		spa->spa_metaspares.sav_sync = B_TRUE;
+	}
+
+	if (nlowspares != 0) {
+		spa_set_aux_vdevs(&spa->spa_lowspares, lowspares, nlowspares,
+		    ZPOOL_CONFIG_LOWSPARES);
+		spa_load_lowspares(spa);
+		spa->spa_lowspares.sav_sync = B_TRUE;
+	}
+
+	if (nmirrorspares != 0) {
+		spa_set_aux_vdevs(&spa->spa_mirrorspares, mirrorspares, nmirrorspares,
+		    ZPOOL_CONFIG_MIRRORSPARES);
+		spa_load_mirrorspares(spa);
+		spa->spa_mirrorspares.sav_sync = B_TRUE;
 	}
 
 	if (nl2cache != 0) {
@@ -4824,11 +5325,16 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	vdev_ops_t *pvops;
 	char *oldvdpath, *newvdpath;
 	int newvd_isspare;
+	int newvd_ismetaspare;
+	int newvd_islowspare;
+	int error;
 	nvlist_t **child;
 	uint_t children;
-	uint64_t is_metaspare = 0, is_spare;
-	int newvd_ismetaspare;
-	int error;
+	uint64_t is_spare = 0;
+	uint64_t is_metaspare = 0;
+	uint64_t is_lowspare = 0;
+	uint64_t is_mirrorspare = 0;
+	
 	ASSERTV(vdev_t *rvd = spa->spa_root_vdev);
 
 	ASSERT(spa_writeable(spa));
@@ -4862,12 +5368,14 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 		return (spa_vdev_exit(spa, NULL, txg, EINVAL));
 
 	(void) nvlist_lookup_uint64(child[0], ZPOOL_CONFIG_IS_SPARE, &is_spare);
-	(void) nvlist_lookup_uint64(child[0], ZPOOL_CONFIG_IS_METASPARE, &is_metaspare);	
+	(void) nvlist_lookup_uint64(child[0], ZPOOL_CONFIG_IS_METASPARE, &is_metaspare);
+	(void) nvlist_lookup_uint64(child[0], ZPOOL_CONFIG_IS_LOWSPARE, &is_lowspare);
+	(void) nvlist_lookup_uint64(child[0], ZPOOL_CONFIG_IS_MIRRORSPARE, &is_mirrorspare);
 
 	if (replacing) {
 		if (pvd->vdev_ops == &vdev_spare_ops &&
 			(pvd->vdev_children != oldvd->vdev_id + 1) &&
-			(is_spare != 0 || is_metaspare != 0)) {
+			(is_spare != 0 || is_metaspare != 0 || is_lowspare != 0 || is_mirrorspare != 0)) {
 			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
 		}
 	}
@@ -4876,16 +5384,24 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 		return (spa_vdev_exit(spa, newrootvd, txg, error));
 
 	/*
-	 * Spares can't replace logs, meta
+	 * Spares can't replace logs, low vdev and metas
 	 */
-	if ((oldvd->vdev_top->vdev_islog || oldvd->vdev_top->vdev_ismeta ) && newvd->vdev_isspare)
+	if ((oldvd->vdev_top->vdev_islog || oldvd->vdev_top->vdev_islow || 
+		oldvd->vdev_top->vdev_ismeta) && newvd->vdev_isspare)
 		return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
 	/*
-	 * Meta data spares can't replace logs
+	 * Meta data spares can't replace logs and low vdev.
 	 */
-	if ((oldvd->vdev_top->vdev_islog)  && newvd->vdev_ismetaspare)
+	if ((oldvd->vdev_top->vdev_islog || oldvd->vdev_top->vdev_islow) && 
+		newvd->vdev_ismetaspare)
 		return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
-	
+
+	/*
+	 * Low data spares can't replace logs and meta vdev.
+	 */
+	 if ((oldvd->vdev_top->vdev_islog || oldvd->vdev_top->vdev_ismeta)  && 
+		newvd->vdev_islowspare)
+		return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
 
 	if (!replacing) {
 		/*
@@ -4910,6 +5426,10 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 		    oldvd->vdev_ismetaspare &&
 		    !spa_has_metaspare(spa, newvd->vdev_guid))
 			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
+		if (pvd->vdev_ops == &vdev_spare_ops &&
+		    oldvd->vdev_islowspare &&
+		    !spa_has_lowspare(spa, newvd->vdev_guid))
+			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
 
 		/*
 		 * If the source is a hot spare, and the parent isn't already a
@@ -4922,15 +5442,18 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 		if (pvd->vdev_ops == &vdev_replacing_ops &&
 		    spa_version(spa) < SPA_VERSION_MULTI_REPLACE) {
 			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
-		}else if (pvd->vdev_ops == &vdev_spare_ops &&
-		    newvd->vdev_ismetaspare != oldvd->vdev_ismetaspare) {
-			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
 		} else if (pvd->vdev_ops == &vdev_spare_ops &&
 		    newvd->vdev_isspare != oldvd->vdev_isspare) {
 			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
+		} else if (pvd->vdev_ops == &vdev_spare_ops &&
+		    newvd->vdev_ismetaspare != oldvd->vdev_ismetaspare) {
+			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
+		} else if (pvd->vdev_ops == &vdev_spare_ops &&
+		    newvd->vdev_islowspare != oldvd->vdev_islowspare) {
+			return (spa_vdev_exit(spa, newrootvd, txg, ENOTSUP));
 		}
 
-		if (newvd->vdev_isspare || newvd->vdev_ismetaspare)
+		if (newvd->vdev_isspare || newvd->vdev_ismetaspare || newvd->vdev_islowspare)
 			pvops = &vdev_spare_ops;
 		else
 			pvops = &vdev_replacing_ops;
@@ -5009,12 +5532,16 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	} else if (newvd->vdev_ismetaspare) {
 		spa_metaspare_activate(newvd);
 		spa_event_notify(spa, newvd, ESC_ZFS_VDEV_METASPARE);
+	} else if (newvd->vdev_islowspare) {
+		spa_lowspare_activate(newvd);
+		spa_event_notify(spa, newvd, ESC_ZFS_VDEV_LOWSPARE);
 	}
 
 	oldvdpath = spa_strdup(oldvd->vdev_path);
 	newvdpath = spa_strdup(newvd->vdev_path);
 	newvd_isspare = newvd->vdev_isspare;
 	newvd_ismetaspare = newvd->vdev_ismetaspare;
+	newvd_islowspare = newvd->vdev_islowspare;
 
 	/*
 	 * Mark newvd's DTL dirty in this txg.
@@ -5043,6 +5570,11 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	    replacing && newvd_ismetaspare ? "metaspare in" :
 	    replacing ? "replace" : "attach", newvdpath,
 	    replacing ? "for" : "to", oldvdpath);
+	spa_history_log_internal(spa, "vdev attach", NULL,
+	    "%s vdev=%s %s vdev=%s",
+	    replacing && newvd_islowspare ? "lowspare in" :
+	    replacing ? "replace" : "attach", newvdpath,
+	    replacing ? "for" : "to", oldvdpath);
 
 	spa_strfree(oldvdpath);
 	spa_strfree(newvdpath);
@@ -5065,8 +5597,8 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 	uint64_t txg;
 	int error;
 	vdev_t *vd, *pvd, *cvd, *tvd;
-	boolean_t unspare = B_FALSE, unmetaspare = B_FALSE;
-	uint64_t unspare_guid = 0, unmetaspare_guid = 0;;
+	boolean_t unspare = B_FALSE, unmetaspare = B_FALSE, unlowspare = B_FALSE;
+	uint64_t unspare_guid = 0, unmetaspare_guid = 0, unlowspare_guid = 0;
 	char *vdpath;
 	int c, t;
 	ASSERTV(vdev_t *rvd = spa->spa_root_vdev);
@@ -5164,6 +5696,10 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 	    vd->vdev_id == 0 &&
 	    pvd->vdev_child[pvd->vdev_children - 1]->vdev_ismetaspare)
 		unmetaspare = B_TRUE;
+	if (pvd->vdev_ops == &vdev_spare_ops &&
+	    vd->vdev_id == 0 &&
+	    pvd->vdev_child[pvd->vdev_children - 1]->vdev_islowspare)
+		unlowspare = B_TRUE;
 
 	/*
 	 * Erase the disk labels so the disk can be used for other things.
@@ -5202,13 +5738,19 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 		(void) spa_vdev_remove(spa, unspare_guid, B_TRUE);
 		cvd->vdev_unspare = B_TRUE;
 	}
-
 	if (unmetaspare) {
 		ASSERT(cvd->vdev_ismetaspare);
 		spa_metaspare_remove(cvd);
 		unmetaspare_guid = cvd->vdev_guid;
 		(void) spa_vdev_remove(spa, unmetaspare_guid, B_TRUE);
 		cvd->vdev_unmetaspare = B_TRUE;
+	}
+	if (unlowspare) {
+		ASSERT(cvd->vdev_islowspare);
+		spa_lowspare_remove(cvd);
+		unlowspare_guid = cvd->vdev_guid;
+		(void) spa_vdev_remove(spa, unlowspare_guid, B_TRUE);
+		cvd->vdev_unlowspare = B_TRUE;
 	}
 
 	/*
@@ -5221,9 +5763,11 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 		if (pvd->vdev_ops == &vdev_spare_ops &&
 			pvd->vdev_child[pvd->vdev_children - 1]->vdev_ismetaspare)
 			cvd->vdev_unmetaspare = B_FALSE;
+		if (pvd->vdev_ops == &vdev_spare_ops &&
+			pvd->vdev_child[pvd->vdev_children - 1]->vdev_islowspare)
+			cvd->vdev_unlowspare = B_FALSE;
 		vdev_remove_parent(cvd);
 	}
-
 
 	/*
 	 * We don't set tvd until now because the parent we just removed
@@ -5279,7 +5823,7 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 	 * then we want to go through and remove the device from the hot spare
 	 * list of every other pool.
 	 */
-	if (unspare || unmetaspare) {
+	if (unspare || unmetaspare || unlowspare) {
 		spa_t *altspa = NULL;
 
 		mutex_enter(&spa_namespace_lock);
@@ -5294,6 +5838,8 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 				(void) spa_vdev_remove(altspa, unspare_guid, B_TRUE);
 			if (unmetaspare)
 				(void) spa_vdev_remove(altspa, unmetaspare_guid, B_TRUE);
+			if (unlowspare)
+				(void) spa_vdev_remove(altspa, unlowspare_guid, B_TRUE);
 			mutex_enter(&spa_namespace_lock);
 			spa_close(altspa, FTAG);
 		}
@@ -5377,7 +5923,9 @@ spa_vdev_split_mirror(spa_t *spa, char *newname, nvlist_t *config,
 	/* next, ensure no spare or cache devices are part of the split */
 	if (nvlist_lookup_nvlist(nvl, ZPOOL_CONFIG_SPARES, &tmp) == 0 ||
 	    nvlist_lookup_nvlist(nvl, ZPOOL_CONFIG_L2CACHE, &tmp) == 0 ||
-	    nvlist_lookup_nvlist(nvl, ZPOOL_CONFIG_METASPARES, &tmp) == 0)
+	    nvlist_lookup_nvlist(nvl, ZPOOL_CONFIG_METASPARES, &tmp) == 0 ||
+	    nvlist_lookup_nvlist(nvl, ZPOOL_CONFIG_LOWSPARES, &tmp) == 0 ||
+	    nvlist_lookup_nvlist(nvl, ZPOOL_CONFIG_MIRRORSPARES, &tmp) == 0)
 		return (spa_vdev_exit(spa, NULL, txg, EINVAL));
 
 	vml = kmem_zalloc(children * sizeof (vdev_t *), KM_SLEEP);
@@ -5420,6 +5968,7 @@ spa_vdev_split_mirror(spa_t *spa, char *newname, nvlist_t *config,
 		    vml[c]->vdev_ishole ||
 		    vml[c]->vdev_isspare ||
 		    vml[c]->vdev_ismetaspare ||
+		    vml[c]->vdev_islowspare ||
 		    vml[c]->vdev_isl2cache ||
 		    !vdev_writeable(vml[c]) ||
 		    vml[c]->vdev_children != 0 ||
@@ -5741,9 +6290,9 @@ spa_vdev_remove(spa_t *spa, uint64_t guid, boolean_t unspare)
 {
 	vdev_t *vd;
 	metaslab_group_t *mg;
-	nvlist_t **spares, **l2cache, *nv, **metaspares;
+	nvlist_t **spares, **l2cache, *nv, **metaspares, **lowspares, **mirrorspares;
 	uint64_t txg = 0;
-	uint_t nspares, nl2cache, nmetaspares;
+	uint_t nspares, nl2cache, nmetaspares, nlowspares, nmirrorspares;
 	int error = 0;
 	boolean_t locked = MUTEX_HELD(&spa_namespace_lock);
 
@@ -5781,6 +6330,30 @@ spa_vdev_remove(spa_t *spa, uint64_t guid, boolean_t unspare)
 			spa->spa_metaspares.sav_sync = B_TRUE;
 		} else {
 			error = SET_ERROR(EBUSY);
+		}
+	} else if (spa->spa_lowspares.sav_vdevs != NULL &&
+	    nvlist_lookup_nvlist_array(spa->spa_lowspares.sav_config,
+	    ZPOOL_CONFIG_LOWSPARES, &lowspares, &nlowspares) == 0 &&
+	    (nv = spa_nvlist_lookup_by_guid(lowspares, nlowspares, guid)) != NULL) {
+		if (vd == NULL || unspare) {
+			spa_vdev_remove_aux(spa->spa_lowspares.sav_config,
+			    ZPOOL_CONFIG_LOWSPARES, lowspares, nlowspares, nv);
+			spa_load_lowspares(spa);
+			spa->spa_lowspares.sav_sync = B_TRUE;
+		} else {
+			error = EBUSY;
+		}
+	} else if (spa->spa_mirrorspares.sav_vdevs != NULL &&
+	    nvlist_lookup_nvlist_array(spa->spa_mirrorspares.sav_config,
+	    ZPOOL_CONFIG_MIRRORSPARES, &mirrorspares, &nmirrorspares) == 0 &&
+	    (nv = spa_nvlist_lookup_by_guid(mirrorspares, nmirrorspares, guid)) != NULL) {
+		if (vd == NULL || unspare) {
+			spa_vdev_remove_aux(spa->spa_mirrorspares.sav_config,
+			    ZPOOL_CONFIG_MIRRORSPARES, mirrorspares, nmirrorspares, nv);
+			spa_load_mirrorspares(spa);
+			spa->spa_mirrorspares.sav_sync = B_TRUE;
+		} else {
+			error = EBUSY;
 		}
 	} else if (spa->spa_l2cache.sav_vdevs != NULL &&
 	    nvlist_lookup_nvlist_array(spa->spa_l2cache.sav_config,
@@ -6177,6 +6750,10 @@ spa_async_thread(spa_t *spa)
 			spa_async_remove(spa, spa->spa_spares.sav_vdevs[i]);
 		for (i = 0; i < spa->spa_metaspares.sav_count; i++)
 			spa_async_remove(spa, spa->spa_metaspares.sav_vdevs[i]);
+		for (i = 0; i < spa->spa_lowspares.sav_count; i++)
+			spa_async_remove(spa, spa->spa_lowspares.sav_vdevs[i]);
+		for (i = 0; i < spa->spa_mirrorspares.sav_count; i++)
+			spa_async_remove(spa, spa->spa_mirrorspares.sav_vdevs[i]);
 		(void) spa_vdev_state_exit(spa, NULL, 0);
 	}
 
@@ -6798,6 +7375,10 @@ spa_sync(spa_t *spa, uint64_t txg)
 		    ZPOOL_CONFIG_L2CACHE, DMU_POOL_L2CACHE);
 		spa_sync_aux_dev(spa, &spa->spa_metaspares, tx,
 		    ZPOOL_CONFIG_METASPARES, DMU_POOL_METASPARES);
+		spa_sync_aux_dev(spa, &spa->spa_lowspares, tx,
+		    ZPOOL_CONFIG_LOWSPARES, DMU_POOL_LOWSPARES);
+		spa_sync_aux_dev(spa, &spa->spa_mirrorspares, tx,
+		    ZPOOL_CONFIG_MIRRORSPARES, DMU_POOL_MIRRORSPARES);
 		spa_errlog_sync(spa, txg);
 		dsl_pool_sync(dp, txg);
 
@@ -7041,14 +7622,26 @@ spa_lookup_by_guid(spa_t *spa, uint64_t guid, boolean_t aux)
 				return (vd);
 		}
 
+		for (i = 0; i < spa->spa_spares.sav_count; i++) {
+			vd = spa->spa_spares.sav_vdevs[i];
+			if (vd->vdev_guid == guid)
+				return (vd);
+		}
+
 		for (i = 0; i < spa->spa_metaspares.sav_count; i++) {
 			vd = spa->spa_metaspares.sav_vdevs[i];
 			if (vd->vdev_guid == guid)
 				return (vd);
 		}
 
-		for (i = 0; i < spa->spa_spares.sav_count; i++) {
-			vd = spa->spa_spares.sav_vdevs[i];
+		for (i = 0; i < spa->spa_lowspares.sav_count; i++) {
+			vd = spa->spa_lowspares.sav_vdevs[i];
+			if (vd->vdev_guid == guid)
+				return (vd);
+		}
+
+		for (i = 0; i < spa->spa_mirrorspares.sav_count; i++) {
+			vd = spa->spa_mirrorspares.sav_vdevs[i];
 			if (vd->vdev_guid == guid)
 				return (vd);
 		}
@@ -7126,6 +7719,25 @@ boolean_t
 spa_has_metaspare(spa_t *spa, uint64_t guid)
 {
 	return (spa_has_aux(&spa->spa_metaspares, guid));
+}
+
+boolean_t
+spa_has_lows(spa_t *spa)
+{
+	return (spa->spa_low_class->mc_rotor != NULL);
+}
+
+boolean_t
+spa_has_lowspare(spa_t *spa, uint64_t guid)
+{
+	return (spa_has_aux(&spa->spa_lowspares, guid));
+}
+
+
+boolean_t
+spa_has_mirrorspare(spa_t *spa, uint64_t guid)
+{
+	return (spa_has_aux(&spa->spa_mirrorspares, guid));
 }
 
 /*

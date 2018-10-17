@@ -530,9 +530,6 @@ spa_all_configs(uint64_t *generation)
 {
 	nvlist_t *pools;
 	spa_t *spa = NULL;
-	nvlist_t *nvroot, **metaspares;
-	uint_t nmetaspares, c;
-	vdev_stat_t *vs;
 
 	if (*generation == spa_config_generation)
 		return (NULL);
@@ -664,6 +661,13 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 		if (vd->vdev_ismetaspare)
 			VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_IS_METASPARE,
 			    1ULL) == 0);
+		if (vd->vdev_islow)
+			VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_IS_LOW,
+			    1ULL) == 0);
+		if (vd->vdev_islowspare)
+			VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_IS_LOWSPARE,
+			    1ULL) == 0);
+		
 		vd = vd->vdev_top;		/* label contains top config */
 	} else {
 		/*

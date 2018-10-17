@@ -175,6 +175,7 @@ struct vdev {
 	uint64_t	vdev_deflate_ratio; /* deflation ratio (x512)	*/
 	uint64_t	vdev_islog;	/* is an intent log device	*/
 	uint64_t 	vdev_ismeta;
+	uint64_t	vdev_islow;
 	uint64_t	vdev_removing;	/* device is being removed?	*/
 	boolean_t	vdev_ishole;	/* is a hole in the namespace 	*/
 	uint64_t	vdev_isquantum;
@@ -199,7 +200,8 @@ struct vdev {
 	char		*vdev_physpath;	/* vdev device path (if any)	*/
 	char		*vdev_fru;	/* physical FRU location	*/
 	uint64_t	vdev_not_present; /* not present during import	*/
-	uint64_t	vdev_unmetaspare;
+	uint64_t	vdev_unmetaspare;	/* unspare when resilvering done */
+	uint64_t	vdev_unlowspare;	/* unspare when resilvering done */
 	uint64_t	vdev_unspare;	/* unspare when resilvering done */
 	boolean_t	vdev_nowritecache; /* true if flushwritecache failed */
 	boolean_t	vdev_checkremove; /* temporary online test	*/
@@ -212,7 +214,9 @@ struct vdev {
 	boolean_t	vdev_cant_write; /* vdev is failing all writes	*/
 	boolean_t	vdev_isspare;	/* was a hot spare		*/
 	boolean_t	vdev_isl2cache;	/* was a l2cache device		*/
-	boolean_t 	vdev_ismetaspare;
+	boolean_t 	vdev_ismetaspare;	/* was a meta data hot spare	*/
+	boolean_t	vdev_ismirrorspare;	/* was a mirror mode hot spare	*/
+	boolean_t	vdev_islowspare;	/* was s low vdev spare */
 	vdev_queue_t	vdev_queue;	/* I/O deadline schedule queue	*/
 	vdev_cache_t	vdev_cache;	/* physical block cache		*/
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache and spares vdevs	*/
@@ -308,6 +312,8 @@ typedef struct vdev_use {
 #define	VDEV_ALLOC_SPLIT	5
 #define	VDEV_ALLOC_ATTACH	6
 #define VDEV_ALLOC_METASPARE  	7
+#define VDEV_ALLOC_MIRRORSPARE  8
+#define VDEV_ALLOC_LOWSPARE  	9
 
 /*
  * Allocate or free a vdev

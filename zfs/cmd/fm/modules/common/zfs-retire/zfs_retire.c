@@ -253,7 +253,6 @@ find_vdev(libzfs_handle_t *zhdl, nvlist_t *nv, const char *search_devid,
 	nvlist_t **child;
 	uint_t c, children;
 	nvlist_t *ret;
-//	char *devid;
 
 	if (search_devid != NULL) {
 		/*  
@@ -272,24 +271,32 @@ find_vdev(libzfs_handle_t *zhdl, nvlist_t *nv, const char *search_devid,
 	}
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
-	    &child, &children) != 0)
-		return (NULL);
-
-	for (c = 0; c < children; c++) {
-		if ((ret = find_vdev(zhdl, child[c], search_devid,
-		    search_guid)) != NULL)
-			return (ret);
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = find_vdev(zhdl, child[c], search_devid,
+			    search_guid)) != NULL)
+				return (ret);
+		}
 	}
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
-	    &child, &children) != 0)
-		return (NULL);
-
-	for (c = 0; c < children; c++) {
-		if ((ret = find_vdev(zhdl, child[c], search_devid,
-		    search_guid)) != NULL)
-			return (ret);
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = find_vdev(zhdl, child[c], search_devid,
+			    search_guid)) != NULL)
+				return (ret);
+		}
 	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_SPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = find_vdev(zhdl, child[c], search_devid,
+			    search_guid)) != NULL)
+				return (ret);
+		}
+	}
+
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
 	    &child, &children) == 0) {
 		for (c = 0; c < children; c++) {
@@ -299,6 +306,14 @@ find_vdev(libzfs_handle_t *zhdl, nvlist_t *nv, const char *search_devid,
 		}
 	}
 
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_LOWSPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = find_vdev(zhdl, child[c], search_devid,
+			    search_guid)) != NULL)
+				return (ret);
+		}
+	}
 	return (NULL);
 }
 
@@ -408,8 +423,8 @@ replace_with_spare(fmd_hdl_t *hdl, zpool_handle_t *zhp, nvlist_t *vdev)
 	int	  dev_path_len, mirrorspare_path_len;
 	int	  free_partation;
 //	int		val;
-	uint64_t ismeta = 0;
-	uint64_t ismeta_spare = 0;
+	uint64_t ismeta = 0, islow = 0;
+	uint64_t ismeta_spare = 0, islow_spare = 0;
 	uint64_t wholedisk = 1;/* ......   */
 	uint64_t disk_type, spare_type;
 	uint64_t available_space, spare_space;
@@ -437,6 +452,9 @@ replace_with_spare(fmd_hdl_t *hdl, zpool_handle_t *zhp, nvlist_t *vdev)
 	(void)nvlist_lookup_uint64(vdev, ZPOOL_CONFIG_METADATA_DEV, &ismeta);
 	if (nvlist_lookup_uint64(vdev, ZPOOL_CONFIG_IS_METASPARE, &ismeta_spare) == 0)
 		ismeta |= ismeta_spare; 
+	(void)nvlist_lookup_uint64(vdev, ZPOOL_CONFIG_LOWDATA_DEV, &islow);
+	if (nvlist_lookup_uint64(vdev, ZPOOL_CONFIG_IS_LOWSPARE, &islow_spare) == 0)
+		islow |= islow_spare;
 	(void)nvlist_lookup_uint64(vdev, ZPOOL_CONFIG_WHOLE_DISK, &wholedisk);
 	(void)nvlist_lookup_uint64(vdev, ZPOOL_CONFIG_ROTATION_RATE, &disk_type);
 #if 0
@@ -562,7 +580,7 @@ replace_with_spare(fmd_hdl_t *hdl, zpool_handle_t *zhp, nvlist_t *vdev)
 			nvlist_free(root);
 			root = NULL;
 		}
-	} else if (ismeta == 0) {
+	} else if (ismeta == 0 && islow == 0) {
 		/*
 		 * Find out if there are any hot spares available in the pool.
 		 */
@@ -589,13 +607,20 @@ replace_with_spare(fmd_hdl_t *hdl, zpool_handle_t *zhp, nvlist_t *vdev)
 					libzfs_error_description(zdp->zrd_hdl));
 			}
 		}
-	} else if (ismeta == 1) {
-		if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
-			&metaspares, &nmetaspares) != 0) {
-			goto out;
+	} else if (ismeta == 1 || islow == 1) {
+		if (ismeta == 1) {
+			if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_METASPARES,
+				&metaspares, &nmetaspares) != 0) {
+				goto out;
+			}
+		} else {
+			if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_LOWSPARES,
+				&metaspares, &nmetaspares) != 0) {
+				goto out;
+			}
 		}
 		/*
-		 * Try to replace each  meta spare, ending when we successfully
+		 * Try to replace each  meta or low spare, ending when we successfully
 		 * replace it.
 		 */
 		for (s = 0; s < nmetaspares; s++) {

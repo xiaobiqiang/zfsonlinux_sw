@@ -188,7 +188,7 @@ dmu_buf_hold(objset_t *os, uint64_t object, uint64_t offset,
 	err = dmu_buf_hold_noread(os, object, offset, tag, dbp);
 	if (err == 0) {
 		dmu_buf_impl_t *db = (dmu_buf_impl_t *)(*dbp);
-		err = dbuf_read(db, NULL, db_flags);
+		err = dbuf_read(db, NULL, db_flags, B_FALSE);
 		if (err != 0) {
 			dbuf_rele(db, tag);
 			*dbp = NULL;
@@ -318,7 +318,7 @@ dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **dbp)
 
 	dnode_rele(dn, FTAG);
 
-	VERIFY(0 == dbuf_read(db, NULL, DB_RF_MUST_SUCCEED | DB_RF_NOPREFETCH));
+	VERIFY(0 == dbuf_read(db, NULL, DB_RF_MUST_SUCCEED | DB_RF_NOPREFETCH, B_FALSE));
 
 	*dbp = &db->db;
 	return (0);
@@ -348,7 +348,7 @@ dmu_spill_hold_by_dnode(dnode_t *dn, uint32_t flags, void *tag, dmu_buf_t **dbp)
 		rw_exit(&dn->dn_struct_rwlock);
 
 	ASSERT(db != NULL);
-	err = dbuf_read(db, NULL, flags);
+	err = dbuf_read(db, NULL, flags, B_FALSE);
 	if (err == 0)
 		*dbp = &db->db;
 	else
@@ -454,7 +454,7 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 		}
 		/* initiate async i/o */
 		if (read) {
-			(void) dbuf_read(db, zio, dbuf_flags);
+			(void) dbuf_read(db, zio, dbuf_flags, B_FALSE);
 		}
 		dbp[i] = &db->db;
 	}
@@ -1687,8 +1687,8 @@ void
 dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
     dmu_tx_t *tx, boolean_t b_sync, boolean_t w_app_meta)
 {
-    uint8_t txg_off;
-    int mirror_success = 0;
+	uint8_t txg_off;
+	int mirror_success = 0;
 	dmu_buf_impl_t *dbuf = (dmu_buf_impl_t *)handle;
 	dnode_t *dn;
 	dmu_buf_impl_t *db;
@@ -1916,7 +1916,7 @@ dmu_sync_late_arrival(zio_t *pio, objset_t *os, dmu_sync_cb_t *done, zgd_t *zgd,
 int
 dmu_sync(zio_t *pio, uint64_t txg, dmu_sync_cb_t *done, zgd_t *zgd)
 {
-    uint8_t txg_off;
+	uint8_t txg_off;
 	blkptr_t *bp = zgd->zgd_bp;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)zgd->zgd_db;
 	objset_t *os = db->db_objset;
@@ -1933,10 +1933,11 @@ dmu_sync(zio_t *pio, uint64_t txg, dmu_sync_cb_t *done, zgd_t *zgd)
 	SET_BOOKMARK(&zb, ds->ds_object,
 	    db->db.db_object, db->db_level, db->db_blkid);
 
-    txg_off = txg & TXG_MASK;
+	txg_off = txg & TXG_MASK;
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
-	dmu_write_policy(os, dn, db->db_level, WP_DMU_SYNC, &zp,  db->db_app_meta[txg_off]);
+	dmu_write_policy(os, dn, db->db_level, WP_DMU_SYNC, &zp, 
+		db->db_app_meta[txg_off], db->db_low_data[txg_off]);
 	DB_DNODE_EXIT(db);
 
 	/*
@@ -2108,7 +2109,7 @@ int zfs_redundant_metadata_most_ditto_level = 2;
 
 void
 dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp,
-				boolean_t write_app_meta)
+				boolean_t write_app_meta, boolean_t write_low)
 {
 	dmu_object_type_t type = dn ? dn->dn_type : DMU_OT_OBJSET;
 	boolean_t ismd = (level > 0 || DMU_OT_IS_METADATA(type) ||
@@ -2211,6 +2212,7 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp,
 	zp->zp_nopwrite = nopwrite;
 #ifdef _KERNEL
 	zp->zp_app_meta = dmu_objset_appmetaprop(os) ? ZFS_APPMETA_ON : write_app_meta;
+	zp->zp_app_low = write_low;
 #endif
 
 }
