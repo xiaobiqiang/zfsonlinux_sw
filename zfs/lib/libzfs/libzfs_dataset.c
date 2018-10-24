@@ -73,6 +73,8 @@ static int userquota_propname_decode(const char *propname, boolean_t zoned,
     zfs_userquota_prop_t *typep, char *domain, int domainlen, uint64_t *ridp);
 static char *zfs_prop_set_dir_quota(zfs_handle_t *zhp,
     const char *propname, uint64_t *object, uint64_t dquota) ;
+static char *zfs_prop_get_dirlowdata_path(zfs_handle_t *zhp, 
+    const char *propname, uint64_t *object);
 
 const char *zfs_dirquota_prefixex = "dirquota@";
 
@@ -867,6 +869,38 @@ zfs_which_resv_prop(zfs_handle_t *zhp, zfs_prop_t *resv_prop)
 	return (0);
 }
 
+int
+get_new_propname(const char *old_propname, const char *path, char *newpropname, size_t newsize)
+{
+	int ret = 0;
+
+	if (strncmp(old_propname, zfs_dirlowdata_prefixex,
+	    strlen(zfs_dirlowdata_prefixex)) == 0) {
+		(void) snprintf(newpropname, newsize,
+			"%s%s", zfs_dirlowdata_prefixex, path);
+	} else if (strncmp(old_propname, zfs_dirlowdata_period_prefixex,
+	    strlen(zfs_dirlowdata_period_prefixex)) == 0) {
+		(void) snprintf(newpropname, newsize,
+			"%s%s", zfs_dirlowdata_period_prefixex, path);
+	} else if (strncmp(old_propname, zfs_dirlowdata_delete_period_prefixex,
+	    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0) {
+		(void) snprintf(newpropname, newsize,
+			"%s%s", zfs_dirlowdata_delete_period_prefixex, path);
+	} else if (strncmp(old_propname, zfs_dirlowdata_period_unit_prefixex,
+	    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) {
+		(void) snprintf(newpropname, newsize,
+			"%s%s", zfs_dirlowdata_period_unit_prefixex, path);
+	} else if (strncmp(old_propname, zfs_dirlowdata_criteria_prefixex,
+	    strlen(zfs_dirlowdata_criteria_prefixex)) == 0) {
+		(void) snprintf(newpropname, newsize,
+			"%s%s", zfs_dirlowdata_criteria_prefixex, path);
+	} else {
+		ret = -1;
+	}
+
+	return ret;
+}
+
 /*
  * Given an nvlist of properties to set, validates that they are correct, and
  * parses any numeric properties (index, boolean, etc) if they are specified as
@@ -883,6 +917,7 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 	nvlist_t *ret;
 	int chosen_normal = -1;
 	int chosen_utf = -1;
+	int err = 0;
 
 	if (nvlist_alloc(&ret, NV_UNIQUE_NAME, 0) != 0) {
 		(void) no_memory(hdl);
@@ -1017,6 +1052,57 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			    propname);
 			(void) zfs_error(hdl, EZFS_PROPREADONLY, errbuf);
 			goto error;
+		}
+
+		if (prop == ZPROP_INVAL && zfs_prop_dirlowdata(propname)) {
+			uint64_t object;
+			char *path;
+			uint64_t valary[3];
+			char newpropname[128];
+			zfs_dirlowdata_t dir_lowdata;
+
+
+			if (nvpair_type(elem) == DATA_TYPE_UINT64) {
+				(void) nvpair_value_uint64(elem, &intval);
+			} else if (nvpair_type(elem) == DATA_TYPE_STRING){
+				(void) nvpair_value_string(elem, &strval);
+				err = zfs_translate_propvalue(propname, strval, &intval);
+				if (err) {
+					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+						"'%s' invalid value for '%s'"), strval, propname);
+					(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+					goto error;
+				}
+			} else {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "'%s' must be a number"), propname);
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+
+			/*
+			 * Encode the prop name as
+			 * userquota@<hex-rid>-domain, to make it easy
+			 * for the kernel to decode.
+			 */
+			path = zfs_prop_get_dirlowdata_path(zhp, propname, &object);
+			if (path == NULL) {
+				printf("cann`t get path and object, the %s maybe not exist!\n", strchr(propname, '@') + 1);
+				goto error;
+			}
+			if (get_new_propname(propname, path, newpropname, sizeof(newpropname))){
+				free(path);
+				goto error;
+			}
+			free(path);
+			valary[0] = object;
+			valary[1] = intval;
+			if (nvlist_add_uint64_array(ret, newpropname,
+			    valary, 2) != 0) {
+				(void) no_memory(hdl);
+				goto error;
+			}
+			continue;
 		}
 
 		if (prop == ZPROP_INVAL && zfs_prop_dirquota(propname)) {
@@ -2890,7 +2976,7 @@ static char *zfs_prop_set_dir_quota(zfs_handle_t *zhp,
 	fs_name = zfs_get_name(zhp);
 	path = strchr(propname, '@') + 1;
 	path_name = malloc(sizeof(zfs_pathname_t));
-	path_name->pn_buf = path_name->pn_path = malloc(strlen(path));
+	path_name->pn_buf = path_name->pn_path = malloc(strlen(path) + 1);
 	path_name->pn_bufsize = path_name->pn_pathlen = strlen(path);
 	strcpy(path_name->pn_buf, path);
 
@@ -3018,6 +3104,21 @@ zfs_prop_get_dirquota(zfs_handle_t *zhp, const char *propname,
 	return (err);
 }
 
+int
+zfs_prop_get_dirlowdata_common(zfs_handle_t *zhp, uint64_t obj,
+    zfs_dirlowdata_t *dirlowdata)
+{
+	int err;
+	zfs_cmd_t zc = { 0 };
+	struct stat statb;
+
+	zc.zc_obj = obj;
+	zc.zc_nvlist_dst = (uintptr_t)dirlowdata;
+	zc.zc_nvlist_dst_size = sizeof(zfs_dirlowdata_t);
+	(void) strncpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
+	err = ioctl(zhp->zfs_hdl->libzfs_fd, ZFS_IOC_GET_DIRLOWDATA, &zc);
+	return (err);
+}
 
 static int
 zfs_prop_get_userquota_common(zfs_handle_t *zhp, const char *propname,
@@ -3146,6 +3247,148 @@ zfs_prop_get_group_userquota(libzfs_handle_t *hdl, zfs_handle_t *zhp, zprop_list
 		syslog(LOG_ERR, "%s: Current fs is Master!!!\n", __func__);
 		return 1;
 	}
+}
+
+int
+zfs_prop_get_dirlowdata(zfs_handle_t *zhp, const char *propname,
+    char *propbuf, int proplen)
+{
+	int err;
+	char *path;
+	char tmp_path[MAXPATHLEN];
+	char lowdata_buf[MAXNAMELEN];
+	char lowdata_period_buf[MAXNAMELEN];
+	char lowdata_delete_period_buf[MAXNAMELEN];
+	char lowdata_period_unit_buf[MAXNAMELEN];
+	char lowdata_criteria_buf[MAXNAMELEN];
+	struct stat64 statb;
+	zfs_dirlowdata_t *dirlowdata;
+
+	bzero(lowdata_buf, MAXNAMELEN);
+	bzero(lowdata_period_buf, MAXNAMELEN);
+	bzero(lowdata_delete_period_buf, MAXNAMELEN);
+	bzero(lowdata_period_unit_buf, MAXNAMELEN);
+	bzero(lowdata_criteria_buf, MAXNAMELEN);
+	dirlowdata = malloc(sizeof(zfs_dirlowdata_t));
+	path = strchr(propname, '@') + 1;
+	sprintf(tmp_path, "/%s/%s", zfs_get_name(zhp), path);
+	err = stat64(tmp_path, &statb);
+	if (err != 0) {
+		free(dirlowdata);
+		return (err);
+	}
+
+
+	if (!S_ISDIR(statb.st_mode)) {
+		err = EZFS_NDIR;
+		free(dirlowdata);
+		return (err);
+	}
+	err = zfs_prop_get_dirlowdata_common(zhp, statb.st_ino, dirlowdata);
+	if (err == 0) {
+		zfs_nicenum(dirlowdata->lowdata, lowdata_buf, MAXNAMELEN);
+		zfs_nicenum(dirlowdata->lowdata_period, lowdata_period_buf, MAXNAMELEN);
+		zfs_nicenum(dirlowdata->lowdata_delete_period, lowdata_delete_period_buf, MAXNAMELEN);
+		zfs_nicenum(dirlowdata->lowdata_period_unit, lowdata_period_unit_buf, MAXNAMELEN);
+		zfs_nicenum(dirlowdata->lowdata_criteria, lowdata_criteria_buf, MAXNAMELEN);
+
+		if (strncmp(propname, zfs_dirlowdata_prefixex, strlen(zfs_dirlowdata_prefixex)) == 0) {
+			sprintf(propbuf, "%s", lowdata_buf);
+		} else if (strncmp(propname, zfs_dirlowdata_period_prefixex,
+		    strlen(zfs_dirlowdata_period_prefixex)) == 0) {
+			sprintf(propbuf, "%s", lowdata_period_buf);
+		} else if (strncmp(propname, zfs_dirlowdata_delete_period_prefixex,
+		    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0) {
+			sprintf(propbuf, "%s", lowdata_delete_period_buf);
+		} else if (strncmp(propname, zfs_dirlowdata_period_unit_prefixex,
+		    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) {
+			sprintf(propbuf, "%s", lowdata_period_unit_buf);
+		} else if (strncmp(propname, zfs_dirlowdata_criteria_prefixex,
+		    strlen(zfs_dirlowdata_criteria_prefixex)) == 0) {
+			sprintf(propbuf, "%s", lowdata_criteria_buf);
+		}
+	}
+
+	free(dirlowdata);
+	return (err);
+}
+
+int zfs_prop_get_dirlowdata_all(zfs_handle_t *zhp, zfs_dirlowdata_cb_t func)
+{
+	zfs_cmd_t zc = { 0 };
+	int error;
+	uint64_t len;
+	zfs_dirlowdata_t *buf;
+
+	len = sizeof(zfs_dirlowdata_t) * MAX_DIRLOWDATA_ENTRIES;
+	buf = malloc(len);
+	(void) strncpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
+	zc.zc_nvlist_dst = (uintptr_t)buf;
+
+	/* CONSTCOND */
+	while (1) {
+		zfs_dirlowdata_t *dirlowdata = buf;
+
+		zc.zc_nvlist_dst_size = len;
+		error = ioctl(zhp->zfs_hdl->libzfs_fd,
+		    ZFS_IOC_GET_ALL_DIRLOWDATA, &zc);
+
+		if (error || zc.zc_nvlist_dst_size == 0)
+			break;
+
+		while (zc.zc_nvlist_dst_size > 0) {
+			error = func(dirlowdata->lowdata_path, dirlowdata->lowdata,
+				    dirlowdata->lowdata_period, dirlowdata->lowdata_period_unit,
+				    dirlowdata->lowdata_delete_period, dirlowdata->lowdata_criteria);
+
+			if (error != 0) {
+				free(buf);
+				return error;
+			}
+
+			dirlowdata++;
+			zc.zc_nvlist_dst_size -= sizeof (zfs_dirlowdata_t);
+		}
+	}
+
+	free(buf);
+	return (error);
+}
+
+static char *
+zfs_prop_get_dirlowdata_path(zfs_handle_t *zhp, 
+    const char *propname, uint64_t *object)
+{
+		int err;
+		char *return_path;
+		const char *fs_name;
+		char *path;
+		char *tmp_path;
+		
+		struct stat64 statb;
+	
+		tmp_path = malloc(MAXPATHLEN);
+		bzero(tmp_path, MAXPATHLEN);
+		
+		fs_name = zfs_get_name(zhp);
+		path = strchr(propname, '@') + 1;
+	
+		sprintf(tmp_path, "/%s/%s", fs_name, path); 
+		err = stat64(tmp_path, &statb);
+		if (err == 0) {
+			return_path = tmp_path;
+			*object = statb.st_ino;
+		} else {
+			return_path = NULL;
+		}
+	
+	dquoat_exit:
+
+		if (return_path == NULL){
+			free(tmp_path);
+		}
+		
+		return (return_path);
 }
 
 int

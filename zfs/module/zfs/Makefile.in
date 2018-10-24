@@ -118,3 +118,4 @@ $(MODULE)-objs += cluster_target_socket.o
 $(MODULE)-objs += zfs_hbx.o
 $(MODULE)-objs += zfs_mirror.o
 $(MODULE)-objs += lun_migrate.o
+$(MODULE)-objs += wrcache.o

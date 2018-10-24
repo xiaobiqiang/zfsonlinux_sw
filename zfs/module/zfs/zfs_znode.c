@@ -660,6 +660,8 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 	zp->z_blksz = blksz;
 	zp->z_seq = 0x7A4653;
 	zp->z_sync_cnt = 0;
+	zp->z_dirquota = 0;
+	zp->z_dirlowdata = 0;
 	zp->z_is_mapped = B_FALSE;
 	zp->z_is_ctldir = B_FALSE;
 	zp->z_is_stale = B_FALSE;
@@ -1365,7 +1367,16 @@ again:
 	if (hdl != NULL) {
 		zp = sa_get_userdata(hdl);
 
+		mutex_enter(&zp->z_lock);
+        zfs_inquota(zsb, zp);
+		if (IFTOVT((mode_t)zp->z_mode) == VDIR && zp->z_dirquota == 0) {
+			zfs_sa_get_dirquota(zp);
+		}
 
+		if( zp->z_dirlowdata == 0 ){
+			zfs_sa_get_dirlowdata(zp);
+		}
+		mutex_exit(&zp->z_lock);
 		/*
 		 * Since "SA" does immediate eviction we
 		 * should never find a sa handle that doesn't

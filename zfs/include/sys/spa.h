@@ -493,6 +493,9 @@ _NOTE(CONSTCOND) } while (0)
 /*#define	BP_SET_APPMETA(bp, appmeta)		BF64_SET((bp)->blk_pad[0], 0, 1, appmeta)*/
 #define BP_IS_APPMETA(bp)               (!!BP_GET_APPMETA(bp))
 
+#define BP_GET_APPLOW(bp)		BF64_GET((bp)->blk_pad[0], 1, 1)
+#define BP_SET_APPLOW(bp, applow)		BF64_SET((bp)->blk_pad[0], 1, 1, applow)
+#define BP_IS_APPLOW(bp)		(!!BP_GET_APPLOW(bp))
 
 #ifdef _BIG_ENDIAN
 #define	ZFS_HOST_BYTEORDER	(0ULL)

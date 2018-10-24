@@ -1694,7 +1694,7 @@ addlist(libzfs_handle_t *hdl, char *propname, zprop_list_t **listp,
 	    !zpool_prop_unsupported(propname)) ||
 	    (type == ZFS_TYPE_DATASET && !zfs_prop_user(propname) &&
 	    !zfs_prop_userquota(propname) && !zfs_prop_dirquota(propname) &&
-	    !zfs_prop_written(propname)))) {
+	    !zfs_prop_written(propname) && !zfs_prop_dirlowdata(propname)))) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 		    "invalid property '%s'"), propname);
 		return (zfs_error(hdl, EZFS_BADPROP,
@@ -3824,6 +3824,30 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 	
 }
 
+void zfs_migrate(libzfs_handle_t *hdl, char *fs_name, uint64_t flags, uint64_t obj)
+{
+	int err = 0;
+	zfs_cmd_t zc = { 0 };
+
+	strcpy(zc.zc_value, fs_name);
+	zc.zc_cookie = flags;
+	zc.zc_obj = obj;
+
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_MIGRATE, &zc);
+	if (err) {
+		printf("zfs migrate failed!\n");
+	}
+
+	if (flags == STATUS_MIGRATE) {
+		char migrated_buf[64],	to_migrate_buf[64];
+		zfs_nicenum(zc.zc_multiclus_group, to_migrate_buf, sizeof (migrated_buf));
+		zfs_nicenum(zc.zc_multiclus_break, migrated_buf, sizeof (to_migrate_buf));
+		printf("fsname: %s\n", fs_name);
+		printf("migrate state: %s\n", zc.zc_string);
+		printf("total to migrate: %s\n", to_migrate_buf);
+		printf("total migrated: %s\n", migrated_buf);
+	}
+}
 
 int
 get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags, 

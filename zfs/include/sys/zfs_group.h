@@ -16,7 +16,7 @@
 #include <sys/zfs_acl.h>
 #include <sys/zil.h>
 #include <sys/zfs_multiclus.h>
-#include <sys/pathname.h>
+//#include <sys/pathname.h>
 #include <sys/zfs_vnops.h>
 #include <sys/vnode.h>
 
@@ -381,6 +381,7 @@ typedef struct fs_scrub {
 }fs_scrub_t;
 
 typedef struct dir_lowdata {
+	char dsname[MAX_FSNAME_LEN];
 	nvpairvalue_t pairvalue;
 	int32_t ret;
 	int32_t resv;
@@ -429,6 +430,7 @@ typedef enum system_cmd_operation {
 	SC_ZFS_IOCTL,
 	SC_FS_GET_DATA_ATTR,
 	SC_UNFLAG_OVERQUOTA,
+	SC_ZFS_MIGRATE,
 	SC_MAX_OP
 }system_cmd_operation_t;
 
@@ -873,7 +875,7 @@ zfs_group_create_extra_t *zfs_group_get_create_extra(char *name, vattr_t *vap,
 int zfs_get_group_iostat(char *poolname, vdev_stat_t *newvs, nvlist_t **config);
 int zfs_set_group_scrub(char *poolname, uint64_t cookie);
 int zfs_client_set_dir_low(zfs_sb_t *zsb, const char *dsname, nvpairvalue_t *pairvalue);
-
+int zfs_set_group_dir_low(const char *dsname, nvpairvalue_t *pairvalue);
 void zfs_group_update_system_space(objset_t *os, 
     zfs_group_notify_system_space_t *sys_space);
 
@@ -935,6 +937,8 @@ int zfs_group_process_create_data_file(znode_t *dzp, uint64_t master_object,
 void zfs_failover_ctl(objset_t *os, int time);
 void zfs_set_remote_object(znode_t *zp, zfs_group_object_t *group_object);
 int zfs_group_get_attr_from_data_node(zfs_sb_t *zsb, znode_t *master_znode);
+int zfs_client_migrate_cmd(objset_t *os, zfs_migrate_type migrate_type, uint64_t flags, uint64_t start_obj);
+int zfs_client_migrate_insert_block(objset_t *os, zfs_migrate_cmd_t *migrate_insert_cmd);
 extern void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_tx_t *tx);
 extern int zfs_group_broadcast_unflag_overquota(znode_t *zp, uint64_t old_dirquota_id);
 extern const char *zfs_group_map_key_name_prefix_format;

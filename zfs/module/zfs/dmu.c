@@ -499,7 +499,7 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 	return (0);
 }
 
-static int
+int
 dmu_buf_hold_array(objset_t *os, uint64_t object, uint64_t offset,
     uint64_t length, int read, void *tag, int *numbufsp, dmu_buf_t ***dbpp)
 {
@@ -1496,11 +1496,13 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
     boolean_t b_sync;
     dmu_buf_impl_t *db_implp;
     boolean_t b_appmeta;
+	boolean_t b_applow = B_FALSE;
 	txg_no = tx->tx_txg;
 	txg_id = txg_no & TXG_MASK;
 
     b_sync = write_flag & WRITE_FLAG_APP_SYNC;
     b_appmeta = write_flag & WRITE_FLAG_APP_META;
+	b_applow = write_flag & WRITE_FLAG_APP_LOW;
 
 	err = dmu_buf_hold_array_by_dnode(dn, uio->uio_loffset, size,
 	    FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH);
@@ -1514,6 +1516,7 @@ dmu_write_uio_dnode(dnode_t *dn, uio_t *uio, uint64_t size,
 		dmu_buf_t *db = dbp[i];
         db_implp = (dmu_buf_impl_t *)db;
 		db_implp->db_app_meta[txg_id] = b_appmeta;
+		db_implp->db_low_data[txg_id] = b_applow;
 
         dmu_objset_remove_seg_cache(dn->dn_objset, db_implp);
 
@@ -1617,6 +1620,8 @@ dmu_write_uio_dbuf(dmu_buf_t *zdb, uio_t *uio, uint64_t size,
 
     if (b_sync)
         write_flag |= WRITE_FLAG_APP_SYNC;
+	if (tx->tx_is_low)
+		write_flag |= WRITE_FLAG_APP_LOW;
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);

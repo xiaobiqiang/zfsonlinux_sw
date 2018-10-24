@@ -1498,6 +1498,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		zp = nzp;
 		ip = ZTOI(zp);
 		zp->z_dirquota = old_zp->z_dirquota;
+		zp->z_low = old_zp->z_low;
 		if (zp->z_overquota == B_FALSE) {
 			zp->z_overquota = old_zp->z_overquota;
 		}
@@ -1717,6 +1718,9 @@ tx_again:
 		tx = dmu_tx_create(zsb->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 		dmu_tx_hold_write(tx, zp->z_id, woff, MIN(n, max_blksz));
+		if (zp->z_low) {
+			dmu_tx_hold_low(tx, B_TRUE);
+		}
 		zfs_sa_upgrade_txholds(tx, zp);
 		error = dmu_tx_assign(tx, TXG_WAIT);
 		if (error) {

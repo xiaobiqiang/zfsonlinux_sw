@@ -97,6 +97,7 @@ const char *zfs_dirlowdata_period_unit_prefixex = "dirlowdata_period_unit@";
 const char *zfs_dirlowdata_criteria_prefixex = "dirlowdata_criteria@";
 const char *zfs_dirlowdata_path_prefixex = "dirlowdata_path@";
 
+extern boolean_t stop_wrc_thread(objset_t *os);
 
 /*
  * We need to keep a count of active fs's.
@@ -229,6 +230,59 @@ blksz_changed_cb(void *arg, uint64_t newval)
 	ASSERT(ISP2(newval));
 
 	zsb->z_max_blksz = newval;
+}
+
+static void
+lowdata_changed_cb(void *arg, uint64_t newval)
+{
+	zfs_sb_t *zsb = arg;
+
+	/*
+	 * Inheritance and range checking should have been done by now.
+	 */
+	ASSERT(newval == ZFS_LOWDATA_OFF || newval == ZFS_LOWDATA_MIGRATE || newval == ZFS_LOWDATA_DELETE);
+	zsb->z_lowdata= newval;
+}
+
+static void
+lowdata_period_changed_cb(void *arg, uint64_t newval)
+{
+	zfs_sb_t *zsb = arg;
+
+	/*
+	 * Inheritance and range checking should have been done by now.
+	 */
+	zsb->z_lowdata_period = newval;
+}
+
+static void
+lowdata_delete_period_changed_cb(void *arg, uint64_t newval)
+{
+	zfs_sb_t *zsb = arg;
+
+	/*
+	 * Inheritance and range checking should have been done by now.
+	 */
+	zsb->z_lowdata_delete_period = newval;
+}
+
+static void
+lowdata_period_unit_changed_cb(void *arg, uint64_t newval)
+{
+	zfs_sb_t *zsb = arg;
+
+	ASSERT(newval == ZFS_LOWDATA_PERIOD_SEC || newval == ZFS_LOWDATA_PERIOD_MIN || \
+			newval == ZFS_LOWDATA_PERIOD_HR || newval == ZFS_LOWDATA_PERIOD_DAY);
+	zsb->z_lowdata_period_unit = newval;
+}
+
+static void
+lowdata_criteria_changed_cb(void *arg, uint64_t newval)
+{
+	zfs_sb_t *zsb = arg;
+
+	ASSERT(newval == ZFS_LOWDATA_CRITERIA_ATIME || newval == ZFS_LOWDATA_CRITERIA_CTIME);
+	zsb->z_lowdata_criteria = newval;
 }
 
 static void
@@ -943,6 +997,19 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	os->os_replay_data = zfs_replay_rawdata;
 	os->os_seg_data_lock = zfs_seg_data_lock;
 	os->os_seg_data_unlock = zfs_seg_data_unlock;
+
+	mutex_init(&os->os_wrc.wrc_lock, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&os->os_wrc.wrc_cv, NULL, CV_DEFAULT, NULL);
+
+	list_create(&os->os_wrc.wrc_blocks, sizeof (wrc_block_t),
+			offsetof(wrc_block_t, node));
+	os->os_wrc.wrc_block_count = 0;
+	os->os_wrc.wrc_total_to_migrate = 0;
+	os->os_wrc.wrc_total_migrated = 0;
+	os->os_wrc.wrc_thread = NULL;
+	os->os_wrc.traverse_thread = NULL;
+	os->os_wrc.wrc_blkhdr_head = NULL;
+	os->os_wrc.traverse_finished = B_TRUE;
 
 	error = zfs_get_zplprop(os, ZFS_PROP_VERSION, &zsb->z_version);
 	if (error) {
@@ -1954,6 +2021,8 @@ zfs_umount(struct super_block *sb)
 	objset_t *os;
 	char fsname[MAX_FSNAME_LEN] = {0};
 	os = zsb->z_os;
+
+	stop_wrc_thread(zsb->z_os);
 
 	if (ZFS_GROUP_DTL_ENABLE)
 		stop_zfs_group_dtl_thread(os);
@@ -3009,6 +3078,14 @@ top:
 	if (err != 0) {
 		goto end;
 	}
+
+	bzero(buf, MAXPATHLEN);
+	sprintf(buf, "%s", path);
+	err = zap_update(zsb->z_os, *objp, buf, 8, 1, &dir_obj, tx);
+	if (err != 0) {
+		goto end;
+	}
+	
 	mutex_enter(&zp->z_lock);
 	zfs_sa_set_dirlowdata(zp, dir_obj, tx);
 	mutex_exit(&zp->z_lock);

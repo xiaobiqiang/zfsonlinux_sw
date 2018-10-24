@@ -209,6 +209,10 @@ extern void zfs_init(void);
 extern void zfs_fini(void);
 extern int cluster_proto_register(void);
 extern int cluster_proto_unregister(void);
+extern void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_obj, msg_orig_type_t cmd_type);
+extern void stop_travese_migrate_thread(char *fsname, msg_orig_type_t cmd_type);
+extern void status_travese_migrate_thread(char *fsname, char *state, uint64_t *total_to_migrate, uint64_t *total_migrated);
+
 uint_t zfs_fsyncer_key;
 extern uint_t rrw_tsd_key;
 static uint_t zfs_allow_log_key;
@@ -2362,6 +2366,114 @@ int zfs_prop_proc_dirlowdata(const char * dsname, nvpairvalue_t* pairvalue)
 	return (err);
 }
 
+static int
+zfs_ioc_get_dirlowdata(zfs_cmd_t *zc)
+{
+	zfs_sb_t 	*zsb = NULL;	
+	znode_t  *zp = NULL;
+	int error;
+	zfs_dirlowdata_t *dirlowdata = kmem_zalloc(sizeof(zfs_dirlowdata_t), KM_SLEEP);
+
+	if(NULL == dirlowdata){
+		return (ENOMEM);
+	}
+		
+	error = zfs_sb_hold(zc->zc_name, FTAG, &zsb, B_FALSE);
+	if (error){
+		return (error);
+	}
+	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0){
+		error= zfs_group_zget(zsb, zc->zc_obj, &zp, 0, 0, 0, B_FALSE);
+		if(error != 0){
+			cmn_err(CE_WARN, "zfs_group_zget : return %d",error);
+		} else {
+			error = zfs_client_get_dirlowdata(zsb, zp, dirlowdata);
+			iput(zp);
+		}
+	}else{
+		if (zsb->z_dirlowdata_obj == 0){
+			error = ENOENT;
+		} else{
+			error = zfs_get_dir_low(zsb, zc->zc_obj, dirlowdata);
+		}	
+	}
+
+	zfs_sb_rele(zsb, FTAG);
+		
+	if (error == 0) {
+		error = xcopyout(dirlowdata, (void *)(uintptr_t)zc->zc_nvlist_dst,
+		    sizeof(zfs_dirlowdata_t));
+	}
+	
+	if(NULL != dirlowdata){
+		kmem_free(dirlowdata, sizeof(zfs_dirlowdata_t));
+	}
+			
+	return (error);
+
+}
+
+static int 
+zfs_ioc_get_all_dirlowdata(zfs_cmd_t *zc)
+{
+	zfs_sb_t *zsb = NULL;			
+	int error;
+	int bufsize = zc->zc_nvlist_dst_size;
+	void *buf = NULL;
+
+	if (bufsize <= 0){
+		return (ENOMEM);
+	}
+
+	error = zfs_sb_hold(zc->zc_name, FTAG, &zsb, B_FALSE);
+	if (error){
+		return (error);
+	}
+
+	buf = kmem_zalloc(bufsize, KM_SLEEP);
+	if(NULL == buf){
+		zfs_sb_rele(zsb, FTAG);
+		return (ENOMEM);
+	}
+	
+	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0){
+		error = zfs_client_get_dirlowdatalist(zsb,  &zc->zc_cookie, 
+			buf, &zc->zc_nvlist_dst_size);		
+	}else{
+		if (zsb->z_dirlowdata_obj == 0){
+			error = ENOENT;
+		}else{
+			error = zfs_get_dir_lowdata_many(zsb, &zc->zc_cookie,
+	    			buf, &zc->zc_nvlist_dst_size);			
+		}
+	}
+	
+	if (error == 0) {
+		error = xcopyout(buf, (void *)(uintptr_t)zc->zc_nvlist_dst, zc->zc_nvlist_dst_size);
+	}
+
+	if(NULL != buf){
+		kmem_free(buf, bufsize);
+	}
+	
+	zfs_sb_rele(zsb, FTAG);
+
+	return (error);
+}
+
+static int zfs_ioc_migrate(zfs_cmd_t *zc)
+{
+	if (zc->zc_cookie & START_MIGRATE) {
+		start_travese_migrate_thread(zc->zc_value, zc->zc_cookie, zc->zc_obj, APP_USER);
+	} else if (zc->zc_cookie == STOP_MIGRATE) {
+		stop_travese_migrate_thread(zc->zc_value, APP_USER);
+	} else if (zc->zc_cookie == STATUS_MIGRATE) {
+		status_travese_migrate_thread(zc->zc_value, zc->zc_string, &zc->zc_multiclus_group, &zc->zc_multiclus_break);
+	} else {
+		cmn_err(CE_WARN, "%s, %d, cannot support migrate operation!", __func__, __LINE__);
+	}
+	return (0);
+}
 
 static int
 zfs_get_spaces(const char *name, uint64_t *space, uint64_t is_multiclus_stat)
@@ -2526,6 +2638,76 @@ zfs_prop_set_dirquota(const char *dsname, nvpair_t *pair)
 	return (err);
 }
 
+static int
+zfs_prop_set_dirlowdata(const char *dsname, nvpair_t *pair)
+{
+	const char *propname = nvpair_name(pair);
+	uint64_t *valary;
+	unsigned int vallen;
+	char *path;
+	char *dash;
+	uint64_t object;
+	uint64_t value;
+	zfs_sb_t *zsb;
+	nvpairvalue_t pairvalue;
+	int err;
+	zfs_dirlowdata_t dir_lowdata = {"",ZFS_LOWDATA_OFF,7,0,ZFS_LOWDATA_PERIOD_DAY,ZFS_LOWDATA_CRITERIA_ATIME};
+
+	if (nvpair_type(pair) == DATA_TYPE_NVLIST) {
+		nvlist_t *attrs;
+		VERIFY(nvpair_value_nvlist(pair, &attrs) == 0);
+		if (nvlist_lookup_nvpair(attrs, ZPROP_VALUE, &pair) != 0)
+			return (SET_ERROR(EINVAL));
+	}
+
+	/*
+	 * A correctly constructed propname is encoded as
+	 * userquota@<rid>-<domain>.
+	 */
+	if ((dash = strchr(propname, '@')) == NULL ||
+	    nvpair_value_uint64_array(pair, &valary, &vallen) != 0 ||
+	    vallen != 2){
+		return (EINVAL);
+	}
+
+	path = dash + 1;
+	object = valary[0];
+	value = valary[1];
+	err = zfs_sb_hold(dsname, FTAG, &zsb, B_FALSE);
+	if (err == 0) {
+		
+		zfs_get_dir_low(zsb, object, &dir_lowdata);
+
+		if (strncmp(propname, zfs_dirlowdata_prefixex, strlen(zfs_dirlowdata_prefixex)) == 0) {
+			dir_lowdata.lowdata = value;
+		} else if (strncmp(propname, zfs_dirlowdata_period_prefixex,
+		    strlen(zfs_dirlowdata_period_prefixex)) == 0) {
+			dir_lowdata.lowdata_period = value;
+		} else if (strncmp(propname, zfs_dirlowdata_delete_period_prefixex,
+		    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0) {
+			dir_lowdata.lowdata_delete_period = value;
+		} else if (strncmp(propname, zfs_dirlowdata_period_unit_prefixex,
+		    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) {
+			dir_lowdata.lowdata_period_unit = value;
+		} else if (strncmp(propname, zfs_dirlowdata_criteria_prefixex,
+		    strlen(zfs_dirlowdata_criteria_prefixex)) == 0) {
+			dir_lowdata.lowdata_criteria = value;
+		}
+		if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0){
+			pairvalue.object= object;
+			bcopy(path, pairvalue.path, MAX_FSNAME_LEN);
+			bcopy(propname, pairvalue.propname, MAX_FSNAME_LEN);
+			pairvalue.value = value;
+			err=zfs_set_group_dir_low(dsname, &pairvalue);
+		}
+		else{
+			err = zfs_set_dir_low(zsb, object, path, propname, value, &dir_lowdata);
+		}
+		
+		zfs_sb_rele(zsb, FTAG);
+	}
+	return (err);
+}
 
 /*
  * If the named property is one that has a special function to set its value,
@@ -2549,6 +2731,9 @@ zfs_prop_set_special(const char *dsname, zprop_source_t source,
 			return (zfs_prop_set_userquota(dsname, pair));
 		if (zfs_prop_dirquota(propname)) {
 			return (zfs_prop_set_dirquota(dsname, pair));
+		}
+		if (zfs_prop_dirlowdata(propname)) {
+			return (zfs_prop_set_dirlowdata(dsname, pair));
 		}
 		return (-1);
 	}
@@ -2670,8 +2855,11 @@ retry:
 			if (zfs_prop_user(propname)) {
 				if (nvpair_type(propval) != DATA_TYPE_STRING)
 					err = SET_ERROR(EINVAL);
-			} else if (zfs_prop_userquota(propname) || zfs_prop_dirquota(propname)) {
-				if (nvpair_type(propval) !=
+			} else if (zfs_prop_userquota(propname) || zfs_prop_dirquota(propname)
+			|| zfs_prop_dirlowdata(propname)) {
+				if (strlen(propname)) {
+					err = SET_ERROR(ENAMETOOLONG);
+				} else if (nvpair_type(propval) !=
 				    DATA_TYPE_UINT64_ARRAY)
 					err = SET_ERROR(EINVAL);
 			} else {
@@ -3902,6 +4090,14 @@ zfs_check_settable(const char *dsname, nvpair_t *pair, cred_t *cr)
 				return (SET_ERROR(EINVAL));
 
 			if ((err = zfs_secpolicy_write_perms(dsname, perm, cr)))
+				return (err);
+			return (0);
+		}
+
+		if (!issnap && zfs_prop_dirlowdata(propname)) {
+			const char *lowperm = NULL;
+			lowperm = ZFS_DELEG_PERM_DIRLOWDATA;
+			if (err = zfs_secpolicy_write_perms(dsname, lowperm, cr))
 				return (err);
 			return (0);
 		}
@@ -6495,6 +6691,15 @@ zfs_ioctl_init(void)
 
 	zfs_ioctl_register_legacy(ZFS_IOC_START_LUN_MEGRATE, zfs_ioc_do_lun_migrate,
 	    zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_DO_MIGRATE, zfs_ioc_migrate,
+		zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_GET_DIRLOWDATA, zfs_ioc_get_dirlowdata,
+		zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_GET_ALL_DIRLOWDATA, zfs_ioc_get_all_dirlowdata,
+		zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 }
 
 int

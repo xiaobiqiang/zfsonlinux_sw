@@ -60,14 +60,18 @@ extern kmutex_t	multiclus_mtx;
 
 #define	UID_NOBODY	60001		/* user ID no body */
 #define	GID_NOBODY	UID_NOBODY
-
+extern int debug_migrate;
 uint64_t group_create_seq = 0;
 extern size_t zfs_group_max_dataseg_size;
 extern int wait_meta_tx;
 
 extern int zfs_log_file_space_notify(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	znode_t *zp, zfs_group_notify_file_space_t *file_notify);
-
+extern int migrate_insert_block(zfs_migrate_cmd_t *migrate_cmd);
+extern void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_obj, msg_orig_type_t cmd_type);
+extern void stop_travese_migrate_thread(char *fsname, msg_orig_type_t cmd_type);
+extern void status_travese_migrate_thread(char *fsname, char *state, uint64_t *total_to_migrate, uint64_t *total_migrated);
+extern void travese_finished(char *fsname, msg_orig_type_t cmd_type);
 int zfs_local_read_node(struct inode *src_ip, char *buf, ssize_t bufsiz,offset_t *offsize, uint64_t vflg,cred_t *cred, ssize_t *readen);
 int zfs_migrate_dataA_to_dataB(znode_t *zp,zfs_group_data_msg_t *data,uint64_t vflg);
 static int zmc_remote_write_node(struct inode* src_ip,zfs_group_object_t *dst ,char* data,ssize_t data_len,ssize_t offset, uint64_t ioflag, cred_t* cr);
@@ -3347,6 +3351,36 @@ static int zfs_group_process_system_cmd(zfs_group_server_para_t *server_para)
 			vmem_free(userquota, sizeof(zfs_cl_set_userquota_t));
 			bcopy(&error, cmd_return, sizeof(int));
 		}
+	}
+	break;
+
+	case SC_ZFS_MIGRATE: {
+		zfs_migrate_cmd_t *migrate_cmd = kmem_zalloc(sizeof(zfs_migrate_cmd_t), KM_SLEEP);
+		bcopy(cmd_arg, migrate_cmd, cmd_arg_size);
+
+		if (migrate_cmd->cmd_type == ZFS_MIGRATE_INSERT) {
+			error = migrate_insert_block(migrate_cmd);
+			if (debug_migrate)
+				cmn_err(CE_WARN, "[debug_migrate]%s, %d, migrate cmd type is ZFS_MIGRATE_INSERT!!", __func__, __LINE__);
+		} else if (migrate_cmd->cmd_type == ZFS_MIGRATE_START) {
+			start_travese_migrate_thread((char *)migrate_cmd->fsname, migrate_cmd->obj_count, migrate_cmd->data_os, APP_GROUP);
+			if (debug_migrate)
+				cmn_err(CE_WARN, "[debug_migrate]%s, %d, migrate cmd type is ZFS_MIGRATE_START!!", __func__, __LINE__);
+		} else if (migrate_cmd->cmd_type == ZFS_MIGRATE_STOP) {
+			stop_travese_migrate_thread((char *)migrate_cmd->fsname, APP_GROUP);
+			if (debug_migrate)
+				cmn_err(CE_WARN, "[debug_migrate]%s, %d, migrate cmd type is ZFS_MIGRATE_STOP!!", __func__, __LINE__);
+		} else if (migrate_cmd->cmd_type == ZFS_MIGRATE_TRAVESE_FINISHED) {
+				travese_finished((char *)migrate_cmd->fsname, APP_GROUP);
+				if (debug_migrate)
+					cmn_err(CE_WARN, "[debug_migrate]%s, %d, migrate cmd type is ZFS_MIGRATE_TRAVESE_FINISHED!!", __func__, __LINE__);
+		} else {
+			if (debug_migrate)
+				cmn_err(CE_WARN,"[debug_migrate]%s, %d, Wrong migrate cmd type: %d for fs: %s !", __func__, __LINE__, migrate_cmd->cmd_type, migrate_cmd->fsname);
+		}
+
+		kmem_free(migrate_cmd, sizeof(zfs_migrate_cmd_t));
+		bcopy(&error, cmd_return, sizeof(int));
 	}
 	break;
 

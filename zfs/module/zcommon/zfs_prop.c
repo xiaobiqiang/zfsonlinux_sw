@@ -61,6 +61,15 @@ const char *zfs_userquota_prop_prefixes[] = {
 };
 const char *zfs_dirquota_prefixex = "dirquota@";
 
+const char *zfs_dirlowdata_prefixex = "dirlowdata@";
+const char *zfs_dirlowdata_period_prefixex = "dirlowdata_period@";
+const char *zfs_dirlowdata_delete_period_prefixex = "dirlowdata_delete_period@";
+const char *zfs_dirlowdata_period_unit_prefixex = "dirlowdata_period_unit@";
+const char *zfs_dirlowdata_criteria_prefixex = "dirlowdata_criteria@";
+const char *zfs_dirlowdata_path_prefixex = "dirlowdata_path@";
+
+extern uint64_t strtonum(const char *str, char **nptr);
+
 zprop_desc_t *
 zfs_prop_get_table(void)
 {
@@ -234,6 +243,27 @@ zfs_prop_init(void)
 		{ "on",	ZFS_DIRQUOTA_ON },
 		{ NULL }
 	};
+	
+	static zprop_index_t lowdata_table[] = {
+		{ "off",	ZFS_LOWDATA_OFF },
+		{ "migrate",	ZFS_LOWDATA_MIGRATE},
+		{ "delete",	ZFS_LOWDATA_DELETE},
+		{ NULL }
+	};
+
+	static zprop_index_t lowdata_period_unit_table[] = {
+		{ "second",	ZFS_LOWDATA_PERIOD_SEC },
+		{ "minute",	ZFS_LOWDATA_PERIOD_MIN },
+		{ "hour",	ZFS_LOWDATA_PERIOD_HR },
+		{ "day",	ZFS_LOWDATA_PERIOD_DAY },
+		{ NULL }
+	};
+
+	static zprop_index_t lowdata_criteria_table[] = {
+		{ "atime",	ZFS_LOWDATA_CRITERIA_ATIME },
+		{ "ctime",	ZFS_LOWDATA_CRITERIA_CTIME },
+		{ NULL }
+	};
 
 	/* inherit index properties */
 	zprop_register_index(ZFS_PROP_REDUNDANT_METADATA, "redundant_metadata",
@@ -289,6 +319,22 @@ zfs_prop_init(void)
 	zprop_register_index(ZFS_PROP_XATTR, "xattr", ZFS_XATTR_DIR,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT,
 	    "on | off | dir | sa", "XATTR", xattr_table);
+	/* low data migration properties */
+	zprop_register_index(ZFS_PROP_LOWDATA, "lowdata", ZFS_LOWDATA_OFF,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "off | migrate | delete", "LOWDATA",
+	    lowdata_table);
+	/* low data period unit migration properties */
+	zprop_register_index(ZFS_PROP_LOWDATA_PERIOD_UNIT, "lowdata_period_unit", ZFS_LOWDATA_PERIOD_DAY,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "second | minute | hour | day", "LOWDATA_PERIOD_UNIT",
+	    lowdata_period_unit_table);
+	/* low data criteria migration properties */
+	zprop_register_index(ZFS_PROP_LOWDATA_CRITERIA, "lowdata_criteria", ZFS_LOWDATA_CRITERIA_ATIME,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "atime | ctime", "LOWDATA_CRITERIA",
+	    lowdata_criteria_table);
+
 
 	/* inherit index (boolean) properties */
 	zprop_register_index(ZFS_PROP_ATIME, "atime", 1, PROP_INHERIT,
@@ -462,6 +508,12 @@ zfs_prop_init(void)
 	zprop_register_number(ZFS_PROP_RECORDSIZE, "recordsize",
 	    SPA_OLD_MAXBLOCKSIZE, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM, "512 to 1M, power of 2", "RECSIZE");
+	zprop_register_number(ZFS_PROP_LOWDATA_PERIOD, "lowdata_period",
+	    7, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<days>", "LOWDATA_PERIOD");
+	zprop_register_number(ZFS_PROP_LOWDATA_DELETE_PERIOD, "lowdata_delete_period",
+	    0, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<days>", "LOWDATA_DELETE_PERIOD");
 
 	/* hidden properties */
 	zprop_register_hidden(ZFS_PROP_CREATETXG, "createtxg", PROP_TYPE_NUMBER,
@@ -612,6 +664,103 @@ zfs_prop_dirquota(const char *name)
 	}
 
 	return (B_FALSE);
+}
+
+boolean_t
+zfs_prop_dirlowdata(const char *name)
+{
+
+	if ((strncmp(name, zfs_dirlowdata_prefixex,
+	    strlen(zfs_dirlowdata_prefixex)) == 0) ||
+	    (strncmp(name, zfs_dirlowdata_period_prefixex,
+	    strlen(zfs_dirlowdata_period_prefixex)) == 0) ||
+	    (strncmp(name, zfs_dirlowdata_delete_period_prefixex,
+	    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0) ||
+	    (strncmp(name, zfs_dirlowdata_period_unit_prefixex,
+	    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) ||
+	    (strncmp(name, zfs_dirlowdata_criteria_prefixex,
+	    strlen(zfs_dirlowdata_criteria_prefixex)) == 0)) {
+		return (B_TRUE);
+	}
+
+	return (B_FALSE);
+}
+
+int check_strvalue(const char *strvalue)
+{
+	int i = 0;
+	size_t count = 0;
+
+	count = strlen(strvalue);
+
+	for (i = 0; i < count; i++) {
+		if (strvalue[i] < '0' || strvalue[i] > '9') {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static uint64_t sstrtoull(const char *ptr, char **end, int base)
+{
+	unsigned long long ret = 0;
+
+	if (base > 36)
+		goto out;
+
+	while (*ptr) {
+		int digit;
+
+		if (*ptr >= '0' && *ptr <= '9' && *ptr < '0' + base)
+			digit = *ptr - '0';
+		else if (*ptr >= 'A' && *ptr < 'A' + base - 10)
+			digit = *ptr - 'A' + 10;
+		else if (*ptr >= 'a' && *ptr < 'a' + base - 10)
+			digit = *ptr - 'a' + 10;
+		else
+			break;
+
+		ret *= base;
+		ret += digit;
+		ptr++;
+	}
+
+out:
+	if (end)
+		*end = (char *)ptr;
+
+	return ret;
+}
+
+int
+zfs_translate_propvalue(const char *propname, const char *strvalue, uint64_t *value)
+{
+	zfs_prop_t dirlowprop = ZFS_NUM_PROPS;
+	char *end;
+	int err = 0;
+
+	if (strncmp(propname, zfs_dirlowdata_prefixex,
+	    strlen(zfs_dirlowdata_prefixex)) == 0) {
+		dirlowprop = ZFS_PROP_LOWDATA;
+	} else if (strncmp(propname, zfs_dirlowdata_period_unit_prefixex,
+	    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0) {
+		dirlowprop = ZFS_PROP_LOWDATA_PERIOD_UNIT;
+	} else if (strncmp(propname, zfs_dirlowdata_criteria_prefixex,
+	    strlen(zfs_dirlowdata_criteria_prefixex)) == 0) {
+		dirlowprop = ZFS_PROP_LOWDATA_CRITERIA;
+	}
+
+	if (dirlowprop == ZFS_NUM_PROPS) {
+		err = check_strvalue(strvalue);
+		if (err == 0) {
+			*value = sstrtoull(strvalue, &end, 10);
+		}
+	} else {
+		err = zfs_prop_string_to_index(dirlowprop, strvalue, value);
+	}
+
+	return err;
 }
 
 /*
@@ -801,5 +950,6 @@ EXPORT_SYMBOL(zfs_prop_dirquota);
 EXPORT_SYMBOL(zfs_prop_index_to_string);
 EXPORT_SYMBOL(zfs_prop_string_to_index);
 EXPORT_SYMBOL(zfs_prop_valid_for_type);
+EXPORT_SYMBOL(zfs_prop_dirlowdata);
 
 #endif

@@ -2654,6 +2654,7 @@ space_alloc:
 			return (zio_write_gang_block(zio));
 		zio->io_error = error;
 	}
+	BP_SET_APPLOW(bp, prop_p->zp_app_low);
 
 	return (ZIO_PIPELINE_CONTINUE);
 }
