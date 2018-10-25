@@ -50,6 +50,7 @@
 #include <sys/cred.h>
 #include <sys/zpl.h>
 #include <sys/dmu_objset.h>
+#include <sys/zfs_group.h>
 
 /*
  * Functions to replay ZFS intent log (ZIL) records
@@ -410,7 +411,7 @@ zfs_replay_create(zfs_sb_t *zsb, lr_create_t *lr, boolean_t byteswap)
 {
 	char *name = NULL;		/* location determined later */
 	char *link;			/* symlink content follows name */
-	znode_t *dzp;
+	znode_t *dzp, *zp = NULL;
 	struct inode *ip = NULL;
 	xvattr_t xva;
 	int vflg = 0;
@@ -427,7 +428,6 @@ zfs_replay_create(zfs_sb_t *zsb, lr_create_t *lr, boolean_t byteswap)
 		if (txtype == TX_CREATE_ATTR || txtype == TX_MKDIR_ATTR)
 			zfs_replay_swap_attrs((lr_attr_t *)(lr + 1));
 	}
-
 
 	if ((error = zfs_zget(zsb, lr->lr_doid, &dzp)) != 0)
 		return (error);
@@ -483,9 +483,25 @@ zfs_replay_create(zfs_sb_t *zsb, lr_create_t *lr, boolean_t byteswap)
 	case TX_CREATE:
 		if (name == NULL)
 			name = (char *)start;
-
-		error = zfs_create(ZTOI(dzp), name, &xva.xva_vattr,
-		    0, 0, &ip, kcred, vflg, NULL, NULL);
+		if (!strncmp(name, ZIL_LOG_DATA_FILE_NAME, strlen(ZIL_LOG_DATA_FILE_NAME))) {
+			error = zfs_group_process_create_data_file(dzp, lr->lr_mobj, lr->lr_gen,
+				&zp, &lr->lr_dirquota, &xva.xva_vattr);
+			if (!error)
+				ip = ZTOI(zp);
+		} else {
+			znode_t *zp = NULL;
+			error = zfs_create(ZTOI(dzp), name, &xva.xva_vattr,
+		    		0, 0, &ip, kcred, vflg, NULL, NULL);
+			if (error != 0) {
+				if (zsb->z_os->os_is_group) {
+					zp->z_group_id.data_spa = lr->lr_dspa;
+					zp->z_group_id.data_objset = lr->lr_dos;
+					zp->z_group_id.data_object = lr->lr_dobj;
+					zfs_set_remote_object(zp, &zp->z_group_id);
+					zfs_group_get_attr_from_data_node(zsb, zp);	
+				}
+			}
+		}
 		break;
 	case TX_MKDIR_ATTR:
 		lrattr = (lr_attr_t *)(caddr_t)(lr + 1);
@@ -954,6 +970,110 @@ zfs_replay_rawdata(objset_t *os, char *data,
     return (error);
 }
 
+
+static int
+zfs_replay_file_space_notify(zfs_sb_t *zsb, lr_file_space_notify_t *lr, boolean_t byteswap)
+{
+	znode_t *zp = NULL;
+	znode_t	*dzp = NULL;
+	dmu_tx_t *tx;
+	sa_bulk_attr_t	bulk[4];
+	int count = 0;
+	int error = 0;
+	uint64_t end_size= 0;
+	uint64_t	parent = 0;
+
+	if (byteswap)
+		byteswap_uint64_array(lr, sizeof (*lr));
+
+	error = zfs_zget(zsb, lr->file_object, &zp);
+	if (error != 0) {
+		cmn_err(CE_WARN, "[%s %d]Notify replay can not find file(%"PRIu64")", __func__, __LINE__, lr->file_object);
+		return error;
+	}
+
+	if (lr->file_updateop == EXPAND_SPACE) {
+		while ((end_size = zp->z_size) < lr->file_size) {
+			atomic_cas_64(&zp->z_size, end_size, lr->file_size);
+		}
+
+		while ((end_size = zp->z_nblks) < lr->file_nblks) {
+			atomic_cas_64(&zp->z_size, end_size, lr->file_nblks);
+		}
+	} else if (lr->file_updateop == REDUCE_SPACE) {
+		while ((end_size = zp->z_size) > lr->file_size) {
+			atomic_cas_64(&zp->z_size, end_size, lr->file_size);
+		}
+
+		while ((end_size = zp->z_nblks) > lr->file_nblks) {
+			atomic_cas_64(&zp->z_size, end_size, lr->file_nblks);
+		}
+	}
+	end_size = (uint64_t)zp->z_blksz;
+	if ((uint64_t)zp->z_blksz != lr->file_blksz) {
+		atomic_cas_64((uint64_t*)&zp->z_blksz, end_size, lr->file_blksz);
+	}
+
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,
+	    &zp->z_size, 8);
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_NBLKS(zsb), NULL,
+	    &zp->z_nblks, 8);
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_BLKSZ(zsb), NULL,
+	    &zp->z_blksz, 8);
+
+	if (lr->file_low_flag !=0)
+		zp->z_low |= lr->file_low_flag;
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_LOW(zsb), NULL,
+		&zp->z_low, 8);
+
+top:
+	tx = dmu_tx_create(zsb->z_os);
+	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+	error = dmu_tx_assign(tx, TXG_WAIT);
+	if (error) {
+		if (error == ERESTART) {
+			dmu_tx_wait(tx);
+			dmu_tx_abort(tx);
+			goto top;
+		}
+		dmu_tx_abort(tx);
+		iput(ZTOI(zp));
+		return (error);
+	}
+	
+	if((error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx))!=0){
+		dmu_tx_commit(tx);
+		iput(ZTOI(zp));
+		return error;
+	}
+
+	if (zp->z_dirquota == 0) {
+		if ((error = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zp->z_zsb), &parent, sizeof (parent))) != 0){
+			dmu_tx_commit(tx);
+			iput(ZTOI(zp));
+			return error;
+		}
+
+		error = zfs_zget(zsb, parent, &dzp);
+		if (error || dzp == NULL) {
+			dmu_tx_commit(tx);
+			iput(ZTOI(zp));
+			return error;
+		}
+		zp->z_dirquota = dzp->z_dirquota;
+		iput(ZTOI(dzp));
+	}
+
+	if (lr->update_quota) {
+		zfs_update_quota_used(zsb, zp, lr->file_updatesize, lr->file_updateop, tx);
+	}
+	dmu_tx_commit(tx);
+	iput(ZTOI(zp));
+	return 0;
+}
+	
+
+
 /*
  * Callback vectors for replaying records
  */
@@ -979,5 +1099,6 @@ zil_replay_func_t zfs_replay_vector[TX_MAX_TYPE] = {
 	(zil_replay_func_t)zfs_replay_create,		/* TX_MKDIR_ATTR */
 	(zil_replay_func_t)zfs_replay_create_acl,	/* TX_MKDIR_ACL_ATTR */
 	(zil_replay_func_t)zfs_replay_write2,		/* TX_WRITE2 */
-    (zil_replay_func_t)zil_replay_write_ctrl,
+	(zil_replay_func_t)zil_replay_write_ctrl,
+	(zil_replay_func_t)zfs_replay_file_space_notify,  /*TX_FILE_SPACE_NOTIFY */
 };

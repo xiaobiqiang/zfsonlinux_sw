@@ -153,7 +153,8 @@ typedef enum zil_create {
 #define	TX_MKDIR_ACL_ATTR	19	/* mkdir with ACL + attrs */
 #define	TX_WRITE2		20	/* dmu_sync EALREADY write */
 #define	TX_WRITE_CTRL	21
-#define	TX_MAX_TYPE		22	/* Max transaction type */
+#define	TX_FILE_SPACE_NOTIFY  22   /*file space notify*/
+#define	TX_MAX_TYPE		23	/* Max transaction type */
 
 /*
  * The transactions for mkdir, symlink, remove, rmdir, link, and rename
@@ -232,6 +233,12 @@ typedef struct {
 	uint64_t	lr_gen;		/* generation (txg of creation) */
 	uint64_t	lr_crtime[2];	/* creation time */
 	uint64_t	lr_rdev;	/* rdev of object to create */
+	uint64_t	lr_dirquota;
+	uint64_t	lr_mobj;
+	uint64_t	lr_mgen;
+	uint64_t	lr_dspa;
+	uint64_t	lr_dos;
+	uint64_t	lr_dobj;
 	/* name of object to create follows this */
 	/* for symlinks, link content follows name */
 	/* for creates with xvattr data, the name follows the xvattr info */
@@ -336,6 +343,18 @@ typedef struct {
 	uint64_t	lr_acl_flags;	/* ACL flags */
 	/* lr_acl_bytes number of variable sized ace's follows */
 } lr_acl_t;
+
+typedef struct {
+	lr_t		lr_common;    /* common portion of log record */
+	uint64_t	file_updatesize;
+	uint64_t	file_updateop;
+	uint64_t	file_size;
+	uint64_t	file_nblks;
+	uint64_t	file_blksz;
+	uint64_t	file_object;
+	uint64_t	file_low_flag;
+	uint64_t	update_quota;
+}lr_file_space_notify_t;
 
 /*
  * ZIL structure definitions, interface function prototype and globals.

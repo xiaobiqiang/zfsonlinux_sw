@@ -291,6 +291,7 @@ typedef struct dmu_buf_impl {
     kmutex_t db_seg_list_mtx;
     void *db_seg_data;
 	boolean_t db_app_meta[TXG_SIZE];
+	boolean_t db_low_data[TXG_SIZE];
 } dmu_buf_impl_t;
 
 typedef struct dbuf_mirror_io {
@@ -358,7 +359,7 @@ void dbuf_rele_and_unlock(dmu_buf_impl_t *db, void *tag);
 dmu_buf_impl_t *dbuf_find(struct objset *os, uint64_t object, uint8_t level,
     uint64_t blkid);
 
-int dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags);
+int dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags, boolean_t lowdata);
 void dmu_buf_will_not_fill(dmu_buf_t *db, dmu_tx_t *tx);
 void dmu_buf_will_fill(dmu_buf_t *db, dmu_tx_t *tx);
 void dmu_buf_fill_done(dmu_buf_t *db, dmu_tx_t *tx);

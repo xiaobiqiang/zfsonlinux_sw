@@ -46,7 +46,6 @@ typedef int (*zfs_dir_entry_func_t)(struct inode * pip, struct inode * ip, void*
 typedef struct zfs_multiclus_dir_entry
 {
 	uint64_t obj_id;
-//	enum vtype obj_type;
 	umode_t mode;
 } zfs_multiclus_dirent_t;
 

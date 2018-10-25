@@ -186,6 +186,7 @@ extern int ZFS_GROUP_DTL_ENABLE;
 int debug_nas_group = 0;
 int TO_DOUBLE_DATA_FILE = 0;
 int NOTIFY_FILE_SIZE = 1;
+int wait_meta_tx = 0;
 
 static void zfs_set_worm_retention(znode_t *zp, uint64_t n_retent);
 
@@ -944,7 +945,7 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	optype = zfs_rw_type_data2(zp, ioflag, &nzp);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_write2(ip, uio, ioflag, cr, NULL);
+		error = zfs_client_write2(ip, uio, ioflag, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -1315,6 +1316,8 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		zil_commit(zilog, zp->z_id);
 
 	if (zsb->z_os->os_is_group && NOTIFY_FILE_SIZE) {
+		zfs_group_notify_para_t *notify_para = NULL;
+		
 		sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
 		zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE - 1) >> SPA_MINBLOCKSHIFT);
 
@@ -1322,12 +1325,15 @@ zfs_write_data2(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		 * in cluster, the old_zp may be different from the zp
 		 * when the old_zp is a virtual node, update it here
 		 */
-		old_zp->z_size = zp->z_size;
-		old_zp->z_nblks = zp->z_nblks;
-		old_zp->z_blksz = zp->z_blksz;
-		zfs_group_notify_para_t *notify_para = kmem_zalloc(sizeof(zfs_group_notify_para_t), KM_SLEEP);
 
-		//notify_para->znode = *zp;
+		if (old_zp != zp) {
+			old_zp->z_size = zp->z_size;
+			old_zp->z_nblks = zp->z_nblks;
+			old_zp->z_blksz = zp->z_blksz;
+		}
+		
+		notify_para = kmem_zalloc(sizeof(zfs_group_notify_para_t), KM_SLEEP);
+
 		bcopy(zp, &notify_para->znode, sizeof(znode_t));
 		notify_para->update_size = start_resid - uio->uio_resid;
 		notify_para->used_op = EXPAND_SPACE;
@@ -1400,6 +1406,8 @@ out :
  */
 
 /* ARGSUSED */
+
+int update_old_zsize = 1;
 int
 zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 {
@@ -1427,9 +1435,8 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	sa_bulk_attr_t	bulk[4];
 	uint64_t	mtime[2], ctime[2];
 	boolean_t write_direct = B_FALSE;
-    boolean_t sync;
+	boolean_t sync;
 	int	iovcnt = uio->uio_iovcnt;
-	ASSERTV(iovcnt);
 	char user_id[64];
 	uio_t uio_data2;
 	iovec_t* iovec = NULL;
@@ -1439,7 +1446,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	struct inode *old_ip = ip;
 	uint64_t	worm_aoff;
 	uint64_t	worm_delta;
-    uint64_t    worm_skip_n;
+	uint64_t    worm_skip_n;
 	boolean_t bover = B_FALSE;
 	int suq_err;
 	int sgq_err;
@@ -1448,6 +1455,8 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	uint64_t used = 0;
 	int64_t update_size = 0;
 	uint64_t total_update_size = 0 ;
+	uint64_t nblks = 0;
+	uint64_t blksz = 0;
 
 	ASSERTV(iovcnt);
 
@@ -1466,7 +1475,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	optype = zfs_rw_type(zp, ioflag, &nzp);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_write(ip, uio, ioflag, cr, NULL);
+		error = zfs_client_write(ip, uio, ioflag, cr);
 		ZFS_EXIT(zsb);
 		if (TO_DOUBLE_DATA_FILE) {
 			if (!error) {
@@ -1523,7 +1532,6 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		limit = MAXOFFSET_T;
 
 	ZFS_ENTER(zsb);
-//	ZFS_VERIFY_ZP(zp);
 	if (!zsb->z_os->os_is_group ||
 		(zsb->z_os->os_is_group && zsb->z_os->os_is_master))
 		ZFS_VERIFY_ZP(zp);
@@ -1540,8 +1548,6 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	if ((zp->z_pflags & (ZFS_IMMUTABLE | ZFS_READONLY)) ||
 	    ((zp->z_pflags & ZFS_APPENDONLY) && !(ioflag & FAPPEND) &&
 	    (uio->uio_loffset < zp->z_size))) {
-//		ZFS_EXIT(zsb);
-//		return (SET_ERROR(EPERM));
 		error = SET_ERROR(EPERM);
 		goto out;
 	}
@@ -1658,7 +1664,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	 */
 	while (n > 0) {
 		woff = uio->uio_loffset;
-        sync = dmu_objset_sync_check(zsb->z_os);
+        	sync = dmu_objset_sync_check(zsb->z_os);
 again:
 		abuf = NULL;
 		suq_err = zfs_owner_oversoftquota(zsb, zp, B_FALSE);
@@ -1877,11 +1883,8 @@ tx_again:
 		if (n <= nbytes && ((zsb->z_os->os_is_group == 0) || 
 			(zsb->z_os->os_is_group > 0 &&
 			zsb->z_os->os_is_master > 0)) && (zp->z_bquota || zp->z_dirquota > 0)) {
-	/*		if (update_size > 0) { */
-			/*	zfs_update_quota_used(zsb, zp, used,  EXPAND_SPACE, tx); */
 			if( !( zp->z_pflags & ZFS_XATTR )  && total_update_size>0 )
 				zfs_update_quota_used( zsb, zp, total_update_size, EXPAND_SPACE, tx ) ;
-/*			}*/
 		}
 	
 #if 0
@@ -1925,39 +1928,54 @@ tx_again:
 	}
 
 	if (zsb->z_os->os_is_group && NOTIFY_FILE_SIZE) {
-		sa_object_size(zp->z_sa_hdl, (uint32_t *)&zp->z_blksz, (u_longlong_t *)&zp->z_nblks);	
-		zp->z_nblks = (unsigned long long)((end_size + SPA_MINBLOCKSIZE -1) >> SPA_MINBLOCKSHIFT);
-
+		zfs_group_notify_para_t *notify_para = NULL;
+		
+		sa_object_size(zp->z_sa_hdl, (uint32_t *)&blksz, (u_longlong_t *)&nblks);	
+		
 		/*
 		 * in cluster, the old_zp may be different from the zp
 		 * when the old_zp is a virtual node, update it here
 		 */
-		old_zp->z_size = zp->z_size;
-		old_zp->z_nblks = zp->z_nblks;
-		old_zp->z_blksz = zp->z_blksz;
-		zfs_group_notify_para_t *notify_para = kmem_zalloc(sizeof(zfs_group_notify_para_t), KM_SLEEP);
+		 if (update_old_zsize) {
+			uint64_t end_size = old_zp->z_size;
+			while (old_zp->z_size < zp->z_size) {
+				atomic_cas_64(&old_zp->z_size, end_size, zp->z_size);
+			}
 
-//		notify_para->znode = *zp;
-		bcopy(zp, &notify_para->znode, sizeof(znode_t));
-/*		notify_para->update_size = used; */
+			end_size = (uint64_t)old_zp->z_nblks;
+			while ((uint64_t)old_zp->z_nblks < nblks) {
+				atomic_cas_64((uint64_t *)&old_zp->z_nblks, end_size, nblks);
+			}
+
+			end_size = (uint64_t)old_zp->z_blksz;
+			if ((uint64_t)old_zp->z_blksz != blksz) {
+				atomic_cas_64((uint64_t *)&old_zp->z_blksz, end_size, blksz);
+			}
+		}
+
+		notify_para = kmem_zalloc(sizeof(zfs_group_notify_para_t), KM_SLEEP);
+		bcopy(old_zp, &notify_para->znode, sizeof(znode_t));
 		notify_para->update_size = total_update_size ;
 		notify_para->used_op = EXPAND_SPACE;
 		notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 		notify_para->local_os = dmu_objset_id(zsb->z_os);
+
 		if ((ioflag & FCLUSTER) == 0) {
 			notify_para->update_quota = B_TRUE;
 			ioflag |= F_DT2_NO_UP_QUOTA;
 		} else {
 			notify_para->update_quota = (ioflag & F_DT2_NO_UP_QUOTA) ? B_FALSE : B_TRUE;
 		}
-		if( zp->z_pflags & ZFS_XATTR )
-			notify_para->update_quota = B_FALSE ;
 
-//		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
-//		    (void*)notify_para, TQ_NOSLEEP) == 0){
+		if( zp->z_pflags & ZFS_XATTR)
+			notify_para->update_quota = B_FALSE;
+
+/*		if(taskq_dispatch(zsb->notify_taskq, zfs_client_noify_file_space_tq, 
+			(void*)notify_para, TQ_NOSLEEP) == 0){ */
 			zfs_client_noify_file_space_tq((void*)notify_para);
-//		}
+/*		}  */
 	}
+
 out:
 	if (zsb->z_os->os_is_group == 0) {
 		ZFS_EXIT(zsb);
@@ -1993,21 +2011,21 @@ out:
 				}
 
 				notify_para = kmem_zalloc(sizeof(zfs_group_dirty_notify_para_t), KM_SLEEP);
-				//notify_para->znode = *zp;
 				bcopy(zp, &notify_para->znode, sizeof(znode_t));
 				notify_para->dirty_flag = DATA_NODE_DIRTY;
 				notify_para->data_no = DATA_FILE1;
 				notify_para->local_spa = spa_guid(dmu_objset_spa(zsb->z_os));
 				notify_para->local_os = dmu_objset_id(zsb->z_os);
 
-//				if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
-//						(void*)notify_para, TQ_NOSLEEP) == 0) {
+/*				if (taskq_dispatch(zsb->notify_taskq, zfs_client_notify_data_file_dirty_tq,
+						(void*)notify_para, TQ_NOSLEEP) == 0) {  */
 					zfs_client_notify_data_file_dirty_tq((void*)notify_para);
-//				}
+/*				}  */
 			}
 
 			if (nzp != NULL) {
 				iput(ZTOI(nzp));
+				ip = old_ip;
 			}
 
 			ZFS_EXIT(zsb);
@@ -2029,6 +2047,7 @@ out:
 
 			if (nzp != NULL) {
 				iput(ZTOI(nzp));
+				ip = old_ip;
 			}
 
 			ZFS_EXIT(zsb);
@@ -2036,6 +2055,7 @@ out:
 	 } else {
 		if (nzp != NULL) {
 			iput(ZTOI(nzp));
+			ip = old_ip;
 		}
 
 		ZFS_EXIT(zsb);
@@ -2394,8 +2414,7 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 	optype = zfs_vn_lookup_type(zdp, real_nm, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_lookup(dip, real_nm, ipp, NULL, flags, NULL, cr, NULL,
-		    direntflags, realpnp);
+		error = zfs_client_lookup(dip, real_nm, ipp, NULL, flags, NULL, cr, direntflags, realpnp);
 		if(error == 0 && debug_nas_group == 1){
 			zp = ITOZ(*ipp);
 			cmn_err(CE_WARN, "[yzy] %s %d, filename %s, z_id 0x%llx, gen 0x%llx, mas os 0x%llx, mas obj 0x%llx", __func__, __LINE__,
@@ -2570,14 +2589,14 @@ zfs_lookup(struct inode *dip, char *nm, struct inode **ipp, int flags,
 					(zp->z_group_id.data_spa != zp->z_group_id.master_spa || zp->z_group_id.data_objset != zp->z_group_id.master_objset 
 					  || zp->z_group_id.data_object != zp->z_group_id.master_object) &&
 					(zp->z_group_id.data_spa != 0 && zp->z_group_id.data_objset != 0 && zp->z_group_id.data_object != 0) &&
-					zp->z_group_id.data_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) ){
+					zp->z_group_id.data_status != DATA_NODE_DIRTY && S_ISREG((*ipp)->i_mode) ){
 					error = zfs_group_get_attr_from_data_node(zsb, zp);
 				}
 				if ((error != 0) && (zsb->z_os->os_is_group && zsb->z_os->os_is_master &&
 					(zp->z_group_id.data2_spa != zp->z_group_id.master_spa || zp->z_group_id.data2_objset != zp->z_group_id.master_objset 
 					  || zp->z_group_id.data2_object != zp->z_group_id.master_object) && 
 					(zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0) &&
-					zp->z_group_id.data2_status != DATA_NODE_DIRTY && S_ISREG(ZTOI(zp)->i_mode) )){
+					zp->z_group_id.data2_status != DATA_NODE_DIRTY && S_ISREG((*ipp)->i_mode) )){
 					error = zfs_group_get_attr_from_data2_node(zsb, zp);
 				}	
 			}
@@ -2713,15 +2732,15 @@ zfs_create(struct inode *dip, char *name, vattr_t *vap, int excl,
 		bCreateGroupDataFile = B_TRUE;
 	}
 								
-	if(zsb->z_os->os_is_group && !S_ISREG(vap->va_mode) && !S_ISLNK(vap->va_mode) && !S_ISDIR(vap->va_mode)){
+	if(zsb->z_os->os_is_group && !S_ISREG(vap->va_mode) && 
+		!S_ISLNK(vap->va_mode) && !S_ISDIR(vap->va_mode)) {
 		return (EINVAL);
 	}
 
 	optype = zfs_vn_dir_type(dzp, flag);
 	if (optype == VN_OP_CLIENT && (flag & FBackupMaster) == 0) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_create(dip, name, vap, excl, mode, ipp, cr, flag, NULL,
-		    vsecp);
+		error = zfs_client_create(dip, name, vap, excl, mode, ipp, cr, flag, vsecp);
 
 		ZFS_EXIT(zsb);
 		return (error);
@@ -2871,12 +2890,15 @@ top:
 			zfs_fuid_sync(zsb, tx);
 
 		(void) zfs_link_create(dl, zp, tx, ZNEW);
-		txtype = zfs_log_create_txtype(Z_FILE, vsecp, vap);
-		if (flag & FIGNORECASE)
-			txtype |= TX_CI;
-		err_meta_tx = zfs_log_create(zilog, tx, txtype, dzp, zp, name,
-		    vsecp, acl_ids.z_fuidp, vap);
-		zfs_acl_ids_free(&acl_ids);
+		
+		if (!os->os_is_group) {
+			txtype = zfs_log_create_txtype(Z_FILE, vsecp, vap);
+			if (flag & FIGNORECASE)
+				txtype |= TX_CI;
+			err_meta_tx = zfs_log_create(zilog, tx, txtype, dzp, zp, name,
+		    		vsecp, acl_ids.z_fuidp, vap);
+			zfs_acl_ids_free(&acl_ids);
+		}
 
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 		mutex_enter(&zp->z_lock);
@@ -2891,7 +2913,7 @@ top:
 		mutex_exit(&zp->z_lock);
 	
 		dmu_tx_commit(tx);
-		if ( err_meta_tx ){
+		if (wait_meta_tx && !os->os_is_group && err_meta_tx != 0 ) {
 			txg_wait_synced(dmu_objset_pool(os), 0);
 		}
 	} else {
@@ -3002,20 +3024,44 @@ out:
 		    zsb->z_os->os_is_master &&
 		    zp->z_parent != zsb->z_shares_dir &&
 			S_ISREG((*ipp)->i_mode) && B_TRUE == bCreateGroupDataFile && error == 0 ) {
+			int txtype = 0;
 			boolean_t bregual = B_FALSE;
 			uint64_t host_id = 0;
+			dmu_tx_t * ptx = NULL;
 
 			if((dzp->z_pflags & ZFS_XATTR) == 0
 			    && S_ISREG(vap->va_mode)){
 				bregual = B_TRUE;
 			}
 
+			ptx = dmu_tx_create(zsb->z_os);
+			dmu_tx_hold_sa(ptx, zp->z_sa_hdl, B_FALSE);
+			error = dmu_tx_assign(ptx, TXG_WAIT);
+			if (error) {
+				dmu_tx_abort(ptx);
+				ptx = NULL;
+			}
+
 			flag_group_file_create = zfs_group_create_data_file(zp, name, bregual, vsecp, vap, excl,
-				mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, NULL);
+				mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, ptx);
 			
 			if (TO_DOUBLE_DATA_FILE) {
 				flag_group_file_create &= zfs_group_create_data2_file(zp, name, bregual, vsecp, vap, excl,
-					mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, NULL);
+					mode, flag, orig_spa, orig_os, &dzp->z_dirlowdata, &host_id, ptx);
+			}
+
+			if (NULL != ptx) {
+				txtype = zfs_log_create_txtype(Z_FILE, vsecp, vap);
+				if (flag & FIGNORECASE)
+					txtype |= TX_CI;
+				err_meta_tx = zfs_log_create(zilog, ptx, txtype, dzp, zp, name,
+					vsecp, acl_ids.z_fuidp, vap);
+				zfs_acl_ids_free(&acl_ids);
+
+				dmu_tx_commit(ptx);
+				if (wait_meta_tx && err_meta_tx != 0) {
+					txg_wait_synced(dmu_objset_pool(os), 0);
+				}
 			}
 
 			dmu_objset_name(zsb->z_os, os_name);
@@ -3024,11 +3070,11 @@ out:
 				*oblique_line = '_';
 			}
 			if(strcmp(name, os_name) != 0  && NULL == strstr(name, SMB_STREAM_PREFIX)
-				&& zsb->z_os->os_is_master&& ZFS_GROUP_DTL_ENABLE){
+				&& zsb->z_os->os_is_master && ZFS_GROUP_DTL_ENABLE) {
 				z_carrier = zfs_group_dtl_carry(NAME_CREATE, dzp, name, vap, excl,
-					mode, zp, cr, flag, NULL, vsecp);
+					mode, zp, cr, flag, vsecp);
 				if(z_carrier){
-					ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+					ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 					ss_data->obj = zp->z_id;
 					ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 					bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -3038,7 +3084,7 @@ out:
 					mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 					kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
 					kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
-					zfs_group_dtl_sync_tree2(zsb->z_os, NULL);
+					zfs_group_dtl_sync_tree2(zsb->z_os, NULL, 1);
 				}
 			}
 		}
@@ -3110,13 +3156,12 @@ zfs_remove(struct inode *dip, char *name, cred_t *cr, int flags)
 	char os_name[MAXNAMELEN];
 	char *oblique_line = NULL;
 	boolean_t	bUpdateMaster2 = B_FALSE;
-	boolean_t bover = B_FALSE;
 	int		err_meta_tx = 0;
 
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		err = zfs_client_remove(dip, name, cr, NULL, flags);
+		err = zfs_client_remove(dip, name, cr, flags);
 		ZFS_EXIT(zsb);
 		return (err);
 	}
@@ -3161,7 +3206,7 @@ top:
 
 	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master) {
 
-		err = zfs_remove_data_file(dip, zp, name, cr, NULL, flags);
+		err = zfs_remove_data_file(dip, zp, name, cr, flags);
 		if (err != 0) {
 			zfs_dirent_unlock(dl);
 			iput(ZTOI(zp));
@@ -3171,7 +3216,7 @@ top:
 
 		/* TODO: should we reset data1 info in the master file ? */
 		if (TO_DOUBLE_DATA_FILE) {
-			err = zfs_remove_data2_file(dip, zp, name, cr, NULL, flags);
+			err = zfs_remove_data2_file(dip, zp, name, cr, flags);
 			if (err != 0)
 			{
 				zfs_dirent_unlock(dl);
@@ -3199,6 +3244,10 @@ top:
 	if (S_ISDIR(ip->i_mode)) {
 		error = SET_ERROR(EPERM);
 		goto out;
+	}
+
+	if (S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode)) {
+		bUpdateMaster2 = B_TRUE;
 	}
 
 #ifdef HAVE_DNLC
@@ -3313,10 +3362,10 @@ top:
 		}
 		if(strcmp(name, os_name) != 0){
 			z_carrier = zfs_group_dtl_carry(NAME_REMOVE, dzp, name, NULL, 0,
-			    0, NULL, cr, flags, NULL, NULL);
+			    0, NULL, cr, flags, NULL);
 			if(z_carrier){
-				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-				ss_data->obj = dzp->z_id;
+				ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+				ss_data->obj = obj;
 				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
 				mutex_enter(&zsb->z_group_dtl_tree2_mutex);
@@ -3325,12 +3374,13 @@ top:
 				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
+				zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);	
 			}
 		}
 	}	
 	dmu_tx_commit(tx);
 
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 out:
@@ -3403,7 +3453,7 @@ zfs_mkdir(struct inode *dip, char *dirname, vattr_t *vap, struct inode **ipp,
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT && (flags & FBackupMaster) == 0){
 		ZFS_ENTER(zsb);
-		error = zfs_client_mkdir(dip, dirname, vap, ipp, cr, NULL, flags, vsecp);
+		error = zfs_client_mkdir(dip, dirname, vap, ipp, cr, flags, vsecp);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -3586,9 +3636,9 @@ top:
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && ZFS_GROUP_DTL_ENABLE){
 		/* Backup directory Master node. */
 		z_carrier = zfs_group_dtl_carry(NAME_MKDIR, dzp, dirname, vap, 0,
-			0, zp, cr, flags, NULL, vsecp);
+			0, zp, cr, flags, vsecp);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = zp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -3598,12 +3648,12 @@ top:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			zfs_group_dtl_sync_tree2(zsb->z_os, tx);
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 	}
 
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 	zfs_inode_update(dzp);
@@ -3663,7 +3713,7 @@ zfs_rmdir(struct inode *dip, char *name, struct inode *cwd, cred_t *cr,
 	optype = zfs_vn_dir_type(dzp, flags);
     if (optype == VN_OP_CLIENT){
         ZFS_ENTER(zsb);
-        error = zfs_client_rmdir(dip, name, cwd, cr, NULL, flags);
+        error = zfs_client_rmdir(dip, name, cwd, cr, flags);
         ZFS_EXIT(zsb);
         return (error);
     }
@@ -3763,10 +3813,10 @@ top:
 
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_RMDIR, dzp, name, NULL, 0,
-				0, cwd, cr, flags, NULL, NULL);
+				0, cwd, cr, flags, NULL);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-			ss_data->obj = dzp->z_id;
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data->obj = zp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
 			mutex_enter(&zsb->z_group_dtl_tree2_mutex);
@@ -3775,12 +3825,12 @@ top:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			zfs_group_dtl_sync_tree2(zsb->z_os, tx);	
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);	
 		}
 	}
 
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 
@@ -4347,13 +4397,11 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 	}	
 
 	if (zp->z_group_role != GROUP_VIRTUAL) {
-			ZFS_VERIFY_ZP(zp);
-			zfs_fuid_map_ids(zp, cr, &vap->va_uid, &vap->va_gid);
+		ZFS_VERIFY_ZP(zp);
+		zfs_fuid_map_ids(zp, cr, &vap->va_uid, &vap->va_gid);
 	} else {
-		if (zp->z_id != zsb->z_root) {
-			vap->va_uid = zp->z_uid;
-			vap->va_gid = zp->z_gid;
-		}
+		vap->va_uid = zp->z_uid;
+		vap->va_gid = zp->z_gid;
 	}
 
 	zfs_fuid_map_ids(zp, cr, &vap->va_uid, &vap->va_gid);
@@ -4507,10 +4555,6 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 		}
 	}
 
-//	ZFS_TIME_DECODE(&vap->va_atime, atime);
-//	ZFS_TIME_DECODE(&vap->va_mtime, mtime);
-//	ZFS_TIME_DECODE(&vap->va_ctime, ctime);
-
 	/*
 	 * For atime, mtime and ctime, return the cached value.
 	 */
@@ -4530,8 +4574,6 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 	ZFS_TIME_DECODE(&vap->va_ctime, zp->z_ctime);
 
 	mutex_exit(&zp->z_lock);
-
-//	sa_object_size(zp->z_sa_hdl, &vap->va_blksize, &vap->va_nblocks);
 
 	if (zsb->z_os->os_is_group) {
 		if (zp->z_group_role != GROUP_VIRTUAL) {
@@ -4779,7 +4821,7 @@ zfs_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 	optype = zfs_vn_op_type(zp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_setattr(ip, vap, flags, cr, NULL);
+		error = zfs_client_setattr(ip, vap, flags, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -4797,7 +4839,7 @@ zfs_setattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 		vattr_t vap_mode_only ;
 		vap_mode_only.va_mode = vap->va_mode ;
 		vap_mode_only.va_mask = ATTR_MODE ;
-		error = zfs_client_setattr(ip, &vap_mode_only, flags, cr, NULL);
+		error = zfs_client_setattr(ip, &vap_mode_only, flags, cr);
 		if( error ) {
 			ZFS_EXIT(zsb);
 			return error ;
@@ -5389,9 +5431,9 @@ top:
 		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
 			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
 			z_carrier = zfs_group_dtl_carry(NAME_ZNODE_SETATTR, zp, NULL, vap, 0,
-				0, NULL, cr, flags, NULL, NULL);
+				0, NULL, cr, flags, NULL);
 			if(z_carrier){
-				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+				ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 				ss_data->obj = zp->z_id;
 				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -5401,6 +5443,7 @@ top:
 				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
+				zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 			}
 		}
 	}
@@ -5429,7 +5472,7 @@ out:
 	} else {
 		err2 = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 		dmu_tx_commit(tx);
-		if ( err_meta_tx ){
+		if (wait_meta_tx && err_meta_tx != 0) {
 			txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 		}
 		zfs_inode_update(zp);
@@ -5589,7 +5632,7 @@ zfs_rename(struct inode *sdip, char *snm, struct inode *tdip, char *tnm,
 	optype = zfs_vn_dir_type(sdzp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_rename(sdip, snm, tdip, tnm, cr, NULL, flags);
+		error = zfs_client_rename(sdip, snm, tdip, tnm, cr, flags);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -5856,9 +5899,9 @@ top:
 	if (tzp){	/* Attempt to remove the existing target */
 		error = zfs_link_destroy(tdl, tzp, tx, zflg, NULL);
 		if (!error && zsb->z_os->os_is_group) {
-			error = zfs_remove_data_file(tdip, tzp, tnm, cr, NULL, flags);
+			error = zfs_remove_data_file(tdip, tzp, tnm, cr, flags);
 			if (TO_DOUBLE_DATA_FILE)
-				error = zfs_remove_data2_file(tdip, tzp, tnm, cr, NULL, flags);
+				error = zfs_remove_data2_file(tdip, tzp, tnm, cr, flags);
 		}
 	}
 
@@ -5919,9 +5962,9 @@ top:
 		&& (flags & FBackupMaster) == 0 && error == 0 && NULL == strstr(snm, SMB_STREAM_PREFIX)
 		&& NULL == strstr(tnm, SMB_STREAM_PREFIX) && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_RENAME, sdzp, snm, NULL, 0,
-				0, tdzp, cr, flags, NULL, tnm);
+				0, tdzp, cr, flags, tnm);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = szid;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -5931,12 +5974,12 @@ top:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			zfs_group_dtl_sync_tree2(zsb->z_os, tx);
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 	}
 
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0) {
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 out:
@@ -6162,9 +6205,9 @@ top:
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flags & FBackupMaster) == 0
 		&& error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_SYMLINK, dzp, name, vap, 0,
-				0, zp, cr, flags, NULL, link);
+				0, zp, cr, flags, link);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = 0;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -6174,12 +6217,12 @@ top:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			zfs_group_dtl_sync_tree2(zsb->z_os, tx);
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 	}
 
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0) {
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 
@@ -6221,7 +6264,7 @@ zfs_readlink(struct inode *ip, uio_t *uio, cred_t *cr, int flags)
 	optype = zfs_vn_op_type(zp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_readlink(ip, uio, cr, NULL);
+		error = zfs_client_readlink(ip, uio, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -6284,7 +6327,7 @@ zfs_link(struct inode *tdip, struct inode *sip, char *name, cred_t *cr, int flag
 	optype = zfs_vn_dir_type(dzp, flags);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_link(tdip, sip, name, cr, NULL, flags);
+		error = zfs_client_link(tdip, sip, name, cr, flags);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -6403,9 +6446,9 @@ top:
 	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && bUpdateMaster2
 		&& (flags & FBackupMaster) == 0 && error == 0 && ZFS_GROUP_DTL_ENABLE){
 		z_carrier = zfs_group_dtl_carry(NAME_LINK, dzp, name, NULL, 0,
-				0, szp, cr, flags, NULL, NULL);
+				0, szp, cr, flags, NULL);
 		if(z_carrier){
-			ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
+			ss_data = kmem_zalloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
 			ss_data->obj = szp->z_id;
 			ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
 			bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
@@ -6415,12 +6458,12 @@ top:
 			mutex_exit(&zsb->z_group_dtl_tree2_mutex);
 			kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
 			kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			zfs_group_dtl_sync_tree2(zsb->z_os, tx);
+			zfs_group_dtl_sync_tree2(zsb->z_os, tx, 1);
 		}
 	}
 	
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0) {
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 
@@ -7012,7 +7055,6 @@ EXPORT_SYMBOL(zfs_space);
 
 void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_tx_t *tx)
 {
-//	int i = 0;
 	int err = 0;
 	uint64_t map_obj = 0;
 	char buf[MAXNAMELEN];
@@ -7050,7 +7092,6 @@ void zfs_fid_remove_master_info(zfs_sb_t *zsb, uint64_t zid, uint64_t gen, dmu_t
 
 static int zfs_fid_set_master_info(zfs_sb_t *zsb, znode_t *zp)
 {
-//	int i = 0;
 	int err = 0;
 	uint64_t gen = 0;
 	uint64_t object = 0;
@@ -7237,7 +7278,7 @@ zfs_getsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 	optype = zfs_vn_op_type(zp, flag);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_getsecattr(ip, vsecp, flag, cr, NULL);
+		error = zfs_client_getsecattr(ip, vsecp, flag, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -7258,17 +7299,13 @@ zfs_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 	znode_t *zp = ITOZ(ip);
 	zfs_sb_t *zsb = ITOZSB(ip);
 	int error;
-	boolean_t skipaclchk = (flag & ATTR_NOACLCHECK) ? B_TRUE : B_FALSE;
 	zilog_t	*zilog = zsb->z_log;
-
 	vn_op_type_t optype;
-	zfs_group_dtl_carrier_t* z_carrier = NULL;
-	zfs_group_dtl_data_t*	ss_data = NULL;
 
 	optype = zfs_vn_op_type(zp, flag);
 	if (optype == VN_OP_CLIENT) {
 		ZFS_ENTER(zsb);
-		error = zfs_client_setsecattr(ip, vsecp, flag, cr, NULL);
+		error = zfs_client_setsecattr(ip, vsecp, flag, cr);
 		ZFS_EXIT(zsb);
 		return (error);
 	}
@@ -7276,31 +7313,10 @@ zfs_setsecattr(struct inode *ip, vsecattr_t *vsecp, int flag, cred_t *cr)
 	ZFS_ENTER(zsb);
 	ZFS_VERIFY_ZP(zp);
 
-	error = zfs_setacl(zp, vsecp, skipaclchk, cr);
+	error = zfs_setacl(zp, vsecp, flag, cr);
 
 	if (zsb->z_os->os_sync != ZFS_SYNC_STANDARD)
 		zil_commit(zilog, 0);
-
-	if(zsb->z_os->os_is_group && zsb->z_os->os_is_master && (flag & FBackupMaster) == 0
-		&& error == 0 && ZFS_GROUP_DTL_ENABLE){ 
-		if((S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode) || (S_ISDIR(ip->i_mode) && zp->z_id != zsb->z_root)) &&
-			NULL == strstr(zp->z_filename, SMB_STREAM_PREFIX)){
-	    	z_carrier = zfs_group_dtl_carry(NAME_ACL, zp, NULL, NULL, 0, 0,
-			    NULL, cr, flag, NULL, vsecp);
-			if(z_carrier){
-				ss_data = kmem_alloc(sizeof(zfs_group_dtl_data_t), KM_SLEEP);
-				ss_data->obj = zp->z_id;
-				ss_data->data_size = sizeof(zfs_group_dtl_carrier_t);
-				bcopy(z_carrier, ss_data->data, sizeof(zfs_group_dtl_carrier_t));
-				mutex_enter(&zsb->z_group_dtl_tree2_mutex);
-				gethrestime(&ss_data->gentime);
-				zfs_group_dtl_add(&zsb->z_group_dtl_tree2, ss_data, sizeof(zfs_group_dtl_data_t));
-				mutex_exit(&zsb->z_group_dtl_tree2_mutex);
-				kmem_free(ss_data, sizeof(zfs_group_dtl_data_t));
-				kmem_free(z_carrier, sizeof(zfs_group_dtl_carrier_t));
-			}
-		}
-	}
 
 	ZFS_EXIT(zsb);
 	return (error);
@@ -7462,40 +7478,6 @@ zfs_retzcbuf(struct inode *ip, xuio_t *xuio, cred_t *cr)
 	return (0);
 }
 #endif /* HAVE_UIO_ZEROCOPY */
-
-int zfs_print_znode_info(char *path)
-{
-	int error = 0;
-	struct file *filp = NULL;
-	struct inode *ip = NULL;
-	znode_t *zp;
-	if (path == NULL) {
-		return EINVAL;
-	}
-
-	filp = filp_open(path, O_DIRECTORY, 0);
-	if (IS_ERR(filp)){
-		filp = filp_open(path, O_RDONLY, 0444);
-		if (IS_ERR(filp)){
-			cmn_err(CE_WARN, "[%s %d], the path %s is error", __func__, __LINE__, path);
-			return (EINVAL);
-		}
-	}
-
-	ip = filp->f_path.dentry->d_inode;
-	zp = ITOZ(ip);
-	cmn_err(CE_WARN, "%s line(%d) znode(%s) id(%"PRIx64") gen(%"PRIu64") m_spa(%"PRIx64") m_objset(%"PRIx64") m_object(%"PRIx64") d1_spa(%"PRIx64") d1_objset(%"PRIx64") d1_object(%"PRIx64") d2_spa(%"PRIx64") d2_objset(%"PRIx64") d2_object(%"PRIx64")",
-		__func__, __LINE__, path, zp->z_id,  zp->z_gen, zp->z_group_id.master_spa, zp->z_group_id.master_objset, zp->z_group_id.master_object,
-		zp->z_group_id.data_spa, zp->z_group_id.data_objset, zp->z_group_id.data_object, zp->z_group_id.data2_spa, zp->z_group_id.data2_objset, zp->z_group_id.data2_object);
-	filp_close(filp, NULL);
-	return error;
-}
-
-int zfs_enable_disable_double_data(boolean_t double_data)
-{
-	TO_DOUBLE_DATA_FILE = double_data;
-	return TO_DOUBLE_DATA_FILE;
-}
 
 int zfs_set_double_data(char *double_data_mode)
 {

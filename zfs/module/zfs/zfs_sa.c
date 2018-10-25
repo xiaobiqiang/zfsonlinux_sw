@@ -465,7 +465,6 @@ void
 zfs_sa_set_dirquota(znode_t *zp, uint64_t quota, dmu_tx_t *tx)
 {
 	zfs_sb_t *zsb = ZTOZSB(zp);
-//	xoptattr_t *xoap;
 
 	ASSERT(MUTEX_HELD(&zp->z_lock));
 	zp->z_dirquota = quota;

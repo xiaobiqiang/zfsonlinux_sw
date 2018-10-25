@@ -229,6 +229,12 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static zprop_index_t dirquota_table[] = {
+		{ "off",	ZFS_DIRQUOTA_OFF},
+		{ "on",	ZFS_DIRQUOTA_ON },
+		{ NULL }
+	};
+
 	/* inherit index properties */
 	zprop_register_index(ZFS_PROP_REDUNDANT_METADATA, "redundant_metadata",
 	    ZFS_REDUNDANT_METADATA_ALL,
@@ -513,6 +519,9 @@ zfs_prop_init(void)
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "self_root");
 	zprop_register_number(ZFS_PROP_NODE_TYPE, "node_type", 0, PROP_ONETIME,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "node_type");
+	zprop_register_index(ZFS_PROP_DIRQUOTA, "dirquota", ZFS_DIRQUOTA_OFF,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "off | on", "DIRQUOTA", dirquota_table);
 }
 
 boolean_t
@@ -788,6 +797,7 @@ EXPORT_SYMBOL(zfs_prop_to_name);
 EXPORT_SYMBOL(zfs_name_to_prop);
 EXPORT_SYMBOL(zfs_prop_user);
 EXPORT_SYMBOL(zfs_prop_userquota);
+EXPORT_SYMBOL(zfs_prop_dirquota);
 EXPORT_SYMBOL(zfs_prop_index_to_string);
 EXPORT_SYMBOL(zfs_prop_string_to_index);
 EXPORT_SYMBOL(zfs_prop_valid_for_type);

@@ -281,8 +281,18 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 
 	lr = (lr_create_t *)&itx->itx_lr;
 	lr->lr_doid = dzp->z_id;
-	lr->lr_foid = zp->z_id;
+	lr->lr_foid = itx->itx_oid = zp->z_id;
 	lr->lr_mode = zp->z_mode;
+	lr->lr_dspa = zp->z_group_id.data_spa;
+	lr->lr_dos = zp->z_group_id.data_objset;
+	lr->lr_dobj = zp->z_group_id.data_object;
+	if (!strncmp(name, ZIL_LOG_DATA_FILE_NAME, strlen(ZIL_LOG_DATA_FILE_NAME))) {
+		lr->lr_mobj = zp->z_group_id.master_object;
+		lr->lr_mgen = zp->z_group_id.master_gen;
+		lr->lr_dirquota = zp->z_dirquota;
+	} else {
+		lr->lr_mgen = zp->z_gen;
+	}
 	if (!IS_EPHEMERAL(zp->z_uid)) {
 		lr->lr_uid = (uint64_t)zp->z_uid;
 	} else {
@@ -744,6 +754,54 @@ zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
         zil_itx_destroy(itx);
     }
     return err_meta_tx;
+}
+
+
+/*
+ * zfs_log_file_space_notify() handles TX_FILE_SPACE_NOTIFY transactions.
+ */
+int
+zfs_log_file_space_notify(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+	znode_t *zp, zfs_group_notify_file_space_t *file_notify)
+{
+	itx_t *itx;
+	lr_file_space_notify_t *lr;
+	int		err = 0;
+
+	if (zil_replaying(zilog, tx) || zp->z_unlinked || (!dmu_objset_sync_check(zp->z_zsb->z_os)) )
+		return 0;
+
+	itx = zil_itx_create(txtype, sizeof (*lr));
+	lr = (lr_file_space_notify_t *)&itx->itx_lr;
+	lr->file_updatesize = file_notify->file_updatesize;
+	lr->file_updateop = file_notify->file_updateop;
+	lr->file_size = file_notify->file_size;
+	lr->file_nblks = file_notify->file_nblks;
+	lr->file_blksz = file_notify->file_blksz;
+	lr->file_object = file_notify->file_object;
+	lr->file_low_flag = 0;
+	lr->update_quota = (uint64_t)file_notify->update_quota;
+	if (zp->z_group_id.data_spa == file_notify->group_id.data_spa &&
+		zp->z_group_id.data_objset == file_notify->group_id.data_objset &&
+		zp->z_group_id.data_object == file_notify->group_id.data_object &&
+		file_notify->file_low) {
+		lr->file_low_flag = ZFS_DATA1_MIGRATED;
+	} else if (zp->z_group_id.data2_spa == file_notify->group_id.data_spa &&
+		zp->z_group_id.data2_objset == file_notify->group_id.data_objset &&
+		zp->z_group_id.data2_object == file_notify->group_id.data_object &&
+		file_notify->file_low) {
+		lr->file_low_flag = ZFS_DATA2_MIGRATED;
+	}
+
+	itx->itx_sync = (zp->z_sync_cnt != 0);
+	
+	if ( zilog->zl_sync != ZFS_SYNC_MIRROR ){
+		zil_itx_assign(zilog, itx, tx);
+	} else {
+		err = zfs_mirror_meta(zp,itx,tx);
+		zil_itx_destroy(itx);
+	}
+	return err;
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)

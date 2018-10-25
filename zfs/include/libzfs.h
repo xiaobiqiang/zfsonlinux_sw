@@ -415,9 +415,9 @@ extern int zpool_vdev_clear(zpool_handle_t *, uint64_t);
 
 extern nvlist_t *zpool_get_nvroot(zpool_handle_t *zhp);
 extern nvlist_t *zpool_find_vdev(zpool_handle_t *, const char *, boolean_t *,
-    boolean_t *, boolean_t *, boolean_t *);
-extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
     boolean_t *, boolean_t *, boolean_t *, boolean_t *);
+extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
+    boolean_t *, boolean_t *, boolean_t *, boolean_t *, boolean_t *);
 extern int zpool_label_disk_wait(char *, int);
 extern int zpool_label_disk(libzfs_handle_t *, zpool_handle_t *, char *);
 
@@ -1049,6 +1049,7 @@ extern int zfs_prop_get_dirquota(zfs_handle_t *zhp, const char *propname,
     char *propbuf, int proplen);
 extern int zfs_group_userquota_send(int flags, zfs_msg_type_t settype, int argc, char **argv, void *data);
 extern uint_t num_metas(nvlist_t *nv);
+extern uint_t num_lows(nvlist_t *nv);
 extern void zpool_check_thin_luns(zfs_thinluns_t **statpp);
 extern void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp);
 

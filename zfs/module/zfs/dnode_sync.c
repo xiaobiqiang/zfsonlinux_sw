@@ -66,7 +66,7 @@ dnode_increase_indirection(dnode_t *dn, dmu_tx_t *tx)
 			break;
 	if (i != nblkptr) {
 		/* transfer dnode's block pointers to new indirect block */
-		(void) dbuf_read(db, NULL, DB_RF_MUST_SUCCEED|DB_RF_HAVESTRUCT);
+		(void) dbuf_read(db, NULL, DB_RF_MUST_SUCCEED|DB_RF_HAVESTRUCT, B_FALSE);
 		ASSERT(db->db.db_data);
 		ASSERT(arc_released(db->db_buf));
 		ASSERT3U(sizeof (blkptr_t) * nblkptr, <=, db->db.db_size);
@@ -256,7 +256,7 @@ free_children(dmu_buf_impl_t *db, uint64_t blkid, uint64_t nblks,
 	 *	 dmu_tx_hold_free().
 	 */
 	if (db->db_state != DB_CACHED)
-		(void) dbuf_read(db, NULL, DB_RF_MUST_SUCCEED);
+		(void) dbuf_read(db, NULL, DB_RF_MUST_SUCCEED, B_FALSE);
 
 	dbuf_release_bp(db);
 	bp = db->db.db_data;
