@@ -56,7 +56,7 @@
 #include <linux/raid_class.h>
 #include <asm/unaligned.h>
 
-#include "mpt3sas_base.h"
+#include "vmpt3sas_base.h"
 
 #define RAID_CHANNEL 1
 /* forward proto's */
@@ -149,8 +149,8 @@ MODULE_PARM_DESC(prot_mask, " host protection capabilities mask, def=7 ");
 
 
 /* raid transport support */
-struct raid_template *mpt3sas_raid_template;
-struct raid_template *mpt2sas_raid_template;
+struct raid_template *vmpt3sas_raid_template;
+struct raid_template *vmpt2sas_raid_template;
 
 
 /**
@@ -1198,8 +1198,12 @@ _scsih_scsi_lookup_find_by_lun(struct MPT3SAS_ADAPTER *ioc, int id,
  * Returns queue depth.
  */
 int
-scsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
+proxy_scsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
 {
+
+	/*send to remote*/
+
+#if 0
 	struct Scsi_Host *shost = sdev->host;
 	int max_depth;
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
@@ -1237,6 +1241,7 @@ scsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
 	if (qdepth > max_depth)
 		qdepth = max_depth;
 	return scsi_change_queue_depth(sdev, qdepth);
+#endif
 }
 
 /**
@@ -1247,8 +1252,12 @@ scsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
  * the device is ignored.
  */
 int
-scsih_target_alloc(struct scsi_target *starget)
+proxy_scsih_target_alloc(struct scsi_target *starget)
 {
+
+/*send to remote*/
+
+#if 0
 	struct Scsi_Host *shost = dev_to_shost(&starget->dev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct MPT3SAS_TARGET *sas_target_priv_data;
@@ -1305,6 +1314,7 @@ scsih_target_alloc(struct scsi_target *starget)
 	spin_unlock_irqrestore(&ioc->sas_device_lock, flags);
 
 	return 0;
+#endif
 }
 
 /**
@@ -1314,8 +1324,13 @@ scsih_target_alloc(struct scsi_target *starget)
  * Returns nothing.
  */
 void
-scsih_target_destroy(struct scsi_target *starget)
+proxy_scsih_target_destroy(struct scsi_target *starget)
 {
+
+
+	/*send to remote*/
+
+#if 0
 	struct Scsi_Host *shost = dev_to_shost(&starget->dev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct MPT3SAS_TARGET *sas_target_priv_data;
@@ -1362,6 +1377,7 @@ scsih_target_destroy(struct scsi_target *starget)
  out:
 	kfree(sas_target_priv_data);
 	starget->hostdata = NULL;
+#endif
 }
 
 /**
@@ -1372,8 +1388,12 @@ scsih_target_destroy(struct scsi_target *starget)
  * the device is ignored.
  */
 int
-scsih_slave_alloc(struct scsi_device *sdev)
+proxy_scsih_slave_alloc(struct scsi_device *sdev)
 {
+
+	/*send to remote*
+
+#if 0
 	struct Scsi_Host *shost;
 	struct MPT3SAS_ADAPTER *ioc;
 	struct MPT3SAS_TARGET *sas_target_priv_data;
@@ -1428,6 +1448,7 @@ scsih_slave_alloc(struct scsi_device *sdev)
 	}
 
 	return 0;
+#endif
 }
 
 /**
@@ -1437,8 +1458,13 @@ scsih_slave_alloc(struct scsi_device *sdev)
  * Returns nothing.
  */
 void
-scsih_slave_destroy(struct scsi_device *sdev)
+proxy_scsih_slave_destroy(struct scsi_device *sdev)
 {
+
+
+	/*send to remote*/
+
+#if 0
 	struct MPT3SAS_TARGET *sas_target_priv_data;
 	struct scsi_target *starget;
 	struct Scsi_Host *shost;
@@ -1470,6 +1496,7 @@ scsih_slave_destroy(struct scsi_device *sdev)
 
 	kfree(sdev->hostdata);
 	sdev->hostdata = NULL;
+#endif
 }
 
 /**
@@ -1792,8 +1819,11 @@ _scsih_enable_tlr(struct MPT3SAS_ADAPTER *ioc, struct scsi_device *sdev)
  * the device is ignored.
  */
 int
-scsih_slave_configure(struct scsi_device *sdev)
+proxy_scsih_slave_configure(struct scsi_device *sdev)
 {
+
+	/*send to remote*/
+#if 0
 	struct Scsi_Host *shost = sdev->host;
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct MPT3SAS_DEVICE *sas_device_priv_data;
@@ -1977,6 +2007,7 @@ scsih_slave_configure(struct scsi_device *sdev)
 	}
 
 	return 0;
+#endif
 }
 
 /**
@@ -1992,9 +2023,13 @@ scsih_slave_configure(struct scsi_device *sdev)
  * Return nothing.
  */
 int
-scsih_bios_param(struct scsi_device *sdev, struct block_device *bdev,
+proxy_scsih_bios_param(struct scsi_device *sdev, struct block_device *bdev,
 	sector_t capacity, int params[])
 {
+
+	/*send to remote*/
+
+#if 0
 	int		heads;
 	int		sectors;
 	sector_t	cylinders;
@@ -2025,6 +2060,7 @@ scsih_bios_param(struct scsi_device *sdev, struct block_device *bdev,
 	params[2] = cylinders;
 
 	return 0;
+#endif
 }
 
 /**
@@ -2402,8 +2438,11 @@ _scsih_tm_display_info(struct MPT3SAS_ADAPTER *ioc, struct scsi_cmnd *scmd)
  * Returns SUCCESS if command aborted else FAILED
  */
 int
-scsih_abort(struct scsi_cmnd *scmd)
+proxy_scsih_abort(struct scsi_cmnd *scmd)
 {
+
+	/*send to remote*/
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(scmd->device->host);
 	struct MPT3SAS_DEVICE *sas_device_priv_data;
 	u16 smid;
@@ -2452,6 +2491,7 @@ scsih_abort(struct scsi_cmnd *scmd)
 	sdev_printk(KERN_INFO, scmd->device, "task abort: %s scmd(%p)\n",
 	    ((r == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
 	return r;
+#endif
 }
 
 /**
@@ -2461,8 +2501,13 @@ scsih_abort(struct scsi_cmnd *scmd)
  * Returns SUCCESS if command aborted else FAILED
  */
 int
-scsih_dev_reset(struct scsi_cmnd *scmd)
+proxy_scsih_dev_reset(struct scsi_cmnd *scmd)
 {
+
+
+	/*send to remote*/
+
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(scmd->device->host);
 	struct MPT3SAS_DEVICE *sas_device_priv_data;
 	struct _sas_device *sas_device = NULL;
@@ -2515,6 +2560,7 @@ scsih_dev_reset(struct scsi_cmnd *scmd)
 		sas_device_put(sas_device);
 
 	return r;
+#endif
 }
 
 /**
@@ -2524,8 +2570,12 @@ scsih_dev_reset(struct scsi_cmnd *scmd)
  * Returns SUCCESS if command aborted else FAILED
  */
 int
-scsih_target_reset(struct scsi_cmnd *scmd)
+proxy_scsih_target_reset(struct scsi_cmnd *scmd)
 {
+
+	/*send to remote*/
+
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(scmd->device->host);
 	struct MPT3SAS_DEVICE *sas_device_priv_data;
 	struct _sas_device *sas_device = NULL;
@@ -2577,6 +2627,7 @@ scsih_target_reset(struct scsi_cmnd *scmd)
 		sas_device_put(sas_device);
 
 	return r;
+#endif
 }
 
 
@@ -2587,8 +2638,14 @@ scsih_target_reset(struct scsi_cmnd *scmd)
  * Returns SUCCESS if command aborted else FAILED
  */
 int
-scsih_host_reset(struct scsi_cmnd *scmd)
+proxy_scsih_host_reset(struct scsi_cmnd *scmd)
 {
+
+
+	/*send to remote*/
+
+#if 0
+
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(scmd->device->host);
 	int r, retval;
 
@@ -2611,6 +2668,8 @@ out:
 	    ioc->name, ((r == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
 
 	return r;
+
+#endif
 }
 
 /**
@@ -3839,8 +3898,12 @@ _scsih_eedp_error_handling(struct scsi_cmnd *scmd, u16 ioc_status)
  * SCSI_MLQUEUE_HOST_BUSY if the entire host queue is full
  */
 int
-scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
+proxy_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 {
+
+	/*send to remote*/
+
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct MPT3SAS_DEVICE *sas_device_priv_data;
 	struct MPT3SAS_TARGET *sas_target_priv_data;
@@ -3966,6 +4029,7 @@ scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 
  out:
 	return SCSI_MLQUEUE_HOST_BUSY;
+#endif
 }
 
 /**
@@ -8238,8 +8302,11 @@ _scsih_probe_devices(struct MPT3SAS_ADAPTER *ioc)
  * firmware discovery.
  */
 void
-scsih_scan_start(struct Scsi_Host *shost)
+proxy_scsih_scan_start(struct Scsi_Host *shost)
 {
+
+/*send to remote*/
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	int rc;
 	if (diag_buffer_enable != -1 && diag_buffer_enable != 0)
@@ -8253,6 +8320,7 @@ scsih_scan_start(struct Scsi_Host *shost)
 
 	if (rc != 0)
 		pr_info(MPT3SAS_FMT "port enable: FAILED\n", ioc->name);
+#endif
 }
 
 /**
@@ -8265,8 +8333,12 @@ scsih_scan_start(struct Scsi_Host *shost)
  * we wait for firmware discovery to complete, then return 1.
  */
 int
-scsih_scan_finished(struct Scsi_Host *shost, unsigned long time)
+proxy_scsih_scan_finished(struct Scsi_Host *shost, unsigned long time)
 {
+
+	/*send to remote*/
+
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 
 	if (disable_discovery > 0) {
@@ -8307,79 +8379,80 @@ scsih_scan_finished(struct Scsi_Host *shost, unsigned long time)
 	mpt3sas_base_start_watchdog(ioc);
 	ioc->is_driver_loading = 0;
 	return 1;
+#endif
 }
 
 /* shost template for SAS 2.0 HBA devices */
-static struct scsi_host_template mpt2sas_driver_template = {
+static struct scsi_host_template vmpt2sas_driver_template = {
 	.module				= THIS_MODULE,
 	.name				= "Fusion MPT SAS Host",
 	.proc_name			= MPT2SAS_DRIVER_NAME,
-	.queuecommand			= scsih_qcmd,
-	.target_alloc			= scsih_target_alloc,
-	.slave_alloc			= scsih_slave_alloc,
-	.slave_configure		= scsih_slave_configure,
-	.target_destroy			= scsih_target_destroy,
-	.slave_destroy			= scsih_slave_destroy,
-	.scan_finished			= scsih_scan_finished,
-	.scan_start			= scsih_scan_start,
-	.change_queue_depth		= scsih_change_queue_depth,
-	.eh_abort_handler		= scsih_abort,
-	.eh_device_reset_handler	= scsih_dev_reset,
-	.eh_target_reset_handler	= scsih_target_reset,
-	.eh_host_reset_handler		= scsih_host_reset,
-	.bios_param			= scsih_bios_param,
+	.queuecommand			= proxy_scsih_qcmd,
+	.target_alloc			= proxy_scsih_target_alloc,
+	.slave_alloc			= proxy_scsih_slave_alloc,
+	.slave_configure		= proxy_scsih_slave_configure,
+	.target_destroy			= proxy_scsih_target_destroy,
+	.slave_destroy			= proxy_scsih_slave_destroy,
+	.scan_finished			= proxy_scsih_scan_finished,
+	.scan_start			= proxy_scsih_scan_start,
+	.change_queue_depth		= proxy_scsih_change_queue_depth,
+	.eh_abort_handler		= proxy_scsih_abort,
+	.eh_device_reset_handler	= proxy_scsih_dev_reset,
+	.eh_target_reset_handler	= proxy_scsih_target_reset,
+	.eh_host_reset_handler		= proxy_scsih_host_reset,
+	.bios_param			= proxy_scsih_bios_param,
 	.can_queue			= 1,
 	.this_id			= -1,
 	.sg_tablesize			= MPT2SAS_SG_DEPTH,
 	.max_sectors			= 32767,
 	.cmd_per_lun			= 7,
 	.use_clustering			= ENABLE_CLUSTERING,
-	.shost_attrs			= mpt3sas_host_attrs,
-	.sdev_attrs			= mpt3sas_dev_attrs,
+	.shost_attrs			= vmpt3sas_host_attrs,
+	.sdev_attrs			= vmpt3sas_dev_attrs,
 	.track_queue_depth		= 1,
 };
 
 /* raid transport support for SAS 2.0 HBA devices */
-static struct raid_function_template mpt2sas_raid_functions = {
-	.cookie		= &mpt2sas_driver_template,
+static struct raid_function_template vmpt2sas_raid_functions = {
+	.cookie		= &vmpt2sas_driver_template,
 	.is_raid	= scsih_is_raid,
 	.get_resync	= scsih_get_resync,
 	.get_state	= scsih_get_state,
 };
 
 /* shost template for SAS 3.0 HBA devices */
-static struct scsi_host_template mpt3sas_driver_template = {
+static struct scsi_host_template vmpt3sas_driver_template = {
 	.module				= THIS_MODULE,
 	.name				= "Fusion MPT SAS Host",
 	.proc_name			= MPT3SAS_DRIVER_NAME,
-	.queuecommand			= scsih_qcmd,
-	.target_alloc			= scsih_target_alloc,
-	.slave_alloc			= scsih_slave_alloc,
-	.slave_configure		= scsih_slave_configure,
-	.target_destroy			= scsih_target_destroy,
-	.slave_destroy			= scsih_slave_destroy,
-	.scan_finished			= scsih_scan_finished,
-	.scan_start			= scsih_scan_start,
-	.change_queue_depth		= scsih_change_queue_depth,
-	.eh_abort_handler		= scsih_abort,
-	.eh_device_reset_handler	= scsih_dev_reset,
-	.eh_target_reset_handler	= scsih_target_reset,
-	.eh_host_reset_handler		= scsih_host_reset,
-	.bios_param			= scsih_bios_param,
+	.queuecommand			= proxy_scsih_qcmd,
+	.target_alloc			= proxy_scsih_target_alloc,
+	.slave_alloc			= proxy_scsih_slave_alloc,
+	.slave_configure		= proxy_scsih_slave_configure,
+	.target_destroy			= proxy_scsih_target_destroy,
+	.slave_destroy			= proxy_scsih_slave_destroy,
+	.scan_finished			= proxy_scsih_scan_finished,
+	.scan_start			= proxy_scsih_scan_start,
+	.change_queue_depth		= proxy_scsih_change_queue_depth,
+	.eh_abort_handler		= proxy_scsih_abort,
+	.eh_device_reset_handler	= proxy_scsih_dev_reset,
+	.eh_target_reset_handler	= proxy_scsih_target_reset,
+	.eh_host_reset_handler		= proxy_scsih_host_reset,
+	.bios_param			= proxy_scsih_bios_param,
 	.can_queue			= 1,
 	.this_id			= -1,
 	.sg_tablesize			= MPT3SAS_SG_DEPTH,
 	.max_sectors			= 32767,
 	.cmd_per_lun			= 7,
 	.use_clustering			= ENABLE_CLUSTERING,
-	.shost_attrs			= mpt3sas_host_attrs,
-	.sdev_attrs			= mpt3sas_dev_attrs,
+	.shost_attrs			= vmpt3sas_host_attrs,
+	.sdev_attrs			= vmpt3sas_dev_attrs,
 	.track_queue_depth		= 1,
 };
 
 /* raid transport support for SAS 3.0 HBA devices */
-static struct raid_function_template mpt3sas_raid_functions = {
-	.cookie		= &mpt3sas_driver_template,
+static struct raid_function_template vmpt3sas_raid_functions = {
+	.cookie		= &vmpt3sas_driver_template,
 	.is_raid	= scsih_is_raid,
 	.get_resync	= scsih_get_resync,
 	.get_state	= scsih_get_state,
@@ -8978,24 +9051,28 @@ scsih_exit(void)
 static int __init
 _mpt3sas_init(void)
 {
+	struct MPT3SAS_ADAPTER *ioc;
+	struct Scsi_Host *shost = NULL;
+	int rv;
+	u16 hba_mpi_version;
 	int error;
 
 	pr_info("%s version %s loaded\n", MPT3SAS_DRIVER_NAME,
 					MPT3SAS_DRIVER_VERSION);
 
-	mpt3sas_transport_template =
-	    sas_attach_transport(&mpt3sas_transport_functions);
-	if (!mpt3sas_transport_template)
+	vmpt3sas_transport_template =
+	    sas_attach_transport(&vmpt3sas_transport_functions);
+	if (!vmpt3sas_transport_template)
 		return -ENODEV;
 
 	/* No need attach mpt3sas raid functions template
 	 * if hbas_to_enumarate value is one.
 	 */
 	if (hbas_to_enumerate != 1) {
-		mpt3sas_raid_template =
-				raid_class_attach(&mpt3sas_raid_functions);
+		vmpt3sas_raid_template =
+				raid_class_attach(&vmpt3sas_raid_functions);
 		if (!mpt3sas_raid_template) {
-			sas_release_transport(mpt3sas_transport_template);
+			sas_release_transport(vmpt3sas_transport_template);
 			return -ENODEV;
 		}
 	}
@@ -9005,24 +9082,186 @@ _mpt3sas_init(void)
 	 */
 	if (hbas_to_enumerate != 2) {
 		mpt2sas_raid_template =
-				raid_class_attach(&mpt2sas_raid_functions);
+				raid_class_attach(&vmpt2sas_raid_functions);
 		if (!mpt2sas_raid_template) {
-			sas_release_transport(mpt3sas_transport_template);
+			sas_release_transport(vmpt3sas_transport_template);
 			return -ENODEV;
 		}
 	}
 
+#if 0
 	error = scsih_init();
 	if (error) {
 		scsih_exit();
 		return error;
 	}
+#endif
 
+#if 0
 	mpt3sas_ctl_init(hbas_to_enumerate);
 
 	error = pci_register_driver(&mpt3sas_driver);
 	if (error)
 		scsih_exit();
+#endif
+
+	/* Use mpt3sas driver host template for SAS 3.0 HBA's */
+	shost = scsi_host_alloc(&vmpt3sas_driver_template,
+	  sizeof(struct MPT3SAS_ADAPTER));
+	if (!shost)
+		return -ENODEV;
+	ioc = shost_priv(shost);
+	memset(ioc, 0, sizeof(struct MPT3SAS_ADAPTER));
+	#if 0
+	ioc->hba_mpi_version_belonged = hba_mpi_version;
+	ioc->id = mpt3_ids++;
+	#endif
+	sprintf(ioc->driver_name, "%s", VMPT3SAS_DRIVER_NAME);
+	#if 0
+	if (pdev->revision >= SAS3_PCI_DEVICE_C0_REVISION)
+		ioc->msix96_vector = 1;
+	#endif
+
+	
+	INIT_LIST_HEAD(&ioc->list);
+	spin_lock(&gioc_lock);
+	list_add_tail(&ioc->list, &mpt3sas_ioc_list);
+	spin_unlock(&gioc_lock);
+	ioc->shost = shost;
+	ioc->pdev = pdev;
+	ioc->scsi_io_cb_idx = scsi_io_cb_idx;
+	ioc->tm_cb_idx = tm_cb_idx;
+	ioc->ctl_cb_idx = ctl_cb_idx;
+	ioc->base_cb_idx = base_cb_idx;
+	ioc->port_enable_cb_idx = port_enable_cb_idx;
+	ioc->transport_cb_idx = transport_cb_idx;
+	ioc->scsih_cb_idx = scsih_cb_idx;
+	ioc->config_cb_idx = config_cb_idx;
+	ioc->tm_tr_cb_idx = tm_tr_cb_idx;
+	ioc->tm_tr_volume_cb_idx = tm_tr_volume_cb_idx;
+	ioc->tm_sas_control_cb_idx = tm_sas_control_cb_idx;
+	ioc->logging_level = logging_level;
+	ioc->schedule_dead_ioc_flush_running_cmds = &_scsih_flush_running_cmds;
+	/* misc semaphores and spin locks */
+	mutex_init(&ioc->reset_in_progress_mutex);
+	/* initializing pci_access_mutex lock */
+	mutex_init(&ioc->pci_access_mutex);
+	spin_lock_init(&ioc->ioc_reset_in_progress_lock);
+	spin_lock_init(&ioc->scsi_lookup_lock);
+	spin_lock_init(&ioc->sas_device_lock);
+	spin_lock_init(&ioc->sas_node_lock);
+	spin_lock_init(&ioc->fw_event_lock);
+	spin_lock_init(&ioc->raid_device_lock);
+	spin_lock_init(&ioc->diag_trigger_lock);
+
+	INIT_LIST_HEAD(&ioc->sas_device_list);
+	INIT_LIST_HEAD(&ioc->sas_device_init_list);
+	INIT_LIST_HEAD(&ioc->sas_expander_list);
+	INIT_LIST_HEAD(&ioc->fw_event_list);
+	INIT_LIST_HEAD(&ioc->raid_device_list);
+	INIT_LIST_HEAD(&ioc->sas_hba.sas_port_list);
+	INIT_LIST_HEAD(&ioc->delayed_tr_list);
+	INIT_LIST_HEAD(&ioc->delayed_tr_volume_list);
+	INIT_LIST_HEAD(&ioc->reply_queue_list);
+
+	sprintf(ioc->name, "%s_cm%d", ioc->driver_name, ioc->id);
+
+	/* init shost parameters */
+	shost->max_cmd_len = 32;
+	shost->max_lun = max_lun;
+	shost->transportt = vmpt3sas_transport_template;
+	shost->unique_id = ioc->id;
+
+	if (max_sectors != 0xFFFF) {
+		if (max_sectors < 64) {
+			shost->max_sectors = 64;
+			pr_warn(MPT3SAS_FMT "Invalid value %d passed " \
+			    "for max_sectors, range is 64 to 32767. Assigning "
+			    "value of 64.\n", ioc->name, max_sectors);
+		} else if (max_sectors > 32767) {
+			shost->max_sectors = 32767;
+			pr_warn(MPT3SAS_FMT "Invalid value %d passed " \
+			    "for max_sectors, range is 64 to 32767. Assigning "
+			    "default value of 32767.\n", ioc->name,
+			    max_sectors);
+		} else {
+			shost->max_sectors = max_sectors & 0xFFFE;
+			pr_info(MPT3SAS_FMT
+				"The max_sectors value is set to %d\n",
+				ioc->name, shost->max_sectors);
+		}
+	}
+
+	/* register EEDP capabilities with SCSI layer */
+	if (prot_mask > 0)
+		scsi_host_set_prot(shost, prot_mask);
+	else
+		scsi_host_set_prot(shost, SHOST_DIF_TYPE1_PROTECTION
+				   | SHOST_DIF_TYPE2_PROTECTION
+				   | SHOST_DIF_TYPE3_PROTECTION);
+
+	scsi_host_set_guard(shost, SHOST_DIX_GUARD_CRC);
+
+#if 0
+	/* event thread */
+	snprintf(ioc->firmware_event_name, sizeof(ioc->firmware_event_name),
+	    "fw_event_%s%d", ioc->driver_name, ioc->id);
+	ioc->firmware_event_thread = alloc_ordered_workqueue(
+	    ioc->firmware_event_name, WQ_MEM_RECLAIM);
+	if (!ioc->firmware_event_thread) {
+		pr_err(MPT3SAS_FMT "failure at %s:%d/%s()!\n",
+		    ioc->name, __FILE__, __LINE__, __func__);
+		rv = -ENODEV;
+		goto out_thread_fail;
+	}
+#endif
+
+	ioc->is_driver_loading = 1;
+
+#if 0
+	if ((mpt3sas_base_attach(ioc))) {
+		pr_err(MPT3SAS_FMT "failure at %s:%d/%s()!\n",
+		    ioc->name, __FILE__, __LINE__, __func__);
+		rv = -ENODEV;
+		goto out_attach_fail;
+	}
+
+
+	if (ioc->is_warpdrive) {
+		if (ioc->mfg_pg10_hide_flag ==  MFG_PAGE10_EXPOSE_ALL_DISKS)
+			ioc->hide_drives = 0;
+		else if (ioc->mfg_pg10_hide_flag ==  MFG_PAGE10_HIDE_ALL_DISKS)
+			ioc->hide_drives = 1;
+		else {
+			if (mpt3sas_get_num_volumes(ioc))
+				ioc->hide_drives = 1;
+			else
+				ioc->hide_drives = 0;
+		}
+	} else
+		ioc->hide_drives = 0;
+	#endif
+	ioc->hide_drives = 0;
+
+	rv = scsi_add_host(shost, NULL);
+	if (rv) {
+		pr_err(MPT3SAS_FMT "failure at %s:%d/%s()!\n",
+		    ioc->name, __FILE__, __LINE__, __func__);
+		goto out_add_shost_fail;
+	}
+
+	scsi_scan_host(shost);
+	return 0;
+out_add_shost_fail:
+	mpt3sas_base_detach(ioc);
+ out_attach_fail:
+	destroy_workqueue(ioc->firmware_event_thread);
+ out_thread_fail:
+	spin_lock(&gioc_lock);
+	list_del(&ioc->list);
+	spin_unlock(&gioc_lock);
+	scsi_host_put(shost);
+	return rv;
 
 	return error;
 }

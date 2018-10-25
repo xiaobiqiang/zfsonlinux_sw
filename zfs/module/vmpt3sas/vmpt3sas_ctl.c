@@ -3286,7 +3286,7 @@ static DEVICE_ATTR(diag_trigger_mpi, S_IRUGO | S_IWUSR,
 
 /*****************************************/
 
-struct device_attribute *mpt3sas_host_attrs[] = {
+struct device_attribute *vmpt3sas_host_attrs[] = {
 	&dev_attr_version_fw,
 	&dev_attr_version_bios,
 	&dev_attr_version_mpi,
@@ -3359,7 +3359,7 @@ _ctl_device_handle_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(sas_device_handle, S_IRUGO, _ctl_device_handle_show, NULL);
 
-struct device_attribute *mpt3sas_dev_attrs[] = {
+struct device_attribute *vmpt3sas_dev_attrs[] = {
 	&dev_attr_sas_address,
 	&dev_attr_sas_device_handle,
 	NULL,
