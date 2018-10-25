@@ -1267,8 +1267,11 @@ _transport_get_expander_phy_error_log(struct MPT3SAS_ADAPTER *ioc,
  *
  */
 static int
-_transport_get_linkerrors(struct sas_phy *phy)
+_proxy_transport_get_linkerrors(struct sas_phy *phy)
 {
+
+
+#if 0
 	struct MPT3SAS_ADAPTER *ioc = phy_to_ioc(phy);
 	unsigned long flags;
 	Mpi2ConfigReply_t mpi_reply;
@@ -1308,6 +1311,7 @@ _transport_get_linkerrors(struct sas_phy *phy)
 	phy->phy_reset_problem_count =
 	    le32_to_cpu(phy_pg1.PhyResetProblemCount);
 	return 0;
+#endif
 }
 
 /**
@@ -1318,7 +1322,7 @@ _transport_get_linkerrors(struct sas_phy *phy)
  * Returns 0 for success, non-zero for failure.
  */
 static int
-_transport_get_enclosure_identifier(struct sas_rphy *rphy, u64 *identifier)
+_proxy_transport_get_enclosure_identifier(struct sas_rphy *rphy, u64 *identifier)
 {
 	struct MPT3SAS_ADAPTER *ioc = rphy_to_ioc(rphy);
 	struct _sas_device *sas_device;
@@ -1348,7 +1352,7 @@ _transport_get_enclosure_identifier(struct sas_rphy *rphy, u64 *identifier)
  * Returns the slot id for a device that resides inside an enclosure.
  */
 static int
-_transport_get_bay_identifier(struct sas_rphy *rphy)
+_proxy_transport_get_bay_identifier(struct sas_rphy *rphy)
 {
 	struct MPT3SAS_ADAPTER *ioc = rphy_to_ioc(rphy);
 	struct _sas_device *sas_device;
@@ -1593,7 +1597,7 @@ _transport_expander_phy_control(struct MPT3SAS_ADAPTER *ioc,
  * Returns 0 for success, non-zero for failure.
  */
 static int
-_transport_phy_reset(struct sas_phy *phy, int hard_reset)
+_proxy_transport_phy_reset(struct sas_phy *phy, int hard_reset)
 {
 	struct MPT3SAS_ADAPTER *ioc = phy_to_ioc(phy);
 	Mpi2SasIoUnitControlReply_t mpi_reply;
@@ -1645,7 +1649,7 @@ _transport_phy_reset(struct sas_phy *phy, int hard_reset)
  * Returns 0 for success, non-zero for failure.
  */
 static int
-_transport_phy_enable(struct sas_phy *phy, int enable)
+_proxy_transport_phy_enable(struct sas_phy *phy, int enable)
 {
 	struct MPT3SAS_ADAPTER *ioc = phy_to_ioc(phy);
 	Mpi2SasIOUnitPage1_t *sas_iounit_pg1 = NULL;
@@ -1783,7 +1787,7 @@ _transport_phy_enable(struct sas_phy *phy, int enable)
  * Returns 0 for success, non-zero for failure.
  */
 static int
-_transport_phy_speed(struct sas_phy *phy, struct sas_phy_linkrates *rates)
+_proxy_transport_phy_speed(struct sas_phy *phy, struct sas_phy_linkrates *rates)
 {
 	struct MPT3SAS_ADAPTER *ioc = phy_to_ioc(phy);
 	Mpi2SasIOUnitPage1_t *sas_iounit_pg1 = NULL;
@@ -1900,7 +1904,7 @@ _transport_phy_speed(struct sas_phy *phy, struct sas_phy_linkrates *rates)
  *           smp_rep_general /sys/class/bsg/expander-5:0
  */
 static int
-_transport_smp_handler(struct Scsi_Host *shost, struct sas_rphy *rphy,
+_proxy_transport_smp_handler(struct Scsi_Host *shost, struct sas_rphy *rphy,
 	struct request *req)
 {
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
@@ -2151,4 +2155,4 @@ struct sas_function_template mpt3sas_transport_functions = {
 	.smp_handler		= _transport_smp_handler,
 };
 
-struct scsi_transport_template *mpt3sas_transport_template;
+struct scsi_transport_template *vmpt3sas_transport_template;

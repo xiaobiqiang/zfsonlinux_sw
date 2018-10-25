@@ -70,7 +70,7 @@
 #include "mpt3sas_trigger_diag.h"
 
 /* driver versioning info */
-#define MPT3SAS_DRIVER_NAME		"mpt3sas"
+#define VMPT3SAS_DRIVER_NAME		"vmpt3sas"
 #define MPT3SAS_AUTHOR "Avago Technologies <MPT-FusionLinux.pdl@avagotech.com>"
 #define MPT3SAS_DESCRIPTION	"LSI MPT Fusion SAS 3.0 Device Driver"
 #define MPT3SAS_DRIVER_VERSION		"09.102.00.00"
