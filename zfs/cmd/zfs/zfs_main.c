@@ -128,6 +128,7 @@ static int zfs_do_rmfileindir_file_type(int argc, char **argv);
 static int zfs_do_dirlowdata_list(int argc, char **argv);
 static int zfs_do_lun_migrate(int argc, char **argv);
 static int zfs_do_migrate(int argc, char **argv);
+static int zfs_do_dirquota_space(int argc, char **argv);
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
  */
@@ -181,7 +182,8 @@ typedef enum {
 	HELP_RMFILES,
 	HELP_LUN_MIGRATE,
 	HELP_MIGRATE,
-	HELP_DIRLOWDATALIST
+	HELP_DIRLOWDATALIST,
+	HELP_DIRSPACE
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -243,6 +245,7 @@ static zfs_command_t command_table[] = {
 	{ "lun_migrate", zfs_do_lun_migrate, HELP_LUN_MIGRATE},
 	{ "migrate", zfs_do_migrate, HELP_MIGRATE},
 	{ "dirlowdatalist", zfs_do_dirlowdata_list, HELP_DIRLOWDATALIST},
+	{ "dirspace", zfs_do_dirquota_space, HELP_DIRSPACE},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -3063,6 +3066,36 @@ zfs_do_userspace(int argc, char **argv)
 	uu_avl_pool_destroy(avl_pool);
 
 	return (ret);
+}
+
+static int dirquota_cb(const char *dirpath, 
+    uint64_t quota, uint64_t used)
+{
+	char quota_buf[MAXNAMELEN];
+    char used_buf[MAXNAMELEN];
+    
+    zfs_nicenum(quota, quota_buf, sizeof(quota_buf));
+    
+    zfs_nicenum(used, used_buf, sizeof(used_buf));
+
+	printf("%s    %s    %s\r\n", dirpath, quota_buf, used_buf);
+	return (0);
+}
+
+static int
+zfs_do_dirquota_space(int argc, char **argv)
+{
+	zfs_handle_t *zhp;
+	int error;
+
+	if ((zhp = zfs_open(g_zfs, argv[argc-1], ZFS_TYPE_FILESYSTEM)) == NULL)
+		return (1);
+
+    error = zfs_prop_get_dirquota_all(zhp, dirquota_cb);
+
+	zfs_close(zhp);
+
+    return (0);
 }
 
 static xmlNodePtr create_dir_node(const char *path, const char *lowdata,

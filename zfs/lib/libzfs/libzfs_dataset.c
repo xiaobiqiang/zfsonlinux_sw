@@ -931,7 +931,6 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 	elem = NULL;
 	while ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
 		const char *propname = nvpair_name(elem);
-
 		prop = zfs_name_to_prop(propname);
 		if (prop == ZPROP_INVAL && zfs_prop_user(propname)) {
 			/*
@@ -1089,7 +1088,7 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			if (path == NULL) {
 				printf("cann`t get path and object, the %s maybe not exist!\n", strchr(propname, '@') + 1);
 				goto error;
-			}
+			}			
 			if (get_new_propname(propname, path, newpropname, sizeof(newpropname))){
 				free(path);
 				goto error;
@@ -3064,6 +3063,45 @@ static char *zfs_prop_set_dir_quota(zfs_handle_t *zhp,
 	return (return_path);
 }
 
+int
+zfs_prop_get_dirquota_all(zfs_handle_t *zhp,  zfs_dirquota_cb_t func)
+{
+	zfs_cmd_t zc = { 0 };
+	int error;
+	uint64_t len;
+	zfs_dirquota_t *buf;
+
+	len = sizeof(zfs_dirquota_t) * MAX_QUOTA_ENTRIES;
+	buf = malloc(len);
+	(void) strncpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
+	zc.zc_nvlist_dst = (uintptr_t)buf;
+
+	/* CONSTCOND */
+	while (1) {
+		zfs_dirquota_t *dquota = buf;
+
+		zc.zc_nvlist_dst_size = len;
+		error = ioctl(zhp->zfs_hdl->libzfs_fd,
+		    ZFS_IOC_GET_ALL_DIRQUOTA, &zc);
+
+		if (error || zc.zc_nvlist_dst_size == 0)
+			break;
+
+		while (zc.zc_nvlist_dst_size > 0) {
+			error = func(dquota->zq_path, dquota->zq_value, dquota->zq_used);
+			if (error != 0)
+			{	
+				free(buf);
+				return (error);
+			}
+			dquota ++;
+			zc.zc_nvlist_dst_size -= sizeof (zfs_dirquota_t);
+		}
+	}
+
+	free(buf);
+	return (error);
+}
 
 int
 zfs_prop_get_dirquota(zfs_handle_t *zhp, const char *propname,

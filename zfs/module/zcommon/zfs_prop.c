@@ -334,6 +334,21 @@ zfs_prop_init(void)
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "atime | ctime", "LOWDATA_CRITERIA",
 	    lowdata_criteria_table);
+	/* low data migration properties */
+	zprop_register_index(ZFS_PROP_DIRLOWDATA, "dirlowdata", ZFS_LOWDATA_OFF,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "off | migrate | delete", "LOWDATA",
+	    lowdata_table);
+	/* low data period unit migration properties */
+	zprop_register_index(ZFS_PROP_DIRLOWDATA_PERIOD_UNIT, "dirlowdata_period_unit", ZFS_LOWDATA_PERIOD_DAY,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "second | minute | hour | day", "DIRLOWDATA_PERIOD_UNIT",
+	    lowdata_period_unit_table);
+	/* low data criteria migration properties */
+	zprop_register_index(ZFS_PROP_DIRLOWDATA_CRITERIA, "dirlowdata_criteria", ZFS_LOWDATA_CRITERIA_ATIME,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "atime | ctime", "DIRLOWDATA_CRITERIA",
+	    lowdata_criteria_table);
 
 
 	/* inherit index (boolean) properties */
@@ -514,6 +529,12 @@ zfs_prop_init(void)
 	zprop_register_number(ZFS_PROP_LOWDATA_DELETE_PERIOD, "lowdata_delete_period",
 	    0, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<days>", "LOWDATA_DELETE_PERIOD");
+	zprop_register_number(ZFS_PROP_DIRLOWDATA_PERIOD, "dirlowdata_period",
+	    7, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<days>", "DIRLOWDATA_PERIOD");
+	zprop_register_number(ZFS_PROP_DIRLOWDATA_DELETE_PERIOD, "dirlowdata_delete_period",
+	    0, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<days>", "DIRLOWDATA_DELETE_PERIOD");
 
 	/* hidden properties */
 	zprop_register_hidden(ZFS_PROP_CREATETXG, "createtxg", PROP_TYPE_NUMBER,
@@ -685,6 +706,30 @@ zfs_prop_dirlowdata(const char *name)
 
 	return (B_FALSE);
 }
+
+zfs_prop_t zfs_get_dirlow_prop_by_name(const char *name)
+{
+	if (strncmp(name, zfs_dirlowdata_prefixex,
+	    strlen(zfs_dirlowdata_prefixex)) == 0)
+	    return ZFS_PROP_DIRLOWDATA;
+
+	if (strncmp(name, zfs_dirlowdata_period_prefixex,
+	    strlen(zfs_dirlowdata_period_prefixex)) == 0)
+		return ZFS_PROP_DIRLOWDATA_PERIOD;
+	
+	if (strncmp(name, zfs_dirlowdata_delete_period_prefixex,
+	    strlen(zfs_dirlowdata_delete_period_prefixex)) == 0)
+		return ZFS_PROP_DIRLOWDATA_PERIOD_UNIT;
+
+	if (strncmp(name, zfs_dirlowdata_period_unit_prefixex,
+	    strlen(zfs_dirlowdata_period_unit_prefixex)) == 0)
+		return ZFS_PROP_DIRLOWDATA_DELETE_PERIOD;
+
+	if (strncmp(name, zfs_dirlowdata_criteria_prefixex,
+	    strlen(zfs_dirlowdata_criteria_prefixex)) == 0)
+		return ZFS_PROP_DIRLOWDATA_CRITERIA;
+}
+
 
 int check_strvalue(const char *strvalue)
 {
@@ -951,5 +996,6 @@ EXPORT_SYMBOL(zfs_prop_index_to_string);
 EXPORT_SYMBOL(zfs_prop_string_to_index);
 EXPORT_SYMBOL(zfs_prop_valid_for_type);
 EXPORT_SYMBOL(zfs_prop_dirlowdata);
+EXPORT_SYMBOL(zfs_get_dirlow_prop_by_name);
 
 #endif

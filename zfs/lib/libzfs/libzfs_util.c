@@ -3833,7 +3833,7 @@ void zfs_migrate(libzfs_handle_t *hdl, char *fs_name, uint64_t flags, uint64_t o
 	zc.zc_cookie = flags;
 	zc.zc_obj = obj;
 
-	err = ioctl(hdl->libzfs_fd, ZFS_IOC_MIGRATE, &zc);
+	err = ioctl(hdl->libzfs_fd, ZFS_IOC_DO_MIGRATE, &zc);
 	if (err) {
 		printf("zfs migrate failed!\n");
 	}

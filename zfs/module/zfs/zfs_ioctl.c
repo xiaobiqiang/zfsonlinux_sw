@@ -2430,7 +2430,7 @@ zfs_ioc_get_all_dirlowdata(zfs_cmd_t *zc)
 		return (error);
 	}
 
-	buf = kmem_zalloc(bufsize, KM_SLEEP);
+	buf = vmem_zalloc(bufsize, KM_SLEEP);
 	if(NULL == buf){
 		zfs_sb_rele(zsb, FTAG);
 		return (ENOMEM);
@@ -2453,7 +2453,7 @@ zfs_ioc_get_all_dirlowdata(zfs_cmd_t *zc)
 	}
 
 	if(NULL != buf){
-		kmem_free(buf, bufsize);
+		vmem_free(buf, bufsize);
 	}
 	
 	zfs_sb_rele(zsb, FTAG);
@@ -2838,7 +2838,19 @@ retry:
 	while ((pair = nvlist_next_nvpair(nvl, pair)) != NULL) {
 		const char *propname = nvpair_name(pair);
 		zfs_prop_t prop = zfs_name_to_prop(propname);
+
+		if (zfs_prop_dirquota(propname)) {
+			prop = ZFS_PROP_DIRQUOTA;
+		} else if (zfs_prop_dirlowdata(propname)) {
+			prop = zfs_get_dirlow_prop_by_name(propname);
+		}
+		
+		cmn_err(CE_WARN, "zfs_set_prop_nvlist: %s, %d\n", propname, prop);
 		int err = 0;
+
+		if (prop >= ZFS_PROP_DIRQUOTA && prop <= ZFS_PROP_DIRLOWDATA_CRITERIA) {
+			goto set_special;
+		}
 
 		/* decode the property value */
 		propval = pair;
@@ -2894,6 +2906,7 @@ retry:
 			}
 		}
 
+set_special:
 		/* Validate permissions */
 		if (err == 0)
 			err = zfs_check_settable(dsname, pair, CRED());
@@ -6256,6 +6269,54 @@ zfs_ioc_get_dirquota(zfs_cmd_t *zc)
 }
 
 static int
+zfs_ioc_get_all_dirquota(zfs_cmd_t *zc)
+{
+	zfs_sb_t *zsb;			
+	int error;
+	int bufsize = zc->zc_nvlist_dst_size;
+	void *buf;
+
+	if (bufsize <= 0)
+		return (ENOMEM);
+
+	error = zfs_sb_hold(zc->zc_name, FTAG, &zsb, B_FALSE);
+	if (error)
+		return (error);
+
+	buf = vmem_zalloc(bufsize, KM_SLEEP);
+	if(NULL == buf){
+		zfs_sb_rele(zsb, FTAG);
+		return (ENOMEM);
+	}
+	if (zsb->z_os->os_is_group && zsb->z_os->os_is_master == 0){
+		error = zfs_client_get_dirquotalist(zsb,  &zc->zc_cookie, 
+				buf, &zc->zc_nvlist_dst_size);
+	}else{
+		if (zsb->z_dirquota_obj== 0){
+			error = ENOENT;
+		}else{
+			error = zfs_get_dir_qutoa_many(zsb, &zc->zc_cookie,
+	   			buf, &zc->zc_nvlist_dst_size);
+		}
+	}
+
+	
+	if (error == 0) {
+		error = xcopyout(buf,
+		    (void *)(uintptr_t)zc->zc_nvlist_dst,
+		    zc->zc_nvlist_dst_size);
+	}
+
+	if(NULL != buf){
+		vmem_free(buf, bufsize);
+	}
+	
+	zfs_sb_rele(zsb, FTAG);
+
+	return (error);
+}
+
+static int
 zfs_ioc_set_dirquota(zfs_cmd_t *zc)
 {
 
@@ -6699,6 +6760,9 @@ zfs_ioctl_init(void)
 		zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 	zfs_ioctl_register_legacy(ZFS_IOC_GET_ALL_DIRLOWDATA, zfs_ioc_get_all_dirlowdata,
+		zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+
+	zfs_ioctl_register_legacy(ZFS_IOC_GET_ALL_DIRQUOTA, zfs_ioc_get_all_dirquota,
 		zfs_secpolicy_none, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 }
 

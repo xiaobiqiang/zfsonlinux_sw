@@ -1764,8 +1764,19 @@ static int zfs_group_process_name_backup_request(zfs_group_server_para_t *server
 		break;
 
 		case NAME_RMDIR: {
+			znode_t *zp;
+			zfs_dirlock_t *dl;
 			flags |= FCLUSTER;
 			flags |= FBackupMaster;
+
+			if (!zfs_dirent_lock(&dl, dzp, np->component, &zp, flags, NULL, NULL)) {
+				n2p->nrec.object_id = zp->z_group_id;
+				//zfs_group_znode_copy_phys(zp, &n2p->nrec.object_phy, B_TRUE);
+				d_prune_aliases(ZTOI(zp));
+				zfs_dirent_unlock(dl);
+				iput(ZTOI(zp));
+			}
+			
 			error = zfs_rmdir(ZTOI(dzp), np->component, NULL, cred, flags);
 		}
 		break;

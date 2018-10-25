@@ -179,6 +179,11 @@ typedef enum {
 	ZFS_PROP_LOWDATA_PERIOD_UNIT,
 	ZFS_PROP_LOWDATA_DELETE_PERIOD,
 	ZFS_PROP_LOWDATA_CRITERIA,
+	ZFS_PROP_DIRLOWDATA,
+	ZFS_PROP_DIRLOWDATA_PERIOD,
+	ZFS_PROP_DIRLOWDATA_PERIOD_UNIT,
+	ZFS_PROP_DIRLOWDATA_DELETE_PERIOD,
+	ZFS_PROP_DIRLOWDATA_CRITERIA,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -322,6 +327,7 @@ boolean_t zfs_prop_user(const char *);
 boolean_t zfs_prop_userquota(const char *);
 boolean_t zfs_prop_dirquota(const char *name);
 boolean_t zfs_prop_dirlowdata(const char *name);
+zfs_prop_t zfs_get_dirlow_prop_by_name(const char *name);
 boolean_t zfs_prop_written(const char *);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
@@ -1068,6 +1074,7 @@ typedef enum zfs_ioc {
 	ZFS_IOC_DO_MIGRATE,
 	ZFS_IOC_GET_DIRLOWDATA,
 	ZFS_IOC_GET_ALL_DIRLOWDATA,
+	ZFS_IOC_GET_ALL_DIRQUOTA,
 	
 	/*
 	 * Linux - 3/64 numbers reserved.
@@ -1081,7 +1088,6 @@ typedef enum zfs_ioc {
 	 * FreeBSD - 1/64 numbers reserved.
 	 */
 	ZFS_IOC_FREEBSD = ('Z' << 8) + 0xC0,
-	ZFS_IOC_MIGRATE,
 
 	ZFS_IOC_LAST
 } zfs_ioc_t;
