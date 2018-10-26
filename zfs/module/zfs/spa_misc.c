@@ -2162,6 +2162,8 @@ spa_scan_get_stats(spa_t *spa, pool_scan_stat_t *ps)
 	ps->pss_processed = scn->scn_phys.scn_processed;
 	ps->pss_errors = scn->scn_phys.scn_errors;
 	ps->pss_state = scn->scn_phys.scn_state;
+	ps->pss_wrc_total_to_migrate = 0;//spa->spa_wrc_status.spa_total_to_migrate;
+	ps->pss_wrc_total_migrated = 0;//spa->spa_wrc_status.spa_total_migrated;
 
 	/* data not stored on disk */
 	ps->pss_pass_start = spa->spa_scan_pass_start;

@@ -68,7 +68,8 @@
 #include <aclutils.h>
 #include <directory.h>
 #endif /* HAVE_IDMAP */
-
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 #include "zfs_iter.h"
 #include "zfs_util.h"
 #include "zfs_comutil.h"
@@ -82,6 +83,16 @@ static char history_str[HIS_MAX_RECORD_LEN];
 static boolean_t log_history = B_TRUE;
 
 static uint_t clumgt_flag = B_FALSE;
+
+const char *pypath = "/usr/lib/zfs/pyzfs.py";
+#define	DIRLD_XML_PATH "/tmp/dirlowdata.xml"
+#define	LOWDATA_XML_PATH "/tmp/lowdata.xml"
+
+xmlDocPtr	dirld_doc;
+xmlNodePtr	dirld_root_node;
+
+xmlDocPtr	lowdata_doc;
+xmlNodePtr	lowdata_root_node;
 
 static int zfs_do_clone(int argc, char **argv);
 static int zfs_do_create(int argc, char **argv);
@@ -114,8 +125,10 @@ static int zfs_do_clustersan(int argc, char **argv);
 static int zfs_do_speed_test(int arc, char **argv);
 static int zfs_do_multiclus(int argc, char **argv);
 static int zfs_do_rmfileindir_file_type(int argc, char **argv);
-
+static int zfs_do_dirlowdata_list(int argc, char **argv);
 static int zfs_do_lun_migrate(int argc, char **argv);
+static int zfs_do_migrate(int argc, char **argv);
+static int zfs_do_dirquota_space(int argc, char **argv);
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
  */
@@ -167,7 +180,10 @@ typedef enum {
 	HELP_SPEEDTEST,
 	HELP_MULTICLUS,
 	HELP_RMFILES,
-	HELP_LUN_MIGRATE
+	HELP_LUN_MIGRATE,
+	HELP_MIGRATE,
+	HELP_DIRLOWDATALIST,
+	HELP_DIRSPACE
 } zfs_help_t;
 
 typedef struct zfs_command {
@@ -227,6 +243,9 @@ static zfs_command_t command_table[] = {
 	{ "multiclus",	zfs_do_multiclus,	HELP_MULTICLUS		},
 	{ "rmfiles",  zfs_do_rmfileindir_file_type, HELP_RMFILES},
 	{ "lun_migrate", zfs_do_lun_migrate, HELP_LUN_MIGRATE},
+	{ "migrate", zfs_do_migrate, HELP_MIGRATE},
+	{ "dirlowdatalist", zfs_do_dirlowdata_list, HELP_DIRLOWDATALIST},
+	{ "dirspace", zfs_do_dirquota_space, HELP_DIRSPACE},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -393,6 +412,9 @@ get_usage(zfs_help_t idx)
 	case HELP_RMFILES:
 		return (gettext("\n"
 			"\trmfiles dir_fullpath\n"));
+	case HELP_MIGRATE:
+		return (gettext("\tstart/stop <filesystem>\n"));
+		
 	}
 
 	abort();
@@ -1616,6 +1638,17 @@ get_callback(zfs_handle_t *zhp, void *data)
 				(void) strlcpy(buf, "-", sizeof (buf));
 			}
 
+			zprop_print_one_property(zfs_get_name(zhp), cbp,
+			    pl->pl_user_prop, buf, sourcetype, source, NULL);
+		} else if (zfs_prop_dirlowdata(pl->pl_user_prop)) {
+			sourcetype = ZPROP_SRC_LOCAL;
+
+			if (zfs_prop_get_dirlowdata(zhp, pl->pl_user_prop,
+			    buf, sizeof (buf)) != 0) {
+				sourcetype = ZPROP_SRC_NONE;
+				(void) strlcpy(buf, "-", sizeof (buf));
+			}
+		
 			zprop_print_one_property(zfs_get_name(zhp), cbp,
 			    pl->pl_user_prop, buf, sourcetype, source, NULL);
 		} else {
@@ -3035,6 +3068,172 @@ zfs_do_userspace(int argc, char **argv)
 	return (ret);
 }
 
+static int dirquota_cb(const char *dirpath, 
+    uint64_t quota, uint64_t used)
+{
+	char quota_buf[MAXNAMELEN];
+    char used_buf[MAXNAMELEN];
+    
+    zfs_nicenum(quota, quota_buf, sizeof(quota_buf));
+    
+    zfs_nicenum(used, used_buf, sizeof(used_buf));
+
+	printf("%s    %s    %s\r\n", dirpath, quota_buf, used_buf);
+	return (0);
+}
+
+static int
+zfs_do_dirquota_space(int argc, char **argv)
+{
+	zfs_handle_t *zhp;
+	int error;
+
+	if ((zhp = zfs_open(g_zfs, argv[argc-1], ZFS_TYPE_FILESYSTEM)) == NULL)
+		return (1);
+
+    error = zfs_prop_get_dirquota_all(zhp, dirquota_cb);
+
+	zfs_close(zhp);
+
+    return (0);
+}
+
+static xmlNodePtr create_dir_node(const char *path, const char *lowdata,
+    const char *low_period, const char *low_peri_unit, const char *low_del_peri,
+    const char *low_criteria)
+{
+	xmlNodePtr list_node, low_node, period_node, unit_node, del_node, 
+		criteria_node, dir_node;	
+	list_node = xmlNewChild(dirld_root_node, NULL, (xmlChar *)"list", NULL);
+
+	low_node = xmlNewChild(list_node, NULL, (xmlChar *)"lowdata", NULL);
+	xmlNodeSetContent(low_node, (xmlChar *)lowdata);
+	period_node = xmlNewChild(list_node, NULL, (xmlChar *)"period", NULL);
+	xmlNodeSetContent(period_node, (xmlChar *)low_period);
+	unit_node = xmlNewChild(list_node, NULL, (xmlChar *)"unit", NULL);
+	xmlNodeSetContent(unit_node, (xmlChar *)low_peri_unit);
+	del_node = xmlNewChild(list_node, NULL, (xmlChar *)"delperiod", NULL);
+	xmlNodeSetContent(del_node, (xmlChar *)low_del_peri);
+	criteria_node = xmlNewChild(list_node, NULL, (xmlChar *)"criteria", NULL);
+	xmlNodeSetContent(criteria_node, (xmlChar *)low_criteria);
+	dir_node = xmlNewChild(list_node, NULL, (xmlChar *)"path", NULL);
+	xmlNodeSetContent(dir_node, (xmlChar *)path);
+	
+	return (list_node);
+}
+
+static xmlNodePtr create_xml_file()
+{
+	xmlDocPtr doc = xmlNewDoc((xmlChar *)"1.0");
+	xmlNodePtr root_node = xmlNewNode(NULL, (xmlChar *)"dirlowdata");
+	xmlDocSetRootElement(doc, root_node);
+	dirld_doc = doc;
+	dirld_root_node = root_node;
+	return (root_node);
+
+}
+
+
+static void close_xml_file()
+{
+	   xmlChar *xmlbuff;
+	  int buffersize;
+	  xmlDocDumpFormatMemory(dirld_doc, &xmlbuff, &buffersize, 1);
+
+	  xmlSaveFormatFileEnc(DIRLD_XML_PATH, dirld_doc, "UTF-8", 1);
+	  xmlFreeDoc(dirld_doc);
+}
+
+static int dirlowdata_cb(const char *path, uint64_t lowdata,
+    uint64_t low_period, uint64_t low_peri_unit, uint64_t low_del_peri,
+    uint64_t low_criteria)
+{
+	char lowdata_buf[10], low_period_buf[10], low_peri_unit_buf[10];
+	char low_del_peri_buf[10], low_criteria_buf[10];
+
+	sprintf(low_period_buf, "%llu", low_period);
+	sprintf(low_del_peri_buf, "%llu", low_del_peri);
+
+	switch (lowdata) {
+		case 0:
+			sprintf(lowdata_buf, "off");
+			break;
+		case 1:
+			sprintf(lowdata_buf, "migrate");
+			break;
+		case 2:
+			sprintf(lowdata_buf, "delete");
+			break;
+		default:
+			sprintf(lowdata_buf, "error");
+			break;
+	}
+
+	switch (low_peri_unit) {
+		case 0:
+			sprintf(low_peri_unit_buf, "second");
+			break;
+		case 1:
+			sprintf(low_peri_unit_buf, "minute");
+			break;
+		case 2:
+			sprintf(low_peri_unit_buf, "hour");
+			break;
+		case 3:
+			sprintf(low_peri_unit_buf, "day");
+			break;
+		default:
+			sprintf(low_peri_unit_buf, "error");
+			break;
+	}
+
+	switch (low_criteria) {
+		case 0:
+			sprintf(low_criteria_buf, "atime");
+			break;
+		case 1:
+			sprintf(low_criteria_buf, "ctime");
+			break;
+		default:
+			sprintf(low_criteria_buf, "error");
+			break;
+	}
+
+	create_dir_node(path, lowdata_buf, low_period_buf,
+		low_peri_unit_buf, low_del_peri_buf, low_criteria_buf);
+	printf("%-8s %-8s %-8s %-8s %-8s %-s\n", 
+	    lowdata_buf,
+	    low_period_buf,
+	    low_peri_unit_buf,
+	    low_del_peri_buf,
+	    low_criteria_buf,
+	    path);
+	return (0);
+}
+
+static int
+zfs_do_dirlowdata_list(int argc, char **argv)
+{
+	zfs_handle_t *zhp;
+	int err;
+
+	if ((zhp = zfs_open(g_zfs, argv[argc-1], ZFS_TYPE_FILESYSTEM)) == NULL) {
+		return (1);
+	}
+
+	create_xml_file();
+	printf("%-8s %-8s %-8s %-8s %-8s %-s\n", 
+		    "LOW", "PERIOD", "UNIT", "DEL-PERI", "CRITERIA", "DIR");
+	err = zfs_prop_get_dirlowdata_all(zhp, dirlowdata_cb);
+	if (err != 0) {
+		printf("%-8s %-8s %-8s %-8s %-8s %-s\n", "--", "--", "--", "--", "--", "--");
+	}
+	close_xml_file();
+
+	return err;
+}
+
+
 /*
  * list [-Hp][-r|-d max] [-o property[,...]] [-s property] ... [-S property]
  *      [-t type[,...]] [filesystem|volume|snapshot] ...
@@ -4434,7 +4633,7 @@ zfs_do_receive(int argc, char **argv)
 #define	ZFS_DELEG_PERM_RELEASE		"release"
 #define	ZFS_DELEG_PERM_DIFF		"diff"
 #define	ZFS_DELEG_PERM_BOOKMARK		"bookmark"
-
+#define ZFS_DELEG_PERM_DIRLOWDATA	"dirlowdata"
 #define	ZFS_NUM_DELEG_NOTES ZFS_DELEG_NOTE_NONE
 
 static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
@@ -4466,7 +4665,7 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_USEROBJUSED, ZFS_DELEG_NOTE_USEROBJUSED },
 
 	{ZFS_DELEG_PERM_DIRQUOTA, ZFS_DELEG_NOTE_DIRQUOTA},
-	
+	{ZFS_DELEG_PERM_DIRLOWDATA, ZFS_DELEG_NOTE_DIRLOWDATA},
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
 
@@ -8469,6 +8668,90 @@ zfs_do_lun_migrate(int argc, char **argv)
 		(void) fprintf(stderr, gettext("Invalid arguments\n"));
 	}
 
+	return (0);
+}
+
+static int zfs_get_obj(char *fs_name, char* dir_name, uint64_t *obj)
+{
+	int err = 0;
+	char *tmp_path = NULL;
+	struct stat64 statb;
+
+
+	tmp_path = malloc(MAXPATHLEN);
+	bzero(tmp_path, MAXPATHLEN);
+
+	if (dir_name) {
+		sprintf(tmp_path, "/%s/%s", fs_name, dir_name);
+	} else {
+		sprintf(tmp_path, "/%s", fs_name);
+	}
+
+	err = stat64(tmp_path, &statb);
+	if (err == 0) {
+		*obj = statb.st_ino;
+	}
+
+	free(tmp_path);
+	return err;
+}
+
+static int
+zfs_do_migrate(int argc, char **argv)
+{
+	int err = 0;
+	uint64_t flags = 0;
+	char *fs_name = NULL;
+	uint64_t obj = 0;
+	zfs_handle_t *zhl = NULL;
+	argc -= optind;
+	argv += optind;
+	if(1 == argc) {
+		(void) fprintf(stderr, 
+			gettext("argc:%d argv0: %s, must provide at least "
+			"filesystem name\n"), argc, argv[0]);
+		usage(B_FALSE);
+		return (-1);
+	} else if (2 <= argc) {		
+		fs_name = argv[1];
+		zhl = zfs_open(g_zfs, fs_name, ZFS_TYPE_FILESYSTEM);
+		if (zhl == NULL) {
+			return (-1);
+		} else {
+			zfs_close(zhl);
+		}
+		if(!strcmp(argv[0], "start")) {
+			flags = START_MIGRATE;
+			if (argc == 3) {
+				if (!strcmp(argv[2], "-all")) {
+					flags |= START_ALL;
+				} else {
+					err = zfs_get_obj(argv[1], argv[2], &obj);
+					if (err) {
+						(void) fprintf(stderr, gettext("Failed to get dir %s stat in fs %s!\n"), argv[2], argv[1]);
+						return (-1);
+					}
+					flags |= START_DIR;
+				}
+			} else {
+				flags |= START_OS;
+			}
+		} else if (!strcmp(argv[0], "stop")) {
+			flags = STOP_MIGRATE;
+		} else if (!strcmp(argv[0], "status")) {
+			flags = STATUS_MIGRATE;
+		} else {
+			(void) fprintf(stderr, gettext("argv0: %s is not support \n"), argv[0]);
+			usage(B_FALSE);
+			return (-1);
+		}
+		zfs_migrate(g_zfs, fs_name, flags, obj);
+	} else {
+		(void) fprintf(stderr, 
+			gettext("argc:%d argv0: %s, too many of args!\n"), argc, argv[0]);
+		usage(B_FALSE);
+		return (-1);
+	}
 	return (0);
 }
 

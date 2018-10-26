@@ -5617,47 +5617,45 @@ zfs_proc_dir_low(objset_t *os, ushort_t op, share_flag_t wait_flag,
 }
 
  	
-// int zfs_client_get_dirlowdatalist(zfs_sb_t *zsb, 
-// 	uint64_t  *cookiep, void * buf, uint64_t *bufsize)
-// {
-// 	zfs_multiclus_stat_arg_t stat_arg;
-// 	dir_lowdata_carrier_t *dirld_carrier = kmem_zalloc(sizeof(dir_lowdata_carrier_t), KM_SLEEP);
+ int zfs_client_get_dirlowdatalist(zfs_sb_t *zsb, 
+ 	uint64_t  *cookiep, void * buf, uint64_t *bufsize)
+ {
+ 	zfs_multiclus_stat_arg_t stat_arg;
+ 	dir_lowdata_carrier_t *dirld_carrier = vmem_zalloc(sizeof(dir_lowdata_carrier_t), KM_SLEEP);
 
-// 	if(NULL == dirld_carrier){
-// 		return (ENOMEM);
-// 	}
+ 	if(NULL == dirld_carrier){
+ 		return (ENOMEM);
+ 	}
 
-// 	dirld_carrier->cookie = *cookiep;
-// 	dirld_carrier->bufsize = *bufsize;
-// 	stat_arg.arg_ptr = (uintptr_t)(dirld_carrier);
-// 	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
-// 	stat_arg.return_ptr = (uintptr_t)(dirld_carrier);
-// 	stat_arg.return_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
+ 	dirld_carrier->cookie = *cookiep;
+ 	dirld_carrier->bufsize = *bufsize;
+ 	stat_arg.arg_ptr = (uintptr_t)(dirld_carrier);
+ 	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
+ 	stat_arg.return_ptr = (uintptr_t)(dirld_carrier);
+ 	stat_arg.return_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
 	
-// //	int err = zfs_proc_dir_low(zfsvfs->z_os, SC_FS_DIRLOWDATALIST, SHARE_WAIT, &stat_arg,
-// //		    zfsvfs->z_os->os_master_spa,zfsvfs->z_os->os_master_os,APP_USER);
-// 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIRLOWDATALIST, SHARE_WAIT, &stat_arg,
-// 		    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
+ 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIRLOWDATALIST, SHARE_WAIT, &stat_arg,
+ 		    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
 	
-// 	if (err == 0) {
-// 		if(dirld_carrier->dir_lowdata.ret != 0){
-// 			err = dirld_carrier->dir_lowdata.ret;
-// 			cmn_err(CE_WARN, "ret=%d: get dirlowdatalist from master FAIL!!!",err);
-// 		}else{
-// 			*bufsize = dirld_carrier->bufsize;
-// 			*cookiep = dirld_carrier->cookie;
-// 			bcopy(dirld_carrier->buf.dbuf, buf, dirld_carrier->bufsize);
-// 		}
-// 	}else{
-// 		cmn_err(CE_WARN, "ret=%d: get dirlowdatalist from master FAIL!!",err);
-// 	}
+ 	if (err == 0) {
+ 		if(dirld_carrier->dir_lowdata.ret != 0){
+ 			err = dirld_carrier->dir_lowdata.ret;
+ 			cmn_err(CE_WARN, "ret=%d: get dirlowdatalist from master FAIL!!!",err);
+ 		}else{
+ 			*bufsize = dirld_carrier->bufsize;
+ 			*cookiep = dirld_carrier->cookie;
+ 			bcopy(dirld_carrier->buf.dbuf, buf, dirld_carrier->bufsize);
+ 		}
+ 	}else{
+ 		cmn_err(CE_WARN, "ret=%d: get dirlowdatalist from master FAIL!!",err);
+ 	}
 
-// 	if(NULL != dirld_carrier){
-// 		kmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
-// 	}
+ 	if(NULL != dirld_carrier){
+ 		vmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
+ 	}
 	
-// 	return (err);
-// }
+ 	return (err);
+ }
 
 int zfs_client_get_dirquota(zfs_sb_t *zsb,
  	uint64_t dir_obj, zfs_dirquota_t *dirquota)
@@ -5691,48 +5689,134 @@ int zfs_client_get_dirquota(zfs_sb_t *zsb,
 }
 
   
-// int zfs_client_get_dirquotalist(zfs_sb_t * zsb,  	
-// 	uint64_t  *cookiep, void * buf, uint64_t *bufsize)
-// {
-// 	zfs_multiclus_stat_arg_t stat_arg;
-// 	dir_lowdata_carrier_t *dirld_carrier = kmem_zalloc(sizeof(dir_lowdata_carrier_t), KM_SLEEP);
+ int zfs_client_get_dirquotalist(zfs_sb_t * zsb,  	
+ 	uint64_t  *cookiep, void * buf, uint64_t *bufsize)
+ {
+ 	zfs_multiclus_stat_arg_t stat_arg;
+ 	dir_lowdata_carrier_t *dirld_carrier = vmem_zalloc(sizeof(dir_lowdata_carrier_t), KM_SLEEP);
 
-// 	if(NULL == dirld_carrier){
-// 		return (ENOMEM);
-// 	}
+ 	if(NULL == dirld_carrier){
+ 		return (ENOMEM);
+ 	}
 		
-// 	dirld_carrier->cookie = *cookiep;
-// 	dirld_carrier->bufsize = *bufsize;
-// 	stat_arg.arg_ptr = (uintptr_t)(dirld_carrier);
-// 	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
-// 	stat_arg.return_ptr = (uintptr_t)(dirld_carrier);
-// 	stat_arg.return_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
+ 	dirld_carrier->cookie = *cookiep;
+ 	dirld_carrier->bufsize = *bufsize;
+ 	stat_arg.arg_ptr = (uintptr_t)(dirld_carrier);
+ 	stat_arg.arg_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
+ 	stat_arg.return_ptr = (uintptr_t)(dirld_carrier);
+ 	stat_arg.return_size = (uintptr_t)sizeof(dir_lowdata_carrier_t);
 	
-// //	int err = zfs_proc_dir_low(zfsvfs->z_os, SC_FS_DIRQUOTALIST, SHARE_WAIT, &stat_arg,
-// //		    zfsvfs->z_os->os_master_spa,zfsvfs->z_os->os_master_os,APP_USER);
-// 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIRQUOTALIST, SHARE_WAIT, &stat_arg,
-//     	    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
+ 	int err = zfs_proc_dir_low(zsb->z_os, SC_FS_DIRQUOTALIST, SHARE_WAIT, &stat_arg,
+     	    zsb->z_os->os_master_spa,zsb->z_os->os_master_os,APP_USER);
 	
-// 	if (err == 0) {
-// 		if(dirld_carrier->dir_lowdata.ret != 0){
-// 			err= dirld_carrier->dir_lowdata.ret;
-// 			cmn_err(CE_WARN, "ret=%d: get dirquotalist from master FAIL!!!",err);
-// 		}else{
-// 			*bufsize = dirld_carrier->bufsize;
-// 			*cookiep = dirld_carrier->cookie;
-// 			bcopy(dirld_carrier->buf.qbuf, buf, dirld_carrier->bufsize);
-// 		}
-// 	}else{
-// 		cmn_err(CE_WARN, "ret=%d: get dirquotalist from master FAIL!!",err);
-// 	}
+ 	if (err == 0) {
+ 		if(dirld_carrier->dir_lowdata.ret != 0){
+ 			err= dirld_carrier->dir_lowdata.ret;
+ 			cmn_err(CE_WARN, "ret=%d: get dirquotalist from master FAIL!!!",err);
+ 		}else{
+ 			*bufsize = dirld_carrier->bufsize;
+ 			*cookiep = dirld_carrier->cookie;
+ 			bcopy(dirld_carrier->buf.qbuf, buf, dirld_carrier->bufsize);
+ 		}
+ 	}else{
+ 		cmn_err(CE_WARN, "ret=%d: get dirquotalist from master FAIL!!",err);
+ 	}
 	
-// 	if(NULL != dirld_carrier){
-// 		kmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
-// 	}
+ 	if(NULL != dirld_carrier){
+ 		vmem_free(dirld_carrier, sizeof(dir_lowdata_carrier_t));
+ 	}
 	
-// 	return (err);
-// }
+ 	return (err);
+ }
 
+
+int zfs_client_migrate_cmd(objset_t *os, zfs_migrate_type migrate_type, uint64_t flags, uint64_t start_obj)
+{
+	int i = 0;
+	int err = 0;
+	int remote_err = 0;
+	uint64_t local_spa_id = 0;
+	uint64_t local_os_id = 0;
+	zfs_multiclus_group_t *group = NULL;
+	zfs_sb_t *zsb = NULL;	
+	zfs_migrate_cmd_t *migrate_cmd = NULL;
+
+
+	local_os_id = dmu_objset_id(os);
+	local_spa_id = spa_guid(dmu_objset_spa(os));
+
+	zsb = zfs_sb_group_hold(local_spa_id, local_os_id, FTAG, B_FALSE);
+	if (zsb == NULL) {
+		cmn_err(CE_WARN, "%s, %d, Hold zfsvfs failed!", __func__, __LINE__);
+		return EGHOLD;
+	}
+	migrate_cmd = kmem_zalloc(sizeof(zfs_migrate_cmd_t), KM_SLEEP);
+	group = zfs_multiclus_get_current_group(local_spa_id);
+	if (group == NULL) {
+		cmn_err(CE_WARN, "%s, %d, get group failed for %s", __func__, __LINE__, os->os_group_name);
+		kmem_free(migrate_cmd, sizeof(zfs_migrate_cmd_t));
+		zfs_sb_group_rele(zsb, FTAG);
+		return EGHOLD;
+	}
+	for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
+		zfs_group_cmd_arg_t cmd_arg = {0};
+		if (!group->multiclus_group[i].used ||
+		    (group->multiclus_group[i].os_id == local_os_id
+		    && group->multiclus_group[i].spa_id == local_spa_id)){
+			continue;
+		}
+		migrate_cmd->cmd_type = migrate_type;
+		bcopy(group->multiclus_group[i].fsname, migrate_cmd->fsname, strlen((char*)group->multiclus_group[i].fsname));
+		migrate_cmd->fsname[strlen((char*)group->multiclus_group[i].fsname)] = '\0';
+		migrate_cmd->data_os = start_obj;
+		migrate_cmd->obj_count = flags;
+		cmd_arg.arg_ptr = (uintptr_t)migrate_cmd;
+		cmd_arg.arg_size = sizeof(zfs_migrate_cmd_t);
+		cmd_arg.return_ptr = (uintptr_t)&remote_err;
+		cmd_arg.return_size = sizeof(int);
+		err = zfs_proc_cmd(zsb, SC_ZFS_MIGRATE, SHARE_WAIT, &cmd_arg, 
+			group->multiclus_group[i].spa_id, 
+			group->multiclus_group[i].os_id, 
+			group->multiclus_group[i].root, APP_GROUP);
+		if (err != 0) {
+			cmn_err(CE_WARN, "%s, %d, Send %s cmd to fs %s failed!", __func__, __LINE__, 
+				migrate_type == ZFS_MIGRATE_START ? "migrate start" : "migrate stop", 
+				group->multiclus_group[i].fsname);
+		}
+		bzero(migrate_cmd, sizeof(zfs_migrate_cmd_t));
+	}
+	kmem_free(migrate_cmd, sizeof(zfs_migrate_cmd_t));
+	zfs_sb_group_rele(zsb, FTAG);
+
+	return (err);
+}
+
+int zfs_client_migrate_insert_block(objset_t *os, zfs_migrate_cmd_t *migrate_insert_cmd)
+{
+	int err = 0;
+	int remote_err = 0;
+	zfs_sb_t *zsb = NULL;
+	zfs_group_cmd_arg_t cmd_arg = {0};
+	zfs_multiclus_group_record_t *record = NULL;
+
+	cmd_arg.arg_ptr = (uintptr_t)migrate_insert_cmd;
+	cmd_arg.arg_size = sizeof(zfs_migrate_cmd_t);
+	cmd_arg.return_ptr = (uintptr_t)&remote_err;
+	cmd_arg.return_size = sizeof(int);
+	zsb = zfs_sb_group_hold(spa_guid(dmu_objset_spa(os)), dmu_objset_id(os), FTAG, B_FALSE);
+	if (zsb != NULL) {
+		err = zfs_proc_cmd(zsb, SC_ZFS_MIGRATE, SHARE_WAIT, &cmd_arg,
+			migrate_insert_cmd->data_spa, migrate_insert_cmd->data_os, migrate_insert_cmd->mobj->object, APP_GROUP);
+		if (err != 0) {
+			cmn_err(CE_WARN, "%s, %d, Send ZFS_MIGRATE_INSERT cmd to fs %s failed!", __func__, __LINE__, record->fsname);
+		}
+		zfs_sb_group_rele(zsb, FTAG);
+	} else {
+		cmn_err(CE_WARN, "%s, %d, Hold local zfsvfs failed!", __func__, __LINE__);
+	}
+
+	return err;
+}
 
 // int zfs_set_group_scrub(char *poolname, uint64_t cookie)
 // {
@@ -5815,40 +5899,100 @@ int zfs_client_get_dirquota(zfs_sb_t *zsb,
 // 	return (err);
 // }
 
-
-// int zfs_client_set_dir_low(zfs_sb_t *zsb, const char *dsname, nvpairvalue_t *pairvalue)
-// {	
-// 	int i;
-// 	int err=0;
-// 	int remote_err=0;
-// 	zfs_multiclus_stat_arg_t stat_arg={0};
-// 	dir_lowdata_t dl_info={0};
+ int zfs_set_group_dir_low(const char *dsname, nvpairvalue_t *pairvalue)
+ {	 
+	 int i;
+	 int err,ret=0;
+	 objset_t *os = NULL;
+	 dir_lowdata_t dl_info={0};
+	 uint64_t spa_id = 0;
+	 uint64_t os_id = 0;
+	 zfs_multiclus_group_record_t *group_record=NULL;
+	 zfs_multiclus_group_t *group = NULL;
+	 
+	 if (zfs_multiclus_enable() == B_FALSE)
+		 return (-1);									
+	 if (err = dmu_objset_hold(dsname, FTAG, &os)){
+		 cmn_err(CE_WARN, "%s: dmu_objset_hold FAIL !!!", __func__);
+		 return (err);
+	 }
+ 
+	 spa_id = spa_guid(dmu_objset_spa(os));
+	 os_id = dmu_objset_id(os);
+ 
+	 group = zfs_multiclus_get_current_group(spa_id );
+	 if(NULL == group ){
+		 cmn_err(CE_WARN, "%s: FAIL to find the Group!!!", __func__);
+		 dmu_objset_rele(os, FTAG);
+		 return (-1);
+	 }
+ 
+	 for (i = 0; i < ZFS_MULTICLUS_GROUP_NODE_NUM; i++) {
+		 zfs_multiclus_stat_arg_t stat_arg;
+		 group_record = &group->multiclus_group[i];
+		 if (!group_record->used || (group_record->spa_id == spa_id && group_record->os_id == os_id) 
+			 || group_record->node_type != ZFS_MULTICLUS_MASTER){
+			 continue;
+		 }
+		 bzero(&stat_arg, sizeof(zfs_multiclus_stat_arg_t));
+		 bzero(&dl_info, sizeof(dir_lowdata_t));
+		 bcopy(dsname, dl_info.dsname, MAX_FSNAME_LEN);
+		 bcopy(pairvalue, &dl_info.pairvalue, sizeof(nvpairvalue_t));
+		 
+		 stat_arg.arg_ptr = (uintptr_t)(&dl_info);
+		 stat_arg.arg_size = sizeof(dir_lowdata_t);
+		 stat_arg.return_ptr= (uintptr_t)(&ret);
+		 stat_arg.return_size= sizeof(ret);
+		 err = zfs_proc_dir_low(os, SC_DIR_LOW, SHARE_WAIT, &stat_arg,
+		 group_record->spa_id, group_record->os_id, APP_GROUP);
+		 if (err == 0) {
+			 cmn_err(CE_WARN, "%s: Send set_dir_lowdata message to master Success!!!", __func__);
+			 if(ret != 0){
+				 cmn_err(CE_WARN, "ret=%d: master set dirlowdata FAIL!!!",ret);
+			 }
+		 }else {
+			 break;
+		 }
+	 }
+	 
+	 dmu_objset_rele(os, FTAG);
+ 
+	 return (err);
+ 
+	 
+	 
+ }
+ int zfs_client_set_dir_low(zfs_sb_t *zsb, const char *dsname, nvpairvalue_t *pairvalue)
+ {	
+ 	int i;
+ 	int err=0;
+ 	int remote_err=0;
+ 	zfs_multiclus_stat_arg_t stat_arg={0};
+ 	dir_lowdata_t dl_info={0};
 	
-// 	if (zfs_multiclus_enable() == B_FALSE)
-// 		return (-1);		                           
+ 	if (zfs_multiclus_enable() == B_FALSE)
+ 		return (-1);		                           
 
-// 	bcopy(pairvalue, &dl_info.pairvalue, sizeof(nvpairvalue_t));
+ 	bcopy(pairvalue, &dl_info.pairvalue, sizeof(nvpairvalue_t));
 	
-// 	stat_arg.arg_ptr = (uintptr_t)(&dl_info);
-// 	stat_arg.arg_size = sizeof(dir_lowdata_t);
-// 	stat_arg.return_ptr= (uintptr_t)(&remote_err);
-// 	stat_arg.return_size= sizeof(remote_err);
-// //	err = zfs_proc_dir_low(zfsvfs->z_os, SC_DIR_LOW, SHARE_WAIT, &stat_arg,
-// //		zfsvfs->z_os->os_master_spa, zfsvfs->z_os->os_master_os, APP_GROUP);
-// 	err = zfs_proc_dir_low(zsb->z_os, SC_DIR_LOW, SHARE_WAIT, &stat_arg,
-// 		zsb->z_os->os_master_spa, zsb->z_os->os_master_os, APP_GROUP);	
-// 	if (err == 0) {
-// 		cmn_err(CE_WARN, "%s: Send set_dir_lowdata message to master Success!!!", 
-// 			__func__);
-// 		if(remote_err != 0){
-// 			err = remote_err;
-// 			cmn_err(CE_WARN, "remote_err=%d: master set dirlowdata FAIL!!!",
-// 				remote_err);
-// 		}
-// 	}
+ 	stat_arg.arg_ptr = (uintptr_t)(&dl_info);
+ 	stat_arg.arg_size = sizeof(dir_lowdata_t);
+ 	stat_arg.return_ptr= (uintptr_t)(&remote_err);
+ 	stat_arg.return_size= sizeof(remote_err);
+ 	err = zfs_proc_dir_low(zsb->z_os, SC_DIR_LOW, SHARE_WAIT, &stat_arg,
+ 		zsb->z_os->os_master_spa, zsb->z_os->os_master_os, APP_GROUP);	
+ 	if (err == 0) {
+ 		cmn_err(CE_WARN, "%s: Send set_dir_lowdata message to master Success!!!", 
+ 			__func__);
+ 		if(remote_err != 0){
+ 			err = remote_err;
+ 			cmn_err(CE_WARN, "remote_err=%d: master set dirlowdata FAIL!!!",
+ 				remote_err);
+ 		}
+ 	}
 
-// 	return (err);
-// }
+ 	return (err);
+ }
 
 
 int zfs_client_set_dirlow_backup(znode_t *zp, 

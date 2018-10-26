@@ -27,7 +27,7 @@
 #include <sys/sa.h>
 #include <sys/arc.h>
 #include <sys/zfs_multiclus.h>
-#include <sys/zfs_group.h>
+//#include <sys/zfs_group.h>
 #include <sys/dsl_dataset.h>
 #include <sys/spa.h>
 #include <sys/zfs_group_dtl.h>
@@ -924,6 +924,26 @@ zfs_multiclus_hash_tmchk_thr_start(int hash_location)
 	rw_exit(&zfs_multiclus_rx_hash[hash_location].zfs_multiclus_timeout_lock);
 
 	return (ret);
+}
+
+int
+zfs_multiclus_get_group_record_num(char *group_name, uint64_t group_name_len)
+{
+	int i = 0;
+	int j = 0;
+	int num = 0;
+
+	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
+		if (zfs_multiclus_table[i].used && strncmp((char *)(zfs_multiclus_table[i].group_name),
+		    group_name, group_name_len) == 0){
+		    for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++) {
+				if (zfs_multiclus_table[i].multiclus_group[j].used)
+				num++;
+			}
+			return (num);
+		}
+	}
+	return (-1);
 }
 
 int zfs_multiclus_get_group(char *group_name, zfs_multiclus_group_t **group)
@@ -1970,6 +1990,36 @@ uint64_t zfs_multiclus_get_all_record(zfs_group_info_t *gs, char **gname,
 		}
 	}
 	mutex_exit(&multiclus_mtx);
+	return (gnum);
+}
+
+
+int zfs_multiclus_get_info_from_group(zfs_migrate_cmd_t *zmc, char *gname, int num_zmc)
+{
+	int i = 0;
+	int j = 0;
+	int gnum = 0;
+	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
+		if(zfs_multiclus_table[i].used && !strncmp(gname, zfs_multiclus_table[i].group_name, strlen(gname)))	{
+			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
+			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
+				if (zfs_multiclus_table[i].multiclus_group[j].used && !zfs_multiclus_table[i].multiclus_group[j].node_type == ZFS_MULTICLUS_MASTER)
+				{
+					zmc[gnum].data_spa = zfs_multiclus_table[i].multiclus_group[j].spa_id;
+					zmc[gnum].data_os = zfs_multiclus_table[i].multiclus_group[j].os_id;
+					zmc[gnum].cmd_type = ZFS_MIGRATE_INSERT;
+					//strncpy((char*)zmc[gnum].fsname, (char*)zfs_multiclus_table[i].multiclus_group[j].fsname, strlen(zfs_multiclus_table[i].multiclus_group[j].fsname));
+					bcopy((char*)zfs_multiclus_table[i].multiclus_group[j].fsname, (char*)zmc[gnum].fsname, MAX_FSNAME_LEN);
+					gnum++;
+					if (gnum >= num_zmc)
+						break;
+				}
+			}
+			mutex_exit(&zfs_multiclus_table[i].multiclus_group_mutex);
+			break;
+		}
+	}
+	
 	return (gnum);
 }
 

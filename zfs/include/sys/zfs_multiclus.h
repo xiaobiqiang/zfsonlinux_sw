@@ -249,6 +249,29 @@ typedef struct zfs_multiclus_hash{
 	char	*datap;
 }zfs_multiclus_hash_t;
 
+typedef enum zfs_migrate_type {
+	ZFS_MIGRATE_START,
+	ZFS_MIGRATE_STOP,
+	ZFS_MIGRATE_INSERT,
+	ZFS_MIGRATE_TRAVESE_FINISHED,
+	ZFS_MIGRATE_MIXED
+} zfs_migrate_type;
+
+typedef struct migrate_obj {
+	uint64_t object;
+	uint64_t file_length;
+	uint64_t block_size;
+} migrate_obj_t;
+
+typedef struct zfs_migrate_cmd {
+	uint8_t fsname[MAX_FSNAME_LEN];
+	zfs_migrate_type cmd_type;
+	uint64_t data_spa;
+	uint64_t data_os;
+	uint64_t obj_count;
+	migrate_obj_t mobj[50];
+} zfs_migrate_cmd_t;
+
 #define	ZFS_MULTICLUS_WORKER_TERMINATE	0x01
 #define	ZFS_MULTICLUS_WORKER_STARTED	0x02
 #define	ZFS_MULTICLUS_WORKER_ACTIVE	0x04
@@ -283,7 +306,8 @@ zfs_multiclus_group_record_t * zfs_multiclus_get_record(uint64_t spa_id, uint64_
 void zfs_multiclus_destroy_reg_record(char *group_name, uint64_t spa_id, uint64_t os_id);
 zfs_multiclus_group_record_t *zfs_multiclus_get_group_master(char *group_name, zfs_multiclus_node_type_t type);
 zfs_multiclus_node_type_t zmc_get_node_type(objset_t* os);
-
+int zfs_multiclus_get_group_record_num(char *group_name, uint64_t group_name_len);
+int zfs_multiclus_get_info_from_group(zfs_migrate_cmd_t *zmc, char *gname, int num_zmc);
 #endif
 #ifdef	__cplusplus
 }

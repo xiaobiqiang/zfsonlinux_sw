@@ -1498,6 +1498,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 		zp = nzp;
 		ip = ZTOI(zp);
 		zp->z_dirquota = old_zp->z_dirquota;
+		zp->z_low = old_zp->z_low;
 		if (zp->z_overquota == B_FALSE) {
 			zp->z_overquota = old_zp->z_overquota;
 		}
@@ -1717,6 +1718,9 @@ tx_again:
 		tx = dmu_tx_create(zsb->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 		dmu_tx_hold_write(tx, zp->z_id, woff, MIN(n, max_blksz));
+		if (zp->z_low) {
+			dmu_tx_hold_low(tx, B_TRUE);
+		}
 		zfs_sa_upgrade_txholds(tx, zp);
 		error = dmu_tx_assign(tx, TXG_WAIT);
 		if (error) {
@@ -4677,8 +4681,16 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 		sp->ino = ZTOI(zp)->i_ino;
 		sp->mode = (umode_t)zp->z_mode;
 		sp->nlink = (unsigned int)zp->z_links;
-		bcopy(&(ZTOI(zp)->i_atime), &(sp->atime), sizeof(struct timespec));
-		bcopy(&(ZTOI(zp)->i_mtime), &(sp->mtime), sizeof(struct timespec));
+		if (zp->z_low & ZFS_DATA1_MIGRATED) {
+			bzero(&(sp->atime), sizeof(struct timespec));
+		} else {
+			bcopy(&(ZTOI(zp)->i_atime), &(sp->atime), sizeof(struct timespec));
+		}
+		if (zp->z_low & ZFS_DATA2_MIGRATED) {
+			bzero(&(sp->mtime), sizeof(struct timespec));
+		} else {
+			bcopy(&(ZTOI(zp)->i_mtime), &(sp->mtime), sizeof(struct timespec));
+		}
 		bcopy(&(ZTOI(zp)->i_ctime), &(sp->ctime), sizeof(struct timespec));
 	}
 	sp->size = (loff_t)zp->z_size;

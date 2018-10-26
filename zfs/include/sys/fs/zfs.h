@@ -174,6 +174,16 @@ typedef enum {
 	ZFS_PROP_LUN_GUID,
 	ZFS_PROP_LUN_THIN_THRESHOLD,
 	ZFS_PROP_DIRQUOTA,
+	ZFS_PROP_LOWDATA,
+	ZFS_PROP_LOWDATA_PERIOD,
+	ZFS_PROP_LOWDATA_PERIOD_UNIT,
+	ZFS_PROP_LOWDATA_DELETE_PERIOD,
+	ZFS_PROP_LOWDATA_CRITERIA,
+	ZFS_PROP_DIRLOWDATA,
+	ZFS_PROP_DIRLOWDATA_PERIOD,
+	ZFS_PROP_DIRLOWDATA_PERIOD_UNIT,
+	ZFS_PROP_DIRLOWDATA_DELETE_PERIOD,
+	ZFS_PROP_DIRLOWDATA_CRITERIA,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -190,6 +200,13 @@ typedef enum {
 	ZFS_PROP_SOFTGROUPQUOTA,
 	ZFS_NUM_USERQUOTA_PROPS
 } zfs_userquota_prop_t;
+
+extern const char *zfs_dirlowdata_prefixex;
+extern const char *zfs_dirlowdata_period_prefixex;
+extern const char *zfs_dirlowdata_delete_period_prefixex;
+extern const char *zfs_dirlowdata_period_unit_prefixex;
+extern const char *zfs_dirlowdata_criteria_prefixex;
+extern const char *zfs_dirlowdata_path_prefixex;
 
 extern const char *zfs_userquota_prop_prefixes[ZFS_NUM_USERQUOTA_PROPS];
 
@@ -309,6 +326,8 @@ zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
 boolean_t zfs_prop_userquota(const char *);
 boolean_t zfs_prop_dirquota(const char *name);
+boolean_t zfs_prop_dirlowdata(const char *name);
+zfs_prop_t zfs_get_dirlow_prop_by_name(const char *name);
 boolean_t zfs_prop_written(const char *);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
@@ -1052,6 +1071,10 @@ typedef enum zfs_ioc {
 	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
 	ZFS_IOC_GET_DIRQUOTA,
 	ZFS_IOC_SET_DIRQUOTA,
+	ZFS_IOC_DO_MIGRATE,
+	ZFS_IOC_GET_DIRLOWDATA,
+	ZFS_IOC_GET_ALL_DIRLOWDATA,
+	ZFS_IOC_GET_ALL_DIRQUOTA,
 	
 	/*
 	 * Linux - 3/64 numbers reserved.
@@ -1204,6 +1227,14 @@ typedef  enum {
 	ZFS_HBX_CLUSTER_IMPORT,
 	ZFS_HBX_POOL_EXPORT
 } zfs_hbx_ioc_t;
+
+#define	START_MIGRATE  0x1
+#define	STOP_MIGRATE  0x2
+#define	STATUS_MIGRATE  0x4
+#define	START_ALL  0x8
+#define START_OS  0x10
+#define START_DIR 0x20
+
 
 /* hbx end */
 

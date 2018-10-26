@@ -731,6 +731,7 @@ void dmu_prealloc(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 
 #define WRITE_FLAG_APP_META     0x00000001
 #define WRITE_FLAG_APP_SYNC     0x00000002
+#define WRITE_FLAG_APP_LOW		0x00000004
 
 #ifdef _KERNEL
 #include <linux/blkdev_compat.h>
