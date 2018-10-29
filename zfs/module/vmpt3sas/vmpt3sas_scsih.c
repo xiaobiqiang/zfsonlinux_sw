@@ -55,10 +55,16 @@
 #include <linux/aer.h>
 #include <linux/raid_class.h>
 #include <asm/unaligned.h>
+#include <sys/cluster_san.h>
 
 #include "vmpt3sas_base.h"
 
 #define RAID_CHANNEL 1
+#define	IMPTSAS_BROADCAST_SESS				((void *)(0-1))
+#define	XDR_EN_FIXED_SIZE	256/* Leave allowance */
+#define	XDR_DE_FIXED_SIZE	256/* Leave allowance */
+
+
 /* forward proto's */
 static void _scsih_expander_node_remove(struct MPT3SAS_ADAPTER *ioc,
 	struct _sas_node *sas_expander);
@@ -152,6 +158,7 @@ MODULE_PARM_DESC(prot_mask, " host protection capabilities mask, def=7 ");
 struct raid_template *vmpt3sas_raid_template;
 struct raid_template *vmpt2sas_raid_template;
 
+static uint64_t greq_index = 0;
 
 /**
  * struct sense_info - common structure for obtaining sense keys
@@ -170,6 +177,47 @@ struct sense_info {
 #define MPT3SAS_PORT_ENABLE_COMPLETE (0xFFFD)
 #define MPT3SAS_ABRT_TASK_SET (0xFFFE)
 #define MPT3SAS_REMOVE_UNRESPONDING_DEVICES (0xFFFF)
+
+int vmpt3sas_send_msg(void *sess, void *data, uint64_t len)
+{
+	int ret = 0;
+	if (sess == IMPTSAS_BROADCAST_SESS) {
+		cluster_san_broadcast_send(data, len, NULL, 0, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0);
+	} else {
+		ret = cluster_san_host_send(sess, data, len, NULL, 0, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0,
+			1, 3);
+	}
+	return (ret);
+}
+
+static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
+{
+	
+}
+
+static void vmpt3sas_cts_link_evt_cb(void *private,
+	cts_link_evt_t link_evt, void *arg)
+{
+	imptsas_cts_link_stata_evt_t *link_state;
+	int ret;
+
+	link_state = kmem_zalloc(sizeof(imptsas_cts_link_stata_evt_t), KM_SLEEP);
+	link_state->sess = private;
+	link_state->link_evt = link_evt;
+	link_state->arg = arg;
+
+	/*TODO*/
+	#if 0
+	ret = ddi_taskq_dispatch(gimptsas->tq_asyn,
+		(void (*)(void *))imptsas_cts_link_evt_handler, (void *)link_state, DDI_SLEEP);
+	if (DDI_SUCCESS != ret) {
+		printk("imptsas link state change handler taskq failed");
+		imptsas_cts_link_evt_handler(link_state);
+	}
+	#endif
+}
+
+
 /**
  * struct fw_event_work - firmware event struct
  * @list: link list framework
@@ -227,54 +275,6 @@ static struct fw_event_work *alloc_fw_event_work(int len)
 	kref_init(&fw_event->refcount);
 	return fw_event;
 }
-
-/**
- * struct _scsi_io_transfer - scsi io transfer
- * @handle: sas device handle (assigned by firmware)
- * @is_raid: flag set for hidden raid components
- * @dir: DMA_TO_DEVICE, DMA_FROM_DEVICE,
- * @data_length: data transfer length
- * @data_dma: dma pointer to data
- * @sense: sense data
- * @lun: lun number
- * @cdb_length: cdb length
- * @cdb: cdb contents
- * @timeout: timeout for this command
- * @VF_ID: virtual function id
- * @VP_ID: virtual port id
- * @valid_reply: flag set for reply message
- * @sense_length: sense length
- * @ioc_status: ioc status
- * @scsi_state: scsi state
- * @scsi_status: scsi staus
- * @log_info: log information
- * @transfer_length: data length transfer when there is a reply message
- *
- * Used for sending internal scsi commands to devices within this module.
- * Refer to _scsi_send_scsi_io().
- */
-struct _scsi_io_transfer {
-	u16	handle;
-	u8	is_raid;
-	enum dma_data_direction dir;
-	u32	data_length;
-	dma_addr_t data_dma;
-	u8	sense[SCSI_SENSE_BUFFERSIZE];
-	u32	lun;
-	u8	cdb_length;
-	u8	cdb[32];
-	u8	timeout;
-	u8	VF_ID;
-	u8	VP_ID;
-	u8	valid_reply;
-  /* the following bits are only valid when 'valid_reply = 1' */
-	u32	sense_length;
-	u16	ioc_status;
-	u8	scsi_state;
-	u8	scsi_status;
-	u32	log_info;
-	u32	transfer_length;
-};
 
 /**
  * _scsih_set_debug_level - global setting of ioc->logging_level.
@@ -1257,7 +1257,7 @@ proxy_scsih_target_alloc(struct scsi_target *starget)
 
 /*send to remote*/
 
-#if 0
+#if 1
 	struct Scsi_Host *shost = dev_to_shost(&starget->dev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct MPT3SAS_TARGET *sas_target_priv_data;
@@ -3900,18 +3900,19 @@ _scsih_eedp_error_handling(struct scsi_cmnd *scmd, u16 ioc_status)
 int
 proxy_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 {
-
-	/*send to remote*/
-
-#if 0
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct MPT3SAS_DEVICE *sas_device_priv_data;
 	struct MPT3SAS_TARGET *sas_target_priv_data;
-	struct _raid_device *raid_device;
-	Mpi2SCSIIORequest_t *mpi_request;
-	u32 mpi_control;
+	vmptsas_remote_cmd_t remote_cmd;
+	VMPT_XDR xdr_temp;
+	VMPT_XDR *xdrs = &xdr_temp;
+	uint_t len;
 	u16 smid;
 	u16 handle;
+	void *buff = NULL;
+	uint64_t index;
+	int have_sdb;
+	
 
 	if (ioc->logging_level & MPT_DEBUG_SCSI)
 		scsi_print_command(scmd);
@@ -3922,12 +3923,13 @@ proxy_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		scmd->scsi_done(scmd);
 		return 0;
 	}
-
+#if 0
 	if (ioc->pci_error_recovery || ioc->remove_host) {
 		scmd->result = DID_NO_CONNECT << 16;
 		scmd->scsi_done(scmd);
 		return 0;
 	}
+#endif
 
 	sas_target_priv_data = sas_device_priv_data->sas_target;
 
@@ -3938,7 +3940,6 @@ proxy_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		scmd->scsi_done(scmd);
 		return 0;
 	}
-
 
 	/* host recovery or link resets sent via IOCTLs */
 	if (ioc->shost_recovery || ioc->ioc_link_reset_in_progress)
@@ -3953,6 +3954,46 @@ proxy_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 	} else if (sas_target_priv_data->tm_busy ||
 	    sas_device_priv_data->block)
 		return SCSI_MLQUEUE_DEVICE_BUSY;
+	
+	/*encode message*/
+	len = XDR_EN_FIXED_SIZE + scmd->cmd_len + scmd->sdb.length;
+	buff = cs_kmem_alloc(len);
+	vmpt_xdrmem_create(xdrs, buff, len, VMPT_XDR_ENCODE);
+	remote_cmd = VMPT_CMD_REQUEST;
+	vmpt_xdr_enum(xdrs, (enum_t *)&remote_cmd);/* 4bytes */
+
+	index = atomic_inc_64_nv(&greq_index);
+	vmpt_xdr_uint64_t(xdrs, (uint64_t *)&index);/* 8bytes */
+	printk("vmpt3sas %s: rep index(%"PRId64") cmd(%p) bp(%p)", __func__,
+		index, scmd, scmd->sdb);
+
+	vmpt_xdr_u_int(xdrs, scmd->device->id);/* 4bytes */
+	vmpt_xdr_u_int(xdrs, scmd->device->lun);/* 4bytes */
+	vmpt_xdr_u_int(xdrs, scmd->device->channel);/* 4bytes */
+	vmpt_xdr_u_int(xdrs, scmd->cmd_len);/* 4bytes */
+	vmpt_xdr_u_int(xdrs, scmd->sdb.length);/* 4bytes */
+	
+	vmpt_xdr_enum(xdrs, (enum_t *)&scmd->sc_data_direction);/* 4bytes */
+
+	/*have scsi data*/
+	if (scmd->sdb->length != 0) {
+		have_sdb = 1;
+		vmpt_xdr_int(xdrs, &have_sdb);/* 4bytes */
+
+		/* todo: encode scsi data into xdr */
+		
+	} else {
+		have_sdb = 0;
+		vmpt_xdr_int(xdrs, &have_sdb);/* 4bytes */
+	}
+	
+	/*todo:*/
+	/*send to remote*/
+	/*wait reply(sync or async)*/
+	/*invode scsiio_done*/
+	
+	
+#if 0
 
 	if (scmd->sc_data_direction == DMA_FROM_DEVICE)
 		mpi_control = MPI2_SCSIIO_CONTROL_READ;
@@ -8500,6 +8541,7 @@ _scsih_determine_hba_mpi_version(struct pci_dev *pdev)
 	return 0;
 }
 
+#if 0
 /**
  * _scsih_probe - attach and add scsi host
  * @pdev: PCI device struct
@@ -8962,6 +9004,7 @@ static struct pci_driver mpt3sas_driver = {
 	.resume		= scsih_resume,
 #endif
 };
+#endif
 
 /**
  * scsih_init - main entry point for this driver.
@@ -9049,7 +9092,7 @@ scsih_exit(void)
  * Returns 0 success, anything else error.
  */
 static int __init
-_mpt3sas_init(void)
+_vmpt3sas_init(void)
 {
 	struct MPT3SAS_ADAPTER *ioc;
 	struct Scsi_Host *shost = NULL;
@@ -9059,6 +9102,9 @@ _mpt3sas_init(void)
 
 	pr_info("%s version %s loaded\n", MPT3SAS_DRIVER_NAME,
 					MPT3SAS_DRIVER_VERSION);
+
+	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, NULL);
+	csh_link_evt_hook_add(vmpt3sas_cts_link_evt_cb, NULL);
 
 	vmpt3sas_transport_template =
 	    sas_attach_transport(&vmpt3sas_transport_functions);
@@ -9112,15 +9158,15 @@ _mpt3sas_init(void)
 		return -ENODEV;
 	ioc = shost_priv(shost);
 	memset(ioc, 0, sizeof(struct MPT3SAS_ADAPTER));
-	#if 0
+#if 0
 	ioc->hba_mpi_version_belonged = hba_mpi_version;
 	ioc->id = mpt3_ids++;
-	#endif
+#endif
 	sprintf(ioc->driver_name, "%s", VMPT3SAS_DRIVER_NAME);
-	#if 0
+#if 0
 	if (pdev->revision >= SAS3_PCI_DEVICE_C0_REVISION)
 		ioc->msix96_vector = 1;
-	#endif
+#endif
 
 	
 	INIT_LIST_HEAD(&ioc->list);
@@ -9128,6 +9174,7 @@ _mpt3sas_init(void)
 	list_add_tail(&ioc->list, &mpt3sas_ioc_list);
 	spin_unlock(&gioc_lock);
 	ioc->shost = shost;
+#if 0
 	ioc->pdev = pdev;
 	ioc->scsi_io_cb_idx = scsi_io_cb_idx;
 	ioc->tm_cb_idx = tm_cb_idx;
@@ -9140,6 +9187,7 @@ _mpt3sas_init(void)
 	ioc->tm_tr_cb_idx = tm_tr_cb_idx;
 	ioc->tm_tr_volume_cb_idx = tm_tr_volume_cb_idx;
 	ioc->tm_sas_control_cb_idx = tm_sas_control_cb_idx;
+#endif
 	ioc->logging_level = logging_level;
 	ioc->schedule_dead_ioc_flush_running_cmds = &_scsih_flush_running_cmds;
 	/* misc semaphores and spin locks */
@@ -9202,7 +9250,6 @@ _mpt3sas_init(void)
 
 	scsi_host_set_guard(shost, SHOST_DIX_GUARD_CRC);
 
-#if 0
 	/* event thread */
 	snprintf(ioc->firmware_event_name, sizeof(ioc->firmware_event_name),
 	    "fw_event_%s%d", ioc->driver_name, ioc->id);
@@ -9271,7 +9318,7 @@ out_add_shost_fail:
  *
  */
 static void __exit
-_mpt3sas_exit(void)
+_vmpt3sas_exit(void)
 {
 	pr_info("mpt3sas version %s unloading\n",
 				MPT3SAS_DRIVER_VERSION);
@@ -9283,5 +9330,5 @@ _mpt3sas_exit(void)
 	scsih_exit();
 }
 
-module_init(_mpt3sas_init);
-module_exit(_mpt3sas_exit);
+module_init(_vmpt3sas_init);
+module_exit(_vmpt3sas_exit);
