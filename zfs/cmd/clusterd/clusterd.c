@@ -30,6 +30,7 @@
 #include <libnvpair.h>
 #include <sys/list.h>
 #include <sys/spa_impl.h>
+#include <disklist.h>
 #include "deflt.h"
 #include "cn_cluster.h"
 #include "systemd_util.h"
@@ -3788,6 +3789,83 @@ choose_critical_disk(nvlist_t *pool_root)
 	return (NULL);
 }
 
+#if	defined(__sw_64)
+
+static const char *
+path2filename(const char *path)
+{
+	char *p;
+	p = strrchr(path, '/');
+	return (p ? ++p : path);
+}
+
+static void
+cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
+	int *total, int *active, int *local)
+{
+	nvlist_t **child;
+	uint_t children, i;
+
+	verify(nvlist_lookup_nvlist_array(root, ZPOOL_CONFIG_CHILDREN,
+		&child, &children) == 0);
+	for (i = 0; i < children; i ++) {
+		nvlist_t **tmp_child;
+		uint_t tmp_children = 0;
+
+		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
+			&tmp_child, &tmp_children) == 0) {
+			cluster_check_pool_disks_common(child[i], table, total, active, local);
+		} else {
+			disk_info_t *cursor;
+			const char *filename, *name;
+			char *path;
+
+			if (nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path) != 0) {
+				syslog(LOG_ERR, "pool get config path failed");
+				continue;
+			}
+			(*total)++;
+
+			filename = path2filename(path);
+			for (cursor = table->next; cursor != NULL; cursor = cursor->next) {
+				name = path2filename(cursor->dk_scsid);
+				if (strncmp(name, filename, strlen(name)) == 0)
+					break;
+			}
+			if (cursor != 0) {
+				(*active)++;
+				if (cursor->dk_enclosure < 1000)
+					(*local)++;
+			}
+		}
+	}
+}
+
+static boolean_t
+cluster_check_pool_disks(nvlist_t *pool_root)
+{
+	disk_table_t table;
+	int total, active, local;
+
+	if (disk_get_info(&table) != 0) {
+		syslog(LOG_WARNING, "disk_get_info failed");
+		return (B_FALSE);
+	}
+
+	total = active = local = 0;
+	cluster_check_pool_disks_common(pool_root, &table, &total, &active, &local);
+
+	if (local == 0 || active < total) {
+		syslog(LOG_WARNING, "disks not satisfied: total=%d, active=%d, local=%d",
+			total, active, local);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+#endif
+
 static void *
 cluster_compete_pool(void *arg)
 {
@@ -3900,6 +3978,14 @@ cluster_compete_pool(void *arg)
 		}
 	}
 #endif
+
+#if	defined(__sw_64)
+	if (!cluster_check_pool_disks(nvroot)) {
+		syslog(LOG_WARNING, "disks of pool '%s' not satisfied", poolname);
+		goto exit_thr;
+	}
+#endif
+
 check_remote:
 	if (cluster_pool_in_remote(0, NULL, guid)) {
 		syslog(LOG_WARNING, "pool '%s' in remote, exit", poolname);
@@ -6454,8 +6540,6 @@ main(int argc, char *argv[])
 
 	openlog(MyName, LOG_PID | LOG_NDELAY, LOG_DAEMON);
 	(void) signal(SIGHUP, warn_hup);
-	
-	system(CLUSTER_SMF_INIT_POST);
 
 	init_cluster_failover_conf();
 	pthread_mutex_init(&import_thr_conf.import_pools_handler_mtx, NULL);

@@ -7449,7 +7449,11 @@ zfs_do_mirror(int argc, char **argv)
     char *mirror_to = NULL;
     int c;
 
-    while ((c = getopt(argc, argv, "ve:d")) != -1) {
+#if defined(__sw_64)
+    while ((c = getopt(argc, argv, "ve:d:")) != -1) {
+#else
+	while ((c = getopt(argc, argv, "ve:d")) != -1) {
+#endif
         switch (c) {
         case 'v':
             flags  = SHOW_MIRROR;
@@ -7460,6 +7464,9 @@ zfs_do_mirror(int argc, char **argv)
             break;
         case 'd':
             flags = DISABLE_MIRROR;
+#if defined(__sw_64)
+			mirror_to = optarg;
+#endif
             break;
         default:
             (void) fprintf(stderr,

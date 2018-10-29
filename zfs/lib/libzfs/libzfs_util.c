@@ -1900,8 +1900,11 @@ zfs_start_mirror(libzfs_handle_t *hdl, char *mirror_to,
     int err;
     zfs_cmd_t zc = {"\0"};
 
-
+#if defined(__sw_64)
+	if (flags == ENABLE_MIRROR || flags == DISABLE_MIRROR) {
+#else
     if (flags == ENABLE_MIRROR) {
+#endif
         if (mirror_to != NULL) {
             zc.zc_perm_action = (uint64_t)strtol(mirror_to, NULL, 10);
         } else {
