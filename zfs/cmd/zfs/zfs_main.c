@@ -7300,6 +7300,7 @@ zfs_do_multiclus(int argc, char **argv)
 			flags = ADD_MULTICLUS;
 			group_name = argv[1];
 			fs_name = argv[2];
+			param = argv[3];
 		} else if(!strcmp(argv[0], "set")){
 			if (argc < 2) {
 				fprintf(stderr, gettext("Missing argument.\n"));

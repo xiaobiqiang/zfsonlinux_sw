@@ -781,6 +781,10 @@ static int dmu_objset_get_group_parameters(dsl_dataset_t *ds, objset_t *os)
         cmn_err(CE_WARN, "ZFS_PROP_SELF_ROOT = %lld", (longlong_t)os->os_master_root);
 		#endif
     }
+	if (err == 0) {
+		err == dsl_prop_get_ds(ds, zfs_prop_to_name(ZFS_PROP_MULTILUS_NODE_ID),
+			sizeof(uint64_t), 1, &os->os_group_node_id, NULL);
+	}
 
     if (need_rwlock)
         rrw_exit(&dp->dp_config_rwlock, FTAG);
