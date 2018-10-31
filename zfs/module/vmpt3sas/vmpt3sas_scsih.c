@@ -275,6 +275,7 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		have_sdb = 1;
 		vmpt_xdr_int(xdrs, &have_sdb);/* 4bytes */
 		vmpt_xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
+		vmpt_xdr_u_int(xdrs, &(scmd->sdb->table.nents));/* 4byte */
 		/* todo: encode scsi data into xdr */
 		for_each_sg(scmd->sdb->table.sgl, sg, scmd->sdb->table.nents, i) {
 			sg_len = sg->length;
