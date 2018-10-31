@@ -259,6 +259,7 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 	printk("vmpt3sas %s: rep index(%"PRId64") cmd(%p) bp(%p)", __func__,
 		index, scmd, scmd->sdb);
 
+	vmpt_xdr_u_int(xdrs, &(shost->host_no));/* 4bytes */
 	vmpt_xdr_u_int(xdrs, &(scmd->device->id);/* 4bytes */
 	vmpt_xdr_u_int(xdrs, &(scmd->device->lun));/* 4bytes */
 	vmpt_xdr_u_int(xdrs, &(scmd->device->channel));/* 4bytes */
