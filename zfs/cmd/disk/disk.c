@@ -74,7 +74,7 @@ get_scsi_rpm( disk_info_t *disk ) {
 
 	if( (fd = open( path, O_RDONLY ) ) == -1 ) {
 		fprintf( stderr, "in %s[%d]: cann't open dev<%s> for reading, error( %s )\n", __func__, __LINE__, path, strerror( errno ) ) ;
-		return B_FALSE ;
+		return (-1);
 	}
 
 
@@ -88,18 +88,19 @@ get_scsi_rpm( disk_info_t *disk ) {
 	io_hdr.timeout = 1000 ;
 
 	if( ioctl( fd, SG_IO, &io_hdr ) == -1 ) {
-		fprintf( stderr, "in %s[%d]: ioctl failed, error( %s )\n", __func__, __LINE__, strerror( errno ) ) ;
-		return B_FALSE ;
+		close(fd);
+		return (-1);
 	}
 
 	if( ( io_hdr.info & SG_INFO_OK_MASK ) != SG_INFO_OK ) {
-		fprintf( stderr, "in %s[%d]: ioctl return not expected\n", __func__, __LINE__ ) ;
-		return B_FALSE ;
+		close(fd);
+		return (-1);
 	}
 
+	close(fd);
 	disk->dk_rpm = output[4] * 256 + output[5] ;
 
-	return B_TRUE ;
+	return (0);
 }
 
 static void
