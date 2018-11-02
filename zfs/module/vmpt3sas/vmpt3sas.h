@@ -27,7 +27,7 @@ typedef struct vmpt3sas {
 }vmpt3sas_t;
 
 typedef struct vmpt3sas_rx_data {
-	VMPT_XDR *xdrs;
+	XDR *xdrs;
 	cs_rx_data_t *cs_data;
 }vmpt3sas_rx_data_t;
 
@@ -58,7 +58,7 @@ typedef struct vmpt3sas_req_scmd {
 	unsigned int id;
 	unsigned int lun;
 	unsigned int channel;
-	enum_t data_direction;
+	int data_direction;
 	unsigned int cmd_len;
 	char cmnd[16];
 	unsigned int response; 
