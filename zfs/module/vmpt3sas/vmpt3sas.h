@@ -1,6 +1,9 @@
 #ifndef __VMPT3SAS_H
 #define __VMPT3SAS_H
 
+#define MPT_NAME_LENGTH			32	/* generic length of strings */
+
+
 typedef struct vmpt3sas {
 	struct Scsi_Host *shost;
 	u8		id;
@@ -17,6 +20,9 @@ typedef struct vmpt3sas {
 	taskq_t *tq_rsp;
 	char		tq_ctl_name[20];
 	taskq_t *tq_ctl;
+	void * session;
+	int remotehostno;
+	u64 req_index;
 	
 }vmpt3sas_t;
 
@@ -36,7 +42,8 @@ typedef struct vmpt3sas_cts_link_stata_evt {
 typedef enum vmpt3sas_remote_cmd {
 	VMPT_CMD_REQUEST,
 	VMPT_CMD_RSP,
-	VMPT_CMD_CTL
+	VMPT_CMD_CTL,
+	VMPT_CMD_ADDHOST
 } vmpt3sas_remote_cmd_t;
 
 typedef enum vmpt3sas_cmd_state {
@@ -45,14 +52,33 @@ typedef enum vmpt3sas_cmd_state {
 	VMPTSAS_CMD_STATE_COMPLETED,
 }vmpt3sas_cmd_state_t;
 
+typedef struct vmpt3sas_req_scmd {
+	uint64_t req_index;
+	unsigned int host;
+	unsigned int id;
+	unsigned int lun;
+	unsigned int channel;
+	enum_t data_direction;
+	unsigned int cmd_len;
+	char cmnd[16];
+	unsigned int response; 
+	char sense[24];
+	unsigned int datalen;
+	char *data;
+	void *session;
+	void *shost;
+}vmpt3sas_req_scmd_t;
 
-typedef struct vmpt3sas_cmd {
-	struct scsi_cmnd	*scmd;
-	kmutex_t			cmd_mutex;
-	kcondvar_t			cmd_completion;
-	vmpt3sas_cmd_state_t	cmd_state;
-	uint64_t			req_index;
-}vmpt3sas_cmd_t;
+typedef struct req_list {
+	struct list_head queuelist;
+	struct request *req;
+}req_list_t;
+
+typedef struct req_proxy {
+	spinlock_t queue_lock;
+	struct list_head done_queue;
+	wait_queue_head_t waiting_wq;
+}req_proxy_t;
 
 
 
