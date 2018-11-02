@@ -346,7 +346,8 @@ static struct Scsi_Host *vmpt3sas_lookup_shost(void)
 		if (shost) {
 			printk(KERN_WARNING "id=%d name=%s ", i, shost->hostt->proc_name );
 			if (strcmp(shost->hostt->proc_name,"mpt3sas") == 0 ||
-				strcmp(shost->hostt->proc_name,"mpt2sas") == 0) {
+				strcmp(shost->hostt->proc_name,"mpt2sas") == 0 ||
+				strcmp(shost->hostt->proc_name,"megaraid_sas") == 0) {
 				printk(KERN_WARNING "shost:%p is found", shost);
 				return shost;
 			}
@@ -701,3 +702,5 @@ _vmpt3sas_exit(void)
 
 module_init(_vmpt3sas_init);
 module_exit(_vmpt3sas_exit);
+MODULE_LICENSE("GPL");
+

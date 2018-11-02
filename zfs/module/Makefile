@@ -17,9 +17,9 @@ subdir-m += fmd_transport
 
 INSTALL_MOD_DIR ?= extra
 
-ZFS_MODULE_CFLAGS += -include @SPL_OBJ@/spl_config.h -DUNIQUE_FW_NAME
-ZFS_MODULE_CFLAGS += -include @abs_top_builddir@/zfs_config.h
-ZFS_MODULE_CFLAGS += -I@abs_top_srcdir@/include -I@SPL@/include -I@SPL@
+ZFS_MODULE_CFLAGS += -include /root/wzy/zfsonlinux/spl/spl_config.h -DUNIQUE_FW_NAME
+ZFS_MODULE_CFLAGS += -include /root/wzy/zfsonlinux/zfs/zfs_config.h
+ZFS_MODULE_CFLAGS += -I/root/wzy/zfsonlinux/zfs/include -I/root/wzy/zfsonlinux/spl/include -I/root/wzy/zfsonlinux/spl
 export ZFS_MODULE_CFLAGS
 
 modules:
@@ -27,54 +27,54 @@ modules:
 	@# They may be in the root of SPL_OBJ when building against
 	@# installed devel headers, or they may be in the module
 	@# subdirectory when building against the spl source tree.
-	@if [ -f @SPL_OBJ@/@SPL_SYMBOLS@ ]; then \
-		/bin/cp @SPL_OBJ@/@SPL_SYMBOLS@ .; \
-	elif [ -f @SPL_OBJ@/module/@SPL_SYMBOLS@ ]; then \
-		/bin/cp @SPL_OBJ@/module/@SPL_SYMBOLS@ .; \
+	@if [ -f /root/wzy/zfsonlinux/spl/Module.symvers ]; then \
+		/bin/cp /root/wzy/zfsonlinux/spl/Module.symvers .; \
+	elif [ -f /root/wzy/zfsonlinux/spl/module/Module.symvers ]; then \
+		/bin/cp /root/wzy/zfsonlinux/spl/module/Module.symvers .; \
 	else \
 		echo -e "\n" \
 		"*** Missing spl symbols ensure you have built the spl:\n" \
-		"*** - @SPL_OBJ@/@SPL_SYMBOLS@, or\n" \
-		"*** - @SPL_OBJ@/module/@SPL_SYMBOLS@\n"; \
+		"*** - /root/wzy/zfsonlinux/spl/Module.symvers, or\n" \
+		"*** - /root/wzy/zfsonlinux/spl/module/Module.symvers\n"; \
 		exit 1; \
 	fi
-	$(MAKE) -C @LINUX_OBJ@ SUBDIRS=`pwd` @KERNELMAKE_PARAMS@ CONFIG_ZFS=m $@
+	$(MAKE) -C /root/testlinux/kernels/4.4.15-aere+ SUBDIRS=`pwd`  CONFIG_ZFS=m $@
 
 clean:
 	@# Only cleanup the kernel build directories when CONFIG_KERNEL
 	@# is defined.  This indicates that kernel modules should be built.
-@CONFIG_KERNEL_TRUE@	$(MAKE) -C @LINUX_OBJ@ SUBDIRS=`pwd` @KERNELMAKE_PARAMS@ $@
+	$(MAKE) -C /root/testlinux/kernels/4.4.15-aere+ SUBDIRS=`pwd`  $@
 
-	if [ -f @SPL_SYMBOLS@ ]; then $(RM) @SPL_SYMBOLS@; fi
-	if [ -f @LINUX_SYMBOLS@ ]; then $(RM) @LINUX_SYMBOLS@; fi
+	if [ -f Module.symvers ]; then $(RM) Module.symvers; fi
+	if [ -f Module.symvers ]; then $(RM) Module.symvers; fi
 	if [ -f Module.markers ]; then $(RM) Module.markers; fi
 
 modules_install:
 	@# Install the kernel modules
-	$(MAKE) -C @LINUX_OBJ@ SUBDIRS=`pwd` $@ \
+	$(MAKE) -C /root/testlinux/kernels/4.4.15-aere+ SUBDIRS=`pwd` $@ \
 		INSTALL_MOD_PATH=$(DESTDIR)$(INSTALL_MOD_PATH) \
 		INSTALL_MOD_DIR=$(INSTALL_MOD_DIR) \
-		KERNELRELEASE=@LINUX_VERSION@
+		KERNELRELEASE=4.4.15-aere+
 	@# Remove extraneous build products when packaging
-	kmoddir=$(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/@LINUX_VERSION@; \
+	kmoddir=$(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/4.4.15-aere+; \
 	if [ -n "$(DESTDIR)" ]; then \
 		find $$kmoddir -name 'modules.*' | xargs $(RM); \
 	fi
-	sysmap=$(DESTDIR)$(INSTALL_MOD_PATH)/boot/System.map-@LINUX_VERSION@; \
+	sysmap=$(DESTDIR)$(INSTALL_MOD_PATH)/boot/System.map-4.4.15-aere+; \
 	if [ -f $$sysmap ]; then \
-		depmod -ae -F $$sysmap @LINUX_VERSION@; \
+		depmod -ae -F $$sysmap 4.4.15-aere+; \
 	fi
 
 modules_uninstall:
 	@# Uninstall the kernel modules
-	kmoddir=$(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/@LINUX_VERSION@
+	kmoddir=$(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/4.4.15-aere+
 	list='$(subdir-m)'; for subdir in $$list; do \
 		$(RM) -R $$kmoddir/$(INSTALL_MOD_DIR)/$$subdir; \
 	done
 
 distdir:
 	list='$(subdir-m)'; for subdir in $$list; do \
-		(find @top_srcdir@/module/$$subdir -name '*.c' -o -name '*.h' |\
+		(find ../module/$$subdir -name '*.c' -o -name '*.h' |\
 		xargs /bin/cp -t $$distdir/$$subdir); \
 	done
 
