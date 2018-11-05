@@ -46,11 +46,22 @@ static u32 vmpt3_receive_worker_count = 128;
 static req_proxy_t vmptsas_proxy_done;
 static struct Scsi_Host *vmptsas_shost;
 
+typedef struct vmptsas_hostmap {
+	struct Scsi_Host *shost;
+	int remote_hostno;
+	int index;
+}vmptsas_hostmap_t;
+
+int g_vmptsas_hostmap_total = 0;
+vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
+struct task_struct *gproxythread;
+
 int vmpt3sas_scsih_qcmd(struct Scsi_Host *, struct scsi_cmnd *);
 int vmpt3sas_send_msg(void *, void *, u64 );
 int vmpt3sas_done_thread(void *);
 
 /* shost template for SAS 3.0 HBA devices */
+#if 0
 static struct scsi_host_template vmpt3sas_driver_template = {
 	.module				= THIS_MODULE,
 	.name				= "Fusion MPT SAS Host",
@@ -78,7 +89,26 @@ static struct scsi_host_template vmpt3sas_driver_template = {
 	.shost_attrs			= NULL,
 	.sdev_attrs			= NULL,
 	.track_queue_depth		= 1,
+	.imulated 	= 1
 };
+#endif
+
+static struct scsi_host_template vmpt3sas_driver_template = {
+	.module				= THIS_MODULE,
+	.name				= "VMPT SAS Host",
+	.proc_name			= VMPT3SAS_DRIVER_NAME,
+	.queuecommand			= vmpt3sas_scsih_qcmd,
+	
+	.can_queue			= 1,
+	.cmd_per_lun		= 128,
+	.sg_tablesize			= SCSI_MAX_SG_SEGMENTS,
+	.use_clustering			= ENABLE_CLUSTERING,
+	.sdev_attrs			= NULL,
+	.this_id			= 20,
+	.emulated 	= 1
+};
+
+
 
 static ushort max_sectors = 0xFFFF;
 module_param(max_sectors, ushort, 0);
@@ -156,25 +186,17 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	remote_cmd = VMPT_CMD_ADDHOST;
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 
-	xdr_int(xdrs,&shost->host_no);
+	xdr_u_int(xdrs,&shost->host_no);
 	
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
+	printk(KERN_WARNING " %s brdcast msg len: %d host_no =%d \n", __func__, tx_len, shost->host_no);
 	vmpt3sas_send_msg(VMPT3SAS_BROADCAST_SESS, (void *)buff, tx_len);
 	cs_kmem_free(buff, len);
 }
 
-typedef struct vmptsas_hostmap {
-	struct Scsi_Host *shost;
-	int remote_hostno;
-	int index;
-}vmptsas_hostmap_t;
-
-int g_vmptsas_hostmap_total = 0;
-vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
-
 static void vmpt3sas_addvhost_handler(void *data)
 {
-	int hostno;
+	unsigned int hostno;
 	void * session;
 	struct Scsi_Host *shost;
 	vmpt3sas_rx_data_t *rx_data = (vmpt3sas_rx_data_t *)data;
@@ -184,13 +206,24 @@ static void vmpt3sas_addvhost_handler(void *data)
 	XDR *xdrs = rx_data->xdrs;
 	session = rx_data->cs_data->cs_private;
 	
-	xdr_u_longlong_t(xdrs, (u64 *)&hostno);/* 8bytes */
-
+	xdr_u_int(xdrs, &hostno);/* 8bytes */
+	printk(KERN_WARNING " %s hostno: %u %d", __func__, hostno, sizeof(int));
 	shost = scsi_host_alloc(&vmpt3sas_driver_template,
-		  sizeof(struct vmpt3sas));
-	if (!shost)
+		sizeof(struct vmpt3sas));
+	if (!shost){
+		printk(KERN_WARNING " %s scsi_host_alloc failed hostno: %d ", __func__, hostno );
 		return;
-
+	}
+	rv = scsi_add_host(shost, NULL);
+	if (rv) {
+		/*
+		pr_err(MPT3SAS_FMT "failure at %s:%d/%s()!\n",
+			ioc->name, __FILE__, __LINE__, __func__);
+		*/
+		printk(KERN_WARNING " %s scsi_add_host failed ret: %d ", __func__, rv );
+		goto out_add_shost_fail;
+	}
+	
 	ioc = shost_priv(shost);
 	memset(ioc, 0, sizeof(struct vmpt3sas));
 	ioc->session = session;
@@ -200,29 +233,15 @@ static void vmpt3sas_addvhost_handler(void *data)
 	sprintf(ioc->driver_name, "%s", VMPT3SAS_DRIVER_NAME);
 	
 	ioc->shost = shost;
-	
-	sprintf(ioc->name, "%s_cm%d", ioc->driver_name, ioc->id);
-	
-	/* init shost parameters */
-	shost->max_cmd_len = 32;
-	shost->max_lun = 128;
-	shost->transportt = NULL;
-	shost->unique_id = ioc->id;
-
-	rv = scsi_add_host(shost, NULL);
-	if (rv) {
-		/*
-		pr_err(MPT3SAS_FMT "failure at %s:%d/%s()!\n",
-			ioc->name, __FILE__, __LINE__, __func__);
-		*/
-		printk(KERN_WARNING " %s scsi_add_host ret: %d ", __func__, rv );
-		goto out_add_shost_fail;
-	}
-
 	ioc->id = g_vmptsas_hostmap_total++;
+	sprintf(ioc->name, "%s_cm%d", ioc->driver_name, ioc->id);
+
+	
+	
 	g_vmptsas_hostmap_array[g_vmptsas_hostmap_total].shost = shost;
 	g_vmptsas_hostmap_array[g_vmptsas_hostmap_total].remote_hostno = hostno;
 	
+	printk(KERN_WARNING " %s to run scsi_scan_host ", __func__);
 	scsi_scan_host(shost);
 	return;
 		
@@ -344,38 +363,37 @@ static struct Scsi_Host *vmpt3sas_lookup_shost(void)
 	for (i=0; i<128; i++) {
 		shost = scsi_host_lookup(i);
 		if (shost) {
-			printk(KERN_WARNING "id=%d name=%s ", i, shost->hostt->proc_name );
+			printk(KERN_WARNING "id=%d name=[%s] ", i, shost->hostt->proc_name );
 			if (strcmp(shost->hostt->proc_name,"mpt3sas") == 0 ||
 				strcmp(shost->hostt->proc_name,"mpt2sas") == 0 ||
-				strcmp(shost->hostt->proc_name,"megaraid_sas") == 0) {
-				printk(KERN_WARNING "shost:%p is found", shost);
+				strcmp(shost->hostt->proc_name, "megaraid_sas") ==0 ) {
+				printk(KERN_WARNING "shost:%p is found\n", shost);
 				return shost;
 			}
 		}
 	}
 
-	printk(KERN_WARNING "mptsas shost is not found");
+	printk(KERN_WARNING "mptsas shost is not found\n");
 	return NULL; 
 }
 
 static void vmpt3sas_init_proxy(void) 
 {
-	struct task_struct *thread;
-
 	INIT_LIST_HEAD(&vmptsas_proxy_done.done_queue);
 	spin_lock_init(&vmptsas_proxy_done.queue_lock);
 	init_waitqueue_head(&vmptsas_proxy_done.waiting_wq);
 	
-	thread = kthread_create(vmpt3sas_done_thread, &vmptsas_proxy_done, "%s", "vd_proxy");
-	if (IS_ERR(thread)) {
+	gproxythread = kthread_create(vmpt3sas_done_thread, &vmptsas_proxy_done, "%s", "vd_proxy");
+	if (IS_ERR(gproxythread)) {
 		printk(KERN_WARNING "kthread_create failed");
 		return ;
 	}
-	wake_up_process(thread);
+	wake_up_process(gproxythread);
 
 	vmptsas_shost = vmpt3sas_lookup_shost();
 	if (vmptsas_shost)
 		vmpt3sas_brdlocal_shost(vmptsas_shost);
+
 }
 
 int vmpt3sas_done_thread(void *data)
@@ -483,9 +501,11 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	vmpt3sas_rx_data_t *rx_data;
 	int ret;
 
-	printk(KERN_WARNING "imptsas_remote_req_handler: data len(%"PRIx64")\n",
-		cs_data->data_len);
+	printk(KERN_WARNING "%s: rcv data len: %lld\n",
+		__func__, cs_data->data_len);
 	if ((cs_data->data_len == 0) || (cs_data->data == NULL)) {
+		printk(KERN_WARNING "%s: data is null len=%lld data=%p\n",
+			__func__, cs_data->data_len, cs_data->data);
 		return;
 	}
 
@@ -697,7 +717,8 @@ out_thread_fail:
 static void __exit
 _vmpt3sas_exit(void)
 {
-
+	kthread_stop(gproxythread);
+	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
 }
 
 module_init(_vmpt3sas_init);

@@ -17,9 +17,9 @@ subdir-m += fmd_transport
 
 INSTALL_MOD_DIR ?= extra
 
-ZFS_MODULE_CFLAGS += -include /root/wzy/zfsonlinux/spl/spl_config.h -DUNIQUE_FW_NAME
+ZFS_MODULE_CFLAGS += -include /usr/local/src/spl-0.6.5.9/4.4.15-aere+/spl_config.h -DUNIQUE_FW_NAME
 ZFS_MODULE_CFLAGS += -include /root/wzy/zfsonlinux/zfs/zfs_config.h
-ZFS_MODULE_CFLAGS += -I/root/wzy/zfsonlinux/zfs/include -I/root/wzy/zfsonlinux/spl/include -I/root/wzy/zfsonlinux/spl
+ZFS_MODULE_CFLAGS += -I/root/wzy/zfsonlinux/zfs/include -I/usr/local/src/spl-0.6.5.9/include -I/usr/local/src/spl-0.6.5.9
 export ZFS_MODULE_CFLAGS
 
 modules:
@@ -27,15 +27,15 @@ modules:
 	@# They may be in the root of SPL_OBJ when building against
 	@# installed devel headers, or they may be in the module
 	@# subdirectory when building against the spl source tree.
-	@if [ -f /root/wzy/zfsonlinux/spl/Module.symvers ]; then \
-		/bin/cp /root/wzy/zfsonlinux/spl/Module.symvers .; \
-	elif [ -f /root/wzy/zfsonlinux/spl/module/Module.symvers ]; then \
-		/bin/cp /root/wzy/zfsonlinux/spl/module/Module.symvers .; \
+	@if [ -f /usr/local/src/spl-0.6.5.9/4.4.15-aere+/Module.symvers ]; then \
+		/bin/cp /usr/local/src/spl-0.6.5.9/4.4.15-aere+/Module.symvers .; \
+	elif [ -f /usr/local/src/spl-0.6.5.9/4.4.15-aere+/module/Module.symvers ]; then \
+		/bin/cp /usr/local/src/spl-0.6.5.9/4.4.15-aere+/module/Module.symvers .; \
 	else \
 		echo -e "\n" \
 		"*** Missing spl symbols ensure you have built the spl:\n" \
-		"*** - /root/wzy/zfsonlinux/spl/Module.symvers, or\n" \
-		"*** - /root/wzy/zfsonlinux/spl/module/Module.symvers\n"; \
+		"*** - /usr/local/src/spl-0.6.5.9/4.4.15-aere+/Module.symvers, or\n" \
+		"*** - /usr/local/src/spl-0.6.5.9/4.4.15-aere+/module/Module.symvers\n"; \
 		exit 1; \
 	fi
 	$(MAKE) -C /root/testlinux/kernels/4.4.15-aere+ SUBDIRS=`pwd`  CONFIG_ZFS=m $@
