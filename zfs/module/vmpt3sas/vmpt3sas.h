@@ -21,7 +21,7 @@ typedef struct vmpt3sas {
 	char		tq_ctl_name[20];
 	taskq_t *tq_ctl;
 	void * session;
-	int remotehostno;
+	u32 remotehostno;
 	u64 req_index;
 	
 }vmpt3sas_t;
