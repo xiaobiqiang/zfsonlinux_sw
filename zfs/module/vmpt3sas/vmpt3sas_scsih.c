@@ -23,8 +23,6 @@
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_dbg.h>
 #include <rpc/xdr.h>
-
-
 #include "vmpt3sas.h"
 //#include "vmpt3sas_base.h"
 
@@ -216,11 +214,10 @@ static struct scsi_target *vmpt3sas_get_scsitarget(struct Scsi_Host *shost,int c
 	return NULL;
 }
 
-
 static void vmpt3sas_listall_scsidev(struct Scsi_Host *shost)
 {
 	struct scsi_device *sdev;
-
+	
 	shost_for_each_device(sdev, shost) {
 		printk(KERN_WARNING " %s host: %p host_no =%u chanl:%u id:%u lun:%u \n", 
 			__func__, shost, shost->host_no, sdev->channel, sdev->id, sdev->lun);
@@ -235,7 +232,7 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	XDR *xdrs = &xdr_temp;
 	vmpt3sas_remote_cmd_t remote_cmd;
 	int tx_len;
-	int i;
+	int i,j;
 	struct scsi_device *sdev;
 
 	i = 0;
@@ -254,12 +251,17 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 
 	xdr_u_int(xdrs,&shost->host_no);
+	i=1;
 	xdr_u_int(xdrs,&i);
 
+	i=0;j=2;
 	shost_for_each_device(sdev, shost) {
+		i++;
+		if (i!=j) {
+			continue;
+		}
 		xdr_u_int(xdrs,&sdev->id);
-		printk(KERN_WARNING " %s pack id:%u  \n", __func__, sdev->id);
-		break;
+		printk(KERN_WARNING " %s (%d %d)pack id:%u  \n", __func__,i, j, sdev->id);
 	}
 		
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
@@ -282,8 +284,8 @@ static void vmpt3sas_addvhost_handler(void *data)
 	session = rx_data->cs_data->cs_private;
 	
 	xdr_u_int(xdrs, &hostno); /* 8bytes */
-	printk(KERN_WARNING " %s hostno: %u ", __func__, hostno );
 	xdr_u_int(xdrs, &j);
+	printk(KERN_WARNING " %s hostno: %u devcount=%d ", __func__, hostno, j);
 	
 	shost = scsi_host_alloc(&vmpt3sas_driver_template, sizeof(struct vmpt3sas));
 	if (!shost){
@@ -319,7 +321,6 @@ static void vmpt3sas_addvhost_handler(void *data)
 		
 		printk(KERN_WARNING " %s scsi_add_device id:%u  \n", __func__, i);
 		scsi_add_device(shost, 0, k, 0);
-		break;
 	}
 
 	/*
