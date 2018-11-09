@@ -3,7 +3,6 @@
 
 #define MPT_NAME_LENGTH			32	/* generic length of strings */
 
-
 typedef struct vmpt3sas {
 	struct Scsi_Host *shost;
 	u8		id;
@@ -78,8 +77,34 @@ typedef struct req_proxy {
 	spinlock_t queue_lock;
 	struct list_head done_queue;
 	wait_queue_head_t waiting_wq;
+	struct task_struct *thread;
 }req_proxy_t;
 
+typedef struct vmptsas_quecmd {
+	struct list_head list;
+	struct list_head donelist;
+	struct Scsi_Host *shost;
+	struct scsi_cmnd *scmd;
+	int index;
+}vmptsas_quecmd_t;
+
+typedef struct vmptsas_instance {
+	spinlock_t hba_lock;
+	vmptsas_quecmd_t **cmd_list;
+	struct list_head cmd_pool;
+	int max_cmds;
+	req_proxy_t qcmdproxy;
+	req_proxy_t dcmdproxy;
+	
+	taskq_t *tq_common;
+}vmptsas_instance_t;
+
+
+typedef struct vmptsas_hostmap {
+	struct Scsi_Host *shost;
+	int remote_hostno;
+	int index;
+}vmptsas_hostmap_t;
 
 
 #endif

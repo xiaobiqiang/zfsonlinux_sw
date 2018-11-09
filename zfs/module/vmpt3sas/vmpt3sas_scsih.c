@@ -24,33 +24,17 @@
 #include <scsi/scsi_dbg.h>
 #include <rpc/xdr.h>
 #include "vmpt3sas.h"
-//#include "vmpt3sas_base.h"
 
 #define	VMPT3SAS_BROADCAST_SESS				((void *)(0-1))
 #define	XDR_EN_FIXED_SIZE	256/* Leave allowance */
 #define	XDR_DE_FIXED_SIZE	256/* Leave allowance */
 
 #define VMPT3SAS_DRIVER_NAME		"vmpt3sas"
-/*
- * logging format
- */
-#define VMPT3SAS_FMT			"%s: "
 
-static taskq_t *gvmpt3sas_tq_req;
-static taskq_t *gvmpt3sas_tq_rsp;
-
-static req_proxy_t vmptsas_proxy_done;
-static struct Scsi_Host *vmptsas_shost;
-
-typedef struct vmptsas_hostmap {
-	struct Scsi_Host *shost;
-	int remote_hostno;
-	int index;
-}vmptsas_hostmap_t;
+vmptsas_instance_t gvmpt3sas_instance;
 
 int g_vmptsas_hostmap_total = 0;
 vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
-struct task_struct *gproxythread;
 
 int vmpt3sas_scsih_qcmd(struct Scsi_Host *, struct scsi_cmnd *);
 int vmpt3sas_send_msg(void *, void *, u64 );
@@ -116,7 +100,7 @@ MODULE_PARM_DESC(logging_level,
 static void vmpt3sas_proxy_req_done(struct request *req, int error)
 {
 	req_list_t *reqlist;
-	req_proxy_t *proxy = (req_proxy_t *)&vmptsas_proxy_done;
+	req_proxy_t *proxy = &(gvmpt3sas_instance.dcmdproxy);
 	
 	printk(KERN_WARNING " %s is run error=[%d] sense=%p err=%x resid=%d \n", 
 		__func__, error, req->sense, req->errors, req->resid_len);
@@ -219,7 +203,7 @@ static void vmpt3sas_listall_scsidev(struct Scsi_Host *shost)
 	struct scsi_device *sdev;
 	
 	shost_for_each_device(sdev, shost) {
-		printk(KERN_WARNING " %s host: %p host_no =%u chanl:%u id:%u lun:%u \n", 
+		printk(KERN_WARNING " %s host: %p host_no =%d chanl:%d id:%d lun:%d \n", 
 			__func__, shost, shost->host_no, sdev->channel, sdev->id, sdev->lun);
 	}
 }
@@ -251,15 +235,14 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 
 	xdr_u_int(xdrs,&shost->host_no);
-	i=1;
 	xdr_u_int(xdrs,&i);
 
-	i=0;j=2;
 	shost_for_each_device(sdev, shost) {
 		i++;
+		/*
 		if (i!=j) {
 			continue;
-		}
+		}*/
 		xdr_u_int(xdrs,&sdev->id);
 		printk(KERN_WARNING " %s (%d %d)pack id:%u  \n", __func__,i, j, sdev->id);
 	}
@@ -496,25 +479,34 @@ static struct Scsi_Host *vmpt3sas_lookup_shost(void)
 	return NULL; 
 }
 
-static void vmpt3sas_init_proxy(void) 
+static vmptsas_quecmd_t *vmpt3sas_get_cmd(vmptsas_instance_t *instance)
 {
-	INIT_LIST_HEAD(&vmptsas_proxy_done.done_queue);
-	spin_lock_init(&vmptsas_proxy_done.queue_lock);
-	init_waitqueue_head(&vmptsas_proxy_done.waiting_wq);
+	unsigned long flags;
+	vmptsas_quecmd_t *cmd = NULL;
+
+	spin_lock_irqsave(&instance->hba_lock, flags);
+
+	if (!list_empty(&instance->cmd_pool)) {
+		cmd = list_entry((&instance->cmd_pool)->next,
+				 vmptsas_quecmd_t, list);
+		list_del_init(&cmd->list);
+	} else {
+		printk(KERN_ERR "vmpt3sas: Command pool empty!\n");
+	}
+
+	spin_unlock_irqrestore(&instance->hba_lock, flags);
+	return cmd;
+}
+
+static void 
+vmpt3sas_return_cmd(vmptsas_instance_t *instance, vmptsas_quecmd_t *cmd)
+{
+	unsigned long flags;
 	
-	gproxythread = kthread_create(vmpt3sas_proxy_done_thread, &vmptsas_proxy_done, "%s", "vd_proxy");
-	if (IS_ERR(gproxythread)) {
-		printk(KERN_WARNING "kthread_create failed");
-		return ;
-	}
-	wake_up_process(gproxythread);
-
-	vmptsas_shost = vmpt3sas_lookup_shost();
-	if (vmptsas_shost){
-		/*vmpt3sas_listall_scsidev(vmptsas_shost);*/
-		vmpt3sas_brdlocal_shost(vmptsas_shost);
-	}
-
+	spin_lock_irqsave(&instance->hba_lock, flags);
+	cmd->scmd = NULL;
+	list_add(&cmd->list, (&instance->cmd_pool)->next);
+	spin_unlock_irqrestore(&instance->hba_lock, flags);
 }
 
 int vmpt3sas_proxy_done_thread(void *data)
@@ -546,6 +538,7 @@ int vmpt3sas_proxy_done_thread(void *data)
 	}
 	return 0;
 }
+
 
 
 void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *rx_data)
@@ -625,6 +618,7 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	vmpt3sas_remote_cmd_t remote_cmd;
 	XDR *xdrs;
 	vmpt3sas_rx_data_t *rx_data;
+	taskq_t *tq_common = (taskq_t *)arg;
 
 	if ((cs_data->data_len == 0) || (cs_data->data == NULL)) {
 		printk(KERN_WARNING "%s: data is null len=%lld data=%p\n",
@@ -643,17 +637,17 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	
 	switch(remote_cmd) {
 		case VMPT_CMD_REQUEST:
-			taskq_dispatch(gvmpt3sas_tq_req,
+			taskq_dispatch(tq_common,
 				vmpt3sas_proxy_handler, (void *)rx_data, TQ_SLEEP);
 			
 			break;
 		case VMPT_CMD_RSP:
-			taskq_dispatch(gvmpt3sas_tq_req,
+			taskq_dispatch(tq_common,
 				vmpt3sas_rsp_handler, (void *)rx_data, TQ_SLEEP);
  			
 			break;
 		case VMPT_CMD_ADDHOST:
-			taskq_dispatch(gvmpt3sas_tq_req,
+			taskq_dispatch(tq_common,
 				vmpt3sas_addvhost_handler, (void *)rx_data, TQ_SLEEP);
 			break;
 
@@ -685,20 +679,11 @@ static void vmpt3sas_cts_link_evt_cb(void *private,
 	#endif
 }
 
-/**
- * scsih_qcmd - main scsi request entry point
- * @scmd: pointer to scsi command object
- * @done: function pointer to be invoked on completion
- *
- * The callback index is set inside `ioc->scsi_io_cb_idx`.
- *
- * Returns 0 on success.  If there's a failure, return either:
- * SCSI_MLQUEUE_DEVICE_BUSY if the device queue is full, or
- * SCSI_MLQUEUE_HOST_BUSY if the entire host queue is full
- */
-int
-vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
+void
+vmpt3sas_qcmd_handler(void *inputpara)
 {
+	struct Scsi_Host *shost = ((vmptsas_quecmd_t *)inputpara)->shost;
+	struct scsi_cmnd *scmd = ((vmptsas_quecmd_t *)inputpara)->scmd;
 	vmpt3sas_remote_cmd_t remote_cmd;
 	vmpt3sas_t *ioc = shost_priv(shost);
 	XDR xdr_temp;
@@ -779,10 +764,127 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		scmd->scsi_done(scmd);
 	}
 
-	return 0;
+	return ;
 	
 }
 
+int
+vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
+{
+	vmptsas_quecmd_t *cmd;
+	req_proxy_t *proxy = &(gvmpt3sas_instance.qcmdproxy);
+
+	cmd = vmpt3sas_get_cmd(&gvmpt3sas_instance);
+	if (cmd == NULL){
+		
+		printk(KERN_WARNING "can not get cmd  \n");
+		scmd->result = DID_NO_CONNECT << 16;
+		scmd->scsi_done(scmd);
+	}
+
+	cmd->scmd = scmd;
+	cmd->shost = shost;
+
+	spin_lock_irq(&proxy->queue_lock);
+	list_add_tail(&cmd->donelist, &proxy->done_queue);
+	spin_unlock_irq(&proxy->queue_lock);
+	wake_up(&proxy->waiting_wq);
+	
+	return 0;
+}
+
+int vmpt3sas_qcmd_done_thread(void *data)
+{
+	vmptsas_quecmd_t *quecmd;
+	req_proxy_t *proxy = (req_proxy_t *)data;
+	
+	set_user_nice(current, -20);
+	while (!kthread_should_stop() || !list_empty(&proxy->done_queue)) {
+		/* wait for something to do */
+		wait_event_interruptible(proxy->waiting_wq,
+					 kthread_should_stop() ||
+					 !list_empty(&proxy->done_queue));
+
+		/* extract request */
+		if (list_empty(&proxy->done_queue))
+			continue;
+
+		spin_lock_irq(&proxy->queue_lock);
+		quecmd = list_entry(proxy->done_queue.next, vmptsas_quecmd_t,
+				 donelist);
+		list_del_init(&quecmd->donelist);
+		spin_unlock_irq(&proxy->queue_lock);
+		
+		vmpt3sas_qcmd_handler(quecmd);
+		vmpt3sas_return_cmd(&gvmpt3sas_instance, quecmd);
+	}
+	return 0;
+}
+
+static void vmpt3sas_init_instance(vmptsas_instance_t *instance)
+{
+	int i,j;
+	int max_cmd = 1024;
+	vmptsas_quecmd_t *cmd;
+	req_proxy_t *proxy;
+	
+	instance->max_cmds = max_cmd;
+	INIT_LIST_HEAD(&instance->cmd_pool);
+	spin_lock_init(&instance->hba_lock);
+	
+	instance->cmd_list = kcalloc(max_cmd, sizeof(vmptsas_quecmd_t *), GFP_KERNEL);
+	if (!instance->cmd_list) {
+		printk(KERN_DEBUG "vmpt3sas: out of memory\n");
+		return ;
+	}
+	memset(instance->cmd_list, 0, sizeof(vmptsas_quecmd_t *) * max_cmd);
+
+	for (i = 0; i < max_cmd; i++) {
+		instance->cmd_list[i] = kmalloc(sizeof(vmptsas_quecmd_t),
+			GFP_KERNEL);
+
+		if (!instance->cmd_list[i]) {
+			for (j = 0; j < i; j++)
+				kfree(instance->cmd_list[j]);
+
+			kfree(instance->cmd_list);
+			instance->cmd_list = NULL;
+			return ;
+		}
+	}
+
+	for (i = 0; i < max_cmd; i++) {
+		cmd = instance->cmd_list[i];
+		memset(cmd, 0, sizeof(vmptsas_quecmd_t));
+		cmd->index = i;
+
+		list_add_tail(&cmd->list, &instance->cmd_pool);
+	}
+	
+	proxy = &instance->qcmdproxy;
+	INIT_LIST_HEAD(&proxy->done_queue);
+	spin_lock_init(&proxy->queue_lock);
+	init_waitqueue_head(&proxy->waiting_wq);
+	
+	proxy->thread = kthread_create(vmpt3sas_qcmd_done_thread, proxy, "%s", "vd_qcmd");
+	if (IS_ERR(proxy->thread)) {
+		printk(KERN_WARNING "kthread_create failed");
+		return ;
+	}
+	wake_up_process(proxy->thread);
+
+	proxy = &instance->dcmdproxy;
+	INIT_LIST_HEAD(&proxy->done_queue);
+	spin_lock_init(&proxy->queue_lock);
+	init_waitqueue_head(&proxy->waiting_wq);
+	
+	proxy->thread = kthread_create(vmpt3sas_proxy_done_thread, proxy, "%s", "vd_qcmd");
+	if (IS_ERR(proxy->thread)) {
+		printk(KERN_WARNING "kthread_create failed");
+		return ;
+	}
+	wake_up_process(proxy->thread);
+}
 
 /**
  * _mpt3sas_init - main entry point for this driver.
@@ -792,35 +894,29 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 static int __init
 _vmpt3sas_init(void)
 {
-	int rv;
-
+	struct Scsi_Host *shost;
+	
 	pr_info("%s loaded\n", VMPT3SAS_DRIVER_NAME);
-	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, NULL);
-	vmpt3sas_init_proxy();
 
-	/* receive thread */
-	gvmpt3sas_tq_req =
+	/* msg receive thread */
+	gvmpt3sas_instance.tq_common =
 	 	taskq_create("request_taskq", 8, minclsyspri,
     		8, INT_MAX, TASKQ_PREPOPULATE);
-	if (gvmpt3sas_tq_req 	== NULL) {
+	if (gvmpt3sas_instance.tq_common 	== NULL) {
 		printk(KERN_WARNING " %s taskq_create failed:", __func__);
-		rv = -ENODEV;
-		goto out_thread_fail;
+		return 0;
 	}
+	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, gvmpt3sas_instance.tq_common);
 
-	gvmpt3sas_tq_rsp =
-        taskq_create("reponse_taskq", 8, minclsyspri,
-    		8, INT_MAX, TASKQ_PREPOPULATE);
-	if (gvmpt3sas_tq_rsp == NULL) {
-		printk(KERN_WARNING " %s taskq_create failed:", __func__);
-		rv = -ENODEV;
-		goto out_thread_fail;
+	vmpt3sas_init_instance(&gvmpt3sas_instance);
+	
+	shost = vmpt3sas_lookup_shost();
+	if (shost){
+		vmpt3sas_brdlocal_shost(shost);
 	}
 
 	return 0;
 
-out_thread_fail:
-	return rv;
 }
 
 /**
@@ -830,7 +926,8 @@ out_thread_fail:
 static void __exit
 _vmpt3sas_exit(void)
 {
-	kthread_stop(gproxythread);
+	kthread_stop(gvmpt3sas_instance.qcmdproxy.thread);
+	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
 	pr_info("%s exit\n", VMPT3SAS_DRIVER_NAME);
 }
