@@ -143,14 +143,15 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 	req->sense_len = 0;
 	req->retries = 3;
 	req->timeout = 30*HZ;
-
-	printk(KERN_WARNING " %s exec req in scsi system \n", __func__);
+	
+	printk(KERN_WARNING " %s maped cmd0=%x cmdlen=%d data=%p len=%d \n", 
+		__func__,reqcmd->cmnd[0], req->cmd_len, reqcmd->data,reqcmd->datalen );
 	blk_execute_rq_nowait(req->q, NULL, req, 0,
 		 vmpt3sas_proxy_req_done);
 	return;
+	
 out:
 	blk_put_request(req);
-
 	return;
 }
 
@@ -216,7 +217,7 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	XDR *xdrs = &xdr_temp;
 	vmpt3sas_remote_cmd_t remote_cmd;
 	int tx_len;
-	int i,j;
+	int i;
 	struct scsi_device *sdev;
 
 	i = 0;
@@ -244,7 +245,7 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 			continue;
 		}*/
 		xdr_u_int(xdrs,&sdev->id);
-		printk(KERN_WARNING " %s (%d %d)pack id:%u  \n", __func__,i, j, sdev->id);
+		printk(KERN_WARNING " %s (%d)pack id:%u  \n", __func__, i, sdev->id);
 	}
 		
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
@@ -348,10 +349,7 @@ void vmpt3sas_proxy_handler(void *data)
 	xdr_int(xdrs, &req_scmd->id);
 	xdr_int(xdrs, &req_scmd->lun);
 	xdr_int(xdrs, (int *)(&req_scmd->data_direction));/* 4bytes */
-
-	printk(KERN_WARNING "%s: session=%p index=[%llu] scsicmd0 =[%x] shost=%p hostno=%d channel=%d id=%d lun=%d\n", 
-		__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun);
-
+	
 	xdr_u_int(xdrs, &req_scmd->cmd_len);/* 4bytes */
 	xdr_opaque(xdrs, (caddr_t)req_scmd->cmnd, req_scmd->cmd_len);
 	
@@ -364,13 +362,17 @@ void vmpt3sas_proxy_handler(void *data)
 		}
 		
 		req_scmd->data = kmalloc(req_scmd->datalen, GFP_KERNEL);
-		xdr_opaque(xdrs, (caddr_t)req_scmd->data, req_scmd->datalen);
+		if (req_scmd->data_direction == DMA_TO_DEVICE)
+			xdr_opaque(xdrs, (caddr_t)req_scmd->data, req_scmd->datalen);
 		
 	} else {
 		req_scmd->datalen = 0;
 		req_scmd->data = NULL;
 	}
-
+	
+	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d data=%p\n", 
+			__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, (unsigned char)req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun,
+			req_scmd->data_direction,req_scmd->datalen,req_scmd->data);
 	shost = scsi_host_lookup(req_scmd->host);
 	if (shost == NULL) {
 		printk(KERN_WARNING "%s: hostno=%d scsihost is not found\n", 
@@ -427,21 +429,35 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->req_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->shost);/* 8bytes */
 
-	printk(KERN_WARNING " %s index=%llu shost=%p result=%d \n", 
-		__func__, (u_longlong_t)reqcmd->req_index, reqcmd->shost, scmd->result);
+	printk(KERN_WARNING " %s index=%llu shost=%p scmd0=%x result=%d scmd tranfsersize=%d sdblen=%d \n", 
+		__func__, (u_longlong_t)reqcmd->req_index, reqcmd->shost,scmd->cmnd[0], scmd->result,
+		scmd->transfersize, scmd->sdb.length);
 	xdr_int(xdrs, (int *)&scmd->result);
 	xdr_int(xdrs, (int *)&scmd->sdb.resid);
 	senselen = 18;
 	xdr_int(xdrs, (int *)&senselen);
 	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
 
-	if (scmd->sc_data_direction == DMA_FROM_DEVICE) {
-
+	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
+		if(scmd->cmnd[0]== 0x25){
+				char *p;
+				p = reqcmd->data;
+				printk(KERN_WARNING " %s %d len=%d data=[%x][%x][%x][%x][%x][%x][%x][%x]",
+				__func__,reqcmd->datalen,*p,*(p+1),*(p+2),*(p+3),*(p+4),*(p+5),*(p+6),*(p+7));
+		}
+		
+		if(scmd->transfersize!=0)
+		{
+			xdr_u_int(xdrs, &(scmd->transfersize));/* 4bytes */
+			xdr_opaque(xdrs, reqcmd->data, scmd->transfersize);
+		}
+		/*
 		if (scmd->sdb.length != 0) {
-			xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
+			xdr_u_int(xdrs, &(scmd->sdb.length));
 			scsi_sg_copy_to_buffer(scmd, xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
 			xdrs->x_addr += scmd->sdb.length;
 		}
+		*/
 	}
 
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
@@ -727,8 +743,9 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	/*have scsi data*/
 	if (scmd->sdb.length != 0) {
 		have_sdb = 1;
-		printk(KERN_WARNING "%s: to tansfer msg sdb_len=%d \n", __func__, scmd->sdb.length);
-		if (scmd->sc_data_direction == DMA_FROM_DEVICE) {
+		printk(KERN_WARNING "%s: to tansfer msg direction %d sdb_len=%d \n",
+			__func__, scmd->sc_data_direction, scmd->sdb.length);
+		if (scmd->sc_data_direction != DMA_TO_DEVICE) {
 			xdr_int(xdrs, &have_sdb);/* 4bytes */
 			xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
 		} else {
