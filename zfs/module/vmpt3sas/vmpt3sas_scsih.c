@@ -277,6 +277,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 		return;
 	}
 
+	shost->max_cmd_len = 16;
 	ioc = shost_priv(shost);
 	ioc->session = session;
 	ioc->remotehostno = hostno;
@@ -429,9 +430,9 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->req_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->shost);/* 8bytes */
 
-	printk(KERN_WARNING " %s index=%llu shost=%p scmd0=%x result=%d scmd tranfsersize=%d sdblen=%d \n", 
+	printk(KERN_WARNING " %s index=%llu shost=%p scmd0=%x result=%d scmd tranfsersize=%d sdblen=%d datalen=%d\n", 
 		__func__, (u_longlong_t)reqcmd->req_index, reqcmd->shost,scmd->cmnd[0], scmd->result,
-		scmd->transfersize, scmd->sdb.length);
+		scmd->transfersize, scmd->sdb.length, reqcmd->datalen);
 	xdr_int(xdrs, (int *)&scmd->result);
 	xdr_int(xdrs, (int *)&scmd->sdb.resid);
 	senselen = 18;
@@ -446,10 +447,10 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 				__func__,reqcmd->datalen,*p,*(p+1),*(p+2),*(p+3),*(p+4),*(p+5),*(p+6),*(p+7));
 		}
 		
-		if(scmd->transfersize!=0)
+		if(reqcmd->datalen!=0)
 		{
-			xdr_u_int(xdrs, &(scmd->transfersize));/* 4bytes */
-			xdr_opaque(xdrs, reqcmd->data, scmd->transfersize);
+			xdr_u_int(xdrs, &(reqcmd->datalen));/* 4bytes */
+			xdr_opaque(xdrs, reqcmd->data, reqcmd->datalen);
 		}
 		/*
 		if (scmd->sdb.length != 0) {
@@ -734,8 +735,9 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	xdr_u_int(xdrs, (uint_t *)&(scmd->cmd_len));/* 4bytes */
 	xdr_opaque(xdrs, (caddr_t)scmd->cmnd, scmd->cmd_len);
 
-	printk(KERN_WARNING "%s: index:%llu shost=%p remotehostno= %d cmd0=%x id=%d\n", 
-		__func__, (u_longlong_t)index, shost, ioc->remotehostno,scmd->cmnd[0],scmd->device->id);
+	printk(KERN_WARNING "%s: index:%llu shost=%p remotehostno= %d cmd0=%x id=%d max_cmd_len=%d\n", 
+		__func__, (u_longlong_t)index, shost, ioc->remotehostno,scmd->cmnd[0],scmd->device->id,
+		scmd->device->host->max_cmd_len);
 	
 	if (ioc->logging_level)
 			scsi_print_command(scmd);
