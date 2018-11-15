@@ -447,7 +447,6 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	int tx_len;
 
 	scmd = req->special;
-
 	
 	/* encode message */
 	len = XDR_EN_FIXED_SIZE + reqcmd->datalen;
@@ -468,7 +467,7 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
 
 	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
-		
+		/*
 		char cmd ;
 		cmd = scmd->cmnd[0] & 0x0f;
 		if (scmd->cmnd[0]==0x12 && reqcmd->data > 0) {
@@ -496,7 +495,7 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 				printk(KERN_WARNING " %s len=%d data=[%s]",
 					__func__, reqcmd->datalen, buf);
 				kfree(buf);
-		}
+		}*/
 		
 		if(reqcmd->datalen!=0)
 		{
@@ -513,6 +512,7 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	}
 
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
+	printk(KERN_WARNING " %s tx_len=%d", __func__, tx_len);
 	vmpt3sas_send_msg(reqcmd->session, (void *)buff, tx_len);
 	cs_kmem_free(buff, len);
 
