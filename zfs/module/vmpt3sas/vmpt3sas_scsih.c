@@ -25,6 +25,23 @@
 #include <rpc/xdr.h>
 #include "vmpt3sas.h"
 
+struct subsys_private {
+	struct kset subsys;
+	struct kset *devices_kset;
+	struct list_head interfaces;
+	struct mutex mutex;
+
+	struct kset *drivers_kset;
+	struct klist klist_devices;
+	struct klist klist_drivers;
+	struct blocking_notifier_head bus_notifier;
+	unsigned int drivers_autoprobe:1;
+	struct bus_type *bus;
+
+	struct kset glue_dirs;
+	struct class *class;
+};
+
 #define	VMPT3SAS_BROADCAST_SESS				((void *)(0-1))
 #define	XDR_EN_FIXED_SIZE	256/* Leave allowance */
 #define	XDR_DE_FIXED_SIZE	256/* Leave allowance */
@@ -39,6 +56,8 @@ vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
 int vmpt3sas_scsih_qcmd(struct Scsi_Host *, struct scsi_cmnd *);
 int vmpt3sas_send_msg(void *, void *, u64 );
 int vmpt3sas_proxy_done_thread(void *);
+int vmpt3sas_slave_alloc(struct scsi_device *);
+int vmpt3sas_slave_configure(struct scsi_device *);
 
 /* shost template for SAS 3.0 HBA devices */
 static struct scsi_host_template vmpt3sas_driver_template = {
@@ -47,8 +66,8 @@ static struct scsi_host_template vmpt3sas_driver_template = {
 	.proc_name			= VMPT3SAS_DRIVER_NAME,
 	.queuecommand			= vmpt3sas_scsih_qcmd,
 	.target_alloc			= NULL,
-	.slave_alloc			= NULL,
-	.slave_configure		= NULL,
+	.slave_alloc			= vmpt3sas_slave_alloc,
+	.slave_configure		= vmpt3sas_slave_configure,
 	.target_destroy			= NULL,
 	.slave_destroy			= NULL,
 	.scan_finished			= NULL,
@@ -143,9 +162,10 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 	req->sense_len = 0;
 	req->retries = 3;
 	req->timeout = 30*HZ;
-	
+	/*
 	printk(KERN_WARNING " %s maped cmd0=%x cmdlen=%d data=%p len=%d \n", 
 		__func__,reqcmd->cmnd[0], req->cmd_len, reqcmd->data,reqcmd->datalen );
+		*/
 	blk_execute_rq_nowait(req->q, NULL, req, 0,
 		 vmpt3sas_proxy_req_done);
 	return;
@@ -204,8 +224,10 @@ static void vmpt3sas_listall_scsidev(struct Scsi_Host *shost)
 	struct scsi_device *sdev;
 	
 	shost_for_each_device(sdev, shost) {
-		printk(KERN_WARNING " %s host: %p host_no =%d chanl:%d id:%d lun:%d \n", 
-			__func__, shost, shost->host_no, sdev->channel, sdev->id, sdev->lun);
+		printk(KERN_WARNING " %s host: %p host_no =%d chanl:%d id:%d lun:%d inquiry_len=%x type=%x scsi_level=%x\n", 
+			__func__, shost, shost->host_no, sdev->channel, sdev->id, (int)sdev->lun,
+			sdev->inquiry_len, sdev->type, sdev->scsi_level );
+			
 	}
 }
 
@@ -219,7 +241,7 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	int tx_len;
 	int i;
 	struct scsi_device *sdev;
-
+	
 	i = 0;
 	shost_for_each_device(sdev, shost) {
 		i++;
@@ -278,6 +300,10 @@ static void vmpt3sas_addvhost_handler(void *data)
 	}
 
 	shost->max_cmd_len = 16;
+	shost->max_id = 128;
+	shost->max_lun = 16;
+	shost->max_channel = 0;
+	
 	ioc = shost_priv(shost);
 	ioc->session = session;
 	ioc->remotehostno = hostno;
@@ -421,8 +447,10 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	int tx_len;
 
 	scmd = req->special;
+
+	
 	/* encode message */
-	len = XDR_EN_FIXED_SIZE + scmd->cmd_len + scmd->sdb.length;
+	len = XDR_EN_FIXED_SIZE + reqcmd->datalen;
 	buff = cs_kmem_alloc(len);
 	xdrmem_create(xdrs, buff, len, XDR_ENCODE);
 	remote_cmd = VMPT_CMD_RSP;
@@ -440,11 +468,34 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
 
 	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
-		if(scmd->cmnd[0]== 0x25){
-				char *p;
+		
+		char cmd ;
+		cmd = scmd->cmnd[0] & 0x0f;
+		if (scmd->cmnd[0]==0x12 && reqcmd->data > 0) {
+				unsigned char *p;
+				int len;
+				char *buf;
+				int i;
+
+				len = scmd->cmd_len;
+				p = scmd->cmnd;
+				buf = kmalloc(len*2+1+16, GFP_KERNEL);
+				for(i=0; i<len; i++)
+					sprintf(buf+i*2,"%02x",(unsigned char)*(p++));
+				*p=0;
+				printk(KERN_WARNING " %s cmdlen=%d cmd=[%s]",
+					__func__, len, buf);
+				kfree(buf);
+				
+				len = reqcmd->datalen;
 				p = reqcmd->data;
-				printk(KERN_WARNING " %s %d len=%d data=[%x][%x][%x][%x][%x][%x][%x][%x]",
-				__func__,reqcmd->datalen,*p,*(p+1),*(p+2),*(p+3),*(p+4),*(p+5),*(p+6),*(p+7));
+				buf = kmalloc(len*2+1+16, GFP_KERNEL);
+				for(i=0; i<len; i++)
+					sprintf(buf+i*2,"%02x",(unsigned char)*(p++));
+				*p=0;
+				printk(KERN_WARNING " %s len=%d data=[%s]",
+					__func__, reqcmd->datalen, buf);
+				kfree(buf);
 		}
 		
 		if(reqcmd->datalen!=0)
@@ -578,10 +629,10 @@ void vmpt3sas_rsp_handler(void *data)
 	
 	xdr_u_longlong_t(xdrs, (u64 *)&rsp_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&shost);/* 8bytes */
-	
+	/*
 	printk(KERN_WARNING " %s repindex=%ld shost=[%p] \n", __func__, 
 		(unsigned long)rsp_index, shost);
-	
+	*/
 	ioc = shost_priv(shost);
 	ret= mod_hash_remove(ioc->vmpt_cmd_wait_hash,
 		(mod_hash_key_t)(uintptr_t)rsp_index, (mod_hash_val_t *)&scmd);
@@ -649,9 +700,9 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	rx_data->cs_data = cs_data;
 	xdrmem_create(xdrs, cs_data->data, cs_data->data_len, XDR_DECODE);
 	xdr_int(xdrs, (int *)&remote_cmd);
-
+	/*
 	printk(KERN_WARNING "%s: msgtype=[%d] \n", __func__,remote_cmd);
-	
+	*/
 	switch(remote_cmd) {
 		case VMPT_CMD_REQUEST:
 			taskq_dispatch(tq_common,
@@ -745,8 +796,10 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	/*have scsi data*/
 	if (scmd->sdb.length != 0) {
 		have_sdb = 1;
+		/*
 		printk(KERN_WARNING "%s: to tansfer msg direction %d sdb_len=%d \n",
 			__func__, scmd->sc_data_direction, scmd->sdb.length);
+			*/
 		if (scmd->sc_data_direction != DMA_TO_DEVICE) {
 			xdr_int(xdrs, &have_sdb);/* 4bytes */
 			xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
@@ -785,6 +838,37 @@ vmpt3sas_qcmd_handler(void *inputpara)
 
 	return ;
 	
+}
+
+int vmpt3sas_slave_alloc(struct scsi_device *sdev)
+{
+	
+	sdev->inquiry_len = 0x4a;
+	
+	sdev->type = 0;
+	sdev->scsi_level = 4;
+	sdev->try_vpd_pages = 1;
+	/*
+	dump_stack();
+	*/
+	return 0;
+}
+
+int vmpt3sas_slave_configure(struct scsi_device *sdev)
+{
+	struct device *dev;
+	struct bus_type *bus;
+	struct subsys_private *psubsys;
+	printk(KERN_WARNING "%s is run \n", __func__);
+	
+	dev = &sdev->sdev_gendev;
+	bus = dev->bus;
+	if (bus){
+		psubsys = bus->p;
+		printk(KERN_WARNING "%s try_vpd_pages:%d scsi_level:%d skip_vpd_pages:%d inquiry_len=%x", 
+			__func__, sdev->try_vpd_pages, sdev->scsi_level, sdev->skip_vpd_pages, sdev->inquiry_len );
+	}
+	return 0;
 }
 
 int
