@@ -12,6 +12,10 @@
 #include <linux/aer.h>
 #include <linux/kernel.h>
 #include <linux/gfp.h>
+#include <asm/device.h>
+#include <linux/device.h>
+#include <linux/cdev.h>
+#include <linux/miscdevice.h>
 #include <asm/unaligned.h>
 #include <sys/zfs_context.h>
 #include <sys/cluster_san.h>
@@ -58,6 +62,8 @@ int vmpt3sas_send_msg(void *, void *, u64 );
 int vmpt3sas_proxy_done_thread(void *);
 int vmpt3sas_slave_alloc(struct scsi_device *);
 int vmpt3sas_slave_configure(struct scsi_device *);
+long vmpt3sas_unlocked_ioctl(struct file *, unsigned int , unsigned long );
+int vmpt3sas_open (struct inode *, struct file *);
 
 /* shost template for SAS 3.0 HBA devices */
 static struct scsi_host_template vmpt3sas_driver_template = {
@@ -87,6 +93,18 @@ static struct scsi_host_template vmpt3sas_driver_template = {
 	.shost_attrs			= NULL,
 	.sdev_attrs			= NULL,
 	.track_queue_depth		= 1,
+};
+
+static const struct file_operations vmpt3sas_fops = {
+	.owner		= THIS_MODULE,
+	.unlocked_ioctl	= vmpt3sas_unlocked_ioctl,
+	.open		= vmpt3sas_open,
+};
+
+static struct miscdevice vmpt3sas_mm_dev = {
+	.minor	= MISC_DYNAMIC_MINOR,
+	.name   = "vmpt3sas_mm_dev",
+	.fops   = &vmpt3sas_fops,
 };
 
 #if 0
@@ -989,6 +1007,57 @@ static void vmpt3sas_init_instance(vmptsas_instance_t *instance)
 	wake_up_process(proxy->thread);
 }
 
+long
+vmpt3sas_unlocked_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
+{
+	int ret = 0;
+
+	printk(KERN_WARNING "%s runing cmd=%d \n", __func__, cmd);
+	return ret;
+}
+
+int
+vmpt3sas_open (struct inode *inode, struct file *filep)
+{
+	printk(KERN_WARNING "%s runing \n", __func__);
+	return 0;
+}
+
+/*
+static int vmpt3sas_cdev_init(void)
+{
+	int ret;
+	dev_t devno;
+	struct cdev cdev;
+	struct class *cdev_class;
+	ret = alloc_chrdev_region(&devno, 0 , 1 , "vmpt3sas_chrdev");
+	if (ret) {
+		printk(KERN_WARNING "alloc_chrdev_region failed");
+		unregister_chrdev_region(devno, 1);
+		return ret;
+	}
+	
+	cdev_init(&cdev, &vmpt3sas_fops);
+	ret = cdev_add(&cdev, devno, 1);
+	if (ret) {
+		printk(KERN_WARNING "cdev_add failed");
+		unregister_chrdev_region(devno, 1);
+		return ret;
+	}
+
+	cdev_class = class_create(THIS_MODULE, "vmpt3sas_chrdev");
+	if (IS_ERR(cdev_class)) {
+		printk(KERN_WARNING "class_create failed");
+		unregister_chrdev_region(devno, 1);
+		return -1;
+	}
+	
+	device_create(cdev_class,NULL,devno,NULL, "vmpt3sas_chrdev");
+
+	return 0;
+}
+*/
+
 /**
  * _mpt3sas_init - main entry point for this driver.
  *
@@ -998,6 +1067,7 @@ static int __init
 _vmpt3sas_init(void)
 {
 	struct Scsi_Host *shost;
+	int err;
 	
 	pr_info("%s loaded\n", VMPT3SAS_DRIVER_NAME);
 
@@ -1016,6 +1086,12 @@ _vmpt3sas_init(void)
 	shost = vmpt3sas_lookup_shost();
 	if (shost){
 		vmpt3sas_brdlocal_shost(shost);
+	}
+
+	err = misc_register(&vmpt3sas_mm_dev);
+	if (err < 0) {
+		printk(KERN_WARNING "%s: cannot register misc device\n", __func__);
+		return err;
 	}
 
 	return 0;
