@@ -1011,6 +1011,12 @@ long
 vmpt3sas_unlocked_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
+	struct Scsi_Host *shost;
+	
+	shost = vmpt3sas_lookup_shost();
+	if (shost){
+		vmpt3sas_brdlocal_shost(shost);
+	}
 
 	printk(KERN_WARNING "%s runing cmd=%d \n", __func__, cmd);
 	return ret;
@@ -1066,7 +1072,6 @@ static int vmpt3sas_cdev_init(void)
 static int __init
 _vmpt3sas_init(void)
 {
-	struct Scsi_Host *shost;
 	int err;
 	
 	pr_info("%s loaded\n", VMPT3SAS_DRIVER_NAME);
@@ -1082,11 +1087,6 @@ _vmpt3sas_init(void)
 	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, gvmpt3sas_instance.tq_common);
 
 	vmpt3sas_init_instance(&gvmpt3sas_instance);
-	
-	shost = vmpt3sas_lookup_shost();
-	if (shost){
-		vmpt3sas_brdlocal_shost(shost);
-	}
 
 	err = misc_register(&vmpt3sas_mm_dev);
 	if (err < 0) {
@@ -1105,6 +1105,7 @@ _vmpt3sas_init(void)
 static void __exit
 _vmpt3sas_exit(void)
 {
+	misc_deregister(&vmpt3sas_mm_dev);
 	kthread_stop(gvmpt3sas_instance.qcmdproxy.thread);
 	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
