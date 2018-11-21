@@ -130,7 +130,7 @@ MODULE_PARM_DESC(max_sectors, "max sectors, range 64 to 32767  default=32767");
 
 
 /* command line options */
-static u32 logging_level = 1;
+static u32 logging_level = 0;
 MODULE_PARM_DESC(logging_level,
 	" bits for enabling additional logging info (default=0)");
 																																																																							
@@ -138,10 +138,10 @@ static void vmpt3sas_proxy_req_done(struct request *req, int error)
 {
 	req_list_t *reqlist;
 	req_proxy_t *proxy = &(gvmpt3sas_instance.dcmdproxy);
-	
+	/*
 	printk(KERN_WARNING " %s is run error=[%d] sense=%p err=%x resid=%d \n", 
 		__func__, error, req->sense, req->errors, req->resid_len);
-	
+	*/
 	reqlist = kmalloc(sizeof(req_list_t),GFP_KERNEL);
 	reqlist->req = req;
 	
@@ -166,8 +166,9 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 	blk_rq_set_block_pc(req);
 
 	for(i=0; i<reqcmd->ndata; i++){
+		/*
 		printk(KERN_WARNING " %s to blk_rq_map_kern  %p %d\n", 
-				__func__,reqcmd->dataarr[i], reqcmd->lendataarr[i]);
+				__func__,reqcmd->dataarr[i], reqcmd->lendataarr[i]);*/
 		ret = blk_rq_map_kern(sdev->request_queue, req,
 			reqcmd->dataarr[i], reqcmd->lendataarr[i], GFP_NOIO);
 
@@ -435,10 +436,11 @@ void vmpt3sas_proxy_handler(void *data)
 		req_scmd->datalen = 0;
 		/*req_scmd->data = NULL;*/
 	}
-	
+	/*
 	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d \n", 
 			__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, (unsigned char)req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun,
 			req_scmd->data_direction,req_scmd->datalen);
+	*/
 	shost = scsi_host_lookup(req_scmd->host);
 	if (shost == NULL) {
 		printk(KERN_WARNING "%s: hostno=%d scsihost is not found\n", 
@@ -496,10 +498,11 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->req_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->shost);/* 8bytes */
-
+	/*
 	printk(KERN_WARNING " %s index=%llu shost=%p scmd0=%x result=%d scmd tranfsersize=%d sdblen=%d datalen=%d\n", 
 		__func__, (u_longlong_t)reqcmd->req_index, reqcmd->shost,scmd->cmnd[0], scmd->result,
 		scmd->transfersize, scmd->sdb.length, reqcmd->datalen);
+	*/	
 	xdr_int(xdrs, (int *)&scmd->result);
 	xdr_int(xdrs, (int *)&scmd->sdb.resid);
 	senselen = 18;
@@ -553,7 +556,7 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	}
 
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
-	printk(KERN_WARNING " %s tx_len=%d", __func__, tx_len);
+	/*printk(KERN_WARNING " %s tx_len=%d", __func__, tx_len);*/
 	vmpt3sas_send_msg(reqcmd->session, (void *)buff, tx_len);
 	cs_kmem_free(buff, len);
 
@@ -689,18 +692,19 @@ void vmpt3sas_rsp_handler(void *data)
 
 	xdr_int(xdrs, (int *)&senselen);
 	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
-
+	/*
 	printk(KERN_WARNING " %s repindex=%ld shost=[%p] senselen=%d direction=%d sdb.len=%d\n", __func__, 
 		(unsigned long)rsp_index, shost, senselen, scmd->sc_data_direction ,scmd->sdb.length);
-
+	*/
 	/*scsi data*/
 	if (scmd->sc_data_direction == DMA_FROM_DEVICE) {
 		xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
 		scsi_sg_copy_from_buffer(scmd, xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
 		xdrs->x_addr += scmd->sdb.length;
-
+		/*
 		printk(KERN_WARNING "%s cp2scsicmd repindex=%ld shost=[%p] direction=%d sdb.len=%d\n", __func__, 
 				(unsigned long)rsp_index, shost,  scmd->sc_data_direction ,scmd->sdb.length);
+		*/
 	}
 
 	scmd->scsi_done(scmd);
@@ -827,10 +831,11 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	xdr_u_int(xdrs, (uint_t *)&(scmd->cmd_len));/* 4bytes */
 	xdr_opaque(xdrs, (caddr_t)scmd->cmnd, scmd->cmd_len);
 
+	/*
 	printk(KERN_WARNING "%s: index:%llu shost=%p remotehostno= %d cmd0=%x id=%d max_cmd_len=%d\n", 
 		__func__, (u_longlong_t)index, shost, ioc->remotehostno,scmd->cmnd[0],scmd->device->id,
 		scmd->device->host->max_cmd_len);
-	
+	*/
 	if (ioc->logging_level)
 			scsi_print_command(scmd);
 	
