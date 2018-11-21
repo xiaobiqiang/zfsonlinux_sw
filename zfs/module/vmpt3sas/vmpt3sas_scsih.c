@@ -155,8 +155,8 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 {
 	struct request *req;
 	int write = (reqcmd->data_direction == DMA_TO_DEVICE);
-	unsigned int bufflen;
-	void *buffer;
+	int i;
+	int ret;
 
 	req = blk_get_request(sdev->request_queue, write, GFP_KERNEL);
 	if (IS_ERR(req)) {
@@ -165,12 +165,17 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 	}
 	blk_rq_set_block_pc(req);
 
-	bufflen = reqcmd->datalen;
-	buffer = reqcmd->data;
-	if (bufflen &&	blk_rq_map_kern(sdev->request_queue, req,
-					buffer, bufflen, GFP_KERNEL)){
-		printk(KERN_WARNING " %s blk_rq_map_kern failed \n", __func__);
-		goto out;
+	for(i=0; i<reqcmd->ndata; i++){
+		printk(KERN_WARNING " %s to blk_rq_map_kern  %p %d\n", 
+				__func__,reqcmd->dataarr[i], reqcmd->lendataarr[i]);
+		ret = blk_rq_map_kern(sdev->request_queue, req,
+			reqcmd->dataarr[i], reqcmd->lendataarr[i], GFP_NOIO);
+
+		if(ret ){
+			printk(KERN_WARNING " %s blk_rq_map_kern failed ret=%d %p %d\n", 
+				__func__,ret, reqcmd->dataarr[i], reqcmd->lendataarr[i]);	
+			goto out;
+		}
 	}
 	
 	req->end_io_data = reqcmd;
@@ -321,6 +326,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 	shost->max_id = 128;
 	shost->max_lun = 16;
 	shost->max_channel = 0;
+	shost->max_sectors = 256;
 	
 	ioc = shost_priv(shost);
 	ioc->session = session;
@@ -373,6 +379,9 @@ void vmpt3sas_proxy_handler(void *data)
 	vmpt3sas_rx_data_t *prx ;
 	XDR *xdrs ;
 	int have_sdb;
+	int i;
+	int reslen;
+	int aloclen;
 	vmpt3sas_req_scmd_t *req_scmd;
 	struct scsi_device *sdev = NULL;
 	struct Scsi_Host *shost;
@@ -381,8 +390,9 @@ void vmpt3sas_proxy_handler(void *data)
 	xdrs = prx->xdrs;
 
 	req_scmd = kmalloc(sizeof(vmpt3sas_req_scmd_t), GFP_KERNEL);
+	req_scmd->ndata = 0;
 	req_scmd->datalen = 0;
-	req_scmd->data = NULL;
+	
 	req_scmd->session = prx->cs_data->cs_private;
 	
 	xdr_u_longlong_t(xdrs, (u64 *)&req_scmd->req_index);/* 8bytes */
@@ -401,23 +411,34 @@ void vmpt3sas_proxy_handler(void *data)
 	xdr_int(xdrs, &have_sdb);
 	if (have_sdb) {
 		xdr_u_int(xdrs, &(req_scmd->datalen)); /* 4bytes */
-		if (!(req_scmd->datalen > 0 && req_scmd->datalen < 1024*1024)){
+		if (!(req_scmd->datalen > 0 && req_scmd->datalen <= 4*1024*1024)){
 			printk(KERN_WARNING "%s: data_len = %d error\n", __func__, req_scmd->datalen);
 			return;
 		}
-		
-		req_scmd->data = kmalloc(req_scmd->datalen, GFP_KERNEL);
-		if (req_scmd->data_direction == DMA_TO_DEVICE)
-			xdr_opaque(xdrs, (caddr_t)req_scmd->data, req_scmd->datalen);
-		
+		reslen = req_scmd->datalen;
+		for(i=0; i<32; ){
+			aloclen = min(128*1024,reslen);
+			req_scmd->dataarr[i] = kmalloc(aloclen, GFP_KERNEL);
+			req_scmd->lendataarr[i] = aloclen;
+			i++;
+			reslen -= aloclen;
+			if (reslen<=0)
+				break;
+		}
+		req_scmd->ndata = i;
+		if (req_scmd->data_direction == DMA_TO_DEVICE){
+			for(i=0; i<req_scmd->ndata; i++){
+				xdr_opaque(xdrs, (caddr_t)req_scmd->dataarr[i], req_scmd->lendataarr[i]);
+			}
+		}
 	} else {
 		req_scmd->datalen = 0;
-		req_scmd->data = NULL;
+		/*req_scmd->data = NULL;*/
 	}
 	
-	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d data=%p\n", 
+	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d \n", 
 			__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, (unsigned char)req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun,
-			req_scmd->data_direction,req_scmd->datalen,req_scmd->data);
+			req_scmd->data_direction,req_scmd->datalen);
 	shost = scsi_host_lookup(req_scmd->host);
 	if (shost == NULL) {
 		printk(KERN_WARNING "%s: hostno=%d scsihost is not found\n", 
@@ -463,6 +484,7 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	struct scsi_cmnd *scmd;
 	int senselen;
 	int tx_len;
+	int i;
 
 	scmd = req->special;
 	
@@ -518,7 +540,8 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 		if(reqcmd->datalen!=0)
 		{
 			xdr_u_int(xdrs, &(reqcmd->datalen));/* 4bytes */
-			xdr_opaque(xdrs, reqcmd->data, reqcmd->datalen);
+			for(i=0; i<reqcmd->ndata; i++)
+				xdr_opaque(xdrs, reqcmd->dataarr[i], reqcmd->lendataarr[i]);
 		}
 		/*
 		if (scmd->sdb.length != 0) {
@@ -534,8 +557,8 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	vmpt3sas_send_msg(reqcmd->session, (void *)buff, tx_len);
 	cs_kmem_free(buff, len);
 
-	if (reqcmd->data)
-		kfree(reqcmd->data);
+	for(i=0; i<reqcmd->ndata; i++)
+		kfree(reqcmd->dataarr[i]);
 	kfree(reqcmd);
 	
 	blk_put_request(req);

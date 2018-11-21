@@ -63,7 +63,9 @@ typedef struct vmpt3sas_req_scmd {
 	unsigned int response; 
 	char sense[24];
 	unsigned int datalen;
-	char *data;
+	char *dataarr[32];
+	int lendataarr[32];
+	int ndata;
 	void *session;
 	void *shost;
 }vmpt3sas_req_scmd_t;
