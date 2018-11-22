@@ -1,9 +1,9 @@
-src = /root/zfsonlinux/zfs/module/zfs
-obj = /root/zfsonlinux/zfs/module/zfs
+src = /root/wzy/zfsonlinux/zfs/module/zfs
+obj = /root/wzy/zfsonlinux/zfs/module/zfs
 
 MODULE := zfs
 
-EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS)  -Wno-unused-but-set-variable  -DHAVE_SPL -D_KERNEL -DTEXT_DOMAIN=\"zfs-linux-kernel\" -DNDEBUG 
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS)  -Wno-unused-but-set-variable -Wno-bool-compare -DHAVE_SPL -D_KERNEL -DTEXT_DOMAIN=\"zfs-linux-kernel\" -DNDEBUG 
 
 obj-$(CONFIG_ZFS) := $(MODULE).o
 
@@ -90,6 +90,7 @@ $(MODULE)-objs += zfs_sa.o
 $(MODULE)-objs += zfs_vfsops.o
 $(MODULE)-objs += zfs_vnops.o
 $(MODULE)-objs += zfs_znode.o
+$(MODULE)-objs += zfs_multiclus.o
 $(MODULE)-objs += zfs_group_client.o
 $(MODULE)-objs += zfs_group_server.o
 $(MODULE)-objs += zfs_group_sync.o
@@ -113,3 +114,7 @@ $(MODULE)-objs += dsl_destroy.o
 $(MODULE)-objs += dsl_userhold.o
 $(MODULE)-objs += cluster_san.o
 $(MODULE)-objs += cluster_target_mac.o
+$(MODULE)-objs += cluster_target_socket.o
+$(MODULE)-objs += zfs_hbx.o
+$(MODULE)-objs += zfs_mirror.o
+$(MODULE)-objs += lun_migrate.o
