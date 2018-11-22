@@ -362,9 +362,9 @@ typedef struct zfs_cmd {
 	//zfs_ioc_crypto_t zc_crypto;
 	boolean_t	zc_temphold;
 	uint64_t	zc_multiclus_stat;
-	uint64_t    zc_multiclus_group;		/*number of group*/
+	uint64_t    zc_multiclus_group;		/*number of group  or total to migrate*/
 	uint64_t    zc_multiclus_break;		/*next group index which need to query 
-									      and callback group*/
+									      and callback group  or total to migrate*/
 	boolean_t   zc_multiclus_onceflag;		/* once query flag when 
 										SHOW_MULTICLUS == flags in zfs_start_multiclus  */
 	uint8_t		zc_multiclus_pad[4];		/* alignment */

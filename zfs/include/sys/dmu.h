@@ -329,6 +329,8 @@ typedef struct dmu_buf {
 #define	DMU_POOL_BPTREE_OBJ		"bptree_obj"
 #define	DMU_POOL_EMPTY_BPOBJ		"empty_bpobj"
 #define DMU_POOL_METASPARES		"metaspares"
+#define DMU_POOL_MIRRORSPARES		"mirrorspares"
+#define DMU_POOL_LOWSPARES		"lowspares"
 
 
 /*
@@ -426,7 +428,7 @@ dmu_write_embedded(objset_t *os, uint64_t object, uint64_t offset,
 #define	WP_SPILL	0x4
 
 void dmu_write_policy(objset_t *os, struct dnode *dn, int level, int wp,
-    struct zio_prop *zp, boolean_t app_write_meta);
+    struct zio_prop *zp, boolean_t app_write_meta, boolean_t write_low);
 /*
  * The bonus data is accessed more or less like a regular buffer.
  * You must dmu_bonus_hold() to get the buffer, which will give you a
@@ -674,6 +676,7 @@ void dmu_tx_hold_zap(dmu_tx_t *tx, uint64_t object, int add, const char *name);
 void dmu_tx_hold_bonus(dmu_tx_t *tx, uint64_t object);
 void dmu_tx_hold_spill(dmu_tx_t *tx, uint64_t object);
 void dmu_tx_hold_sa(dmu_tx_t *tx, struct sa_handle *hdl, boolean_t may_grow);
+void dmu_tx_hold_low(dmu_tx_t *tx, boolean_t is_low);
 void dmu_tx_hold_sa_create(dmu_tx_t *tx, int total_size);
 void dmu_tx_abort(dmu_tx_t *tx);
 int dmu_tx_assign(dmu_tx_t *tx, enum txg_how txg_how);
@@ -728,6 +731,7 @@ void dmu_prealloc(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 
 #define WRITE_FLAG_APP_META     0x00000001
 #define WRITE_FLAG_APP_SYNC     0x00000002
+#define WRITE_FLAG_APP_LOW		0x00000004
 
 #ifdef _KERNEL
 #include <linux/blkdev_compat.h>

@@ -2,7 +2,8 @@ include $(top_srcdir)/config/Rules.am
 
 DEFAULT_INCLUDES += \
 	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/lib/libspl/include \
+	-I/usr/include/libxml2
 
 sbin_PROGRAMS = zfs
 
@@ -20,5 +21,5 @@ zfs_LDADD = \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
 	$(top_builddir)/lib/libstmf/libstmf.la 
 
-zfs_LDADD += $(ZLIB) -lrt
+zfs_LDADD += $(ZLIB) -lxml2 -lrt
 zfs_LDFLAGS = -pthread

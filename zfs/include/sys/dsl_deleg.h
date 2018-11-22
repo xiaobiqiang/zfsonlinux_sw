@@ -57,10 +57,12 @@ extern "C" {
 #define	ZFS_DELEG_PERM_USEROBJUSED		"userobjused"
 #define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
 #define	ZFS_DELEG_PERM_GROUPOBJUSED	"groupobjused"
+#define	ZFS_DELEG_PERM_DIRQUOTA	"dirquota"
 #define	ZFS_DELEG_PERM_HOLD		"hold"
 #define	ZFS_DELEG_PERM_RELEASE		"release"
 #define	ZFS_DELEG_PERM_DIFF		"diff"
 #define	ZFS_DELEG_PERM_BOOKMARK		"bookmark"
+#define ZFS_DELEG_PERM_DIRLOWDATA	"dirlowdata"
 
 /*
  * Note: the names of properties that are marked delegatable are also

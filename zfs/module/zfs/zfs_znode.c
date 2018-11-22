@@ -98,6 +98,8 @@ static kmem_cache_t *znode_cache = NULL;
 static kmem_cache_t *znode_hold_cache = NULL;
 unsigned int zfs_object_mutex_size = ZFS_OBJ_MTX_SZ;
 
+extern int wait_meta_tx;
+
 /*ARGSUSED*/
 static int
 zfs_znode_cache_constructor(void *buf, void *arg, int kmflags)
@@ -658,6 +660,8 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 	zp->z_blksz = blksz;
 	zp->z_seq = 0x7A4653;
 	zp->z_sync_cnt = 0;
+	zp->z_dirquota = 0;
+	zp->z_dirlowdata = 0;
 	zp->z_is_mapped = B_FALSE;
 	zp->z_is_ctldir = B_FALSE;
 	zp->z_is_stale = B_FALSE;
@@ -1363,7 +1367,16 @@ again:
 	if (hdl != NULL) {
 		zp = sa_get_userdata(hdl);
 
+		mutex_enter(&zp->z_lock);
+        zfs_inquota(zsb, zp);
+		if (IFTOVT((mode_t)zp->z_mode) == VDIR && zp->z_dirquota == 0) {
+			zfs_sa_get_dirquota(zp);
+		}
 
+		if( zp->z_dirlowdata == 0 ){
+			zfs_sa_get_dirlowdata(zp);
+		}
+		mutex_exit(&zp->z_lock);
 		/*
 		 * Since "SA" does immediate eviction we
 		 * should never find a sa handle that doesn't
@@ -2012,15 +2025,12 @@ log:
 	    }
 	}
 	dmu_tx_commit(tx);
-	if ( err_meta_tx ){
+	if (wait_meta_tx && err_meta_tx != 0){
 		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
 	}
 	zfs_inode_update(zp);
 
 	error = 0;
-	if ( err_meta_tx ){
-		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
-	}
 	if (zsb->z_os->os_is_group) {
 		if (reduce_len) {
 			zfs_client_notify_file_space(zp, reduce_len, REDUCE_SPACE,

@@ -109,3 +109,28 @@ num_metas(nvlist_t *nv)
 	return (nmetas);
 }
 
+/*
+ * Return the number of lows in supplied nvlist
+ */
+uint_t
+num_lows(nvlist_t *nv)
+{
+	uint_t nlows = 0;
+	uint_t c, children;
+	nvlist_t **child;
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) != 0)
+		return (0);
+
+	for (c = 0; c < children; c++) {
+		uint64_t is_low = B_FALSE;
+
+		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOW,
+		    &is_low);
+		if (is_low)
+			nlows++;
+	}
+	return (nlows);
+}
+

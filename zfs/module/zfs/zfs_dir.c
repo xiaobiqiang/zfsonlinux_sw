@@ -60,6 +60,8 @@
 #include <sys/extdirent.h>
 #include <sys/dmu_objset.h>
 
+extern int wait_meta_tx;
+
 /*
  * zfs_match_find() is used by zfs_dirent_lock() to peform zap lookups
  * of names after deciding which is the appropriate lookup interface.
@@ -939,10 +941,12 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, struct inode **xipp, cred_t *cr)
 	zfs_acl_ids_t acl_ids;
 	boolean_t fuid_dirtied;
 	zfs_group_object_t group_object;
-       bzero(&group_object, sizeof(zfs_group_object_t));
+	int	err_meta_tx = 0;
 #ifdef DEBUG
 	uint64_t parent;
 #endif
+
+       bzero(&group_object, sizeof(zfs_group_object_t));
 
 	*xipp = NULL;
 
@@ -994,11 +998,15 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, struct inode **xipp, cred_t *cr)
 	zfs_sa_set_remote_object(xzp, &group_object, tx);
 	mutex_exit(&xzp->z_lock);
 
-	(void) zfs_log_create(zsb->z_log, tx, TX_MKXATTR, zp,
+	err_meta_tx = zfs_log_create(zsb->z_log, tx, TX_MKXATTR, zp,
 	    xzp, "", NULL, acl_ids.z_fuidp, vap);
 
 	zfs_acl_ids_free(&acl_ids);
 	dmu_tx_commit(tx);
+
+	if (wait_meta_tx && err_meta_tx != 0) {
+		txg_wait_synced(dmu_objset_pool(zsb->z_os), 0);
+	}
 
 	*xipp = ZTOI(xzp);
 

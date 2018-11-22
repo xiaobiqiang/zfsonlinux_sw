@@ -131,7 +131,9 @@ typedef enum vdev_config_flag {
 	VDEV_CONFIG_SPARE = 1 << 0,
 	VDEV_CONFIG_L2CACHE = 1 << 1,
 	VDEV_CONFIG_REMOVING = 1 << 2,
-	VDEV_CONFIG_METASPARE = 1 << 3
+	VDEV_CONFIG_METASPARE = 1 << 3,
+	VDEV_CONFIG_MIRRORSPARE = 1 << 4,
+	VDEV_CONFIG_LOWSPARE = 1 << 5
 } vdev_config_flag_t;
 
 extern void vdev_top_config_generate(spa_t *spa, nvlist_t *config);
@@ -153,8 +155,10 @@ typedef enum {
 	VDEV_LABEL_SPARE,	/* add a new hot spare */
 	VDEV_LABEL_REMOVE,	/* remove an existing device */
 	VDEV_LABEL_L2CACHE,	/* add an L2ARC cache device */
+	VDEV_LABEL_SPLIT,	/* generating new label for split-off dev */
 	VDEV_LABEL_METASPARE,
-	VDEV_LABEL_SPLIT	/* generating new label for split-off dev */
+	VDEV_LABEL_MIRRORSPARE,
+	VDEV_LABEL_LOWSPARE
 } vdev_labeltype_t;
 
 extern int vdev_label_init(vdev_t *vd, uint64_t txg, vdev_labeltype_t reason);

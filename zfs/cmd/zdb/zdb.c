@@ -1588,6 +1588,27 @@ dump_deadlist(dsl_deadlist_t *dl)
 	}
 }
 
+typedef struct zfs_group_dtl_obj {
+	uint64_t	type;	/* zfs_group_dtl type */
+	uint64_t	start_pos;	/* B segment old read pointer, and old DTL entry write back pointer. */
+	uint64_t	end_pos;	/* B segment new DTL entry write pointer. */
+	uint64_t	last_read;		/* B segment read pointer (new read pointer). */
+	uint64_t	last_rewrite;	/* A segment write pointer. */
+} zfs_group_dtl_obj_t;
+
+static void
+dump_gdtl_header(objset_t *os, uint64_t object, void *data, size_t size)
+{
+	zfs_group_dtl_obj_t *gdtl = data;
+	
+	printf("\nGroup dtl header:\n");
+	printf("\ttype:%"PRIu64"\n", gdtl->type);
+	printf("\tstart_pos:%"PRIx64"\n", gdtl->start_pos);
+	printf("\tend_pos:%"PRIx64"\n", gdtl->end_pos);
+	printf("\tlast_read:%"PRIx64"\n", gdtl->last_read);
+	printf("\tlast_rewrite:%"PRIx64"\n", gdtl->last_rewrite);
+}
+
 static avl_tree_t idx_tree;
 static avl_tree_t domain_tree;
 static boolean_t fuid_table_loaded;
@@ -1875,6 +1896,12 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES + 1] = {
 	dump_none,		/* deadlist hdr			*/
 	dump_zap,		/* dsl clones			*/
 	dump_bpobj_subobjs,	/* bpobj subobjs		*/
+	dump_zap,		/* DMU_OT_DIRQUOTA */
+	dump_zap,		/* DMU_OT_DIRLOWDATA*/
+	dump_none,		/* DMU_OT_GROUP_DTL*/
+	dump_gdtl_header,	/* DMU_OT_GROUP_DTL_HEADER*/
+	dump_zap,		/* DMU_OT_GROUP_MAP*/
+	dump_zap,		/* DMU_OT_NAS_GROUP_MASTER_NODE*/
 	dump_unknown,		/* Unknown type, must be last	*/
 };
 
