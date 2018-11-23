@@ -155,7 +155,6 @@ out:
 		wrc_data->wrc_blkhdr_head = blkhdr->next;
 		wrc_data->wrc_blkhdr_head->prev = blkhdr->prev;
 		blkhdr->prev->next = wrc_data->wrc_blkhdr_head;
-		DTRACE_PROBE1(wrc_blkhdr, char *, blkhdr->ds_name);
 		kmem_free(blkhdr, sizeof (*blkhdr));
 
 		if (!last)
