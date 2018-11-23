@@ -5753,7 +5753,7 @@ zfs_ioc_start_multiclus(zfs_cmd_t *zc)
 			break;
 
 		case ADD_MULTICLUS:
-			error = zfs_multiclus_add_group(zc->zc_value, zc->zc_string, zc->zc_guid);
+			error = zfs_multiclus_add_group(zc->zc_value, zc->zc_string);
 			break;
 
 		case SET_MULTICLUS_SLAVE:
