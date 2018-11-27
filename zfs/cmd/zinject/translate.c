@@ -458,7 +458,7 @@ translate_device(const char *pool, const char *device, err_type_t label_type,
 	char *end;
 	zpool_handle_t *zhp;
 	nvlist_t *tgt;
-	boolean_t isspare, iscache, avail_metaspare;
+	boolean_t isspare, iscache, avail_metaspare, avail_lowspare;
 
 	/*
 	 * Given a device name or GUID, create an appropriate injection record
@@ -469,7 +469,7 @@ translate_device(const char *pool, const char *device, err_type_t label_type,
 
 	record->zi_guid = strtoull(device, &end, 0);
 	if (record->zi_guid == 0 || *end != '\0') {
-		tgt = zpool_find_vdev(zhp, device, &isspare, &iscache, NULL, &avail_metaspare);
+		tgt = zpool_find_vdev(zhp, device, &isspare, &iscache, NULL, &avail_metaspare, &avail_lowspare);
 
 		if (tgt == NULL) {
 			(void) fprintf(stderr, "cannot find device '%s' in "

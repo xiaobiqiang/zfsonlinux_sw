@@ -187,7 +187,7 @@ dmu_tx_check_ioerr(zio_t *zio, dnode_t *dn, int level, uint64_t blkid)
 		return (0);
 	}
 #endif		
-	err = dbuf_read(db, zio, DB_RF_CANFAIL | DB_RF_NOPREFETCH);
+	err = dbuf_read(db, zio, DB_RF_CANFAIL | DB_RF_NOPREFETCH, B_FALSE);
 	dbuf_rele(db, FTAG);
 	return (err);
 }
@@ -558,7 +558,7 @@ dmu_tx_count_free(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 		 * memory.
 		 */
 
-		err = dbuf_read(dbuf, NULL, DB_RF_HAVESTRUCT | DB_RF_CANFAIL);
+		err = dbuf_read(dbuf, NULL, DB_RF_HAVESTRUCT | DB_RF_CANFAIL, B_FALSE);
 		if (err != 0) {
 			txh->txh_tx->tx_err = err;
 			dbuf_rele(dbuf, FTAG);
@@ -1664,6 +1664,13 @@ dmu_tx_hold_sa(dmu_tx_t *tx, sa_handle_t *hdl, boolean_t may_grow)
 		}
 		DB_DNODE_EXIT(db);
 	}
+}
+
+void dmu_tx_hold_low(dmu_tx_t *tx, boolean_t is_low)
+{
+	ASSERT(tx != NULL);
+
+	tx->tx_is_low = is_low;
 }
 
 /*

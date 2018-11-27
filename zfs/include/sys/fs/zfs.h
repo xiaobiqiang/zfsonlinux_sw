@@ -173,6 +173,17 @@ typedef enum {
 	ZFS_PROP_LUN_HOST,
 	ZFS_PROP_LUN_GUID,
 	ZFS_PROP_LUN_THIN_THRESHOLD,
+	ZFS_PROP_DIRQUOTA,
+	ZFS_PROP_LOWDATA,
+	ZFS_PROP_LOWDATA_PERIOD,
+	ZFS_PROP_LOWDATA_PERIOD_UNIT,
+	ZFS_PROP_LOWDATA_DELETE_PERIOD,
+	ZFS_PROP_LOWDATA_CRITERIA,
+	ZFS_PROP_DIRLOWDATA,
+	ZFS_PROP_DIRLOWDATA_PERIOD,
+	ZFS_PROP_DIRLOWDATA_PERIOD_UNIT,
+	ZFS_PROP_DIRLOWDATA_DELETE_PERIOD,
+	ZFS_PROP_DIRLOWDATA_CRITERIA,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -189,6 +200,13 @@ typedef enum {
 	ZFS_PROP_SOFTGROUPQUOTA,
 	ZFS_NUM_USERQUOTA_PROPS
 } zfs_userquota_prop_t;
+
+extern const char *zfs_dirlowdata_prefixex;
+extern const char *zfs_dirlowdata_period_prefixex;
+extern const char *zfs_dirlowdata_delete_period_prefixex;
+extern const char *zfs_dirlowdata_period_unit_prefixex;
+extern const char *zfs_dirlowdata_criteria_prefixex;
+extern const char *zfs_dirlowdata_path_prefixex;
 
 extern const char *zfs_userquota_prop_prefixes[ZFS_NUM_USERQUOTA_PROPS];
 
@@ -308,6 +326,8 @@ zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
 boolean_t zfs_prop_userquota(const char *);
 boolean_t zfs_prop_dirquota(const char *name);
+boolean_t zfs_prop_dirlowdata(const char *name);
+zfs_prop_t zfs_get_dirlow_prop_by_name(const char *name);
 boolean_t zfs_prop_written(const char *);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
@@ -446,6 +466,11 @@ typedef enum {
 	ZFS_LOWDATA_CRITERIA_CTIME = 1
 } zfs_lowdata_criteria_t;
 
+typedef enum {
+	ZFS_DIRQUOTA_OFF = 0,
+	ZFS_DIRQUOTA_ON = 1
+} zfs_dirquota_type_t;
+
 /*
  * On-disk version number.
  */
@@ -540,8 +565,10 @@ typedef enum {
 #define	SPA_VERSION_FAST_SNAP		SPA_VERSION_27
 #define	SPA_VERSION_MULTI_REPLACE	SPA_VERSION_28
 #define	SPA_VERSION_BEFORE_FEATURES	SPA_VERSION_28
-#define SPA_VERSION_METASPARES		SPA_VERSION_31
-#define	SPA_VERSION_FEATURES		SPA_VERSION_5000
+#define	SPA_VERSION_METASPARES		SPA_VERSION_31
+#define	SPA_VERSION_LOWSPARES		SPA_VERSION_31
+#define	SPA_VERSION_MIRRORSPARES		SPA_VERSION_31
+#define	SPA_VERSION_FEATURES			SPA_VERSION_5000
 
 #define	SPA_VERSION_IS_SUPPORTED(v) \
 	(((v) >= SPA_VERSION_INITIAL && (v) <= SPA_VERSION_BEFORE_FEATURES) || \
@@ -656,8 +683,13 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_QUANTUM_DEV	"quantum_dev"
 #define	ZPOOL_CONFIG_METASPARES		"metaspares"
 #define	ZPOOL_CONFIG_LOWSPARES		"lowspares"
-#define	ZPOOL_CONFIG_METADATA_DEV	"metadev"
+#define	ZPOOL_CONFIG_MIRRORSPARES	"mirrorspares"
 #define	ZPOOL_CONFIG_IS_METASPARE	"is_metaspare"
+#define	ZPOOL_CONFIG_IS_LOWSPARE	"is_lowspare"
+#define	ZPOOL_CONFIG_IS_MIRRORSPARE	"is_mirrorspare"
+#define	ZPOOL_CONFIG_METADATA_DEV	"metadev"
+#define	ZPOOL_CONFIG_LOWDATA_DEV	"lowdev"
+
 /*
  * The persistent vdev state is stored as separate values rather than a single
  * 'vdev_state' entry.  This is because a device can be in multiple states, such
@@ -693,9 +725,11 @@ typedef struct zpool_rewind_policy {
 #define	VDEV_TYPE_SPARE			"spare"
 #define	VDEV_TYPE_LOG			"log"
 #define	VDEV_TYPE_L2CACHE		"l2cache"
-#define VDEV_TYPE_META			"meta"
-#define VDEV_TYPE_METASPARE		"metaspare"
-
+#define	VDEV_TYPE_META			"meta"
+#define	VDEV_TYPE_METASPARE		"metaspare"
+#define	VDEV_TYPE_LOW				"low"
+#define	VDEV_TYPE_LOWSPARE		"lowspare"
+#define	VDEV_TYPE_MIRRORSPARE	"mirrorspare"
 
 #define	ZPOOL_CONFIG_MULTICLUS_GNAME		"multiclus_gname"
 #define	ZPOOL_CONFIG_MULTICLUS_MASTER		"multiclus_master"
@@ -704,6 +738,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_MULTICLUS_CHILD	"multiclus_child"
 #define	ZPOOL_CONFIG_MULTICLUS_FSNAME	"multiclus_fsname"
 #define	ZPOOL_CONFIG_MULTICLUS		"multiclus_stats"
+#define	ZPOOL_CONFIG_MULTICLUS_ZNODEINFO	"multiclus_znodeinfo"
+#define	ZPOOL_CONFIG_MULTICLUS_ZFILENAME	"multiclus_zfilename"
 
 #define	ZFS_RPC_GROUP_IP		"group_ipaddr"
 #define	ZFS_RPC_MASTER_IP		"master_ipaddr"
@@ -784,6 +820,8 @@ typedef enum pool_state {
 	POOL_STATE_SPARE,		/* Reserved for hot spare use	*/
 	POOL_STATE_L2CACHE,		/* Level 2 ARC device		*/
 	POOL_STATE_METASPARE,
+	POOL_STATE_MIRRORSPARE,
+	POOL_STATE_LOWSPARE,
 	POOL_STATE_UNINITIALIZED,	/* Internal spa_t state		*/
 	POOL_STATE_UNAVAIL,		/* Internal libzfs state	*/
 	POOL_STATE_POTENTIALLY_ACTIVE	/* Internal libzfs state	*/
@@ -1033,6 +1071,10 @@ typedef enum zfs_ioc {
 	ZFS_IOC_ZVOL_CREATE_MINOR_DONE_WAIT,
 	ZFS_IOC_GET_DIRQUOTA,
 	ZFS_IOC_SET_DIRQUOTA,
+	ZFS_IOC_DO_MIGRATE,
+	ZFS_IOC_GET_DIRLOWDATA,
+	ZFS_IOC_GET_ALL_DIRLOWDATA,
+	ZFS_IOC_GET_ALL_DIRQUOTA,
 	
 	/*
 	 * Linux - 3/64 numbers reserved.
@@ -1186,6 +1228,14 @@ typedef  enum {
 	ZFS_HBX_POOL_EXPORT
 } zfs_hbx_ioc_t;
 
+#define	START_MIGRATE  0x1
+#define	STOP_MIGRATE  0x2
+#define	STATUS_MIGRATE  0x4
+#define	START_ALL  0x8
+#define START_OS  0x10
+#define START_DIR 0x20
+
+
 /* hbx end */
 
 /* cluster start */
@@ -1262,7 +1312,6 @@ typedef  enum {
 	SYNC_MULTICLUS_GROUP,
 	SYNC_MULTICLUS_GROUP_DATA,
 	ZNODE_INFO,
-	DOUBLE_DATA,
 	SET_DOUBLE_DATA,
 	GET_DOUBLE_DATA,
 	MULTICLUS_CMD_MAX

@@ -76,6 +76,9 @@ struct dmu_tx {
 	/* need to wait for sufficient dirty space */
 	boolean_t tx_wait_dirty;
 
+	/* is for migrate */
+	boolean_t tx_is_low;
+
     boolean_t tx_bdirect;
 
 	int tx_err;

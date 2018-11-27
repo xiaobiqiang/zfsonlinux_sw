@@ -131,6 +131,62 @@ typedef rl_t *os_seg_data_lock_func(struct objset *os,
 typedef void os_seg_data_unlock_func(rl_t *rl);
 #endif
 
+typedef struct wrc_blkhdr {
+	/*
+	 * MAXNAMELEN + strlen(MOS_DIR_NAME) + 1
+	 */
+	char			ds_name[MAXNAMELEN + 5];
+	/*
+	 * This count determines the life of the header. Header
+	 * is removed from the list when th num_blks reaches
+	 * zero.
+	 */
+	int			num_blks;
+
+	/*
+	 * The header is valid if the flag is TRUE. This flag can
+	 * help in the delayed freeing of the header.
+	 */
+	boolean_t		hdr_isvalid;
+
+	/*
+	 * All the headers are structured as a linked list and
+	 * blocks point to this. This avoids the duplication of
+	 * details in each blocks.
+	 */
+	struct wrc_blkhdr	*prev;
+	struct wrc_blkhdr	*next;
+} wrc_blkhdr_t;
+
+typedef struct wrc_block {
+	wrc_blkhdr_t	*hdr;
+
+	uint64_t		spa_guid;
+	uint64_t		objset;	
+	uint64_t		object;
+	uint64_t		offset;
+	uint64_t		size;
+	uint64_t		block_size;	/* in bytes. */
+
+	list_node_t		node;
+} wrc_block_t;
+
+typedef struct wrc_data {
+	kthread_t		*wrc_thread;
+	boolean_t		wrc_thr_exit;
+	kthread_t		*traverse_thread;
+	boolean_t		trav_thr_exit;
+	kmutex_t		wrc_lock;
+	kcondvar_t		wrc_cv;
+	wrc_blkhdr_t	*wrc_blkhdr_head;
+	list_t			wrc_blocks;
+	uint64_t		wrc_block_count;
+	uint64_t		wrc_total_to_migrate; /* bytes */
+	uint64_t		wrc_total_migrated;	/* bytes */
+	uint64_t		wrc_max_task_queue_depth;
+	boolean_t		traverse_finished;
+} wrc_data_t;
+
 struct objset {
 	/* Immutable: */
 	struct dsl_dataset *os_dsl_dataset;
@@ -234,6 +290,7 @@ struct objset {
 	uint64_t	os_last_master_os;
 	uint64_t	os_last_master_spa;
 	boolean_t	os_will_be_master;
+	wrc_data_t	os_wrc;
 #endif
 };
 

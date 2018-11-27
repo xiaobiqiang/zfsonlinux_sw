@@ -1180,9 +1180,16 @@ dsl_dir_tempreserve_impl(dsl_dir_t *dd, uint64_t asize, boolean_t netfree,
 	 * removes to get through.
 	 */
 	if (dd->dd_parent == NULL) {
+		uint64_t poolsize = 0;
 		spa_t *spa = dd->dd_pool->dp_spa;
-		uint64_t poolsize = dsl_pool_adjustedsize(dd->dd_pool, netfree);
-		deferred = metaslab_class_get_deferred(spa_normal_class(spa));
+		if (tx->tx_is_low == B_TRUE) {
+			poolsize = dsl_low_adjustedsize(dd->dd_pool, netfree);
+			deferred = metaslab_class_get_deferred(spa_low_class(spa));
+			used_on_disk = metaslab_class_get_alloc(spa_low_class(spa));
+		} else {
+			poolsize = dsl_pool_adjustedsize(dd->dd_pool, netfree);
+			deferred = metaslab_class_get_deferred(spa_normal_class(spa));
+		}
 		if (poolsize - deferred < quota) {
 			quota = poolsize - deferred;
 			retval = ENOSPC;

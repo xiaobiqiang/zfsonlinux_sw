@@ -240,6 +240,10 @@ static kmutex_t spa_l2cache_lock;
 static avl_tree_t spa_l2cache_avl;
 static kmutex_t spa_metaspare_lock;
 static avl_tree_t spa_metaspare_avl;
+static kmutex_t	spa_lowspare_lock;
+static avl_tree_t	spa_lowspare_avl;
+static kmutex_t	spa_mirrorspare_lock;
+static avl_tree_t	spa_mirrorspare_avl;
 
 kmem_cache_t *spa_buffer_pool;
 int spa_mode_global;
@@ -1032,6 +1036,7 @@ spa_metaspare_compare(const void *a, const void *b)
 	return (spa_aux_compare(a, b));
 }
 
+
 void
 spa_metaspare_add(vdev_t *vd)
 {
@@ -1041,6 +1046,7 @@ spa_metaspare_add(vdev_t *vd)
 	vd->vdev_ismetaspare = B_TRUE;
 	mutex_exit(&spa_metaspare_lock);
 }
+
 void
 spa_metaspare_activate(vdev_t *vd)
 {
@@ -1049,6 +1055,7 @@ spa_metaspare_activate(vdev_t *vd)
 	spa_aux_activate(vd, &spa_metaspare_avl);
 	mutex_exit(&spa_metaspare_lock);
 }
+
 boolean_t
 spa_metaspare_exists(uint64_t guid, uint64_t *pool, int *refcnt)
 {
@@ -1060,6 +1067,7 @@ spa_metaspare_exists(uint64_t guid, uint64_t *pool, int *refcnt)
 
 	return (found);
 }
+
 void
 spa_metaspare_remove(vdev_t *vd)
 {
@@ -1069,6 +1077,101 @@ spa_metaspare_remove(vdev_t *vd)
 	vd->vdev_ismetaspare = B_FALSE;
 	mutex_exit(&spa_metaspare_lock);
 }
+
+static int
+spa_lowspare_compare(const void *a, const void *b)
+{
+	return (spa_aux_compare(a, b));
+}
+
+void
+spa_lowspare_add(vdev_t *vd)
+{
+	mutex_enter(&spa_lowspare_lock);
+	ASSERT(!vd->vdev_islowspare);
+	spa_aux_add(vd, &spa_lowspare_avl);
+	vd->vdev_islowspare = B_TRUE;
+	mutex_exit(&spa_lowspare_lock);
+}
+
+void
+spa_lowspare_activate(vdev_t *vd)
+{
+	mutex_enter(&spa_lowspare_lock);
+	ASSERT(vd->vdev_islowspare);
+	spa_aux_activate(vd, &spa_lowspare_avl);
+	mutex_exit(&spa_lowspare_lock);
+}
+
+boolean_t
+spa_lowspare_exists(uint64_t guid, uint64_t *pool, int *refcnt)
+{
+	boolean_t found;
+
+	mutex_enter(&spa_lowspare_lock);
+	found = spa_aux_exists(guid, pool, refcnt, &spa_lowspare_avl);
+	mutex_exit(&spa_lowspare_lock);
+
+	return (found);
+}
+
+void
+spa_lowspare_remove(vdev_t *vd)
+{
+	mutex_enter(&spa_lowspare_lock);
+	ASSERT(vd->vdev_islowspare);
+	spa_aux_remove(vd, &spa_lowspare_avl);
+	vd->vdev_islowspare = B_FALSE;
+	mutex_exit(&spa_lowspare_lock);
+}
+
+static int
+spa_mirrorspare_compare(const void *a, const void *b)
+{
+	return (spa_aux_compare(a, b));
+}
+
+void
+spa_mirrorspare_add(vdev_t *vd)
+{
+	mutex_enter(&spa_mirrorspare_lock);
+	ASSERT(!vd->vdev_ismirrorspare);
+	spa_aux_add(vd, &spa_mirrorspare_avl);
+	vd->vdev_ismirrorspare = B_TRUE;
+	mutex_exit(&spa_mirrorspare_lock);
+}
+
+void
+spa_mirrorspare_remove(vdev_t *vd)
+{
+	mutex_enter(&spa_mirrorspare_lock);
+	ASSERT(vd->vdev_ismirrorspare);
+	spa_aux_remove(vd, &spa_mirrorspare_avl);
+	vd->vdev_ismirrorspare = B_FALSE;
+	mutex_exit(&spa_mirrorspare_lock);
+}
+
+boolean_t
+spa_mirrorspare_exists(uint64_t guid, uint64_t *pool, int *refcnt)
+{
+	boolean_t found;
+
+	mutex_enter(&spa_mirrorspare_lock);
+	found = spa_aux_exists(guid, pool, refcnt, &spa_mirrorspare_avl);
+	mutex_exit(&spa_mirrorspare_lock);
+
+	return (found);
+}
+
+void
+spa_mirrorspare_activate(vdev_t *vd)
+{
+	mutex_enter(&spa_mirrorspare_lock);
+	ASSERT(vd->vdev_ismirrorspare);
+	spa_aux_activate(vd, &spa_mirrorspare_avl);
+	mutex_exit(&spa_mirrorspare_lock);
+}
+
 
 /*
  * ==========================================================================
@@ -1678,7 +1781,7 @@ void
 spa_update_dspace(spa_t *spa)
 {
 	spa->spa_dspace = metaslab_class_get_dspace(spa_normal_class(spa)) +
-	    ddt_get_dedup_dspace(spa);
+	    metaslab_class_get_dspace(spa_low_class(spa)) + ddt_get_dedup_dspace(spa);
 }
 
 /*
@@ -1724,6 +1827,12 @@ metaslab_class_t *
 spa_meta_class(spa_t *spa)
 {
 	return (spa->spa_meta_class);
+}
+
+metaslab_class_t *
+spa_low_class(spa_t *spa)
+{
+	return (spa->spa_low_class);
 }
 
 void
@@ -1859,18 +1968,21 @@ spa_init(int mode)
 	mutex_init(&spa_spare_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa_l2cache_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa_metaspare_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa_lowspare_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa_mirrorspare_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&spa_namespace_cv, NULL, CV_DEFAULT, NULL);
 
 	avl_create(&spa_namespace_avl, spa_name_compare, sizeof (spa_t),
 	    offsetof(spa_t, spa_avl));
-
 	avl_create(&spa_spare_avl, spa_spare_compare, sizeof (spa_aux_t),
 	    offsetof(spa_aux_t, aux_avl));
-	
 	avl_create(&spa_metaspare_avl, spa_metaspare_compare, sizeof (spa_aux_t),
 	    offsetof(spa_aux_t, aux_avl));
-
 	avl_create(&spa_l2cache_avl, spa_l2cache_compare, sizeof (spa_aux_t),
+	    offsetof(spa_aux_t, aux_avl));
+	avl_create(&spa_lowspare_avl, spa_lowspare_compare, sizeof (spa_aux_t),
+	    offsetof(spa_aux_t, aux_avl));
+	avl_create(&spa_mirrorspare_avl, spa_mirrorspare_compare, sizeof (spa_aux_t),
 	    offsetof(spa_aux_t, aux_avl));
 
 	spa_mode_global = mode;
@@ -1929,12 +2041,16 @@ spa_fini(void)
 	avl_destroy(&spa_spare_avl);
 	avl_destroy(&spa_l2cache_avl);
 	avl_destroy(&spa_metaspare_avl);
+	avl_destroy(&spa_mirrorspare_avl);
+	avl_destroy(&spa_lowspare_avl);
 
 	cv_destroy(&spa_namespace_cv);
 	mutex_destroy(&spa_namespace_lock);
 	mutex_destroy(&spa_metaspare_lock);
 	mutex_destroy(&spa_spare_lock);
 	mutex_destroy(&spa_l2cache_lock);
+	mutex_destroy(&spa_lowspare_lock);
+	mutex_destroy(&spa_mirrorspare_lock);
 }
 
 /*
@@ -2046,6 +2162,8 @@ spa_scan_get_stats(spa_t *spa, pool_scan_stat_t *ps)
 	ps->pss_processed = scn->scn_phys.scn_processed;
 	ps->pss_errors = scn->scn_phys.scn_errors;
 	ps->pss_state = scn->scn_phys.scn_state;
+	ps->pss_wrc_total_to_migrate = 0;//spa->spa_wrc_status.spa_total_to_migrate;
+	ps->pss_wrc_total_migrated = 0;//spa->spa_wrc_status.spa_total_migrated;
 
 	/* data not stored on disk */
 	ps->pss_pass_start = spa->spa_scan_pass_start;

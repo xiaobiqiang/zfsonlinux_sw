@@ -168,8 +168,7 @@ typedef struct zfs_sb {
 	uint64_t 	z_isworm;
 	uint64_t	z_autoworm;
 	uint64_t	z_wormrent;
-	
-	kmutex_t	z_hold_mtx[1024];	/* znode hold locks */
+
 	taskq_t	  *notify_taskq;
 	taskq_t	  *overquota_taskq;
 	kmutex_t	z_group_dtl_obj_mutex;
@@ -191,7 +190,11 @@ typedef struct zfs_sb {
 	avl_tree_t	z_group_dtl_tree4;
 	void*		z_group_sync_obj;
 	boolean_t	z_is_setting_up;
-
+	zfs_lowdata_type_t	z_lowdata;	/* How to handle low data */
+	uint64_t z_lowdata_period;	/* Low data period */
+	uint64_t z_lowdata_delete_period;	/* Low data delete period */
+	zfs_lowdata_period_unit_t	z_lowdata_period_unit;	/* Low data period unit */
+	zfs_lowdata_criteria_t	z_lowdata_criteria;		/* Low data criteria */
 	
 } zfs_sb_t;
 

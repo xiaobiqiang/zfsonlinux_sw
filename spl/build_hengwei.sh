@@ -2,4 +2,4 @@
 
 ./autogen.sh
 ./configure --enable-hengwei=yes
-make && make install
+make -j 16 && make install

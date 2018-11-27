@@ -196,6 +196,7 @@ AC_CONFIG_FILES([
 	module/unicode/Makefile
 	module/zcommon/Makefile
 	module/zfs/Makefile
+	module/vmpt3sas/Makefile
 	module/zpios/Makefile
 	module/fct/Makefile
 	module/qlt/Makefile

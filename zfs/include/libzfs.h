@@ -415,9 +415,9 @@ extern int zpool_vdev_clear(zpool_handle_t *, uint64_t);
 
 extern nvlist_t *zpool_get_nvroot(zpool_handle_t *zhp);
 extern nvlist_t *zpool_find_vdev(zpool_handle_t *, const char *, boolean_t *,
-    boolean_t *, boolean_t *, boolean_t *);
-extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
     boolean_t *, boolean_t *, boolean_t *, boolean_t *);
+extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
+    boolean_t *, boolean_t *, boolean_t *, boolean_t *, boolean_t *);
 extern int zpool_label_disk_wait(char *, int);
 extern int zpool_label_disk(libzfs_handle_t *, zpool_handle_t *, char *);
 
@@ -707,6 +707,12 @@ typedef struct zprop_get_cbdata {
 void zprop_print_one_property(const char *, zprop_get_cbdata_t *,
     const char *, const char *, zprop_source_t, const char *,
     const char *);
+
+typedef int (*zfs_dirquota_cb_t)(const char *path, uint64_t quota,
+	uint64_t used);
+typedef int (*zfs_dirlowdata_cb_t)(const char *path, uint64_t lowdata,
+	uint64_t low_peri, uint64_t low_peri_unit,
+	uint64_t low_del_peri, uint64_t low_criteria);
 
 /*
  * Iterator functions.
@@ -1020,6 +1026,7 @@ void zfs_enable_avs(libzfs_handle_t *hdl, char *data, int enabled);
  */
 extern void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
     char *fs_name, uint64_t flags, void* param);
+extern void zfs_migrate(libzfs_handle_t *hdl, char *fs_name, uint64_t flags, uint64_t obj);
 
 extern int get_rpc_addr(libzfs_handle_t *hdl, uint64_t flags,
 	char *groupip, uint_t *num);
@@ -1027,7 +1034,13 @@ extern int zfs_rpc_back_proc(uint_t rtype, char **backbuf, zfs_rpc_arg_t *recvar
 	zfs_rpc_ret_t *backarg);
 extern int zfs_rpc_call(char* host, uint32_t gettype,
         zfs_rpc_arg_t *sendarg, zfs_rpc_ret_t *backarg);
+int zfs_prop_get_dirlowdata(zfs_handle_t *zhp, const char *propname,
+    char *propbuf, int proplen);
 
+extern int
+zfs_prop_get_dirquota_all(zfs_handle_t *zhp,  zfs_dirquota_cb_t func);
+extern int
+zfs_prop_get_dirlowdata_all(zfs_handle_t *zhp, zfs_dirlowdata_cb_t func);
 
 typedef struct zfs_pathname {
 	char	*pn_buf;		/* underlying storage */
@@ -1049,6 +1062,7 @@ extern int zfs_prop_get_dirquota(zfs_handle_t *zhp, const char *propname,
     char *propbuf, int proplen);
 extern int zfs_group_userquota_send(int flags, zfs_msg_type_t settype, int argc, char **argv, void *data);
 extern uint_t num_metas(nvlist_t *nv);
+extern uint_t num_lows(nvlist_t *nv);
 extern void zpool_check_thin_luns(zfs_thinluns_t **statpp);
 extern void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp);
 

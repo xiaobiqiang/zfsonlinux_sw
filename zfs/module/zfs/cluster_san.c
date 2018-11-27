@@ -2768,6 +2768,9 @@ static cs_rx_data_t *cluster_san_host_fragment_handle(cluster_san_hostinfo_t *cs
 	boolean_t is_newdata = B_FALSE;
 	boolean_t is_corrupt = B_FALSE;
 
+	cmn_err(CE_WARN, "cluster_san_host_fragment_handle: ct_head { %llu, %llu, %u, %u }",
+		(u_longlong_t)data_index, (u_longlong_t)total_len, msg_type, need_reply);
+
 	ctsrd_compare.data_index = data_index;
 	ctsfs_compare.cs_data = &ctsrd_compare;
 	mutex_enter(&cshi->host_fragment_lock);
@@ -3060,6 +3063,8 @@ static void cluster_san_host_rx_handle(
 {
 	/* cluster_san_hostinfo_t *cshi = cs_data->cs_private; */
 	uint8_t msg_type = cs_data->msg_type;
+
+	/*cmn_err(CE_WARN, "cluster_san_host_rx_handle: type=%u", msg_type); gcg*/
 
 	if (cs_data->need_reply != 0) {
 		csh_send_reply(cs_data);
@@ -4807,7 +4812,7 @@ SEND_RETRY:
 		if (ret == 0) {
 			is_replyed = cts_reply_wait(reply_val);
 			if (!is_replyed) {
-				printk("%s: %u wait reply timed out\n", __func__, msg_type);
+				printk("%s: %u %u wait reply timed out\n", __func__, cshi->hostid, msg_type);
 				if (retry_cnt < retry_times) {
 					retry_cnt++;
 					goto SEND_RETRY;

@@ -128,14 +128,13 @@ fmd_adm_open(const char *host, uint32_t prog, int version)
 #else
 	struct timeval tv;
 	c = clnt_create(s, 100169, FMD_ADM_VERSION_1, "udp");
-	clnt_control(c, CLGET_TIMEOUT, (char *)&tv);
-	ap->adm_maxretries = 0;
-
 	if (c == NULL) {
 		errno = EPROTO;
 		free(ap);
 		return (NULL);
 	}
+	clnt_control(c, CLGET_TIMEOUT, (char *)&tv);
+	ap->adm_maxretries = 0;
 
 #endif
 	ap->adm_prog = prog;

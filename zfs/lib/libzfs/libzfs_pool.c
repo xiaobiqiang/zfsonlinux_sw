@@ -1356,8 +1356,8 @@ zpool_add(zpool_handle_t *zhp, nvlist_t *nvroot)
 	int ret;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	char msg[1024];
-	nvlist_t **spares, **l2cache, **metaspares;
-	uint_t nspares, nl2cache, nmetaspares;
+	nvlist_t **spares, **l2cache, **metaspares, **lowspares, **mirrorspares;
+	uint_t nspares, nl2cache, nmetaspares, nlowspares, nmirrorspares;
 
 	(void) snprintf(msg, sizeof (msg), dgettext(TEXT_DOMAIN,
 	    "cannot add to '%s'"), zhp->zpool_name);
@@ -1417,6 +1417,59 @@ zpool_add(zpool_handle_t *zhp, nvlist_t *nvroot)
 		}
 	}
 
+	if (zpool_get_prop_int(zhp, ZPOOL_PROP_VERSION, NULL) <
+	    SPA_VERSION_LOWSPARES &&
+	    nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_LOWSPARES,
+	    &lowspares, &nlowspares) == 0) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "pool must be "
+		    "upgraded to add low hot spares"));
+		return (zfs_error(hdl, EZFS_BADVERSION, msg));
+	}
+	if (zpool_is_bootable(zhp) && nvlist_lookup_nvlist_array(nvroot,
+	    ZPOOL_CONFIG_LOWSPARES, &lowspares, &nlowspares) == 0) {
+		uint64_t s;
+
+		for (s = 0; s < nlowspares; s++) {
+			char *path;
+
+			if (nvlist_lookup_string(lowspares[s], ZPOOL_CONFIG_PATH,
+			    &path) == 0 && pool_uses_efi(lowspares[s])) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "device '%s' contains an EFI label and "
+				    "cannot be used on root pools."),
+				    zpool_vdev_name(hdl, NULL, lowspares[s],
+				    B_FALSE));
+				return (zfs_error(hdl, EZFS_POOL_NOTSUP, msg));
+			}
+		}
+	}
+
+	if (zpool_get_prop_int(zhp, ZPOOL_PROP_VERSION, NULL) <
+	    SPA_VERSION_MIRRORSPARES &&
+	    nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_MIRRORSPARES,
+	    &mirrorspares, &nmirrorspares) == 0) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "pool must be "
+		    "upgraded to add hot spares"));
+		return (zfs_error(hdl, EZFS_BADVERSION, msg));
+	}
+	if (zpool_is_bootable(zhp) && nvlist_lookup_nvlist_array(nvroot,
+	    ZPOOL_CONFIG_MIRRORSPARES, &mirrorspares, &nmirrorspares) == 0) {
+		uint64_t s;
+
+		for (s = 0; s < nmirrorspares; s++) {
+			char *path;
+
+			if (nvlist_lookup_string(mirrorspares[s], ZPOOL_CONFIG_PATH,
+			    &path) == 0 && pool_uses_efi(mirrorspares[s])) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "device '%s' contains an EFI label and "
+				    "cannot be used on root pools."),
+				    zpool_vdev_name(hdl, NULL, mirrorspares[s],
+				    B_FALSE));
+				return (zfs_error(hdl, EZFS_POOL_NOTSUP, msg));
+			}
+		}
+	}
 
 	if (zpool_get_prop_int(zhp, ZPOOL_PROP_VERSION, NULL) <
 	    SPA_VERSION_L2CACHE &&
@@ -2026,7 +2079,7 @@ zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func)
  */
 static nvlist_t *
 vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
-    boolean_t *l2cache, boolean_t *log, boolean_t *avail_metaspare)
+    boolean_t *l2cache, boolean_t *log, boolean_t *avail_metaspare, boolean_t *avail_lowspare)
 {
 	uint_t c, children;
 	nvlist_t **child;
@@ -2148,7 +2201,7 @@ vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
 
 	for (c = 0; c < children; c++) {
 		if ((ret = vdev_to_nvlist_iter(child[c], search,
-		    avail_spare, l2cache, NULL, avail_metaspare)) != NULL) {
+		    avail_spare, l2cache, NULL, avail_metaspare, avail_lowspare)) != NULL) {
 			/*
 			 * The 'is_log' value is only set for the toplevel
 			 * vdev, not the leaf vdevs.  So we always lookup the
@@ -2169,19 +2222,8 @@ vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
 	    &child, &children) == 0) {
 		for (c = 0; c < children; c++) {
 			if ((ret = vdev_to_nvlist_iter(child[c], search,
-			    avail_spare, l2cache, NULL, avail_metaspare)) != NULL) {
+			    avail_spare, l2cache, NULL, avail_metaspare, avail_lowspare)) != NULL) {
 				*avail_spare = B_TRUE;
-				return (ret);
-			}
-		}
-	}
-		
-	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
-		&child, &children) == 0) {
-		for (c = 0; c < children; c++) {
-			if ((ret = vdev_to_nvlist_iter(child[c], search,
-				avail_spare, l2cache, NULL, avail_metaspare)) != NULL) {
-				*avail_metaspare = B_TRUE;
 				return (ret);
 			}
 		}
@@ -2191,8 +2233,41 @@ vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
 	    &child, &children) == 0) {
 		for (c = 0; c < children; c++) {
 			if ((ret = vdev_to_nvlist_iter(child[c], search,
-			    avail_spare, l2cache, NULL, avail_metaspare)) != NULL) {
+			    avail_spare, l2cache, NULL, avail_metaspare, avail_lowspare)) != NULL) {
 				*l2cache = B_TRUE;
+				return (ret);
+			}
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_METASPARES,
+		&child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = vdev_to_nvlist_iter(child[c], search,
+				avail_spare, l2cache, NULL, avail_metaspare, avail_lowspare)) != NULL) {
+				*avail_metaspare = B_TRUE;
+				return (ret);
+			}
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_LOWSPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = vdev_to_nvlist_iter(child[c], search,
+			    avail_spare, l2cache, NULL, avail_metaspare, avail_lowspare)) != NULL) {
+				*avail_lowspare = B_TRUE;
+				return (ret);
+			}
+		}
+	}
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_MIRRORSPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++) {
+			if ((ret = vdev_to_nvlist_iter(child[c], search,
+			    avail_spare, l2cache, NULL, avail_metaspare, avail_lowspare)) != NULL) {
+				*avail_metaspare = B_TRUE;
 				return (ret);
 			}
 		}
@@ -2207,7 +2282,7 @@ vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
  */
 nvlist_t *
 zpool_find_vdev_by_physpath(zpool_handle_t *zhp, const char *ppath,
-    boolean_t *avail_spare, boolean_t *l2cache, boolean_t *log,boolean_t *avail_metaspare)
+    boolean_t *avail_spare, boolean_t *l2cache, boolean_t *log,boolean_t *avail_metaspare, boolean_t *avail_lowspare)
 {
 	nvlist_t *search, *nvroot, *ret;
 
@@ -2220,9 +2295,10 @@ zpool_find_vdev_by_physpath(zpool_handle_t *zhp, const char *ppath,
 	*avail_spare = B_FALSE;
 	*l2cache = B_FALSE;
 	*avail_metaspare = B_FALSE;
+	*avail_lowspare = B_FALSE;
 	if (log != NULL)
 		*log = B_FALSE;
-	ret = vdev_to_nvlist_iter(nvroot, search, avail_spare, l2cache, log, avail_metaspare);
+	ret = vdev_to_nvlist_iter(nvroot, search, avail_spare, l2cache, log, avail_metaspare, avail_lowspare);
 	nvlist_free(search);
 
 	return (ret);
@@ -2253,7 +2329,7 @@ zpool_get_nvroot(zpool_handle_t *zhp)
 
 nvlist_t *
 zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare,
-    boolean_t *l2cache, boolean_t *log, boolean_t *avail_metaspare)
+    boolean_t *l2cache, boolean_t *log, boolean_t *avail_metaspare, boolean_t *avail_lowspare)
 {
 	char *end;
 	nvlist_t *nvroot, *search, *ret;
@@ -2276,9 +2352,10 @@ zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare,
 	*avail_spare = B_FALSE;
 	*l2cache = B_FALSE;
 	*avail_metaspare = B_FALSE;
+	*avail_lowspare = B_FALSE;
 	if (log != NULL)
 		*log = B_FALSE;
-	ret = vdev_to_nvlist_iter(nvroot, search, avail_spare, l2cache, log, avail_metaspare);
+	ret = vdev_to_nvlist_iter(nvroot, search, avail_spare, l2cache, log, avail_metaspare, avail_lowspare);
 	nvlist_free(search);
 
 	return (ret);
@@ -2303,11 +2380,11 @@ zpool_has_duplicate_vdev(zpool_handle_t *zhp, nvlist_t *cfg)
 
 	while ((elem = nvlist_next_nvpair(cfg, elem)) != NULL) {
 		if (strcmp(nvpair_name(elem), ZPOOL_CONFIG_PATH) == 0) {
-			boolean_t as, l2, ms;
+			boolean_t as, l2, ms, ls;
 			char *path;
 
 			verify(nvpair_value_string(elem, &path) == 0);
-			if (zpool_find_vdev(zhp, path, &as, &l2, NULL, &ms) != NULL)
+			if (zpool_find_vdev(zhp, path, &as, &l2, NULL, &ms, &ls) != NULL)
 				return (B_TRUE);
 		}
 	}
@@ -2362,7 +2439,7 @@ vdev_get_one_physpath(nvlist_t *config, char *physpath, size_t physpath_size,
 
 static int
 vdev_get_physpaths(nvlist_t *nv, char *physpath, size_t phypath_size,
-    size_t *rsz, boolean_t is_spare, boolean_t is_metaspare)
+    size_t *rsz, boolean_t is_spare, boolean_t is_metaspare, boolean_t is_lowspare)
 {
 	char *type;
 	int ret;
@@ -2392,6 +2469,14 @@ vdev_get_physpaths(nvlist_t *nv, char *physpath, size_t phypath_size,
 				return (EZFS_INVALCONFIG);
 		}
 
+		if (is_lowspare) {
+			uint64_t lowspare = 0;
+			(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_LOWSPARE,
+			    &lowspare);
+			if (!lowspare)
+				return (EZFS_INVALCONFIG);
+		}
+
 		if (vdev_online(nv)) {
 			if ((ret = vdev_get_one_physpath(nv, physpath,
 			    phypath_size, rsz)) != 0)
@@ -2410,7 +2495,7 @@ vdev_get_physpaths(nvlist_t *nv, char *physpath, size_t phypath_size,
 
 		for (i = 0; i < count; i++) {
 			ret = vdev_get_physpaths(child[i], physpath,
-			    phypath_size, rsz, is_spare, is_metaspare);
+			    phypath_size, rsz, is_spare, is_metaspare, is_lowspare);
 			if (ret == EZFS_NOSPC)
 				return (ret);
 		}
@@ -2454,7 +2539,7 @@ zpool_get_config_physpath(nvlist_t *config, char *physpath, size_t phypath_size)
 #endif
 
 	(void) vdev_get_physpaths(child[0], physpath, phypath_size, &rsz,
-	    B_FALSE, B_FALSE);
+	    B_FALSE, B_FALSE, B_FALSE);
 
 	/* No online devices */
 	if (rsz == 0)
@@ -2518,7 +2603,7 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 	zfs_cmd_t zc = {"\0"};
 	char msg[1024];
 	nvlist_t *tgt;
-	boolean_t avail_spare, l2cache, islog, avail_metaspare;
+	boolean_t avail_spare, l2cache, islog, avail_metaspare, avail_lowspare;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	int error;
 
@@ -2532,7 +2617,7 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	if ((tgt = zpool_find_vdev(zhp, path, &avail_spare, &l2cache,
-	    &islog, &avail_metaspare)) == NULL)
+	    &islog, &avail_metaspare, &avail_lowspare)) == NULL)
 		return (zfs_error(hdl, EZFS_NODEVICE, msg));
 
 	verify(nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_GUID, &zc.zc_guid) == 0);
@@ -2540,6 +2625,8 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 	if (avail_spare)
 		return (zfs_error(hdl, EZFS_ISSPARE, msg));
 	if (avail_metaspare)
+		return (zfs_error(hdl, EZFS_ISSPARE, msg));
+	if (avail_lowspare)
 		return (zfs_error(hdl, EZFS_ISSPARE, msg));
 
 	if (flags & ZFS_ONLINE_EXPAND ||
@@ -2604,7 +2691,7 @@ zpool_vdev_offline(zpool_handle_t *zhp, const char *path, boolean_t istmp)
 	zfs_cmd_t zc = {"\0"};
 	char msg[1024];
 	nvlist_t *tgt;
-	boolean_t avail_spare, l2cache, avail_metaspare;
+	boolean_t avail_spare, l2cache, avail_metaspare, avail_lowspare;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 
 	(void) snprintf(msg, sizeof (msg),
@@ -2612,7 +2699,7 @@ zpool_vdev_offline(zpool_handle_t *zhp, const char *path, boolean_t istmp)
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	if ((tgt = zpool_find_vdev(zhp, path, &avail_spare, &l2cache,
-	    NULL, &avail_metaspare)) == NULL)
+	    NULL, &avail_metaspare, &avail_lowspare)) == NULL)
 		return (zfs_error(hdl, EZFS_NODEVICE, msg));
 
 	verify(nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_GUID, &zc.zc_guid) == 0);
@@ -2732,6 +2819,54 @@ is_replacing_spare(nvlist_t *search, nvlist_t *tgt, int which)
 	return (B_FALSE);
 }
 
+static boolean_t
+is_replacing_metaspare(nvlist_t *search, nvlist_t *tgt, int which)
+{
+	nvlist_t **child;
+	uint_t c, children;
+	char *type;
+
+	if (nvlist_lookup_nvlist_array(search, ZPOOL_CONFIG_CHILDREN, &child,
+	    &children) == 0) {
+		verify(nvlist_lookup_string(search, ZPOOL_CONFIG_TYPE,
+		    &type) == 0);
+
+		if (strcmp(type, VDEV_TYPE_METASPARE) == 0 &&
+		    children == 2 && child[which] == tgt)
+			return (B_TRUE);
+
+		for (c = 0; c < children; c++)
+			if (is_replacing_metaspare(child[c], tgt, which))
+				return (B_TRUE);
+	}
+
+	return (B_FALSE);
+}
+
+static boolean_t
+is_replacing_lowspare(nvlist_t *search, nvlist_t *tgt, int which)
+{
+	nvlist_t **child;
+	uint_t c, children;
+	char *type;
+
+	if (nvlist_lookup_nvlist_array(search, ZPOOL_CONFIG_CHILDREN, &child,
+	    &children) == 0) {
+		verify(nvlist_lookup_string(search, ZPOOL_CONFIG_TYPE,
+		    &type) == 0);
+
+		if (strcmp(type, VDEV_TYPE_LOWSPARE) == 0 &&
+		    children == 2 && child[which] == tgt)
+			return (B_TRUE);
+
+		for (c = 0; c < children; c++)
+			if (is_replacing_lowspare(child[c], tgt, which))
+				return (B_TRUE);
+	}
+
+	return (B_FALSE);
+}
+
 /*
  * Attach new_disk (fully described by nvroot) to old_disk.
  * If 'replacing' is specified, the new disk will replace the old one.
@@ -2744,7 +2879,7 @@ zpool_vdev_attach(zpool_handle_t *zhp,
 	char msg[1024];
 	int ret;
 	nvlist_t *tgt;
-	boolean_t avail_spare, l2cache, islog, avail_metaspare;
+	boolean_t avail_spare, l2cache, islog, avail_metaspare, avail_lowspare;
 	uint64_t val;
 	char *newname;
 	nvlist_t **child;
@@ -2774,14 +2909,15 @@ zpool_vdev_attach(zpool_handle_t *zhp,
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	if ((tgt = zpool_find_vdev(zhp, old_disk, &avail_spare, &l2cache,
-	    &islog, &avail_metaspare)) == 0)
+	    &islog, &avail_metaspare, &avail_lowspare)) == 0)
 		return (zfs_error(hdl, EZFS_NODEVICE, msg));
 
 	if (avail_spare)
 		return (zfs_error(hdl, EZFS_ISSPARE, msg));
 	if (avail_metaspare)
 		return (zfs_error(hdl, EZFS_ISSPARE, msg));
-
+	if (avail_lowspare)
+		return (zfs_error(hdl, EZFS_ISSPARE, msg));
 	if (l2cache)
 		return (zfs_error(hdl, EZFS_ISL2CACHE, msg));
 
@@ -2808,7 +2944,7 @@ zpool_vdev_attach(zpool_handle_t *zhp,
 	if (replacing &&
 	    nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_IS_SPARE, &val) == 0 &&
 	    (zpool_find_vdev(zhp, newname, &avail_spare, &l2cache,
-	    NULL, &avail_metaspare) == NULL || !avail_spare) &&
+	    NULL, &avail_metaspare, &avail_lowspare) == NULL || !avail_spare) &&
 	    is_replacing_spare(config_root, tgt, 1)) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 		    "can only be replaced by another hot spare"));
@@ -2818,10 +2954,20 @@ zpool_vdev_attach(zpool_handle_t *zhp,
 	if (replacing &&
 		nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_IS_METASPARE, &val) == 0 &&
 		(zpool_find_vdev(zhp, newname, &avail_spare, &l2cache,
-		NULL, &avail_metaspare) == NULL || !avail_metaspare) &&
-		is_replacing_spare(config_root, tgt, 1)) {
+		NULL, &avail_metaspare, &avail_lowspare) == NULL || !avail_metaspare) &&
+		is_replacing_metaspare(config_root, tgt, 1)) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			"can only be replaced by another meta data hot spare"));
+		free(newname);
+		return (zfs_error(hdl, EZFS_BADTARGET, msg));
+	}
+	if (replacing &&
+		nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_IS_LOWSPARE, &val) == 0 &&
+		(zpool_find_vdev(zhp, newname, &avail_spare, &l2cache,
+		NULL, &avail_metaspare, &avail_lowspare) == NULL || !avail_lowspare) &&
+		is_replacing_lowspare(config_root, tgt, 1)) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			"can only be replaced by another low data hot spare"));
 		free(newname);
 		return (zfs_error(hdl, EZFS_BADTARGET, msg));
 	}
@@ -2932,7 +3078,7 @@ zpool_vdev_detach(zpool_handle_t *zhp, const char *path)
 	zfs_cmd_t zc = {"\0"};
 	char msg[1024];
 	nvlist_t *tgt;
-	boolean_t avail_spare, l2cache, avail_metaspare;
+	boolean_t avail_spare, l2cache, avail_metaspare, avail_lowspare;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 
 	(void) snprintf(msg, sizeof (msg),
@@ -2940,7 +3086,7 @@ zpool_vdev_detach(zpool_handle_t *zhp, const char *path)
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	if ((tgt = zpool_find_vdev(zhp, path, &avail_spare, &l2cache,
-	    NULL, &avail_metaspare)) == 0)
+	    NULL, &avail_metaspare, &avail_lowspare)) == 0)
 		return (zfs_error(hdl, EZFS_NODEVICE, msg));
 
 	if (avail_spare)
@@ -3241,7 +3387,7 @@ zpool_vdev_remove(zpool_handle_t *zhp, const char *path)
 	zfs_cmd_t zc = {"\0"};
 	char msg[1024];
 	nvlist_t *tgt;
-	boolean_t avail_spare, l2cache, islog, avail_metaspare;
+	boolean_t avail_spare, l2cache, islog, avail_metaspare, avail_lowspare;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	uint64_t version;
 
@@ -3250,12 +3396,12 @@ zpool_vdev_remove(zpool_handle_t *zhp, const char *path)
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	if ((tgt = zpool_find_vdev(zhp, path, &avail_spare, &l2cache,
-	    &islog, &avail_metaspare)) == 0)
+	    &islog, &avail_metaspare, &avail_lowspare)) == 0)
 		return (zfs_error(hdl, EZFS_NODEVICE, msg));
 	/*
 	 * XXX - this should just go away.
 	 */
-	if (!avail_spare && !l2cache && !islog && !avail_metaspare) {
+	if (!avail_spare && !l2cache && !islog && !avail_metaspare && !avail_lowspare) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 		    "only inactive hot spares, cache, top-level, "
 		    "or log devices can be removed"));
@@ -3287,7 +3433,7 @@ zpool_clear(zpool_handle_t *zhp, const char *path, nvlist_t *rewindnvl)
 	char msg[1024];
 	nvlist_t *tgt;
 	zpool_rewind_policy_t policy;
-	boolean_t avail_spare, l2cache, avail_metaspare;
+	boolean_t avail_spare, l2cache, avail_metaspare, avail_lowspare;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	nvlist_t *nvi = NULL;
 	int error;
@@ -3304,7 +3450,7 @@ zpool_clear(zpool_handle_t *zhp, const char *path, nvlist_t *rewindnvl)
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	if (path) {
 		if ((tgt = zpool_find_vdev(zhp, path, &avail_spare,
-		    &l2cache, NULL, &avail_metaspare)) == 0)
+		    &l2cache, NULL, &avail_metaspare, &avail_lowspare)) == 0)
 			return (zfs_error(hdl, EZFS_NODEVICE, msg));
 
 		/*

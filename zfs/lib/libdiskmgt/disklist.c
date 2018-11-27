@@ -1411,7 +1411,6 @@ int disk_get_info(disk_table_t *dt)
 {
 	FILE *fd = NULL;
 	int i = 0;
-	int sec = 0;
 	int len = 0;
 	slot_map_t sm;
 	char *ptr = NULL;
@@ -1431,30 +1430,31 @@ int disk_get_info(disk_table_t *dt)
 	disk_get_slot_map(&sm);
 
 	while (fgets(tmp, sizeof(tmp), fd)) {
-		sscanf(tmp, "%*[^:]:%d %s %s %s",&sec, buf_scsi, buf_other, buf_dev);
+		ptr = strstr(tmp, "scsi-");
+		if (ptr == NULL)
+			continue;
+		sscanf(ptr, "%s %s %s", buf_scsi, buf_other, buf_dev);
 		len = strlen(buf_dev);
 		if (buf_dev[len - 1] >= '0' && buf_dev[len - 1] <= '9') {
 			continue;
 		}
 		
-		if (strncasecmp(buf_scsi, "scsi", 4) == 0 && strlen(buf_scsi) == 22) {
-			di_cur = (disk_info_t*)malloc(sizeof(disk_info_t));
-			bzero(di_cur, sizeof(disk_info_t));
-			snprintf(di_cur->dk_scsid, strlen(buf_scsi) + strlen(DEFAULT_SCSI) + 1, "%s%s",
-					DEFAULT_SCSI, buf_scsi);
+		di_cur = (disk_info_t*)malloc(sizeof(disk_info_t));
+		bzero(di_cur, sizeof(disk_info_t));
+		snprintf(di_cur->dk_scsid, strlen(buf_scsi) + strlen(DEFAULT_SCSI) + 1, "%s%s",
+				DEFAULT_SCSI, buf_scsi);
 
-			if ((ptr = strstr(buf_dev, "sd")) != NULL) {
-				snprintf(di_cur->dk_name, strlen(ptr) + strlen(DEFAULT_PATH) + 1,"%s%s",
-						DEFAULT_PATH, ptr);	
-			}
-
-			disk_get_vendor(di_cur);
-			disk_get_serial(di_cur);
-			disk_get_status(di_cur);
-			disk_get_gsize(di_cur);
-			slot_map_find_value(&sm, di_cur);
-			disk_table_insert(dt, di_cur);
+		if ((ptr = strstr(buf_dev, "sd")) != NULL) {
+			snprintf(di_cur->dk_name, strlen(ptr) + strlen(DEFAULT_PATH) + 1,"%s%s",
+					DEFAULT_PATH, ptr);	
 		}
+
+		disk_get_vendor(di_cur);
+		disk_get_serial(di_cur);
+		disk_get_status(di_cur);
+		disk_get_gsize(di_cur);
+		slot_map_find_value(&sm, di_cur);
+		disk_table_insert(dt, di_cur);
 	}
 
 	(void) disk_get_system(sysdisk);	

@@ -377,8 +377,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 {
 	vdev_ops_t *ops;
 	char *type;
-	uint64_t guid = 0, islog = 0, ismeta = 0, isquantum = 0, nparity = 0;
-	uint64_t metadev = 0;
+	uint64_t guid = 0, islog = 0, ismeta = 0, islow = 0, isquantum = 0, nparity = 0;
+	uint64_t metadev = 0, lowdev = 0;
 	vdev_t *vd;
 
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
@@ -411,6 +411,12 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	} else if (alloctype == VDEV_ALLOC_METASPARE) {
 		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_GUID, &guid) != 0)
 			return (SET_ERROR(EINVAL));
+	} else if (alloctype == VDEV_ALLOC_LOWSPARE) {
+		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_GUID, &guid) != 0)
+			return (EINVAL);
+	} else if (alloctype == VDEV_ALLOC_MIRRORSPARE) {
+		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_GUID, &guid) != 0)
+			return (EINVAL);
 	} else if (alloctype == VDEV_ALLOC_ROOTPOOL) {
 		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_GUID, &guid) != 0)
 			return (SET_ERROR(EINVAL));
@@ -427,10 +433,13 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	 */
 	islog = 0;
 	ismeta = 0;
+	islow = 0;
 	metadev = 0;
 	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_LOG, &islog);
 	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_META, &ismeta);
+	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_LOW, &islow);
 	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_METADATA_DEV, &metadev);
+	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_LOWDATA_DEV, &lowdev);
 	if (islog && spa_version(spa) < SPA_VERSION_SLOGS)
 		return (SET_ERROR(ENOTSUP));
 
@@ -479,6 +488,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	vd = vdev_alloc_common(spa, id, guid, ops);
 
 	vd->vdev_ismeta = (ismeta | metadev);
+	vd->vdev_islow = (islow | lowdev);
 	vd->vdev_islog = islog;
 	vd->vdev_nparity = nparity;
 	vd->vdev_isquantum = isquantum;
@@ -544,6 +554,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 			mc = spa->spa_log_class;
 		else if (vd->vdev_ismeta)
 			mc = spa->spa_meta_class;
+		else if (vd->vdev_islow)
+			mc = spa->spa_low_class;
 		else
 			mc = spa->spa_normal_class;
 		vd->vdev_mg = metaslab_group_create(mc, vd);
@@ -565,6 +577,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 		if (alloctype == VDEV_ALLOC_ROOTPOOL) {
 			uint64_t spare = 0;
 			uint64_t metaspare = 0;
+			uint64_t lowspare = 0;
+			uint64_t mirrorspare = 0;
 
 			if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_SPARE,
 			    &spare) == 0 && spare)
@@ -573,6 +587,14 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 			if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_METASPARE,
 			    &metaspare) == 0 && metaspare)
 				spa_metaspare_add(vd);
+
+			if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_LOWSPARE,
+			    &lowspare) == 0 && lowspare)
+				spa_lowspare_add(vd);
+			
+			if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_MIRRORSPARE,
+			    &mirrorspare) == 0 && mirrorspare)
+				spa_mirrorspare_add(vd);
 		}
 
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_OFFLINE,
@@ -682,6 +704,10 @@ vdev_free(vdev_t *vd)
 		spa_l2cache_remove(vd);
 	if (vd->vdev_ismetaspare)
 		spa_metaspare_remove(vd);
+	if (vd->vdev_islowspare)
+		spa_lowspare_remove(vd);
+	if (vd->vdev_ismirrorspare)
+		spa_mirrorspare_remove(vd);
 
 	txg_list_destroy(&vd->vdev_ms_list);
 	txg_list_destroy(&vd->vdev_dtl_list);
@@ -768,6 +794,7 @@ vdev_top_transfer(vdev_t *svd, vdev_t *tvd)
 
 	tvd->vdev_islog = svd->vdev_islog;
 	tvd->vdev_ismeta = svd->vdev_ismeta;
+	tvd->vdev_islow = svd->vdev_islow;
 	svd->vdev_islog = 0;
 }
 
@@ -2955,7 +2982,7 @@ vdev_space_update(vdev_t *vd, int64_t alloc_delta, int64_t defer_delta,
 	vd->vdev_stat.vs_dspace += dspace_delta;
 	mutex_exit(&vd->vdev_stat_lock);
 
-	if (mc == spa_normal_class(spa) || mc == spa_meta_class(spa)) {
+	if (mc == spa_normal_class(spa) || mc == spa_low_class(spa) || mc == spa_meta_class(spa)) {
 		mutex_enter(&rvd->vdev_stat_lock);
 		rvd->vdev_stat.vs_alloc += alloc_delta;
 		rvd->vdev_stat.vs_space += space_delta;
@@ -3011,11 +3038,17 @@ vdev_config_dirty(vdev_t *vd)
 		sav->sav_sync = B_TRUE;
 
 		if (nvlist_lookup_nvlist_array(sav->sav_config,
-		    ZPOOL_CONFIG_L2CACHE, &aux, &naux) != 0) {
+			ZPOOL_CONFIG_L2CACHE, &aux, &naux) != 0) {
 			if (nvlist_lookup_nvlist_array(sav->sav_config,
-			    ZPOOL_CONFIG_SPARES, &aux, &naux) != 0) {
-			    VERIFY(nvlist_lookup_nvlist_array(sav->sav_config,
-				    ZPOOL_CONFIG_METASPARES, &aux, &naux) == 0);
+				ZPOOL_CONFIG_SPARES, &aux, &naux) != 0) {
+				if(nvlist_lookup_nvlist_array(sav->sav_config,
+					ZPOOL_CONFIG_METASPARES, &aux, &naux) != 0){
+					if(nvlist_lookup_nvlist_array(sav->sav_config,
+						ZPOOL_CONFIG_LOWSPARES, &aux, &naux) != 0){
+						VERIFY(nvlist_lookup_nvlist_array(sav->sav_config,
+							ZPOOL_CONFIG_MIRRORSPARES, &aux, &naux) == 0);
+					}
+				}
 			}
 		}
 
