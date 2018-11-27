@@ -3029,6 +3029,7 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			int count;
 			zfs_group_notify_file_space_t *file_notify;
 			uint64_t end_size = 0;
+			uint_t end_blksz = 0;
 
 			file_notify = &notify->arg.p.file_space;
 			count = 0;
@@ -3086,9 +3087,9 @@ int zfs_group_process_notify(zfs_group_server_para_t *server_para)
 			}
 			ZTOI(zp)->i_blocks = file_notify->file_nblks;
 
-			end_size = (uint64_t)zp->z_blksz;
-			if ((uint64_t)zp->z_blksz < file_notify->file_blksz) {
-				atomic_cas_64((uint64_t *)&zp->z_blksz, end_size, file_notify->file_blksz);
+			end_blksz = zp->z_blksz;
+			if (zp->z_blksz < (uint32_t)file_notify->file_blksz) {
+				atomic_cas_32(&zp->z_blksz, end_blksz, (uint32_t)file_notify->file_blksz);
 			}
 
 			bcopy(file_notify->atime, zp->z_atime, sizeof(zp->z_atime));
