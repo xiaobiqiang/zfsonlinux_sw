@@ -1456,7 +1456,7 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	int64_t update_size = 0;
 	uint64_t total_update_size = 0 ;
 	uint64_t nblks = 0;
-	uint64_t blksz = 0;
+	uint32_t blksz = 0;
 
 	ASSERTV(iovcnt);
 
@@ -1942,6 +1942,8 @@ tx_again:
 		 */
 		 if (update_old_zsize) {
 			uint64_t end_size = old_zp->z_size;
+			uint_t end_blksz = old_zp->z_blksz;
+			
 			while (old_zp->z_size < zp->z_size) {
 				atomic_cas_64(&old_zp->z_size, end_size, zp->z_size);
 			}
@@ -1951,9 +1953,8 @@ tx_again:
 				atomic_cas_64((uint64_t *)&old_zp->z_nblks, end_size, nblks);
 			}
 
-			end_size = (uint64_t)old_zp->z_blksz;
-			if ((uint64_t)old_zp->z_blksz != blksz) {
-				atomic_cas_64((uint64_t *)&old_zp->z_blksz, end_size, blksz);
+			if (old_zp->z_blksz != blksz) {
+				atomic_cas_32((uint64_t *)&old_zp->z_blksz, end_blksz, blksz);
 			}
 		}
 
