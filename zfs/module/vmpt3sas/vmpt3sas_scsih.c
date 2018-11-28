@@ -275,7 +275,7 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 	}
 
 	/* encode message */
-	len = XDR_EN_FIXED_SIZE + sizeof(int) + sizeof(int)*(i+1);
+	len = XDR_EN_FIXED_SIZE + sizeof(int) + sizeof(int)*3*(i+1);
 	buff = cs_kmem_alloc(len);
 	xdrmem_create(xdrs, buff, len, XDR_ENCODE);
 	remote_cmd = VMPT_CMD_ADDHOST;
@@ -290,8 +290,12 @@ static void vmpt3sas_brdlocal_shost(struct Scsi_Host *shost)
 		if (i!=j) {
 			continue;
 		}*/
+		xdr_u_int(xdrs,&sdev->channel);
 		xdr_u_int(xdrs,&sdev->id);
-		printk(KERN_WARNING " %s (%d)pack id:%u  \n", __func__, i, sdev->id);
+		xdr_u_int(xdrs,(unsigned int *)&sdev->lun);
+		
+		printk(KERN_WARNING " %s (%d)pack chanel:%u id:%u lun:%u \n", __func__, 
+			i, sdev->channel, sdev->id, (unsigned int)sdev->lun);
 	}
 		
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
@@ -308,7 +312,8 @@ static void vmpt3sas_addvhost_handler(void *data)
 	vmpt3sas_rx_data_t *rx_data = (vmpt3sas_rx_data_t *)data;
 	vmpt3sas_t * ioc;
 	int rv;
-	int i,j,k;
+	int i,j;
+	int chanel, id ,lun;
 	
 	XDR *xdrs = rx_data->xdrs;
 	session = rx_data->cs_data->cs_private;
@@ -353,10 +358,13 @@ static void vmpt3sas_addvhost_handler(void *data)
 	g_vmptsas_hostmap_array[g_vmptsas_hostmap_total].remote_hostno = hostno;
 
 	for (i=0; i<j; i++) {
-		xdr_u_int(xdrs, &k);
+		xdr_u_int(xdrs, &chanel);
+		xdr_u_int(xdrs, &id);
+		xdr_u_int(xdrs, &lun);
 		
-		printk(KERN_WARNING " %s scsi_add_device id:%u  \n", __func__, i);
-		scsi_add_device(shost, 0, k, 0);
+		printk(KERN_WARNING " %s scsi_add_device chanel:%u id:%u lun:%u \n", 
+			__func__, chanel, id, lun);
+		scsi_add_device(shost, chanel, id, lun);
 	}
 
 	/*
