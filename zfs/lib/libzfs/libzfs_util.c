@@ -3366,7 +3366,6 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 	char gnums[16] = {0};
 	char spa_id[32] = {0};
 	char gnode_id[16] = {0};
-	char host_id[16] = {0};
 	char avail_size[32] = {0};
 	char used_size[32] = {0};
 	char load_ios[16] = {0};
@@ -3476,10 +3475,6 @@ int multiclus_info_print(libzfs_handle_t *hdl, zfs_cmd_t *zc,uint64_t flags)
 					space_num = 20 - strlen(node_status[index]);
 					printf("| Status           | %s%*s |\r\n", 
 					node_status[index], space_num, "");
-					sprintf(host_id, "%"PRIu64"", ptr->host_id);
-					space_num = 20 - strlen(host_id);
-					printf("| Host ID          | %s%*s |\r\n", 
-					host_id, space_num, "");
 					ptr++;
 					if(i<gnum-1){
 						zfs_print_separator('-', 43);
@@ -3579,7 +3574,7 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 	char *filename = NULL;
 	
 	if (zcmd_alloc_dst_nvlist(hdl, zc, 0) != 0){
-		printf("zcmd_alloc_dst_nvlist: NULL\r\n");
+		printf("zcmd_alloc_dst_nvlist: NULL\n");
 		return -1;
 	}
 
@@ -3587,7 +3582,7 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 	if(err){
 		printf("Fail to show multiclus info, %d\n", err);
 		zcmd_free_nvlists(zc);
-	}else if(strcmp(zc->zc_string, "down")){
+	}else if(strcmp(zc->zc_string, "up") == 0){
 		if(zcmd_read_dst_nvlist(hdl, zc, &config) != 0){
 			zcmd_free_nvlists(zc);
 			return -1;
@@ -3608,9 +3603,11 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 		printf("\tData\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->data_spa, zp_info->data_objset, zp_info->data_object);
 		printf("\tData2\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->data2_spa, zp_info->data2_objset, zp_info->data2_object);
 		nvlist_free(config);
-	}
-	else{
-		printf("Multiclus_state: down\r\n");
+	}else if (strcmp(zc->zc_string, "down") == 0) {
+		printf("Multiclus_state: down\n");
+		zcmd_free_nvlists(zc);
+	} else {
+		printf("Input is invalid.\n");
 		zcmd_free_nvlists(zc);
 	}
 	return (err);
@@ -3708,9 +3705,6 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 		if (fs_name) {
 			//printf("fs_name:%s\r\n", fs_name);
 			strncpy(zc.zc_string, fs_name, MAXNAMELEN);
-		}
-		if (param) {
-			zc.zc_guid = (uint64_t)atoi((char *)param);
 		}
 	}
 

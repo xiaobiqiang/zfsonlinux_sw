@@ -592,8 +592,6 @@ zfs_prop_init(void)
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "self_root");
 	zprop_register_number(ZFS_PROP_NODE_TYPE, "node_type", 0, PROP_ONETIME,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "node_type");
-	zprop_register_number(ZFS_PROP_MULTILUS_NODE_ID, "node_id", 0, PROP_ONETIME,
-		ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "node_id");
 	zprop_register_index(ZFS_PROP_DIRQUOTA, "dirquota", ZFS_DIRQUOTA_OFF,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "off | on", "DIRQUOTA", dirquota_table);
