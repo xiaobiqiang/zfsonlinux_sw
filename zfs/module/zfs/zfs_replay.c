@@ -981,6 +981,7 @@ zfs_replay_file_space_notify(zfs_sb_t *zsb, lr_file_space_notify_t *lr, boolean_
 	int count = 0;
 	int error = 0;
 	uint64_t end_size= 0;
+	uint32_t end_blksz = 0;
 	uint64_t	parent = 0;
 
 	if (byteswap)
@@ -1009,9 +1010,9 @@ zfs_replay_file_space_notify(zfs_sb_t *zsb, lr_file_space_notify_t *lr, boolean_
 			atomic_cas_64(&zp->z_size, end_size, lr->file_nblks);
 		}
 	}
-	end_size = (uint64_t)zp->z_blksz;
-	if ((uint64_t)zp->z_blksz != lr->file_blksz) {
-		atomic_cas_64((uint64_t*)&zp->z_blksz, end_size, lr->file_blksz);
+	end_blksz = zp->z_blksz;
+	if (zp->z_blksz != (uint32_t)lr->file_blksz) {
+		atomic_cas_32(&zp->z_blksz, end_blksz, (uint32_t)lr->file_blksz);
 	}
 
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zsb), NULL,

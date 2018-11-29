@@ -3577,7 +3577,7 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 	char *filename = NULL;
 	
 	if (zcmd_alloc_dst_nvlist(hdl, zc, 0) != 0){
-		printf("zcmd_alloc_dst_nvlist: NULL\r\n");
+		printf("zcmd_alloc_dst_nvlist: NULL\n");
 		return -1;
 	}
 
@@ -3585,7 +3585,7 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 	if(err){
 		printf("Fail to show multiclus info, %d\n", err);
 		zcmd_free_nvlists(zc);
-	}else if(strcmp(zc->zc_string, "down")){
+	}else if(strcmp(zc->zc_string, "up") == 0){
 		if(zcmd_read_dst_nvlist(hdl, zc, &config) != 0){
 			zcmd_free_nvlists(zc);
 			return -1;
@@ -3606,9 +3606,11 @@ int multiclus_get_znodeinfo(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 		printf("\tData\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->data_spa, zp_info->data_objset, zp_info->data_object);
 		printf("\tData2\tspa: %"PRIx64"\tos: %"PRIx64"\tobj: %"PRIx64"\n", zp_info->data2_spa, zp_info->data2_objset, zp_info->data2_object);
 		nvlist_free(config);
-	}
-	else{
-		printf("Multiclus_state: down\r\n");
+	}else if (strcmp(zc->zc_string, "down") == 0) {
+		printf("Multiclus_state: down\n");
+		zcmd_free_nvlists(zc);
+	} else {
+		printf("Input is invalid.\n");
 		zcmd_free_nvlists(zc);
 	}
 	return (err);
