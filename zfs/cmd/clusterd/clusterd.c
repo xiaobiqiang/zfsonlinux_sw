@@ -3799,6 +3799,79 @@ path2filename(const char *path)
 	return (p ? ++p : path);
 }
 
+static char *
+find_sd(const char *scsi_disk, char *sd_path, size_t sd_path_len)
+{
+	struct stat sb;
+	ssize_t n;
+
+	if (lstat(scsi_disk, &sb) != 0)
+		return (NULL);
+	if ((sb.st_mode & S_IFMT) != S_IFLNK)
+		return (NULL);
+	if ((n = readlink(scsi_disk, sd_path, sd_path_len-1)) < 0)
+		return (NULL);
+	sd_path[n] = '\0';
+	return (sd_path);
+}
+
+static char *
+find_dev_tree_path(const char *sd_path, char *path, size_t path_len)
+{
+	char buf[128];
+	const char *filename;
+	FILE *fp;
+	int found = 0;
+
+	filename = path2filename(sd_path);
+	snprintf(buf, 128, "/usr/bin/find /sys/devices -name %s", filename);
+	if ((fp = popen(buf, "r")) == NULL)
+		return (NULL);
+	while (fgets(buf, 128, fp) != NULL) {
+		if ((strstr(buf, "/sys/devices") != NULL) && (strstr(buf, filename) != NULL)) {
+			strncpy(path, buf, path_len);
+			found = 1;
+			break;
+		}
+	}
+	pclose(fp);
+	return (found ? path : NULL);
+}
+
+static int
+dev_tree_path_is_vdev(const char *dev_tree_path)
+{
+	char vmpt2sas_path_prefix[] = "/sys/devices/platform/";
+
+	if (strncmp(dev_tree_path, vmpt2sas_path_prefix, strlen(vmpt2sas_path_prefix)) == 0)
+		return (1);
+	return (0);
+}
+
+static int
+disk_is_vdev(const char *scsi_disk)
+{
+	char *sd_path, *dev_tree_path;
+	size_t pathlen = 128;
+	int ret = 0;
+
+	sd_path = malloc(pathlen);
+	if (sd_path == NULL)
+		return (0);
+
+	if (find_sd(scsi_disk, sd_path, pathlen) != NULL) {
+		dev_tree_path = malloc(pathlen);
+		if (dev_tree_path) {
+			if (find_dev_tree_path(sd_path, dev_tree_path, pathlen) != NULL)
+				ret = dev_tree_path_is_vdev(dev_tree_path);
+			free(dev_tree_path);
+		}
+	}
+	free(sd_path);
+
+	return (ret);
+}
+
 static void
 cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
 	int *total, int *active, int *local)
@@ -3834,7 +3907,7 @@ cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
 			}
 			if (cursor != 0) {
 				(*active)++;
-				if (cursor->dk_enclosure < 1000)
+				if (disk_is_vdev(cursor->dk_scsid) == 0)
 					(*local)++;
 			}
 		}
@@ -3844,7 +3917,7 @@ cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
 static boolean_t
 cluster_check_pool_disks(nvlist_t *pool_root)
 {
-	disk_table_t table;
+	disk_table_t table = {0, NULL};
 	int total, active, local;
 
 	if (disk_get_info(&table) != 0) {
@@ -3855,7 +3928,7 @@ cluster_check_pool_disks(nvlist_t *pool_root)
 	total = active = local = 0;
 	cluster_check_pool_disks_common(pool_root, &table, &total, &active, &local);
 
-	if (local == 0 || active < total) {
+	if (local == 0 || active < total / 2) {
 		syslog(LOG_WARNING, "disks not satisfied: total=%d, active=%d, local=%d",
 			total, active, local);
 		return (B_FALSE);
