@@ -178,12 +178,22 @@ typedef struct zfs_mirror_host_node {
 	nvlist_t *spa_txg_state;
 } zfs_mirror_host_node_t;
 
+#if	defined(__sw_64)
+typedef struct zfs_mirror_candidate_node {
+	avl_node_t node;
+	uint32_t hostid;
+} zfs_mirror_candidate_node_t;
+#endif
+
 typedef struct zfs_mirror_mac {
 	krwlock_t mirror_host_rwlock;
 	list_t mirror_host_lists;
 	zfs_mirror_host_node_t *mirror_local_host;
 	zfs_mirror_host_node_t *mirror_cur_host;
 	zfs_mirror_host_node_t *mirror_failover_host;
+#if	defined(__sw_64)
+	avl_tree_t mirror_candidate_hosts;
+#endif
 	uint32_t mirror_permanent_hostid;
 
 	kmutex_t		spa_os_lock;
@@ -333,7 +343,7 @@ int zfs_mirror_write_data_msg(uint64_t spa_id, uint64_t os_id, uint64_t object_i
     zfs_mirror_data_type_t data_type, struct dbuf_mirror_io *mirror_io);
 int zfs_mirror_meta(znode_t *zp, itx_t *itx, dmu_tx_t *tx);
 int zfs_mirror_init(uint32_t mirror_hostid);
-int zfs_mirror_fini(void);
+int zfs_mirror_fini(uint32_t mirror_hostid);
 boolean_t zfs_mirror_enable(void);
 boolean_t zfs_mirror_get_state(void);
 int zfs_mirror_hold(void);
@@ -352,6 +362,10 @@ uint64_t zfs_mirror_located_keygen(
 void zfs_mirror_data_expired_switch(boolean_t on_off);
 
 int zfs_mirror_get_updated_spa(uint32_t hostid, nvlist_t **nv_ptr);
+
+#if defined(__sw_64)
+char *zfs_mirror_candidate_hosts_show(char * buf, uint32_t len);
+#endif
 
 #endif
 #ifdef	__cplusplus

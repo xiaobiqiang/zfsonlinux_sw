@@ -5306,13 +5306,23 @@ zfs_ioc_start_mirror(zfs_cmd_t *zc)
         ret = zfs_mirror_init(zc->zc_perm_action);
     }
     else if (zc->zc_cookie == DISABLE_MIRROR) {
-        ret = zfs_mirror_fini();
+        ret = zfs_mirror_fini(zc->zc_perm_action);
     } else if (zc->zc_cookie == SHOW_MIRROR) {
+#if defined(__sw_64)
+    	char *buf;
+		buf = kmem_alloc(MAXNAMELEN, KM_SLEEP);
+		if (zfs_mirror_candidate_hosts_show(buf, MAXNAMELEN) != NULL)
+			strcpy(zc->zc_string, buf);
+		else
+			strcpy(zc->zc_string, "down");
+		kmem_free(buf, MAXNAMELEN);
+#else
         if (zfs_mirror_enable()) {
             strcpy(zc->zc_string, "up");
         } else {
             strcpy(zc->zc_string, "down");
         }
+#endif
     }
     zc->zc_guid = ret;
     return (ret);

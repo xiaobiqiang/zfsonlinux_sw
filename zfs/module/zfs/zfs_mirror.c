@@ -1070,6 +1070,24 @@ zfs_mirror_select_host(void)
     zfs_mirror_host_node_t *mirror_host;
     zfs_mirror_host_node_t *cur_host = NULL;
 
+#if	defined(__sw_64)
+	mirror_host = list_next(&zfs_mirror_mac_port->mirror_host_lists,
+		zfs_mirror_mac_port->mirror_local_host);
+	if (mirror_host == NULL)
+		mirror_host = list_head(&zfs_mirror_mac_port->mirror_host_lists);
+	while (mirror_host != zfs_mirror_mac_port->mirror_local_host) {
+		if (mirror_host->cshi != NULL) {
+            if (mirror_host->cshi->link_state == CTS_LINK_UP) {
+                cur_host = mirror_host;
+                break;
+            }
+        }
+		mirror_host = list_next(&zfs_mirror_mac_port->mirror_host_lists,
+			mirror_host);
+		if (mirror_host == NULL)
+			mirror_host = list_head(&zfs_mirror_mac_port->mirror_host_lists);
+	}
+#else
     if ((zfs_mirror_mac_port->mirror_local_host->hostid & 1) != 0) {
         mirror_host = list_next(&zfs_mirror_mac_port->mirror_host_lists,
             zfs_mirror_mac_port->mirror_local_host);
@@ -1109,6 +1127,7 @@ zfs_mirror_select_host(void)
             }
         }
     }
+#endif
     return (cur_host);
 }
 
@@ -1633,6 +1652,15 @@ zfs_mirror_host_insert (
 {
     zfs_mirror_host_node_t *cur;
     zfs_mirror_host_node_t *mirror_host = NULL;
+#if	defined(__sw_64)
+	avl_index_t where;
+	zfs_mirror_candidate_node_t search;
+	avl_tree_t *tree = &zfs_mirror_mac_port->mirror_candidate_hosts;
+
+	search.hostid = cshi->hostid;
+	if (avl_find(tree, &search, &where) == NULL)
+		return (NULL);
+#endif
 
     cur = list_head(host_list);
     while (cur != NULL) {
@@ -1712,7 +1740,8 @@ zfs_mirror_cs_link_evt_cb(void *private,
             rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_WRITER);
             mirror_host = zfs_mirror_host_insert(
                 &zfs_mirror_mac_port->mirror_host_lists, cshi);
-            if (zfs_mirror_mac_port->mirror_permanent_hostid == mirror_host->hostid) {
+            if (mirror_host != NULL &&
+				zfs_mirror_mac_port->mirror_permanent_hostid == mirror_host->hostid) {
                 ret = cluster_change_failover_host(cshi);
                 if (ret == 0) {
                     zfs_mirror_mac_port->mirror_failover_host = mirror_host;
@@ -1720,7 +1749,11 @@ zfs_mirror_cs_link_evt_cb(void *private,
                 }
             } else {
                 if (zfs_mirror_mac_port->mirror_cur_host == NULL) {
+#if	defined(__sw_64)
+					if (mirror_host != NULL) {
+#else
                     if (zfs_mirror_mac_port->mirror_permanent_hostid == 0) {
+#endif
                         failover_host =	zfs_mirror_select_host();
                         if (failover_host != NULL) {
                             if (failover_host != zfs_mirror_mac_port->mirror_failover_host) {
@@ -1791,6 +1824,112 @@ zfs_mirror_walk_host_cb(cluster_san_hostinfo_t *cshi, void *arg)
     return (CS_WALK_CONTINUE);
 }
 
+#if	defined(__sw_64)
+
+static int
+mirror_candidate_host_compare(const void *a, const void *b)
+{
+	zfs_mirror_candidate_node_t *n1 = a;
+	zfs_mirror_candidate_node_t *n2 = b;
+
+	if (n1->hostid < n2->hostid)
+		return (-1);
+	else if (n1->hostid > n2->hostid)
+		return (1);
+	else
+		return (0);
+}
+
+static void
+zfs_mirror_candidate_host_add(uint32_t hostid)
+{
+	zfs_mirror_candidate_node_t *node, search;
+	avl_index_t where;
+	avl_tree_t *tree = &zfs_mirror_mac_port->mirror_candidate_hosts;
+
+	if (hostid == 0)
+		return;
+
+	rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_WRITER);
+
+	search.hostid = hostid;
+	if (avl_find(tree, &search, &where) == NULL) {
+		node = kmem_alloc(sizeof (*node), KM_SLEEP);
+		node->hostid = hostid;
+		avl_insert(tree, node, where);
+	}
+
+	rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
+}
+
+static void
+zfs_mirror_candidate_host_remove(uint32_t hostid)
+{
+	zfs_mirror_candidate_node_t *node, search;
+	avl_index_t where;
+	avl_tree_t *tree = &zfs_mirror_mac_port->mirror_candidate_hosts;
+
+	if (hostid == 0)
+		return;
+
+	rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_WRITER);
+
+	search.hostid = hostid;
+	if ((node = avl_find(tree, &search, &where)) != NULL) {
+		avl_remove(tree, node);
+		kmem_free(node, sizeof (*node));
+	}
+
+	rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
+}
+
+static void
+zfs_mirror_candidate_hosts_clear(void)
+{
+	avl_tree_t *tree = &zfs_mirror_mac_port->mirror_candidate_hosts;
+	zfs_mirror_candidate_node_t *node;
+	void *cookie;
+
+	cookie = NULL;
+	while ((node = avl_destroy_nodes(tree, &cookie)) != NULL)
+		kmem_free(node, sizeof (*node));
+}
+
+char *
+zfs_mirror_candidate_hosts_show(char *buf, uint32_t len)
+{
+	avl_tree_t *tree = &zfs_mirror_mac_port->mirror_candidate_hosts;
+	zfs_mirror_candidate_node_t *node;
+	uint32_t off = 0;
+	int n;
+
+	if (!zfs_mirror_mac_initialized)
+		return (NULL);
+
+	rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_READER);
+
+	if (avl_is_empty(tree))
+		return (NULL);
+
+	n = snprintf(buf, len, "up, mirror hosts: ");
+	if (n < 0 || n >= len)
+		return (NULL);
+	off += n;
+
+	for (node = avl_first(tree); node != NULL; node = AVL_NEXT(tree, node)) {
+		n = snprintf(buf+off, len-off, "%u ", node->hostid);
+		if (n < 0 || n >= len-off)
+			return (NULL);
+		off += n;
+	}
+
+	rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
+
+	return (buf);
+}
+
+#endif
+
 static void
 zfs_mirror_host_init(uint32_t mirror_hostid)
 {
@@ -1800,6 +1939,12 @@ zfs_mirror_host_init(uint32_t mirror_hostid)
     rw_init(&zfs_mirror_mac_port->mirror_host_rwlock, NULL, RW_DRIVER, NULL);
     list_create(&zfs_mirror_mac_port->mirror_host_lists,
         sizeof(zfs_mirror_host_node_t), offsetof(zfs_mirror_host_node_t, node));
+#if	defined(__sw_64)
+	avl_create(&zfs_mirror_mac_port->mirror_candidate_hosts,
+		mirror_candidate_host_compare,
+		sizeof (zfs_mirror_candidate_node_t),
+		offsetof(zfs_mirror_candidate_node_t, node));
+#endif
     zfs_mirror_mac_port->mirror_local_host = kmem_zalloc(
         sizeof(zfs_mirror_host_node_t), KM_SLEEP);
     zfs_mirror_mac_port->mirror_local_host->hostid = zone_get_hostid(NULL);
@@ -1807,7 +1952,9 @@ zfs_mirror_host_init(uint32_t mirror_hostid)
         zfs_mirror_mac_port->mirror_local_host);
     zfs_mirror_mac_port->mirror_permanent_hostid = mirror_hostid;
     csh_link_evt_hook_add(zfs_mirror_cs_link_evt_cb, NULL);
+#if	!defined(__sw_64)
     cluster_san_host_walk(zfs_mirror_walk_host_cb, NULL);
+#endif
 
     rw_enter(&zfs_mirror_mac_port->mirror_host_rwlock, RW_WRITER);
     if (zfs_mirror_mac_port->mirror_failover_host == NULL) {
@@ -1835,8 +1982,14 @@ zfs_mirror_host_fini(void)
     while ((mirror_host = list_remove_head(&zfs_mirror_mac_port->mirror_host_lists)) != NULL) {
         zfs_mirror_host_destroy(mirror_host);
     }
+#if	defined(__sw_64)
+	zfs_mirror_candidate_hosts_clear();
+#endif
     rw_exit(&zfs_mirror_mac_port->mirror_host_rwlock);
 
+#if	defined(__sw_64)
+	avl_destroy(&zfs_mirror_mac_port->mirror_candidate_hosts);
+#endif
     rw_destroy(&zfs_mirror_mac_port->mirror_host_rwlock);
     list_destroy(&zfs_mirror_mac_port->mirror_host_lists);
 
@@ -2171,8 +2324,14 @@ zfs_mirror_init(uint32_t mirror_hostid)
 {
     uint_t kval;
 
-    if (zfs_mirror_mac_port != NULL)
+    if (zfs_mirror_mac_port != NULL) {
+#if !defined(__sw_64)
         return (-1);/* already intialized */
+#else
+		zfs_mirror_candidate_host_add(mirror_hostid);
+		return (0);
+#endif
+	}
 
     zfs_mirror_mac_initialized = B_FALSE;
 
@@ -2202,6 +2361,9 @@ zfs_mirror_init(uint32_t mirror_hostid)
         minclsyspri, zfs_mirror_nonaligned_tq_nthread, INT_MAX, TASKQ_PREPOPULATE);
 
     zfs_mirror_host_init(mirror_hostid);
+#if	defined(__sw_64)
+	zfs_mirror_candidate_host_add(mirror_hostid);
+#endif
     zfs_mirror_check_spa_hung_init();
 
     csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_ZFS_MIRROR, zfs_mirror_rx_cb, NULL);
@@ -2217,14 +2379,20 @@ zfs_mirror_init(uint32_t mirror_hostid)
 }
 
 int
-zfs_mirror_fini(void)
+zfs_mirror_fini(uint32_t mirror_hostid)
 {
     int retry = 0;
 
-    zfs_mirror_mac_initialized = B_FALSE;
-
-    if (zfs_mirror_mac_port == NULL)
+	if (zfs_mirror_mac_port == NULL)
         return (-1);/* not intialized */
+
+#if defined(__sw_64)
+	if (mirror_hostid > 0) {
+		zfs_mirror_candidate_host_remove(mirror_hostid);
+		return (0);
+	}
+#endif
+    zfs_mirror_mac_initialized = B_FALSE;
 
     cmn_err(CE_NOTE, "%s: Wait for all mirror user exit", __func__);
     while((zfs_mirror_ref != 0) &&
