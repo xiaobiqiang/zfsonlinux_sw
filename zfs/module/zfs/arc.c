@@ -233,7 +233,7 @@ int arc_zio_arena_free_shift = 2;
 /*
  * These tunables are for performance analysis.
  */
-unsigned long zfs_arc_max = 0;
+unsigned long zfs_arc_max = 1024*1024*1024;
 unsigned long zfs_arc_min = 0;
 unsigned long zfs_arc_meta_limit = 0;
 unsigned long zfs_arc_meta_min = 0;
