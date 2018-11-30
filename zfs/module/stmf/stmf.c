@@ -517,23 +517,23 @@ stmf_copyin_iocdata(intptr_t data, int mode, stmf_iocdata_t **iocd,
 		goto copyin_iocdata_done;
 	}
 	if ((*iocd)->stmf_ibuf_size) {
-		*ibuf = kmem_zalloc((*iocd)->stmf_ibuf_size, KM_SLEEP);
+		*ibuf = vmem_zalloc((*iocd)->stmf_ibuf_size, KM_SLEEP);
 		ret = ddi_copyin((void *)((unsigned long)(*iocd)->stmf_ibuf),
 		    *ibuf, (*iocd)->stmf_ibuf_size, mode);
 	}
 	if ((*iocd)->stmf_obuf_size)
-		*obuf = kmem_zalloc((*iocd)->stmf_obuf_size, KM_SLEEP);
+		*obuf = vmem_zalloc((*iocd)->stmf_obuf_size, KM_SLEEP);
 
 	if (ret == 0)
 		return (0);
 	ret = EFAULT;
 copyin_iocdata_done:;
 	if (*obuf) {
-		kmem_free(*obuf, (*iocd)->stmf_obuf_size);
+		vmem_free(*obuf, (*iocd)->stmf_obuf_size);
 		*obuf = NULL;
 	}
 	if (*ibuf) {
-		kmem_free(*ibuf, (*iocd)->stmf_ibuf_size);
+		vmem_free(*ibuf, (*iocd)->stmf_ibuf_size);
 		*ibuf = NULL;
 	}
 	kmem_free(*iocd, sizeof (stmf_iocdata_t));
