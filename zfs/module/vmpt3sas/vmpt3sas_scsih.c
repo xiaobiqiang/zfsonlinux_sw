@@ -377,6 +377,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 	printk(KERN_WARNING " %s to run scsi_scan_host ", __func__);
 	scsi_scan_host(shost);
 	*/
+	vmpt3sas_rx_data_free(rx_data);
 	return;
 		
 out_add_shost_fail:
@@ -445,8 +446,8 @@ void vmpt3sas_proxy_handler(void *data)
 		req_scmd->datalen = 0;
 		/*req_scmd->data = NULL;*/
 	}
-
 	vmpt3sas_rx_data_free(prx);
+	
 	/*
 	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d \n", 
 			__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, (unsigned char)req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun,
