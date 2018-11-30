@@ -64,6 +64,7 @@ int vmpt3sas_slave_alloc(struct scsi_device *);
 int vmpt3sas_slave_configure(struct scsi_device *);
 long vmpt3sas_unlocked_ioctl(struct file *, unsigned int , unsigned long );
 int vmpt3sas_open (struct inode *, struct file *);
+void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *rx_data);
 
 /* shost template for SAS 3.0 HBA devices */
 static struct scsi_host_template vmpt3sas_driver_template = {
@@ -444,6 +445,8 @@ void vmpt3sas_proxy_handler(void *data)
 		req_scmd->datalen = 0;
 		/*req_scmd->data = NULL;*/
 	}
+
+	vmpt3sas_rx_data_free(prx);
 	/*
 	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d \n", 
 			__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, (unsigned char)req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun,
