@@ -346,7 +346,7 @@ zfs_multiclus_start_reg(char *groupname, uint64_t target_spa, uint64_t target_os
 	mutex_enter(&multiclus_mtx);
 	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
 		if(zfs_multiclus_table[i].used && 
-			(0 == strncmp(zfs_multiclus_table[i].group_name, groupname, strlen(groupname))))	{
+			(0 == strcmp(zfs_multiclus_table[i].group_name, groupname))) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_reg[j].used){
@@ -410,7 +410,7 @@ zfs_multiclus_change_master_to_record(char *groupname, char *new_master_fsname,
 	mutex_enter(&multiclus_mtx);
 	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++) {
 		if(zfs_multiclus_table[i].used && 
-			(0 == strncmp(zfs_multiclus_table[i].group_name, groupname, strlen(groupname)))) {
+			(0 == strcmp(zfs_multiclus_table[i].group_name, groupname))) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_group[j].used){
@@ -927,16 +927,16 @@ zfs_multiclus_hash_tmchk_thr_start(int hash_location)
 }
 
 int
-zfs_multiclus_get_group_record_num(char *group_name, uint64_t group_name_len)
+zfs_multiclus_get_group_record_num(char *group_name)
 {
 	int i = 0;
 	int j = 0;
 	int num = 0;
 
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if (zfs_multiclus_table[i].used && strncmp((char *)(zfs_multiclus_table[i].group_name),
-		    group_name, group_name_len) == 0){
-		    for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++) {
+		if (zfs_multiclus_table[i].used &&
+			strcmp((char *)(zfs_multiclus_table[i].group_name), group_name) == 0){
+			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++) {
 				if (zfs_multiclus_table[i].multiclus_group[j].used)
 				num++;
 			}
@@ -953,8 +953,7 @@ int zfs_multiclus_get_group(char *group_name, zfs_multiclus_group_t **group)
 	mutex_enter(&multiclus_mtx);
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
 		group_entry = &zfs_multiclus_table[i];
-		if (group_entry->used && strncmp(group_entry->group_name,
-		    group_name, strlen(group_name)) == 0){
+		if (group_entry->used && strcmp(group_entry->group_name, group_name) == 0){
 			*group = group_entry;
 			break;
 		}
@@ -1030,8 +1029,8 @@ zfs_multiclus_destroy_reg_record(char *group_name, uint64_t spa_id, uint64_t os_
 
 	mutex_enter(&multiclus_mtx);
 	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if(zfs_multiclus_table[i].used && strncmp(zfs_multiclus_table[i].group_name,
-			group_name, strlen(group_name)) == 0) {
+		if(zfs_multiclus_table[i].used && 
+			strcmp(zfs_multiclus_table[i].group_name, group_name) == 0) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_reg[j].used
@@ -1061,8 +1060,8 @@ zfs_multiclus_valid_reg_record(char *group_name, uint64_t spa_id, uint64_t os_id
 	boolean_t is_valid = B_FALSE;
 
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++) {
-		if(zfs_multiclus_table[i].used && strncmp(zfs_multiclus_table[i].group_name,
-			group_name, strlen(group_name)) == 0) {
+		if(zfs_multiclus_table[i].used &&
+			strcmp(zfs_multiclus_table[i].group_name, group_name) == 0) {
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_reg[j].used
 					&& (zfs_multiclus_table[i].multiclus_reg[j].spa_id == spa_id)
@@ -1091,8 +1090,8 @@ zfs_multiclus_get_group_master(char *group_name, zfs_multiclus_node_type_t type)
 	mutex_enter(&multiclus_mtx);
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
 		group_entry = &zfs_multiclus_table[i];
-		if (group_entry->used && strncmp(group_entry->group_name,
-		    group_name, strlen(group_name)) == 0){
+		if (group_entry->used &&
+			strcmp(group_entry->group_name, group_name) == 0){
 			break;
 		}
 	}
@@ -1122,8 +1121,8 @@ zfs_multiclus_get_reg_record(char *groupname, uint64_t spa_id, uint64_t os_id,
 
 	mutex_enter(&multiclus_mtx);
 	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if(zfs_multiclus_table[i].used && strncmp(zfs_multiclus_table[i].group_name,
-		    groupname, strlen(groupname)) == 0)	{
+		if(zfs_multiclus_table[i].used &&
+			strcmp(zfs_multiclus_table[i].group_name, groupname) == 0)	{
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_reg[j].used
@@ -1159,8 +1158,8 @@ zfs_multiclus_update_reg_record(char *groupname, uint64_t spa_id, uint64_t os_id
 
 	mutex_enter(&multiclus_mtx);
 	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if(zfs_multiclus_table[i].used && strncmp(zfs_multiclus_table[i].group_name,
-		    groupname, strlen(groupname)) == 0)	{
+		if(zfs_multiclus_table[i].used &&
+			strcmp(zfs_multiclus_table[i].group_name, groupname) == 0)	{
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_reg[j].used
@@ -1233,8 +1232,8 @@ zfs_multiclus_record_reg_and_update(zfs_group_header_t *msg_header, zfs_group_re
 
 	mutex_enter(&multiclus_mtx);
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if (zfs_multiclus_table[i].used && strncmp((char *)(zfs_multiclus_table[i].group_name),
-		    (char *)(msg_header->group_name), msg_header->group_name_len) == 0){
+		if (zfs_multiclus_table[i].used && strcmp((char *)(zfs_multiclus_table[i].group_name),
+		    (char *)(msg_header->group_name)) == 0){
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_group[j].used &&
@@ -1373,8 +1372,8 @@ zfs_multiclus_update_group(zfs_group_header_t *msg_header, zfs_msg_t *msg_data)
 	}
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
 		if (zfs_multiclus_table[i].used){
-			if (strncmp((char *)(zfs_multiclus_table[i].group_name),
-			    (char *)(msg_header->group_name), msg_header->group_name_len) == 0){
+			if (strcmp((char *)(zfs_multiclus_table[i].group_name),
+			    (char *)(msg_header->group_name)) == 0){
 				find = B_TRUE;
 				break;
 			}
@@ -2000,7 +1999,7 @@ int zfs_multiclus_get_info_from_group(zfs_migrate_cmd_t *zmc, char *gname, int n
 	int j = 0;
 	int gnum = 0;
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
-		if(zfs_multiclus_table[i].used && !strncmp(gname, zfs_multiclus_table[i].group_name, strlen(gname)))	{
+		if(zfs_multiclus_table[i].used && !strcmp(gname, zfs_multiclus_table[i].group_name))	{
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++){
 				if (zfs_multiclus_table[i].multiclus_group[j].used && !zfs_multiclus_table[i].multiclus_group[j].node_type == ZFS_MULTICLUS_MASTER)
@@ -2337,8 +2336,8 @@ zfs_multiclus_refresh_nodes_status(char * group_name)
 	
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
 		group_entry = &zfs_multiclus_table[i];
-		if (group_entry->used && strncmp(group_entry->group_name,
-		    group_name, strlen(group_name)) == 0){
+		if (group_entry->used &&
+			strcmp(group_entry->group_name, group_name) == 0){
 			break;
 		}
 	}
@@ -3555,9 +3554,9 @@ int zfs_multiclus_check_group_master_count(const char *group_name)
 	int i, j;
 	mutex_enter(&multiclus_mtx);
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++) {
-		if (zfs_multiclus_table[i].used && strncmp(zfs_multiclus_table[i].group_name,
-		    group_name, strlen(group_name)) == 0) {
-		    mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
+		if (zfs_multiclus_table[i].used &&
+			strcmp(zfs_multiclus_table[i].group_name, group_name) == 0) {
+			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++) {
 				if (zfs_multiclus_table[i].multiclus_group[j].used &&
 					zfs_multiclus_table[i].multiclus_group[j].node_type == ZFS_MULTICLUS_MASTER) {
@@ -3635,7 +3634,7 @@ void zfs_multiclus_clear_group(char *group_name)
 	mutex_enter(&multiclus_mtx);
 	for (; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++){
 		if(zfs_multiclus_table[i].used && 
-			!strncmp(zfs_multiclus_table[i].group_name, group_name, zfs_multiclus_table[i].group_name_len))	{
+			!strcmp(zfs_multiclus_table[i].group_name, group_name)) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			bzero(zfs_multiclus_table[i].multiclus_group, sizeof(zfs_multiclus_group_record_t) * ZFS_MULTICLUS_GROUP_NODE_NUM);
 			mutex_exit(&zfs_multiclus_table[i].multiclus_group_mutex);
@@ -3667,13 +3666,13 @@ int zfs_multiclus_set_node_type_to_os(char *group_name, char *fs_name, zfs_multi
 	mutex_enter(&multiclus_mtx);
 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++) {
 		if (zfs_multiclus_table[i].used && 
-			!strncmp(group_name, zfs_multiclus_table[i].group_name, strlen(group_name))) {
+			!strcmp(group_name, zfs_multiclus_table[i].group_name)) {
 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++) {
 				if (zfs_multiclus_table[i].multiclus_group[j].used) {
 					err = dmu_objset_hold((char*)zfs_multiclus_table[i].multiclus_group[j].fsname, FTAG, &os);
 					if (err == 0) {
-						if (!strncmp((char*)zfs_multiclus_table[i].multiclus_group[j].fsname, fs_name, strlen(fs_name))) {
+						if (!strcmp((char*)zfs_multiclus_table[i].multiclus_group[j].fsname, fs_name)) {
 							if (node_type == ZFS_MULTICLUS_MASTER) {
 								os_is_master = 1;
 								os->os_is_master = os_is_master;
@@ -3723,7 +3722,7 @@ int zfs_multiclus_set_node_type_to_os(char *group_name, char *fs_name, zfs_multi
 // 	mutex_enter(&multiclus_mtx);
 // 	for (i = 0; i < ZFS_MULTICLUS_GROUP_TABLE_SIZE; i++) {
 // 		if (zfs_multiclus_table[i].used && 
-// 			!strncmp(group_name, zfs_multiclus_table[i].group_name, strlen(group_name))) {
+// 			!strcmp(group_name, zfs_multiclus_table[i].group_name)) {
 // 			mutex_enter(&zfs_multiclus_table[i].multiclus_group_mutex);
 // 			for (j = 0; j < ZFS_MULTICLUS_GROUP_NODE_NUM; j++) {
 // 				if (zfs_multiclus_table[i].multiclus_group[j].spa_id == spa_id && 
