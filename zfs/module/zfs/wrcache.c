@@ -914,7 +914,7 @@ void travese_migrate_dir(objset_t *os, uint64_t dir_obj)
 				offsetof(object_list_node_t, node));
 
 	if (os->os_is_group) {
-		record_count = zfs_multiclus_get_group_record_num(os->os_group_name, strlen(os->os_group_name));
+		record_count = zfs_multiclus_get_group_record_num(os->os_group_name);
 		if (record_count <= 0) {
 			cmn_err(CE_WARN, "%s, %d, Get group record number failed for %s failed", __func__, __LINE__, os->os_group_name);
 			return;
