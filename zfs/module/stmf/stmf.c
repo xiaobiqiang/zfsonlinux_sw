@@ -49,6 +49,9 @@ static uint64_t stmf_proxy_msg_id = 0x1;
 #define	PRIxPTR		"lx"
 #define	PRIx64		"llx"
 
+/* general zvol path */
+#define	ZVOL_FULL_DIR	"/dev/zvol/"
+
 #define ARRAYSIZE(X)  (sizeof(X) / sizeof(X[0]))
 
 struct
@@ -564,6 +567,9 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	stmf_iocdata_t *iocd;
 	void *ibuf = NULL, *obuf = NULL;
 	slist_lu_t *luid_list;
+    slist_lu_ex_t *luns_list;
+    sbd_lu_t *sl;
+    char *lu_name;
 	slist_target_port_t *lportid_list;
 	stmf_i_lu_t *ilu;
 	stmf_i_local_port_t *ilport;
@@ -1479,6 +1485,42 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		bcopy(iops_info, obuf, iocd->stmf_obuf_size);
 		break;
 
+    case STMF_IOCTL_LIST_ALL_LUNS:
+        /* retrieves registered luns */
+        mutex_enter(&stmf_state.stmf_lock);
+        n = 0;
+        /* statistic luns */
+        for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next)
+            n++;
+        iocd->stmf_obuf_max_nentries = n;
+        iocd->stmf_obuf_nentries = min(n, iocd->stmf_obuf_size/sizeof (slist_lu_ex_t));
+        i = 0;
+        luns_list = (slist_lu_ex_t *)obuf;
+        for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next) {
+            id = (uint8_t *)ilu->ilu_lu->lu_id;
+            bcopy(id + 4, luns_list[i].lu_guid, 16);
+            sl = (sbd_lu_t *)ilu->ilu_lu->lu_provider_private;
+            
+            if (sl->sl_name && strstr(sl->sl_name, ZVOL_FULL_DIR)) {
+                lu_name = sl->sl_name;
+            } else if (sl->sl_meta_filename && 
+                strstr(sl->sl_meta_filename, ZVOL_FULL_DIR)) {
+                lu_name = sl->sl_meta_filename;
+            } else {
+                cmn_err(CE_WARN, "%s sl(%p) get name failed", __func__, sl);
+                continue;
+            }
+    
+            lu_name += strlen(ZVOL_FULL_DIR);
+            strlcpy(luns_list[i].lu_name, lu_name, sizeof(luns_list[i].lu_name));
+            
+            i++;
+            if (i >= iocd->stmf_obuf_nentries)
+                break;
+        }
+        
+        mutex_exit(&stmf_state.stmf_lock);
+        break;
 	default:
 		ret = ENOTTY;
 	}

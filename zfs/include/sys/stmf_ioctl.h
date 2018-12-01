@@ -74,6 +74,7 @@ extern "C" {
 #define	STMF_IOCTL_GET_LU_TASK_INFO		(STMF_IOCTL | 40)
 #define	STMF_IOCTL_SET_IOPS_LIMIT		(STMF_IOCTL | 41)
 #define	STMF_IOCTL_GET_IOPS_INFO		(STMF_IOCTL | 42)
+#define	STMF_IOCTL_LIST_ALL_LUNS		(STMF_IOCTL | 43)
 
 typedef	struct stmf_iocdata {
 	uint32_t	stmf_version;
@@ -89,6 +90,11 @@ typedef	struct stmf_iocdata {
 typedef	struct slist_lu {
 	uint8_t		lu_guid[16];
 } slist_lu_t;
+
+typedef	struct slist_lu_ex {
+	uint8_t		lu_guid[16];
+	char		lu_name[256];
+} slist_lu_ex_t;
 
 typedef	struct slist_target_port {
 	uint8_t		target[260];

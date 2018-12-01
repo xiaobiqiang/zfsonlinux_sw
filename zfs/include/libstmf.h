@@ -188,11 +188,23 @@ typedef struct _stmfGuid
 	uchar_t	guid[16];
 } stmfGuid;
 
+typedef struct _stmfLuns
+{
+	stmfGuid guid;
+	char	name[256];
+} stmfLuns;
+
 typedef struct _stmfGuidList
 {
 	uint32_t cnt;
 	stmfGuid guid[1];
 } stmfGuidList;
+
+typedef struct _stmfLunsList
+{
+	uint32_t cnt;
+	stmfLuns luns[1];
+} stmfLunsList;
 
 typedef struct _stmfState
 {
@@ -442,6 +454,14 @@ int stmfValidateView(stmfViewEntry *viewEntry);
 int stmfClearTrace(void);
 int stmfGetTrace(void);
 int stmfCheckService(void);
+
+int stmfSetLuTaskLimit(stmfGuid *lu, uint32_t task_limit, 
+    uint32_t *stmf_max_cur_task);
+int stmfGetLuTaskInfo(stmfGuid *lu, uint32_t *cur_task, uint32_t *task_limit);
+int stmfSetIopsLimit(stmfGuid *lu, uint32_t iops_limit);
+int stmfGetIopsInfo(stmfGuid *lu, uint32_t *cur_iops, uint32_t *iops_limit);
+int stmfListAllLuns(stmfLunsList **luList);
+
 
 #ifdef	__cplusplus
 }

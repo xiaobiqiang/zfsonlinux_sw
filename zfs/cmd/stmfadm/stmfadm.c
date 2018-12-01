@@ -80,6 +80,7 @@ static int setTaskLimitFunc(int, char **, cmdOptions_t *, void *);
 static int getTaskInfoFunc(int, char **, cmdOptions_t *, void *);
 static int setIopsLimitFunc(int, char **, cmdOptions_t *, void *);
 static int getIopsInfoFunc(int, char **, cmdOptions_t *, void *);
+static int listAllLunsFunc(int, char **, cmdOptions_t *, void *);
 
 
 
@@ -250,6 +251,8 @@ subCommandProps_t subcommands[] = {
 		OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},	
 	{"get-iops-info", getIopsInfoFunc, NULL, NULL, NULL,
 		OPERAND_MANDATORY_SINGLE, OPERANDSTRING_LU, NULL},
+    {"list-all-luns", listAllLunsFunc, NULL, NULL, NULL,
+        OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},
 	{NULL, 0, NULL, NULL, 0, 0, 0, NULL}
 };
 
@@ -3889,7 +3892,7 @@ setTaskLimitFunc(int operandLen, char *operands[], cmdOptions_t *options,
 	int ret, i;
 	stmfState state;
 	char sGuid[GUID_INPUT + 1] = {0};
-	uint32_t limit;
+	uint32_t limit = 0;
 	boolean_t luInput = B_FALSE;
 	boolean_t limitInput = B_FALSE;
 	boolean_t isCluster = B_FALSE;
@@ -4076,7 +4079,7 @@ setIopsLimitFunc(int operandLen, char *operands[], cmdOptions_t *options,
 	int ret, i;
 	stmfState state;
 	char sGuid[GUID_INPUT + 1] = {0};
-	uint32_t iopsLimit;
+	uint32_t iopsLimit = 0;
 	boolean_t luInput = B_FALSE;
 	boolean_t iopsInput = B_FALSE;
 	boolean_t isCluster = B_FALSE;
@@ -4253,6 +4256,56 @@ getIopsInfoFunc(int operandLen, char *operands[], cmdOptions_t *options,
 	return (ret);
 }
 
+/*
+ * listAllLunsFunc
+ *
+ * List name and guid of the logical units
+ *
+ */
+/*ARGSUSED*/
+static int
+listAllLunsFunc(int operandLen, char *operands[], cmdOptions_t *options, void *args)
+{
+    int i;
+    int ret = 0;
+    stmfLunsList *luList;
+    
+    if ((ret = stmfListAllLuns(&luList))
+        != STMF_STATUS_SUCCESS) {
+        switch (ret) {
+            case STMF_ERROR_SERVICE_NOT_FOUND:
+                (void) fprintf(stderr, "%s: %s\n", cmdName,
+                    gettext("STMF service not found"));
+                break;
+            case STMF_ERROR_BUSY:
+                (void) fprintf(stderr, "%s: %s\n", cmdName,
+                    gettext("resource busy"));
+                break;
+            case STMF_ERROR_PERM:
+                (void) fprintf(stderr, "%s: %s\n", cmdName,
+                    gettext("permission denied"));
+                break;
+            case STMF_ERROR_SERVICE_DATA_VERSION:
+                (void) fprintf(stderr, "%s: %s\n", cmdName,
+                    gettext("STMF service version incorrect"));
+                break;
+            default:
+                (void) fprintf(stderr, "%s: %s\n", cmdName,
+                    gettext("list failed"));
+                break;
+        }
+        return (1);
+    }
+
+    for (i = 0; i < luList->cnt; i++) {
+        printGuid(&luList->luns[i].guid, stdout);
+        (void) printf("\t");
+        (void) printf("%s", luList->luns[i].name);
+        (void) printf("\n");
+    }
+
+    return (ret);
+}
 
 /*
  * input:
