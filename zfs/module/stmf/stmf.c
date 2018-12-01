@@ -192,8 +192,8 @@ int stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
 int stmf_set_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret);
 int stmf_get_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret);
 
-static void stmf_init_iops_checker(void);
-static stmf_status_t stmf_fini_iops_checker(void);
+static void stmf_init_qos_checker(void);
+static stmf_status_t stmf_fini_qos_checker(void);
 
 
 /* pppt modhandle */
@@ -333,7 +333,7 @@ static int stmf_worker_scale_down_qd = 0;
 
 stmf_transition_worker_t stmf_transtion_worker;
 
-uint32_t stmf_iops_polltime = 1;	/* s */
+int stmf_qos_polltime = 1;	/* s */
 
 /*
  *	for avs mode
@@ -425,7 +425,7 @@ stmf_init(void)
 	stmf_svc_init();
 	stmf_dlun_init();
 	stmf_init_task_checker();
-	stmf_init_iops_checker();
+	stmf_init_qos_checker();
 	stmf_proxy_msg_id &= ~STMF_HOST_NUM_MASK;
 	stmf_proxy_msg_id |= hostid & STMF_HOST_NUM_MASK;
 	return (ret);
@@ -443,7 +443,7 @@ stmf_fini(void)
 	stmf_worker_fini();
 	stmf_svc_fini();
 	stmf_fini_task_checker();
-	stmf_fini_iops_checker();
+	stmf_fini_qos_checker();
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,
@@ -3860,7 +3860,11 @@ stmf_set_iops_limit_ioctl(stmf_iops_limit_t *iops_limit,
 	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
 		if (bcmp(iops_limit->lu_guid,
 			ilu->ilu_lu->lu_id->ident, 16) == 0) {
+			ilu->ilu_kbps_limit = 0;
+			ilu->ilu_iops_tokens = iops_limit->iops_limit * stmf_qos_polltime;
 			ilu->ilu_iops_limit = iops_limit->iops_limit;
+           	if (ilu->ilu_iops_limit == 0)
+				ilu->ilu_cur_iops = 0;
 			cmn_err(CE_NOTE, "%s set iops limit %d", __func__,
 				ilu->ilu_iops_limit);
 			found = B_TRUE;
@@ -3893,6 +3897,8 @@ stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
 			ilu->ilu_lu->lu_id->ident, 16) == 0) {
 			iops_info->iops_limit = ilu->ilu_iops_limit;
 			iops_info->cur_iops = ilu->ilu_cur_iops;
+            if (iops_info->iops_limit == 0)
+                iops_info->cur_iops = 0;
 			cmn_err(CE_NOTE, "%s cur iops %d, iops limit %d", __func__,
 				iops_info->cur_iops, iops_info->iops_limit);
 			found = B_TRUE;
@@ -3930,8 +3936,10 @@ stmf_set_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret)
         if (bcmp(kbps->lu_guid,
             ilu->ilu_lu->lu_id->ident, 16) == 0) {
             ilu->ilu_iops_limit = 0;
-            ilu->ilu_kbps_tokens = kbps->kbps_limit * stmf_iops_polltime;
+            ilu->ilu_kbps_tokens = kbps->kbps_limit * stmf_qos_polltime;
             ilu->ilu_kbps_limit = kbps->kbps_limit;
+           	if (ilu->ilu_kbps_limit == 0)
+				ilu->ilu_cur_kbps = 0;
             cmn_err(CE_NOTE, "%s set kbps limit %" PRIx64 "", __func__,
                 ilu->ilu_kbps_limit);
             found = B_TRUE;
@@ -4078,6 +4086,10 @@ stmf_update_kstat_lu_io(scsi_task_t *task, stmf_data_buf_t *dbuf)
 		if (kip != NULL) {
 			mutex_enter(ilu->ilu_kstat_io->ks_lock);
 			STMF_UPDATE_KSTAT_IO(kip, dbuf);
+			if (ilu->ilu_iops_tokens > 0) {
+				ilu->ilu_iops_tokens--;
+			}
+            
 			if (ilu->ilu_kbps_tokens < dbuf->db_data_size) {
 				ilu->ilu_kbps_tokens = 0;
 			} else {
@@ -6241,7 +6253,7 @@ stmf_task_alloc(struct stmf_local_port *lport, stmf_scsi_session_t *ss,
 	}
 
 	if (ilu->ilu_iops_limit) {
-		if (ilu->ilu_cur_iops >= ilu->ilu_iops_limit) {
+		if (ilu->ilu_iops_tokens <= 0) {
 			/* cmn_err(CE_WARN, "%s lu(%s) iops over uplimit %d %d", __func__,
 				lu->lu_alias, ilu->ilu_cur_iops, ilu->ilu_iops_limit); */
 			task->task_additional_flags |= TASK_AF_PORT_LOAD_HIGH;
@@ -9967,6 +9979,7 @@ stmf_fini_task_checker()
 	return (STMF_SUCCESS);	
 }
 
+#if 0
 static void
 stmf_update_iops(void)
 {
@@ -9984,7 +9997,7 @@ stmf_update_iops(void)
 		mutex_enter(ilu->ilu_kstat_io->ks_lock);
 		cur_reads = kip->reads - ilu->ilu_old_reads;
 		cur_writes = kip->writes - ilu->ilu_old_writes;
-		ilu->ilu_cur_iops = (cur_reads + cur_writes) / stmf_iops_polltime;
+		ilu->ilu_cur_iops = (cur_reads + cur_writes) / stmf_qos_polltime;
 		ilu->ilu_old_reads = kip->reads;
 		ilu->ilu_old_writes = kip->writes;
 		mutex_exit(ilu->ilu_kstat_io->ks_lock);
@@ -9992,13 +10005,14 @@ stmf_update_iops(void)
 
 	mutex_exit(&stmf_state.stmf_lock);
 }
+#endif
 
 static void
-stmf_update_token(void)
+stmf_update_qos_info(void)
 {
 	stmf_i_lu_t *ilu;
     kstat_io_t *kip;
-    uint64_t kbps_limit;
+    uint64_t qos_sum;
 
 	mutex_enter(&stmf_state.stmf_lock);
 	
@@ -10008,12 +10022,21 @@ stmf_update_token(void)
 			continue;
         
 		mutex_enter(ilu->ilu_kstat_io->ks_lock);
+		if (ilu->ilu_iops_limit) {
+            qos_sum = ilu->ilu_iops_limit * stmf_qos_polltime;
+			ilu->ilu_cur_iops = 
+                (qos_sum - ilu->ilu_iops_tokens) / stmf_qos_polltime;
+			if (ilu->ilu_iops_tokens < qos_sum) {
+				ilu->ilu_iops_tokens = qos_sum;
+			}
+		}
+        
 		if (ilu->ilu_kbps_limit) {
+            qos_sum = ilu->ilu_kbps_limit * stmf_qos_polltime;
 			ilu->ilu_cur_kbps = 
-                (ilu->ilu_kbps_limit * stmf_iops_polltime - ilu->ilu_kbps_tokens) / stmf_iops_polltime;
-            kbps_limit = ilu->ilu_kbps_limit * stmf_iops_polltime;
-			if (ilu->ilu_kbps_tokens < kbps_limit) {
-				ilu->ilu_kbps_tokens = kbps_limit;
+                (qos_sum - ilu->ilu_kbps_tokens) / stmf_qos_polltime;
+			if (ilu->ilu_kbps_tokens < qos_sum) {
+				ilu->ilu_kbps_tokens = qos_sum;
 			}
 		}
 		mutex_exit(ilu->ilu_kstat_io->ks_lock);
@@ -10023,53 +10046,52 @@ stmf_update_token(void)
 }
 
 static void
-stmf_update_iops_thread(void *arg)
+stmf_update_qos_thread(void *arg)
 {
-	mutex_enter(&stmf_state.stmf_iops_mtx);
-	stmf_state.stmf_iops_tq_flags |= STMF_IOPS_CHECKER_ACTIVE;
+	mutex_enter(&stmf_state.stmf_qos_mtx);
+	stmf_state.stmf_qos_tq_flags |= STMF_QOS_CHECKER_ACTIVE;
 	
-	while (!(stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_TERMINATE)) {
-		cv_timedwait(&stmf_state.stmf_iops_cv, &stmf_state.stmf_iops_mtx,
-			ddi_get_lbolt() + drv_usectohz(stmf_iops_polltime * 1000 * 1000));
+	while (!(stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_TERMINATE)) {
+		cv_timedwait(&stmf_state.stmf_qos_cv, &stmf_state.stmf_qos_mtx,
+			ddi_get_lbolt() + drv_usectohz(stmf_qos_polltime * 1000 * 1000));
 
-		if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_TERMINATE)
+		if (stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_TERMINATE)
 			break;
-
-		stmf_update_iops();
-        stmf_update_token();
+        
+        stmf_update_qos_info();
 	}
 
-	stmf_state.stmf_iops_tq_flags &= 
-		~(STMF_IOPS_CHECKER_STARTED | STMF_IOPS_CHECKER_ACTIVE);
-	mutex_exit(&stmf_state.stmf_iops_mtx);
+	stmf_state.stmf_qos_tq_flags &= 
+		~(STMF_QOS_CHECKER_STARTED | STMF_QOS_CHECKER_ACTIVE);
+	mutex_exit(&stmf_state.stmf_qos_mtx);
 }
 
 static void
-stmf_init_iops_checker()
+stmf_init_qos_checker()
 {
-	mutex_init(&stmf_state.stmf_iops_mtx, NULL, MUTEX_DEFAULT, NULL);
-	cv_init(&stmf_state.stmf_iops_cv, NULL, CV_DRIVER, NULL);
-	stmf_state.stmf_iops_tq_flags = STMF_IOPS_CHECKER_STARTED;
-	stmf_state.stmf_iops_tq = taskq_create("stmf_iops_checker",
+	mutex_init(&stmf_state.stmf_qos_mtx, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&stmf_state.stmf_qos_cv, NULL, CV_DRIVER, NULL);
+	stmf_state.stmf_qos_tq_flags = STMF_QOS_CHECKER_STARTED;
+	stmf_state.stmf_qos_tq = taskq_create("stmf_qos_checker",
 		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
-	taskq_dispatch(stmf_state.stmf_iops_tq, stmf_update_iops_thread,
+	taskq_dispatch(stmf_state.stmf_qos_tq, stmf_update_qos_thread,
 		NULL, TQ_SLEEP);
 }
 
 static stmf_status_t
-stmf_fini_iops_checker()
+stmf_fini_qos_checker()
 {
 	int i;
-	mutex_enter(&stmf_state.stmf_iops_mtx);
-	if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_STARTED) {
-		stmf_state.stmf_iops_tq_flags |= STMF_IOPS_CHECKER_TERMINATE;
-		cv_signal(&stmf_state.stmf_iops_cv);
+	mutex_enter(&stmf_state.stmf_qos_mtx);
+	if (stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_STARTED) {
+		stmf_state.stmf_qos_tq_flags |= STMF_QOS_CHECKER_TERMINATE;
+		cv_signal(&stmf_state.stmf_qos_cv);
 	}
-	mutex_exit(&stmf_state.stmf_iops_mtx);
+	mutex_exit(&stmf_state.stmf_qos_mtx);
 
 	/* Wait for 5 seconds */
 	for (i = 0; i < 500; i++) {
-		if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_STARTED)
+		if (stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_STARTED)
 			delay(drv_usectohz(10000));
 		else
 			break;
@@ -10077,9 +10099,9 @@ stmf_fini_iops_checker()
 	if (i == 500)
 		return (STMF_BUSY);
 	
-	taskq_destroy(stmf_state.stmf_iops_tq);
-	mutex_destroy(&stmf_state.stmf_iops_mtx);
-	cv_destroy(&stmf_state.stmf_iops_cv);
+	taskq_destroy(stmf_state.stmf_qos_tq);
+	mutex_destroy(&stmf_state.stmf_qos_mtx);
+	cv_destroy(&stmf_state.stmf_qos_cv);
 	return (STMF_SUCCESS);
 }
 
@@ -11714,3 +11736,7 @@ EXPORT_SYMBOL(stmf_set_alua_state);
 EXPORT_SYMBOL(stmf_set_port_standby);
 EXPORT_SYMBOL(stmf_deregister_scsi_session);
 EXPORT_SYMBOL(stmf_register_pppt_cb);
+
+module_param(stmf_qos_polltime, int, 0644);
+MODULE_PARM_DESC(stmf_qos_polltime, "Stmf QOS poll time");
+

@@ -85,10 +85,10 @@ typedef struct stmf_state {
 	uint32_t			stmf_task_checker_flag;
 	taskq_t				*stmf_task_checker_tq;
 
-	kmutex_t			stmf_iops_mtx;
-	kcondvar_t			stmf_iops_cv;
-	taskq_t				*stmf_iops_tq;
-	uint32_t			stmf_iops_tq_flags;	
+	kmutex_t			stmf_qos_mtx;
+	kcondvar_t			stmf_qos_cv;
+	taskq_t				*stmf_qos_tq;
+	uint32_t			stmf_qos_tq_flags;	
 } stmf_state_t;
 
 /*
@@ -106,11 +106,11 @@ typedef struct stmf_state {
 #define	STMF_CHECKER_TERMINATE	4
 
 /*
- * iops checker flags
+ * qos checker flags
  */
-#define	STMF_IOPS_CHECKER_STARTED		1
-#define	STMF_IOPS_CHECKER_ACTIVE		2
-#define	STMF_IOPS_CHECKER_TERMINATE		4
+#define STMF_QOS_CHECKER_STARTED        1
+#define STMF_QOS_CHECKER_ACTIVE         2
+#define STMF_QOS_CHECKER_TERMINATE      4
 
 
 /*
