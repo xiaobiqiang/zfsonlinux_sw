@@ -5938,7 +5938,9 @@ top:
 				
 				sa_update(szp->z_sa_hdl, SA_ZPL_FILENAME(ZTOZSB(szp)),
 					szp->z_filename, MAXNAMELEN, tx);
-				szp->z_dirlowdata = tdzp->z_dirlowdata;
+				if(!(szp->z_id == szp->z_dirlowdata)) {
+				    szp->z_dirlowdata = tdzp->z_dirlowdata;
+                }
 				zfs_sa_set_dirlowdata(szp, szp->z_dirlowdata, tx);
 				mutex_exit(&szp->z_lock); 
 				if (S_ISREG(ZTOI(szp)->i_mode) || S_ISLNK(ZTOI(szp)->i_mode)) {
