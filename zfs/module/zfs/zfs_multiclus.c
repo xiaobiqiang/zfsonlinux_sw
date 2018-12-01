@@ -2229,7 +2229,7 @@ zfs_get_group_znode_info(char *path, nvlist_t **config)
 
 	filp = filp_open(path, O_DIRECTORY, 0);
 	if (IS_ERR(filp)){
-		filp = filp_open(path, O_RDONLY, 0444);
+		filp = filp_open(path, O_RDONLY | O_LARGEFILE, 0444);
 		if (IS_ERR(filp)){
 			cmn_err(CE_WARN, "[%s %d], the path %s is error", __func__, __LINE__, path);
 			*config = NULL;
