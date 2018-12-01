@@ -7935,3 +7935,125 @@ done:
 	return (ret);
 }
 
+/* stmf set kbps
+ *
+ * lu - guid of the logical unit
+ * kbps - kbps limit
+ */
+int
+stmf_set_kbps(stmfGuid *lu, uint64_t kbps)
+{
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmf_ioctl;
+	stmf_kbps_t kbps_limit;
+	int ret = STMF_STATUS_SUCCESS;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	kbps_limit.kbps_limit = kbps;
+	bcopy(lu, &kbps_limit.lu_guid, sizeof (stmfGuid));
+	bzero(&stmf_ioctl, sizeof (stmf_ioctl));
+	stmf_ioctl.stmf_version = STMF_VERSION_1;
+	stmf_ioctl.stmf_ibuf_size = sizeof (stmf_kbps_t);
+	stmf_ioctl.stmf_ibuf = (uint64_t)(unsigned long)&kbps_limit;
+
+	ioctlRet = ioctl(fd, STMF_IOCTL_SET_KBPS, &stmf_ioctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+			case EBUSY:
+				ret = STMF_ERROR_BUSY;
+				break;
+			case EPERM:
+			case EACCES:
+				ret = STMF_ERROR_PERM;
+				break;
+			case ENOENT:
+				ret = STMF_ERROR_NOT_FOUND;
+				break;
+			default:
+				syslog(LOG_DEBUG,
+					"stmf_set_kbps:ioctl errno(%d)", errno);
+				ret = STMF_STATUS_ERROR;
+				break;
+		}
+	}
+
+	if (stmf_ioctl.stmf_error == STMF_IOCERR_INVALID_KBPS)
+		ret = STMF_ERROR_INVALID_KBPS;
+
+	closeStmf(fd);
+	return (ret);
+}
+
+/* stmf get kbps
+ *
+ * lu - guid of the logical unit
+ * kbps - out kbps limit
+ */
+int
+stmf_get_kbps(stmfGuid *lu, uint64_t *cur_kbps, uint64_t *kbps)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmfIoctl;
+	stmf_kbps_t kbps_out;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/*
+	 * Open control node for stmf to make call
+	 */
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	bcopy(lu, &kbps_out.lu_guid, sizeof (stmfGuid));
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to get lu iops info
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_ibuf_size = sizeof (stmf_kbps_t);
+	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&kbps_out;
+	stmfIoctl.stmf_obuf_size = sizeof (stmf_kbps_t);
+	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&kbps_out;
+	
+	ioctlRet = ioctl(fd, STMF_IOCTL_GET_KBPS, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+		case EBUSY:
+			ret = STMF_ERROR_BUSY;
+			break;
+		case EPERM:
+		case EACCES:
+			ret = STMF_ERROR_PERM;
+			break;
+		case ENOENT:
+			ret = STMF_ERROR_NOT_FOUND;
+			break;
+		default:
+			syslog(LOG_DEBUG,
+				"stmf_get_kbps:ioctl errno(%d)", errno);
+			ret = STMF_STATUS_ERROR;
+			break;
+		}
+	} else {
+		*cur_kbps = kbps_out.cur_kbps;
+		*kbps = kbps_out.kbps_limit;
+	}
+
+	closeStmf(fd);
+	return (ret);
+}

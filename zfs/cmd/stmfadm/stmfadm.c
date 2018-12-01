@@ -81,6 +81,8 @@ static int getTaskInfoFunc(int, char **, cmdOptions_t *, void *);
 static int setIopsLimitFunc(int, char **, cmdOptions_t *, void *);
 static int getIopsInfoFunc(int, char **, cmdOptions_t *, void *);
 static int listAllLunsFunc(int, char **, cmdOptions_t *, void *);
+static int setKbpsFunc(int, char **, cmdOptions_t *, void *);
+static int getKbpsFunc(int, char **, cmdOptions_t *, void *);
 
 
 
@@ -129,6 +131,10 @@ static int listAllLunsFunc(int, char **, cmdOptions_t *, void *);
 #define	SERIAL_NUMBER		    "SERIAL"
 #define	MGMT_URL		    "MGMT-URL"
 #define	HOST_ID			    "HOST-ID"
+
+#define KBPS_G	(1ULL << 30)
+#define KBPS_M	(1ULL << 20)
+#define KBPS_K	1024
 
 #define	MODIFY_HELP "\n"\
 "Description: Modify properties of a logical unit. \n" \
@@ -252,7 +258,11 @@ subCommandProps_t subcommands[] = {
 	{"get-iops-info", getIopsInfoFunc, NULL, NULL, NULL,
 		OPERAND_MANDATORY_SINGLE, OPERANDSTRING_LU, NULL},
     {"list-all-luns", listAllLunsFunc, NULL, NULL, NULL,
-        OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},
+        OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},    
+	{"set-kbps", setKbpsFunc, "lnc", "ln", NULL,
+		OPERAND_OPTIONAL_MULTIPLE, OPERANDSTRING_LU, NULL},	
+	{"get-kbps", getKbpsFunc, NULL, NULL, NULL,
+		OPERAND_MANDATORY_SINGLE, OPERANDSTRING_LU, NULL},
 	{NULL, 0, NULL, NULL, 0, 0, 0, NULL}
 };
 
@@ -4306,6 +4316,227 @@ listAllLunsFunc(int operandLen, char *operands[], cmdOptions_t *options, void *a
 
     return (ret);
 }
+
+static int
+setKbpsFunc(int operandLen, char *operands[], cmdOptions_t *options,
+    void *args)
+{
+	int ret, i;
+	char *ptr = NULL;
+	stmfState state;
+	unsigned long convert = 0;
+	char sGuid[GUID_INPUT + 1] = {0};
+	uint64_t kbps_limit = 0;
+	boolean_t luInput = B_FALSE;
+	boolean_t kbpsInput = B_FALSE;
+	boolean_t isCluster = B_FALSE;
+	stmfGuid inGuid;
+	unsigned int guid[sizeof (stmfGuid)];
+
+	ret = getStmfState(&state);
+	if (ret != STMF_STATUS_SUCCESS)
+		return (ret);
+	if (state.operationalState == STMF_SERVICE_STATE_OFFLINE ||
+	    state.operationalState == STMF_SERVICE_STATE_OFFLINING) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("STMF service is offline"));
+		return (1);
+	}
+
+	for (; options->optval; options++) {
+		switch (options->optval) {
+			case 'l':
+				if (strlen(options->optarg) != GUID_INPUT) {
+					(void) fprintf(stderr,
+					    "%s: %s: %s %d %s\n",
+					    cmdName, options->optarg,
+					    gettext("must be"), GUID_INPUT,
+					    gettext("hexadecimal digits long"));
+					return (1);
+				}
+				bcopy(options->optarg, sGuid, GUID_INPUT);
+				luInput = B_TRUE;
+				break;
+			case 'n':
+				if (strchr(options->optarg, 'g') != NULL ||
+						strchr(options->optarg, 'G') != NULL) {
+					convert = strtoul(options->optarg, &ptr, 10);
+					kbps_limit = convert * KBPS_G;
+				} else if (strchr(options->optarg, 'm') != NULL ||
+						strchr(options->optarg, 'M') != NULL) {
+					convert = strtoul(options->optarg, &ptr, 10);
+					kbps_limit = convert * KBPS_M;
+				} else {
+					convert = strtoul(options->optarg, &ptr, 10);
+					kbps_limit = convert * KBPS_K;
+				}
+				kbpsInput = B_TRUE;
+				break;
+			case 'c':
+				isCluster = B_TRUE;
+				break;
+			default:
+				(void) fprintf(stderr, "%s: %c: %s\n",
+				    cmdName, options->optval,
+				    "unknown option");
+				return (1);
+		}
+	}
+
+	if (!luInput) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("no lu specified"));
+		return (1);
+	}
+
+	if (!kbpsInput) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("no iops limit specified"));
+		return (1);
+	}
+
+	for (i = 0; i < GUID_INPUT; i++)
+		sGuid[i] = tolower(sGuid[i]);
+	sGuid[i] = 0;
+
+	(void) sscanf(sGuid, "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &guid[0], &guid[1], &guid[2], &guid[3], &guid[4], &guid[5],
+	    &guid[6], &guid[7], &guid[8], &guid[9], &guid[10], &guid[11],
+	    &guid[12], &guid[13], &guid[14], &guid[15]);
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		inGuid.guid[i] = guid[i];
+	}
+
+	ret = stmf_set_kbps(&inGuid, kbps_limit);
+
+	if (ret == STMF_STATUS_SUCCESS) {
+		if (isCluster == B_TRUE)
+			stmfadm_send_cmd(cmdfullName);
+	} else {
+		switch (ret) {
+		case STMF_ERROR_BUSY:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("STMF is busy"));
+			break;
+		case STMF_ERROR_PERM:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("permission denied"));
+			break;
+		case STMF_ERROR_NOT_FOUND:
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
+			    sGuid, gettext("not found"));
+			break;
+		case STMF_ERROR_INVALID_IOPS_LIMIT:
+			(void) fprintf(stderr, "%s: kbps limit %ld is invalid",
+				cmdName, kbps_limit);
+			break;
+		default:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("unknown error"));
+			break;
+		}
+	}
+
+	return (ret);
+}
+
+static int
+getKbpsFunc(int operandLen, char *operands[], cmdOptions_t *options,
+    void *args)
+{
+	int ret, i;
+	stmfGuid inGuid;
+	stmfState state;
+	char skbps[16] = {0};
+	char skbps_limit[16] = {0};
+	char sGuid[GUID_INPUT + 1] = {0};
+	uint64_t kbps_limit = 0, cur_kbps = 0;
+	unsigned int guid[sizeof (stmfGuid)];
+
+	ret = getStmfState(&state);
+	if (ret != STMF_STATUS_SUCCESS)
+		return (ret);
+	if (state.operationalState == STMF_SERVICE_STATE_OFFLINE ||
+	    state.operationalState == STMF_SERVICE_STATE_OFFLINING) {
+		(void) fprintf(stderr, "%s: %s\n", cmdName,
+		    gettext("STMF service is offline"));
+		return (1);
+	}
+
+	if (strlen(operands[0]) != GUID_INPUT) {
+		(void) fprintf(stderr,
+			"%s: %s: %s %d %s\n",
+			cmdName, operands[0],
+			gettext("must be"), GUID_INPUT,
+			gettext("hexadecimal digits long"));
+		return (1);
+	}
+
+	bcopy(operands[0], sGuid, GUID_INPUT);
+
+	for (i = 0; i < GUID_INPUT; i++)
+		sGuid[i] = tolower(sGuid[i]);
+	sGuid[i] = 0;
+
+	(void) sscanf(sGuid, "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &guid[0], &guid[1], &guid[2], &guid[3], &guid[4], &guid[5],
+	    &guid[6], &guid[7], &guid[8], &guid[9], &guid[10], &guid[11],
+	    &guid[12], &guid[13], &guid[14], &guid[15]);
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		inGuid.guid[i] = guid[i];
+	}
+
+	ret = stmf_get_kbps(&inGuid, &cur_kbps, &kbps_limit);
+
+	if (ret == STMF_STATUS_SUCCESS) {
+		if (cur_kbps / KBPS_G) {
+			snprintf(skbps, sizeof(skbps), "%lluG", 
+                (unsigned long long)cur_kbps / KBPS_G);
+		} else if (cur_kbps / KBPS_M) {
+			snprintf(skbps, sizeof(skbps), "%lluM", 
+                (unsigned long long)cur_kbps / KBPS_M);
+		} else {
+			snprintf(skbps, sizeof(skbps), "%lluK", 
+                (unsigned long long)cur_kbps / KBPS_K);
+		}
+
+		if (kbps_limit / KBPS_G) {
+			snprintf(skbps_limit, sizeof(skbps_limit), "%lluG", 
+                (unsigned long long)kbps_limit / KBPS_G);
+		} else if (kbps_limit / KBPS_M) {
+			snprintf(skbps_limit, sizeof(skbps_limit), "%lluM", 
+                (unsigned long long)kbps_limit / KBPS_M);
+		} else {
+			snprintf(skbps_limit, sizeof(skbps_limit), "%lluK", 
+                (unsigned long long)kbps_limit / KBPS_K);
+		}
+		printf("cur kbps: %s, kbps limit: %s\n", skbps, skbps_limit);
+	} else {
+		switch (ret) {
+		case STMF_ERROR_BUSY:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("STMF is busy"));
+			break;
+		case STMF_ERROR_PERM:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("permission denied"));
+			break;
+		case STMF_ERROR_NOT_FOUND:
+			(void) fprintf(stderr, "%s: %s: %s\n", cmdName,
+			    sGuid, gettext("not found"));
+			break;
+		default:
+			(void) fprintf(stderr, "%s: %s\n", cmdName,
+			    gettext("unknown error"));
+			break;
+		}
+	}
+
+	return (ret);
+}
+
 
 /*
  * input:
