@@ -1114,6 +1114,8 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 	int err = 0;
 	int i = 0;
 	int retry_times = 0;
+	zfs_sb_t *zsb = NULL;
+	uint64_t root_obj = 0;
 	uint64_t object = 0;
 	objset_t *os = NULL;
 
@@ -1123,7 +1125,15 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 		return;
 	}
 
-	object = flags & START_OS ? os->os_self_root : start_obj;
+	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
+	if (zsb == NULL){
+		cmn_err(CE_WARN, "%s, %d, get root object failed: %s failed.", __func__, __LINE__, fsname);
+		return;
+	}
+	
+	root_obj = os->os_is_group ? os->os_self_root : zsb->z_root;
+
+	object = flags & START_OS ? root_obj : start_obj;
 
 	if (os->os_wrc.traverse_finished && os->os_wrc.wrc_total_migrated == os->os_wrc.wrc_total_to_migrate) {
 		os->os_wrc.wrc_total_migrated = 0;
