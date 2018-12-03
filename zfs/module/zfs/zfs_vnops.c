@@ -3220,7 +3220,7 @@ top:
 		}
 
 		/* TODO: should we reset data1 info in the master file ? */
-		if (TO_DOUBLE_DATA_FILE) {
+		if (zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0) {
 			err = zfs_remove_data2_file(dip, zp, name, cr, flags);
 			if (err != 0)
 			{
