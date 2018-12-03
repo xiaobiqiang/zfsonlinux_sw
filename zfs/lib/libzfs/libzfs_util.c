@@ -3815,7 +3815,30 @@ void zfs_start_multiclus(libzfs_handle_t *hdl, char *group_name,
 					break;
 			}
 		} else {
-			if ((flags == SET_DOUBLE_DATA) || (flags == GET_DOUBLE_DATA)){
+			if (flags == SET_DOUBLE_DATA) {
+				char cmd[256] = {0};
+				if (zc.zc_sendobj) {
+					sprintf(cmd, "cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh");
+					system(cmd);
+					memset(cmd, 0, 256);
+					sprintf(cmd, "sed '/zfs multiclus set*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh");
+					system(cmd);
+					memset(cmd, 0, 256);
+					sprintf(cmd, "echo '/usr/local/sbin/zfs multiclus set double_data on' >> /usr/sbin/cluster_init.sh");
+					system(cmd);
+					printf("DOUBLE_DATA ON.\n");
+				} else {
+					sprintf(cmd, "cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh");
+					system(cmd);
+					memset(cmd, 0, 256);
+					sprintf(cmd, "sed '/zfs multiclus set*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh");
+					system(cmd);
+					memset(cmd, 0, 256);
+					sprintf(cmd, "echo '/usr/local/sbin/zfs multiclus set double_data off' >> /usr/sbin/cluster_init.sh");
+					system(cmd);
+					printf("DOUBLE_DATA OFF.\n");
+				}
+			}else if (flags == GET_DOUBLE_DATA) {
 				if (zc.zc_sendobj)
 					printf("DOUBLE_DATA ON.\n");
 				else

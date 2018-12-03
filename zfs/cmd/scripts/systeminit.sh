@@ -508,9 +508,22 @@ _CLUSTERINIT_
 			sed '/zfs multiclus*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
 			cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh
 		else
-			sed '/zfs multiclus*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
+			sed '/zfs multiclus -e/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
 			echo "/usr/local/sbin/zfs multiclus -e" >> /usr/sbin/cluster_init.sh            
 			cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh
+
+			response=
+			gettext "Do you wish to ENABLE DOUBLE_DATA mode?[y/n] (default: n) "
+			read response
+			if [ -z $response ] || [ $response != "y" -a $response != "Y" ];then
+				sed '/zfs multiclus set*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
+				echo "/usr/local/sbin/zfs multiclus set double_data off" >> /usr/sbin/cluster_init.sh
+				cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh
+			else
+				sed '/zfs multiclus set*/d' /tmp/cluster_init.sh > /usr/sbin/cluster_init.sh
+				echo "/usr/local/sbin/zfs multiclus set double_data on" >> /usr/sbin/cluster_init.sh
+				cp /usr/sbin/cluster_init.sh /tmp/cluster_init.sh
+			fi
 		fi
 	fi
 
