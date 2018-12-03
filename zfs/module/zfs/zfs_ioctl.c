@@ -2867,11 +2867,8 @@ retry:
 			if (zfs_prop_user(propname)) {
 				if (nvpair_type(propval) != DATA_TYPE_STRING)
 					err = SET_ERROR(EINVAL);
-			} else if (zfs_prop_userquota(propname) || zfs_prop_dirquota(propname)
-			|| zfs_prop_dirlowdata(propname)) {
-				if (strlen(propname)) {
-					err = SET_ERROR(ENAMETOOLONG);
-				} else if (nvpair_type(propval) !=
+			} else if (zfs_prop_userquota(propname)) {
+				if (nvpair_type(propval) !=
 				    DATA_TYPE_UINT64_ARRAY)
 					err = SET_ERROR(EINVAL);
 			} else {

@@ -1130,10 +1130,8 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 		cmn_err(CE_WARN, "%s, %d, get root object failed: %s failed.", __func__, __LINE__, fsname);
 		return;
 	}
-	
-	root_obj = os->os_is_group ? os->os_self_root : zsb->z_root;
 
-	object = flags & START_OS ? root_obj : start_obj;
+	object = flags & START_OS ?  zsb->z_root : start_obj;
 
 	if (os->os_wrc.traverse_finished && os->os_wrc.wrc_total_migrated == os->os_wrc.wrc_total_to_migrate) {
 		os->os_wrc.wrc_total_migrated = 0;
