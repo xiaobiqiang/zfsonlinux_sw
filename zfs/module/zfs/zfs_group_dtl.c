@@ -351,6 +351,8 @@ txg_retry:
 	
 			kmem_free(ss, sizeof (zfs_group_dtl_node_t));
 			mutex_enter(ptree_mutex);
+			if (avl_is_empty(ptree))
+				break;
 		}
 		mutex_exit(ptree_mutex);
 		if (entry != entry_map) {
