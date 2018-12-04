@@ -31,6 +31,8 @@
 #include <sys/list.h>
 #include <sys/spa_impl.h>
 #include <disklist.h>
+#include <sys/efi_partition.h>
+
 #include "deflt.h"
 #include "cn_cluster.h"
 #include "systemd_util.h"
@@ -3762,12 +3764,30 @@ cluster_check_pool_replicas(uint64_t pool_guid)
 }
 
 static char *
+part2disk(const char *path, char *buf, size_t len)
+{
+	char *s;
+	size_t offset = len;
+
+	if ((s = strstr(path, "-part")) != NULL)
+		offset = s - path;
+	if (offset > 0 && offset < len) {
+		memcpy(buf, path, offset);
+		buf[offset] = '\0';
+		return (buf);
+	}
+	return (NULL);
+}
+
+static char *
 choose_critical_disk(nvlist_t *pool_root)
 {
 	uint_t i, nchild, nchild2;
 	nvlist_t **children, **children2;
 	char *path;
-	int fd;
+	char buf[128];
+	int fd, rval;
+	struct dk_gpt *vtoc;
 
 	verify(nvlist_lookup_nvlist_array(pool_root, ZPOOL_CONFIG_CHILDREN,
 		&children, &nchild) == 0);
@@ -3775,13 +3795,23 @@ choose_critical_disk(nvlist_t *pool_root)
 	for (i = 0; i < nchild; i++) {
 		if (nvlist_lookup_nvlist_array(children[i], ZPOOL_CONFIG_CHILDREN,
 			&children2, &nchild2) == 0) {
-			return choose_critical_disk(children[i]);
+			path = choose_critical_disk(children[i]);
+			if (path)
+				return (path);
 		}
 
 		if (nvlist_lookup_string(children[i], ZPOOL_CONFIG_PATH, &path) == 0) {
-			if ((fd = open(path, O_RDWR)) > 0) {
+			if (part2disk(path, buf, 128) == NULL)
+				continue;
+			if ((fd = open(buf, O_RDONLY|O_DIRECT)) > 0) {
+				rval = efi_alloc_and_read(fd, &vtoc);
+				if (rval == 0)
+					efi_free(vtoc);
+				else
+					syslog(LOG_WARNING, "efi_alloc_and_read error %d", rval);
 				close(fd);
-				return path;
+				if (rval == 0)
+					return (path);
 			}
 		}
 	}
@@ -3964,6 +3994,7 @@ cluster_compete_pool(void *arg)
 	int i, err, *owners= NULL/*, chosen*/;
 	cluster_import_pool_t *cip = NULL;
 	timespec_t ts;
+	int check_replicas_trytimes = 0;
 
 	if (!config) {
 		syslog(LOG_WARNING, "NULL config");
@@ -4140,6 +4171,9 @@ ready_import:
 	err = cluster_check_pool_replicas(guid);
 	if (err == 0) {
 		syslog(LOG_WARNING, "pool '%s' not satisfy replicas", poolname);
+		if (check_replicas_trytimes >= 3)
+			goto exit_thr;
+		check_replicas_trytimes++;
 		/*
 		 * If replicas not satisfied, we wait new node join cluster
 		 * or timeout; then we will re-compete.
