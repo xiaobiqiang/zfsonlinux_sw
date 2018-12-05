@@ -546,14 +546,17 @@ tx_again:
 			for (i = 0; i < numbufs; i++) {
 				db = dbp[i];
 				db_impl = (dmu_buf_impl_t *)db;
-				if (BP_IS_APPLOW(db_impl->db_blkptr)) {
-					if (debug_wrcache)
-						cmn_err(CE_WARN, "[debug_wrcache] %s, %d, The blk is migrated, skip it and continue!", __func__, __LINE__);
-					continue;
-				} else {
-					db_impl->db_low_data[tx->tx_txg & TXG_MASK] = B_TRUE;
-					dmu_buf_will_dirty(db, tx);
+				if(!db_impl->db_low_data[tx->tx_txg & TXG_MASK] && db_impl->db_blkptr != NULL &&
+                                   !BP_IS_HOLE(db_impl->db_blkptr)) {
+				    if (BP_IS_APPLOW(db_impl->db_blkptr)) {
+					    if (debug_wrcache)
+					        cmn_err(CE_WARN, "[debug_wrcache] %s, %d, The blk is migrated, skip it and continue!", __func__, __LINE__);
+					    continue;
+                    }
 				}
+
+				db_impl->db_low_data[tx->tx_txg & TXG_MASK] = B_TRUE;
+				dmu_buf_will_dirty(db, tx);
 			}
 
 			if((file_length - file_done) <= block->block_size){
@@ -847,7 +850,7 @@ void migrate_insert_block_to_cmd(zfs_migrate_cmd_t *migrate_cmd, int record_num,
 
 	for (i = 0; i < record_num; i++) {
 		if (migrate_cmd[i].data_spa == zp->z_group_id.data_spa && migrate_cmd[i].data_os == zp->z_group_id.data_objset) {
-			j = migrate_cmd[i].obj_count == 0 ? migrate_cmd[i].obj_count : migrate_cmd[i].obj_count - 1;
+			j = migrate_cmd[j].obj_count;
 			migrate_cmd[i].mobj[j].object = zp->z_group_id.data_object;
 			migrate_cmd[i].mobj[j].file_length = zp->z_size;
 			migrate_cmd[i].mobj[j].block_size = block_size;
@@ -1111,6 +1114,8 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 	int err = 0;
 	int i = 0;
 	int retry_times = 0;
+	zfs_sb_t *zsb = NULL;
+	uint64_t root_obj = 0;
 	uint64_t object = 0;
 	objset_t *os = NULL;
 
@@ -1120,7 +1125,13 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 		return;
 	}
 
-	object = flags & START_OS ? os->os_self_root : start_obj;
+	zsb = (zfs_sb_t *)dmu_objset_get_user(os);
+	if (zsb == NULL){
+		cmn_err(CE_WARN, "%s, %d, get root object failed: %s failed.", __func__, __LINE__, fsname);
+		return;
+	}
+
+	object = flags & START_OS ?  zsb->z_root : start_obj;
 
 	if (os->os_wrc.traverse_finished && os->os_wrc.wrc_total_migrated == os->os_wrc.wrc_total_to_migrate) {
 		os->os_wrc.wrc_total_migrated = 0;
