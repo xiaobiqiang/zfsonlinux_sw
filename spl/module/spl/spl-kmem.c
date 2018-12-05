@@ -187,14 +187,25 @@ spl_kmem_alloc_impl(size_t size, int flags, int node)
 			if (flags & KM_VMEM) {
 				ptr = __vmalloc(size, lflags, PAGE_KERNEL);
 			} else {
+				printk(KERN_WARNING
+			    	"%s %d: alloc mem null "
+			    	"size=%lu lflags=0x%x",
+			    	__func__, __LINE__, (unsigned long)size, lflags);
 				return (NULL);
 			}
 		} else {
 			ptr = kmalloc_node(size, lflags, node);
 		}
 
-		if (likely(ptr) || (flags & KM_NOSLEEP))
+		if (likely(ptr) || (flags & KM_NOSLEEP)) {
+			if(ptr == NULL) {
+				printk(KERN_WARNING
+			    	"%s %d: alloc mem null "
+			    	"size=%lu lflags=0x%x",
+			    	__func__, __LINE__, (unsigned long)size, lflags);
+			}
 			return (ptr);
+		}	
 
 		/*
 		 * For vmem_alloc() and vmem_zalloc() callers retry immediately
@@ -220,6 +231,10 @@ spl_kmem_alloc_impl(size_t size, int flags, int node)
 		cond_resched();
 	} while (1);
 
+	printk(KERN_WARNING
+			    "%s %d: alloc mem null "
+			    "size=%lu lflags=0x%x",
+			    __func__, __LINE__, (unsigned long)size, lflags);
 	return (NULL);
 }
 

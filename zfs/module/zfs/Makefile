@@ -1,5 +1,5 @@
-src = /root/wzy/zfsonlinux/zfs/module/zfs
-obj = /root/wzy/zfsonlinux/zfs/module/zfs
+src = /home/zywang/zfsonlinux/zfs/module/zfs
+obj = /home/zywang/zfsonlinux/zfs/module/zfs
 
 MODULE := zfs
 
@@ -118,3 +118,4 @@ $(MODULE)-objs += cluster_target_socket.o
 $(MODULE)-objs += zfs_hbx.o
 $(MODULE)-objs += zfs_mirror.o
 $(MODULE)-objs += lun_migrate.o
+$(MODULE)-objs += wrcache.o

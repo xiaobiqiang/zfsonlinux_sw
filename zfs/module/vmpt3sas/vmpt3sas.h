@@ -21,6 +21,7 @@ typedef struct vmpt3sas {
 	taskq_t *tq_ctl;
 	void * session;
 	u32 remotehostno;
+	u32 remotehostid;
 	u64 req_index;
 	
 }vmpt3sas_t;
@@ -42,7 +43,8 @@ typedef enum vmpt3sas_remote_cmd {
 	VMPT_CMD_REQUEST,
 	VMPT_CMD_RSP,
 	VMPT_CMD_CTL,
-	VMPT_CMD_ADDHOST
+	VMPT_CMD_ADDHOST,
+	VMPT_CMD_SELFUP
 } vmpt3sas_remote_cmd_t;
 
 typedef enum vmpt3sas_cmd_state {
@@ -106,6 +108,7 @@ typedef struct vmptsas_hostmap {
 	struct Scsi_Host *shost;
 	int remote_hostno;
 	int index;
+	int hostid;
 }vmptsas_hostmap_t;
 
 
