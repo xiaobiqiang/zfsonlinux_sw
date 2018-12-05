@@ -43,9 +43,9 @@ typedef struct sysenv
 	char *value;
 }sysenv_t;
 
-int df_savefree();
+int df_savefree(void);
 int df_get_envs(sysenv_t **, int);
-int df_listenv();
+int df_listenv(void);
 int  df_loadsysenv(char *path);
 char *df_getsysenv(const char *name);
 

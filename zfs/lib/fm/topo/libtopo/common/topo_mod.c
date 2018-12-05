@@ -908,29 +908,52 @@ topo_fru_hash_lookup(const char *name)
 }
 
 topo_fru_t *
+topo_fru_hash_clear_flag(const char *name)
+{
+    topo_fru_t *fru = NULL;
+    uint_t h;
+
+    for (h = 0; h < TOPO_FRUHASH_BUCKETS; h++) {
+        for (fru = tp_fruhash.fh_hash[h]; fru != NULL; fru = fru->tf_next) {
+            if (strstr(fru->tf_name, name) != NULL) {
+                if (fru->flag == 0) {
+                    fru->tf_time = 0;
+                }
+                fru->flag = 0;
+            }
+        }
+    }
+
+    return (fru);
+}
+
+topo_fru_t *
 topo_fru_setime(const char *name, int status, char *diskname,
 	char *slotid, char *encid, char *product)
 {
-	topo_fru_t *fru;
-	uint_t h;
+    topo_fru_t *fru;
+    uint_t h;
 
-	if ((fru = topo_fru_hash_lookup(name)) != NULL) {
-		if (fru->tf_time == 0) {
-			fru->tf_time = time(NULL);
-			fru->tf_status |= status;
-			fru->nor_count = 0;
-			fru->err_count++;
-			return fru;
-		} else if (fru->err_count < 3) {
-			fru->nor_count = 0;
-			fru->err_count++;
-			fru->tf_status |= status;
-			return fru;
-		} else {
-			fru->tf_status |= status;
-			return NULL;
-		}
-	}
+    if ((fru = topo_fru_hash_lookup(name)) != NULL) {
+        if (fru->tf_time == 0) {
+            fru->tf_time = time(NULL);
+            fru->tf_status |= status;
+            fru->nor_count = 0;
+            fru->err_count++;
+            fru->flag = status;         
+            return fru;
+        } else if (fru->err_count < 3) {
+            fru->nor_count = 0;
+            fru->err_count++;
+            fru->tf_status |= status;
+            fru->flag = status;
+            return fru;
+        } else {
+            fru->tf_status |= status;
+            fru->flag = status;
+            return NULL;
+        }
+    }
 
 	topo_fru_hash_lock();
 		
@@ -938,6 +961,7 @@ topo_fru_setime(const char *name, int status, char *diskname,
 	fru->tf_name = topo_fru_strdup(name, 1);
 	fru->tf_time = time(NULL);
 	fru->tf_status |= status;
+        fru->flag = status;
 	fru->err_count = 1;
 	fru->nor_count = 0;
 
