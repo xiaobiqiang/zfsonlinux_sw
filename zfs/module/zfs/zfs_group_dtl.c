@@ -45,7 +45,7 @@
 int debug_zgroup_dtl = 0;
 int debug_zgroup_dtl2 = 0;
 int debug_nas_group_dtl = 0;
-int ZFS_GROUP_DTL_ENABLE = 1;
+int ZFS_GROUP_DTL_ENABLE = 0;
 
 
 int avl_num = 20;
