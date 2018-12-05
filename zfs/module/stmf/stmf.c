@@ -48,6 +48,10 @@ static uint64_t stmf_proxy_msg_id = 0x1;
 #define WAIT_TASK_FREE_TIME			300
 #define	PRIxPTR		"lx"
 #define	PRIx64		"llx"
+#define PRIu64      "llu"
+
+/* general zvol path */
+#define	ZVOL_FULL_DIR	"/dev/zvol/"
 
 #define ARRAYSIZE(X)  (sizeof(X) / sizeof(X[0]))
 
@@ -185,8 +189,11 @@ int stmf_set_iops_limit_ioctl(stmf_iops_limit_t *iops_limit,
 	uint32_t *err_ret);
 int stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
 	uint32_t *err_ret);
-static void stmf_init_iops_checker(void);
-static stmf_status_t stmf_fini_iops_checker(void);
+int stmf_set_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret);
+int stmf_get_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret);
+
+static void stmf_init_qos_checker(void);
+static stmf_status_t stmf_fini_qos_checker(void);
 
 
 /* pppt modhandle */
@@ -326,7 +333,7 @@ static int stmf_worker_scale_down_qd = 0;
 
 stmf_transition_worker_t stmf_transtion_worker;
 
-uint32_t stmf_iops_polltime = 1;	/* s */
+int stmf_qos_polltime = 1;	/* s */
 
 /*
  *	for avs mode
@@ -418,7 +425,7 @@ stmf_init(void)
 	stmf_svc_init();
 	stmf_dlun_init();
 	stmf_init_task_checker();
-	stmf_init_iops_checker();
+	stmf_init_qos_checker();
 	stmf_proxy_msg_id &= ~STMF_HOST_NUM_MASK;
 	stmf_proxy_msg_id |= hostid & STMF_HOST_NUM_MASK;
 	return (ret);
@@ -436,7 +443,7 @@ stmf_fini(void)
 	stmf_worker_fini();
 	stmf_svc_fini();
 	stmf_fini_task_checker();
-	stmf_fini_iops_checker();
+	stmf_fini_qos_checker();
 	stmf_view_clear_config();
 
 	while ((irport = avl_destroy_nodes(&stmf_state.stmf_irportlist,
@@ -517,23 +524,23 @@ stmf_copyin_iocdata(intptr_t data, int mode, stmf_iocdata_t **iocd,
 		goto copyin_iocdata_done;
 	}
 	if ((*iocd)->stmf_ibuf_size) {
-		*ibuf = kmem_zalloc((*iocd)->stmf_ibuf_size, KM_SLEEP);
+		*ibuf = vmem_zalloc((*iocd)->stmf_ibuf_size, KM_SLEEP);
 		ret = ddi_copyin((void *)((unsigned long)(*iocd)->stmf_ibuf),
 		    *ibuf, (*iocd)->stmf_ibuf_size, mode);
 	}
 	if ((*iocd)->stmf_obuf_size)
-		*obuf = kmem_zalloc((*iocd)->stmf_obuf_size, KM_SLEEP);
+		*obuf = vmem_zalloc((*iocd)->stmf_obuf_size, KM_SLEEP);
 
 	if (ret == 0)
 		return (0);
 	ret = EFAULT;
 copyin_iocdata_done:;
 	if (*obuf) {
-		kmem_free(*obuf, (*iocd)->stmf_obuf_size);
+		vmem_free(*obuf, (*iocd)->stmf_obuf_size);
 		*obuf = NULL;
 	}
 	if (*ibuf) {
-		kmem_free(*ibuf, (*iocd)->stmf_ibuf_size);
+		vmem_free(*ibuf, (*iocd)->stmf_ibuf_size);
 		*ibuf = NULL;
 	}
 	kmem_free(*iocd, sizeof (stmf_iocdata_t));
@@ -564,6 +571,9 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	stmf_iocdata_t *iocd;
 	void *ibuf = NULL, *obuf = NULL;
 	slist_lu_t *luid_list;
+    slist_lu_ex_t *luns_list;
+    sbd_lu_t *sl;
+    char *lu_name;
 	slist_target_port_t *lportid_list;
 	stmf_i_lu_t *ilu;
 	stmf_i_local_port_t *ilport;
@@ -594,6 +604,7 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	stmf_lu_task_info_t *task_info;
 	stmf_iops_limit_t *iops_limit;
 	stmf_iops_info_t *iops_info;
+    stmf_kbps_t *kbps;
 	
 	if ((cmd & 0xff000000) != STMF_IOCTL) {
 		return (ENOTTY);
@@ -1479,6 +1490,63 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		bcopy(iops_info, obuf, iocd->stmf_obuf_size);
 		break;
 
+    case STMF_IOCTL_LIST_ALL_LUNS:
+        /* retrieves registered luns */
+        mutex_enter(&stmf_state.stmf_lock);
+        n = 0;
+        /* statistic luns */
+        for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next)
+            n++;
+        iocd->stmf_obuf_max_nentries = n;
+        iocd->stmf_obuf_nentries = min(n, iocd->stmf_obuf_size/sizeof (slist_lu_ex_t));
+        i = 0;
+        luns_list = (slist_lu_ex_t *)obuf;
+        for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next) {
+            id = (uint8_t *)ilu->ilu_lu->lu_id;
+            bcopy(id + 4, luns_list[i].lu_guid, 16);
+            sl = (sbd_lu_t *)ilu->ilu_lu->lu_provider_private;
+            
+            if (sl->sl_name && strstr(sl->sl_name, ZVOL_FULL_DIR)) {
+                lu_name = sl->sl_name;
+            } else if (sl->sl_meta_filename && 
+                strstr(sl->sl_meta_filename, ZVOL_FULL_DIR)) {
+                lu_name = sl->sl_meta_filename;
+            } else {
+                cmn_err(CE_WARN, "%s sl(%p) get name failed", __func__, sl);
+                continue;
+            }
+    
+            lu_name += strlen(ZVOL_FULL_DIR);
+            strlcpy(luns_list[i].lu_name, lu_name, sizeof(luns_list[i].lu_name));
+            
+            i++;
+            if (i >= iocd->stmf_obuf_nentries)
+                break;
+        }
+        
+        mutex_exit(&stmf_state.stmf_lock);
+        break;
+    case STMF_IOCTL_SET_KBPS:
+        if (iocd->stmf_ibuf_size < sizeof(stmf_iops_limit_t) || !ibuf) {
+            ret = EINVAL;
+            break;
+        }
+        
+        kbps = (stmf_kbps_t *)(ibuf);
+        ret = stmf_set_kbps_ioctl(kbps, &iocd->stmf_error);
+        break;
+    case STMF_IOCTL_GET_KBPS:
+        if (iocd->stmf_ibuf_size != sizeof(stmf_kbps_t) ||
+            iocd->stmf_obuf_size != sizeof(stmf_kbps_t) ||
+            !ibuf) {
+            ret = EINVAL;
+            break;
+        }
+    
+        kbps = (stmf_kbps_t *)(ibuf);
+        ret = stmf_get_kbps_ioctl(kbps, &iocd->stmf_error);
+        bcopy(kbps, obuf, iocd->stmf_obuf_size);
+        break;
 	default:
 		ret = ENOTTY;
 	}
@@ -3792,7 +3860,11 @@ stmf_set_iops_limit_ioctl(stmf_iops_limit_t *iops_limit,
 	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
 		if (bcmp(iops_limit->lu_guid,
 			ilu->ilu_lu->lu_id->ident, 16) == 0) {
+			ilu->ilu_kbps_limit = 0;
+			ilu->ilu_iops_tokens = iops_limit->iops_limit * stmf_qos_polltime;
 			ilu->ilu_iops_limit = iops_limit->iops_limit;
+           	if (ilu->ilu_iops_limit == 0)
+				ilu->ilu_cur_iops = 0;
 			cmn_err(CE_NOTE, "%s set iops limit %d", __func__,
 				ilu->ilu_iops_limit);
 			found = B_TRUE;
@@ -3825,6 +3897,8 @@ stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
 			ilu->ilu_lu->lu_id->ident, 16) == 0) {
 			iops_info->iops_limit = ilu->ilu_iops_limit;
 			iops_info->cur_iops = ilu->ilu_cur_iops;
+            if (iops_info->iops_limit == 0)
+                iops_info->cur_iops = 0;
 			cmn_err(CE_NOTE, "%s cur iops %d, iops limit %d", __func__,
 				iops_info->cur_iops, iops_info->iops_limit);
 			found = B_TRUE;
@@ -3841,6 +3915,82 @@ stmf_get_iops_info_ioctl(stmf_iops_info_t *iops_info,
 	mutex_exit(&stmf_state.stmf_lock);
 	return (ret);
 }
+
+int
+stmf_set_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret)
+{
+    stmf_i_lu_t *ilu;
+    boolean_t found = B_FALSE;
+    int ret = 0;
+
+    if (kbps->kbps_limit < 0) {
+        cmn_err(CE_WARN, "%s kbps limit %" PRIx64 "invalid, ", 
+            __func__, kbps->kbps_limit);
+        *err_ret = STMF_IOCERR_INVALID_IOPS_LIMIT;
+        return (EINVAL);
+    }
+
+    mutex_enter(&stmf_state.stmf_lock);
+
+    for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
+        if (bcmp(kbps->lu_guid,
+            ilu->ilu_lu->lu_id->ident, 16) == 0) {
+            ilu->ilu_iops_limit = 0;
+            ilu->ilu_kbps_tokens = kbps->kbps_limit * stmf_qos_polltime;
+            ilu->ilu_kbps_limit = kbps->kbps_limit;
+           	if (ilu->ilu_kbps_limit == 0)
+				ilu->ilu_cur_kbps = 0;
+            cmn_err(CE_NOTE, "%s set kbps limit %" PRIx64 "", __func__,
+                ilu->ilu_kbps_limit);
+            found = B_TRUE;
+            break;
+        }
+    }
+
+    if (!found) {
+        cmn_err(CE_WARN, "%s can't find lu", __func__);
+        *err_ret = STMF_IOCERR_INVALID_LU_ID;
+        ret = ENOENT;
+    }
+
+    mutex_exit(&stmf_state.stmf_lock);
+    return (ret);
+}
+
+int
+stmf_get_kbps_ioctl(stmf_kbps_t *kbps, uint32_t *err_ret)
+{
+    stmf_i_lu_t *ilu;
+    boolean_t found = B_FALSE;
+    int ret = 0;
+
+    mutex_enter(&stmf_state.stmf_lock);
+
+    for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
+        if (bcmp(kbps->lu_guid,
+            ilu->ilu_lu->lu_id->ident, 16) == 0) {
+            kbps->cur_kbps = ilu->ilu_cur_kbps;
+            kbps->kbps_limit = ilu->ilu_kbps_limit;
+            if (kbps->kbps_limit == 0)
+                kbps->cur_kbps = 0;
+            cmn_err(CE_NOTE, "%s: cur kbps %" PRIx64 "; kbps limit %" PRIx64 "", __func__,
+                    kbps->cur_kbps, kbps->kbps_limit);
+            found = B_TRUE;
+            break;
+        }
+    }
+
+    if (!found) {
+        cmn_err(CE_WARN, "%s can't find lu", __func__);
+        *err_ret = STMF_IOCERR_INVALID_LU_ID;
+        ret = ENOENT;
+    }
+
+    mutex_exit(&stmf_state.stmf_lock);
+    return (ret);
+}
+
+
 
 /*
  * 16 is the max string length of a protocol_ident, increase
@@ -3936,6 +4086,16 @@ stmf_update_kstat_lu_io(scsi_task_t *task, stmf_data_buf_t *dbuf)
 		if (kip != NULL) {
 			mutex_enter(ilu->ilu_kstat_io->ks_lock);
 			STMF_UPDATE_KSTAT_IO(kip, dbuf);
+			if (ilu->ilu_iops_tokens > 0) {
+				ilu->ilu_iops_tokens--;
+			}
+            
+			if (ilu->ilu_kbps_tokens < dbuf->db_data_size) {
+				ilu->ilu_kbps_tokens = 0;
+			} else {
+				ilu->ilu_kbps_tokens -= dbuf->db_data_size;
+			}
+            
 			mutex_exit(ilu->ilu_kstat_io->ks_lock);
 		}
 	}
@@ -6093,9 +6253,17 @@ stmf_task_alloc(struct stmf_local_port *lport, stmf_scsi_session_t *ss,
 	}
 
 	if (ilu->ilu_iops_limit) {
-		if (ilu->ilu_cur_iops >= ilu->ilu_iops_limit) {
+		if (ilu->ilu_iops_tokens <= 0) {
 			/* cmn_err(CE_WARN, "%s lu(%s) iops over uplimit %d %d", __func__,
 				lu->lu_alias, ilu->ilu_cur_iops, ilu->ilu_iops_limit); */
+			task->task_additional_flags |= TASK_AF_PORT_LOAD_HIGH;
+		}
+	}
+
+	if (ilu->ilu_kbps_limit) {
+		if (ilu->ilu_kbps_tokens <= 0) {
+            /* cmn_err(CE_WARN, "%s lu(%s) kbps over uplimit %"PRIu64" %"PRIu64, __func__,
+				lu->lu_alias, ilu->ilu_cur_kbps, ilu->ilu_kbps_limit); */
 			task->task_additional_flags |= TASK_AF_PORT_LOAD_HIGH;
 		}
 	}
@@ -9811,6 +9979,7 @@ stmf_fini_task_checker()
 	return (STMF_SUCCESS);	
 }
 
+#if 0
 static void
 stmf_update_iops(void)
 {
@@ -9828,7 +9997,7 @@ stmf_update_iops(void)
 		mutex_enter(ilu->ilu_kstat_io->ks_lock);
 		cur_reads = kip->reads - ilu->ilu_old_reads;
 		cur_writes = kip->writes - ilu->ilu_old_writes;
-		ilu->ilu_cur_iops = (cur_reads + cur_writes) / stmf_iops_polltime;
+		ilu->ilu_cur_iops = (cur_reads + cur_writes) / stmf_qos_polltime;
 		ilu->ilu_old_reads = kip->reads;
 		ilu->ilu_old_writes = kip->writes;
 		mutex_exit(ilu->ilu_kstat_io->ks_lock);
@@ -9836,54 +10005,93 @@ stmf_update_iops(void)
 
 	mutex_exit(&stmf_state.stmf_lock);
 }
+#endif
 
 static void
-stmf_update_iops_thread(void *arg)
+stmf_update_qos_info(void)
 {
-	mutex_enter(&stmf_state.stmf_iops_mtx);
-	stmf_state.stmf_iops_tq_flags |= STMF_IOPS_CHECKER_ACTIVE;
-	
-	while (!(stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_TERMINATE)) {
-		cv_timedwait(&stmf_state.stmf_iops_cv, &stmf_state.stmf_iops_mtx,
-			ddi_get_lbolt() + drv_usectohz(stmf_iops_polltime * 1000 * 1000));
+	stmf_i_lu_t *ilu;
+    kstat_io_t *kip;
+    uint64_t qos_sum;
 
-		if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_TERMINATE)
-			break;
-		
-		stmf_update_iops();
+	mutex_enter(&stmf_state.stmf_lock);
+	
+	for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next) {
+		kip = KSTAT_IO_PTR(ilu->ilu_kstat_io);
+		if (!kip)
+			continue;
+        
+		mutex_enter(ilu->ilu_kstat_io->ks_lock);
+		if (ilu->ilu_iops_limit) {
+            qos_sum = ilu->ilu_iops_limit * stmf_qos_polltime;
+			ilu->ilu_cur_iops = 
+                (qos_sum - ilu->ilu_iops_tokens) / stmf_qos_polltime;
+			if (ilu->ilu_iops_tokens < qos_sum) {
+				ilu->ilu_iops_tokens = qos_sum;
+			}
+		}
+        
+		if (ilu->ilu_kbps_limit) {
+            qos_sum = ilu->ilu_kbps_limit * stmf_qos_polltime;
+			ilu->ilu_cur_kbps = 
+                (qos_sum - ilu->ilu_kbps_tokens) / stmf_qos_polltime;
+			if (ilu->ilu_kbps_tokens < qos_sum) {
+				ilu->ilu_kbps_tokens = qos_sum;
+			}
+		}
+		mutex_exit(ilu->ilu_kstat_io->ks_lock);
 	}
 
-	stmf_state.stmf_iops_tq_flags &= 
-		~(STMF_IOPS_CHECKER_STARTED | STMF_IOPS_CHECKER_ACTIVE);
-	mutex_exit(&stmf_state.stmf_iops_mtx);
+	mutex_exit(&stmf_state.stmf_lock);
 }
 
 static void
-stmf_init_iops_checker()
+stmf_update_qos_thread(void *arg)
 {
-	mutex_init(&stmf_state.stmf_iops_mtx, NULL, MUTEX_DEFAULT, NULL);
-	cv_init(&stmf_state.stmf_iops_cv, NULL, CV_DRIVER, NULL);
-	stmf_state.stmf_iops_tq_flags = STMF_IOPS_CHECKER_STARTED;
-	stmf_state.stmf_iops_tq = taskq_create("stmf_iops_checker",
+	mutex_enter(&stmf_state.stmf_qos_mtx);
+	stmf_state.stmf_qos_tq_flags |= STMF_QOS_CHECKER_ACTIVE;
+	
+	while (!(stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_TERMINATE)) {
+		cv_timedwait(&stmf_state.stmf_qos_cv, &stmf_state.stmf_qos_mtx,
+			ddi_get_lbolt() + drv_usectohz(stmf_qos_polltime * 1000 * 1000));
+
+		if (stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_TERMINATE)
+			break;
+        
+        stmf_update_qos_info();
+	}
+
+	stmf_state.stmf_qos_tq_flags &= 
+		~(STMF_QOS_CHECKER_STARTED | STMF_QOS_CHECKER_ACTIVE);
+	mutex_exit(&stmf_state.stmf_qos_mtx);
+}
+
+static void
+stmf_init_qos_checker()
+{
+	mutex_init(&stmf_state.stmf_qos_mtx, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&stmf_state.stmf_qos_cv, NULL, CV_DRIVER, NULL);
+	stmf_state.stmf_qos_tq_flags = STMF_QOS_CHECKER_STARTED;
+	stmf_state.stmf_qos_tq = taskq_create("stmf_qos_checker",
 		1, minclsyspri, 1, 1, TASKQ_PREPOPULATE);
-	taskq_dispatch(stmf_state.stmf_iops_tq, stmf_update_iops_thread,
+	taskq_dispatch(stmf_state.stmf_qos_tq, stmf_update_qos_thread,
 		NULL, TQ_SLEEP);
 }
 
 static stmf_status_t
-stmf_fini_iops_checker()
+stmf_fini_qos_checker()
 {
 	int i;
-	mutex_enter(&stmf_state.stmf_iops_mtx);
-	if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_STARTED) {
-		stmf_state.stmf_iops_tq_flags |= STMF_IOPS_CHECKER_TERMINATE;
-		cv_signal(&stmf_state.stmf_iops_cv);
+	mutex_enter(&stmf_state.stmf_qos_mtx);
+	if (stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_STARTED) {
+		stmf_state.stmf_qos_tq_flags |= STMF_QOS_CHECKER_TERMINATE;
+		cv_signal(&stmf_state.stmf_qos_cv);
 	}
-	mutex_exit(&stmf_state.stmf_iops_mtx);
+	mutex_exit(&stmf_state.stmf_qos_mtx);
 
 	/* Wait for 5 seconds */
 	for (i = 0; i < 500; i++) {
-		if (stmf_state.stmf_iops_tq_flags & STMF_IOPS_CHECKER_STARTED)
+		if (stmf_state.stmf_qos_tq_flags & STMF_QOS_CHECKER_STARTED)
 			delay(drv_usectohz(10000));
 		else
 			break;
@@ -9891,9 +10099,9 @@ stmf_fini_iops_checker()
 	if (i == 500)
 		return (STMF_BUSY);
 	
-	taskq_destroy(stmf_state.stmf_iops_tq);
-	mutex_destroy(&stmf_state.stmf_iops_mtx);
-	cv_destroy(&stmf_state.stmf_iops_cv);
+	taskq_destroy(stmf_state.stmf_qos_tq);
+	mutex_destroy(&stmf_state.stmf_qos_mtx);
+	cv_destroy(&stmf_state.stmf_qos_cv);
 	return (STMF_SUCCESS);
 }
 
@@ -11528,3 +11736,7 @@ EXPORT_SYMBOL(stmf_set_alua_state);
 EXPORT_SYMBOL(stmf_set_port_standby);
 EXPORT_SYMBOL(stmf_deregister_scsi_session);
 EXPORT_SYMBOL(stmf_register_pppt_cb);
+
+module_param(stmf_qos_polltime, int, 0644);
+MODULE_PARM_DESC(stmf_qos_polltime, "Stmf QOS poll time");
+

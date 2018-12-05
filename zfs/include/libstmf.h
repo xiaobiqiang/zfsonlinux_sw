@@ -99,6 +99,8 @@ extern "C" {
 #define	STMF_ERROR_DOOR_INSTALLED	(STMF_STATUS_ERROR | 0x26)
 #define	STMF_ERROR_INVALID_TASK_LIMIT	(STMF_STATUS_ERROR | 0x27)
 #define	STMF_ERROR_INVALID_IOPS_LIMIT	(STMF_STATUS_ERROR | 0x28)
+#define	STMF_ERROR_INVALID_KBPS			(STMF_STATUS_ERROR | 0x29)
+
 
 /* Failures for stmfCreateLu */
 #define	STMF_ERROR_FILE_IN_USE		(STMF_STATUS_ERROR | 0x100)
@@ -188,11 +190,23 @@ typedef struct _stmfGuid
 	uchar_t	guid[16];
 } stmfGuid;
 
+typedef struct _stmfLuns
+{
+	stmfGuid guid;
+	char	name[256];
+} stmfLuns;
+
 typedef struct _stmfGuidList
 {
 	uint32_t cnt;
 	stmfGuid guid[1];
 } stmfGuidList;
+
+typedef struct _stmfLunsList
+{
+	uint32_t cnt;
+	stmfLuns luns[1];
+} stmfLunsList;
 
 typedef struct _stmfState
 {
@@ -442,6 +456,16 @@ int stmfValidateView(stmfViewEntry *viewEntry);
 int stmfClearTrace(void);
 int stmfGetTrace(void);
 int stmfCheckService(void);
+
+int stmfSetLuTaskLimit(stmfGuid *lu, uint32_t task_limit, 
+    uint32_t *stmf_max_cur_task);
+int stmfGetLuTaskInfo(stmfGuid *lu, uint32_t *cur_task, uint32_t *task_limit);
+int stmfSetIopsLimit(stmfGuid *lu, uint32_t iops_limit);
+int stmfGetIopsInfo(stmfGuid *lu, uint32_t *cur_iops, uint32_t *iops_limit);
+int stmfListAllLuns(stmfLunsList **luList);
+int stmf_set_kbps(stmfGuid *lu, uint64_t kbps);
+int stmf_get_kbps(stmfGuid *lu, uint64_t *cur_kbps, uint64_t *kbps);
+
 
 #ifdef	__cplusplus
 }

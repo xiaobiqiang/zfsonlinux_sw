@@ -110,6 +110,7 @@ static int loadStore(int fd);
 static int initializeConfig(void);
 static int groupMemberIoctl(int fd, int cmd, stmfGroupName *, stmfDevid *);
 static int guidCompare(const void *, const void *);
+static int lunsCompare(const void *p1, const void *p2);
 static int addViewEntryIoctl(int fd, stmfGuid *, stmfViewEntry *);
 static int loadHostGroups(int fd, stmfGroupList *);
 static int loadTargetGroups(int fd, stmfGroupList *);
@@ -494,6 +495,30 @@ guidCompare(const void *p1, const void *p2)
 
 	return (0);
 }
+
+/*
+ * lunsCompare
+ *
+ * qsort function
+ * sort on guid
+ */
+static int
+lunsCompare(const void *p1, const void *p2)
+{
+
+	stmfLuns *g1 = (stmfLuns *)p1, *g2 = (stmfLuns *)p2;
+	int i;
+
+	for (i = 0; i < sizeof (stmfGuid); i++) {
+		if (g1->guid.guid[i] > g2->guid.guid[i])
+			return (1);
+		if (g1->guid.guid[i] < g2->guid.guid[i])
+			return (-1);
+	}
+
+	return (0);
+}
+
 
 /*
  * stmfAddToHostGroup
@@ -7756,3 +7781,279 @@ stmfGetIopsInfo(stmfGuid *lu, uint32_t *cur_iops, uint32_t *iops_limit)
 	return (ret);
 }
 
+/*
+ * stmfListAllLuns
+ *
+ * Purpose: Retrieves list of logical unit Object IDs and names
+ *
+ * luList - pointer to a pointer to a stmfLunsList structure. On success,
+ *          it contains the list of logical unit guids and names.
+ *
+ */
+int
+stmfListAllLuns(stmfLunsList **luList)
+{
+	int ret;
+	int fd;
+	int ioctlRet;
+	int cmd = STMF_IOCTL_LIST_ALL_LUNS;
+	int i;
+	stmf_iocdata_t stmfIoctl;
+	slist_lu_ex_t *fLuList;
+	uint32_t fLuListSize;
+	uint32_t listCnt;
+	
+	if (luList == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/* call init */
+	ret = initializeConfig();
+	if (ret != STMF_STATUS_SUCCESS) {
+		return (ret);
+	}
+
+	/*
+	 * Open control node for stmf
+	 */
+	if ((ret = openStmf(OPEN_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	/*
+	 * Allocate ioctl input buffer
+	 */
+	fLuListSize = ALLOC_LU;
+	fLuListSize = fLuListSize * (sizeof (slist_lu_ex_t));
+	fLuList = (slist_lu_ex_t *)calloc(1, fLuListSize);
+	if (fLuList == NULL) {
+		ret = STMF_ERROR_NOMEM;
+		goto done;
+	}
+
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to get the LU list
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_obuf_size = fLuListSize;
+	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fLuList;
+	ioctlRet = ioctl(fd, cmd, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+			case EBUSY:
+				ret = STMF_ERROR_BUSY;
+				break;
+			case EPERM:
+			case EACCES:
+				ret = STMF_ERROR_PERM;
+				break;
+			default:
+				syslog(LOG_DEBUG,
+				    "stmfListAllLuns:ioctl errno(%d)",
+				    errno);
+				ret = STMF_STATUS_ERROR;
+				break;
+		}
+		goto done;
+	}
+	
+	/*
+	 * Check whether input buffer was large enough
+	 */
+	if (stmfIoctl.stmf_obuf_max_nentries > ALLOC_LU) {
+		fLuListSize = stmfIoctl.stmf_obuf_max_nentries *
+		    sizeof (slist_lu_ex_t);
+		free(fLuList);
+		fLuList = (slist_lu_ex_t *)calloc(1, fLuListSize);
+		if (fLuList == NULL) {
+			ret = STMF_ERROR_NOMEM;
+			goto done;
+		}
+		stmfIoctl.stmf_obuf_size = fLuListSize;
+		stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)fLuList;
+		ioctlRet = ioctl(fd, cmd, &stmfIoctl);
+		if (ioctlRet != 0) {
+			switch (errno) {
+				case EBUSY:
+					ret = STMF_ERROR_BUSY;
+					break;
+				case EPERM:
+				case EACCES:
+					ret = STMF_ERROR_PERM;
+					break;
+				default:
+					syslog(LOG_DEBUG,
+					    "stmfGetLogicalUnitList:"
+					    "ioctl errno(%d)", errno);
+					ret = STMF_STATUS_ERROR;
+					break;
+			}
+			goto done;
+		}
+	}
+
+	if (ret != STMF_STATUS_SUCCESS) {
+		goto done;
+	}
+
+	listCnt = stmfIoctl.stmf_obuf_nentries;
+
+	/*
+	 * allocate caller's buffer with the final size
+	 */
+	*luList = (stmfLunsList *)calloc(1, sizeof (stmfLunsList) +
+	    listCnt * sizeof (stmfLuns));
+	if (*luList == NULL) {
+		ret = STMF_ERROR_NOMEM;
+		goto done;
+	}
+
+	(*luList)->cnt = listCnt;
+
+	/* copy to caller's buffer */
+	for (i = 0; i < listCnt; i++) {
+		bcopy(fLuList[i].lu_guid, &(*luList)->luns[i].guid,
+		    sizeof ((*luList)->luns[i].guid));
+		strlcpy((*luList)->luns[i].name, fLuList[i].lu_name,
+			sizeof ((*luList)->luns[i].name));
+	}
+
+	/*
+	 * sort the list. This gives a consistent view across gets
+	 */
+	qsort((void *)&((*luList)->luns[0]), (*luList)->cnt,
+	    sizeof (stmfLuns), lunsCompare);
+done:
+	closeStmf(fd);
+	/*
+	 * free internal buffers
+	 */
+	free(fLuList);
+	
+	return (ret);
+}
+
+/* stmf set kbps
+ *
+ * lu - guid of the logical unit
+ * kbps - kbps limit
+ */
+int
+stmf_set_kbps(stmfGuid *lu, uint64_t kbps)
+{
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmf_ioctl;
+	stmf_kbps_t kbps_limit;
+	int ret = STMF_STATUS_SUCCESS;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	kbps_limit.kbps_limit = kbps;
+	bcopy(lu, &kbps_limit.lu_guid, sizeof (stmfGuid));
+	bzero(&stmf_ioctl, sizeof (stmf_ioctl));
+	stmf_ioctl.stmf_version = STMF_VERSION_1;
+	stmf_ioctl.stmf_ibuf_size = sizeof (stmf_kbps_t);
+	stmf_ioctl.stmf_ibuf = (uint64_t)(unsigned long)&kbps_limit;
+
+	ioctlRet = ioctl(fd, STMF_IOCTL_SET_KBPS, &stmf_ioctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+			case EBUSY:
+				ret = STMF_ERROR_BUSY;
+				break;
+			case EPERM:
+			case EACCES:
+				ret = STMF_ERROR_PERM;
+				break;
+			case ENOENT:
+				ret = STMF_ERROR_NOT_FOUND;
+				break;
+			default:
+				syslog(LOG_DEBUG,
+					"stmf_set_kbps:ioctl errno(%d)", errno);
+				ret = STMF_STATUS_ERROR;
+				break;
+		}
+	}
+
+	if (stmf_ioctl.stmf_error == STMF_IOCERR_INVALID_KBPS)
+		ret = STMF_ERROR_INVALID_KBPS;
+
+	closeStmf(fd);
+	return (ret);
+}
+
+/* stmf get kbps
+ *
+ * lu - guid of the logical unit
+ * kbps - out kbps limit
+ */
+int
+stmf_get_kbps(stmfGuid *lu, uint64_t *cur_kbps, uint64_t *kbps)
+{
+	int ret = STMF_STATUS_SUCCESS;
+	int fd;
+	int ioctlRet;
+	stmf_iocdata_t stmfIoctl;
+	stmf_kbps_t kbps_out;
+
+	if (lu == NULL) {
+		return (STMF_ERROR_INVALID_ARG);
+	}
+
+	/*
+	 * Open control node for stmf to make call
+	 */
+	if ((ret = openStmf(OPEN_EXCL_STMF, &fd)) != STMF_STATUS_SUCCESS) {
+		syslog(LOG_DEBUG, "%s: openStmf failed", __func__);
+		return (ret);
+	}
+
+	bcopy(lu, &kbps_out.lu_guid, sizeof (stmfGuid));
+	bzero(&stmfIoctl, sizeof (stmfIoctl));
+	/*
+	 * Issue ioctl to get lu iops info
+	 */
+	stmfIoctl.stmf_version = STMF_VERSION_1;
+	stmfIoctl.stmf_ibuf_size = sizeof (stmf_kbps_t);
+	stmfIoctl.stmf_ibuf = (uint64_t)(unsigned long)&kbps_out;
+	stmfIoctl.stmf_obuf_size = sizeof (stmf_kbps_t);
+	stmfIoctl.stmf_obuf = (uint64_t)(unsigned long)&kbps_out;
+	
+	ioctlRet = ioctl(fd, STMF_IOCTL_GET_KBPS, &stmfIoctl);
+	if (ioctlRet != 0) {
+		switch (errno) {
+		case EBUSY:
+			ret = STMF_ERROR_BUSY;
+			break;
+		case EPERM:
+		case EACCES:
+			ret = STMF_ERROR_PERM;
+			break;
+		case ENOENT:
+			ret = STMF_ERROR_NOT_FOUND;
+			break;
+		default:
+			syslog(LOG_DEBUG,
+				"stmf_get_kbps:ioctl errno(%d)", errno);
+			ret = STMF_STATUS_ERROR;
+			break;
+		}
+	} else {
+		*cur_kbps = kbps_out.cur_kbps;
+		*kbps = kbps_out.kbps_limit;
+	}
+
+	closeStmf(fd);
+	return (ret);
+}

@@ -74,6 +74,9 @@ extern "C" {
 #define	STMF_IOCTL_GET_LU_TASK_INFO		(STMF_IOCTL | 40)
 #define	STMF_IOCTL_SET_IOPS_LIMIT		(STMF_IOCTL | 41)
 #define	STMF_IOCTL_GET_IOPS_INFO		(STMF_IOCTL | 42)
+#define	STMF_IOCTL_LIST_ALL_LUNS		(STMF_IOCTL | 43)
+#define STMF_IOCTL_SET_KBPS				(STMF_IOCTL | 44)
+#define STMF_IOCTL_GET_KBPS				(STMF_IOCTL | 45)
 
 typedef	struct stmf_iocdata {
 	uint32_t	stmf_version;
@@ -89,6 +92,11 @@ typedef	struct stmf_iocdata {
 typedef	struct slist_lu {
 	uint8_t		lu_guid[16];
 } slist_lu_t;
+
+typedef	struct slist_lu_ex {
+	uint8_t		lu_guid[16];
+	char		lu_name[256];
+} slist_lu_ex_t;
 
 typedef	struct slist_target_port {
 	uint8_t		target[260];
@@ -181,6 +189,12 @@ typedef struct stmf_iops_info {
 	uint32_t	cur_iops;
 } stmf_iops_info_t;
 
+typedef struct stmf_kbps_limit {
+	uint8_t		lu_guid[16];
+	uint64_t	kbps_limit;
+	uint64_t	cur_kbps;
+} stmf_kbps_t;
+
 /* Error definitions for group/view entry/provider dataioctls */
 #define	STMF_IOCERR_NONE			0
 #define	STMF_IOCERR_HG_EXISTS			1
@@ -205,6 +219,7 @@ typedef struct stmf_iops_info {
 #define	STMF_IOCERR_TG_NEED_TG_OFFLINE		20
 #define	STMF_IOCERR_INVALID_TASK_LIMIT		21
 #define	STMF_IOCERR_INVALID_IOPS_LIMIT		22
+#define	STMF_IOCERR_INVALID_KBPS			23
 
 typedef struct stmf_group_name {
 	uint16_t	name_size;	/* in bytes */

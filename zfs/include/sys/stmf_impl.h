@@ -95,9 +95,11 @@ typedef struct stmf_i_lu {
 	uint32_t	ilu_ntasks_limit;	/* limit lu tasks */
 	uint32_t	ilu_ntasks_cur;		/* lu cur tasks */
 	uint32_t	ilu_iops_limit;		/* lu iops uplimit */
+    uint32_t    ilu_iops_tokens;
 	uint32_t	ilu_cur_iops;
-	uint32_t	ilu_old_reads;
-	uint32_t	ilu_old_writes;	
+	uint64_t	ilu_kbps_limit;
+	uint64_t	ilu_kbps_tokens;
+    uint64_t    ilu_cur_kbps;
 	uint32_t	rsvd1;
 	uint32_t	ilu_proxy_registered;
 	uint64_t	ilu_reg_msgid;
