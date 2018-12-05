@@ -8745,8 +8745,16 @@ zfs_do_migrate(int argc, char **argv)
 			}
 		} else if (!strcmp(argv[0], "stop")) {
 			flags = STOP_MIGRATE;
+			if (argc > 2) {
+				(void) fprintf(stderr, gettext("Failed to stop migrate, param %s is unneeded!\n"), argv[2]);
+				return (-1);
+			}
 		} else if (!strcmp(argv[0], "status")) {
 			flags = STATUS_MIGRATE;
+			if (argc > 2) {
+				(void) fprintf(stderr, gettext("Failed to get migrate status, param %s is unneeded!\n"), argv[2]);
+				return (-1);
+			}
 		} else {
 			(void) fprintf(stderr, gettext("argv0: %s is not support \n"), argv[0]);
 			usage(B_FALSE);
