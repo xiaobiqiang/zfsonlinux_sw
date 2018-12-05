@@ -4678,7 +4678,7 @@ zfs_client_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	zsb = ZTOZSB(zp);
 	if (zp->z_group_id.data_spa == 0 || zp->z_group_id.data_objset == 0
 		|| zp->z_group_id.data_object == 0) {
-		cmn_err(CE_WARN, "[Error] Failed to write file data node, file is %s, data node is not existed", zp->z_filename);
+		cmn_err(CE_WARN, "[Error] Failed to write file data node, file is %s, znode_id=%"PRIu64", data node is not existed", zp->z_filename, zp->z_id);
 		return ENOENT;
 	}
 

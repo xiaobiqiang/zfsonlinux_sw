@@ -1954,7 +1954,7 @@ tx_again:
 			}
 
 			if (old_zp->z_blksz != blksz) {
-				atomic_cas_32((uint64_t *)&old_zp->z_blksz, end_blksz, blksz);
+				atomic_cas_32((uint32_t *)&old_zp->z_blksz, end_blksz, blksz);
 			}
 		}
 
