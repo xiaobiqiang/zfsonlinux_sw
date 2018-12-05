@@ -456,7 +456,8 @@ top_srcdir = @top_srcdir@
 udevdir = @udevdir@
 udevruledir = @udevruledir@
 DEFAULT_INCLUDES = -include ${top_builddir}/zfs_config.h \
-	-I$(top_srcdir)/include -I$(top_srcdir)/lib/libspl/include
+	-I$(top_srcdir)/include -I$(top_srcdir)/lib/libspl/include \
+	-I/usr/include/libxml2
 AM_LIBTOOLFLAGS = --silent
 AM_CFLAGS = ${DEBUG_CFLAGS} -Wall -Wstrict-prototypes \
 	${NO_UNUSED_BUT_SET_VARIABLE} ${NO_BOOL_COMPARE} \
@@ -479,7 +480,7 @@ zfs_LDADD = $(top_builddir)/lib/libnvpair/libnvpair.la \
 	$(top_builddir)/lib/libzpool/libzpool.la \
 	$(top_builddir)/lib/libzfs/libzfs.la \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
-	$(top_builddir)/lib/libstmf/libstmf.la $(ZLIB) -lrt
+	$(top_builddir)/lib/libstmf/libstmf.la $(ZLIB) -lxml2 -lrt
 zfs_LDFLAGS = -pthread
 all: all-am
 

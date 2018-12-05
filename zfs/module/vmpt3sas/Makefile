@@ -1,5 +1,5 @@
-src = /root/wzy/zfsonlinux/zfs/module/vmpt3sas
-obj = /root/wzy/zfsonlinux/zfs/module/vmpt3sas
+src = /home/zywang/zfsonlinux/zfs/module/vmpt3sas
+obj = /home/zywang/zfsonlinux/zfs/module/vmpt3sas
 
 MODULE := vmpt3sas
 
@@ -7,5 +7,5 @@ EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS)  -Wno-unused-but-set-variable -Wno-bool-comp
 
 obj-$(CONFIG_ZFS) := $(MODULE).o
 
-$(MODULE)-objs += vmpt3sas_scsih.o
+$(MODULE)-objs = vmpt3sas_scsih.o
 

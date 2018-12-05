@@ -221,10 +221,11 @@ CONFIG_CLEAN_FILES = module/Makefile module/avl/Makefile \
 	module/cn_hbx/Makefile module/fmd_transport/Makefile \
 	module/nvpair/Makefile module/unicode/Makefile \
 	module/zcommon/Makefile module/zfs/Makefile \
-	module/zpios/Makefile module/fct/Makefile module/qlt/Makefile \
-	module/qlf/Makefile module/qlf_hengwei/Makefile \
-	module/stmf/Makefile module/stmf_sbd/Makefile \
-	module/pppt/Makefile zfs-script-config.sh zfs.release
+	module/vmpt3sas/Makefile module/zpios/Makefile \
+	module/fct/Makefile module/qlt/Makefile module/qlf/Makefile \
+	module/qlf_hengwei/Makefile module/stmf/Makefile \
+	module/stmf_sbd/Makefile module/pppt/Makefile \
+	zfs-script-config.sh zfs.release
 CONFIG_CLEAN_VPATH_FILES =
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
@@ -630,6 +631,8 @@ module/unicode/Makefile: $(top_builddir)/config.status $(top_srcdir)/module/unic
 module/zcommon/Makefile: $(top_builddir)/config.status $(top_srcdir)/module/zcommon/Makefile.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 module/zfs/Makefile: $(top_builddir)/config.status $(top_srcdir)/module/zfs/Makefile.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+module/vmpt3sas/Makefile: $(top_builddir)/config.status $(top_srcdir)/module/vmpt3sas/Makefile.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 module/zpios/Makefile: $(top_builddir)/config.status $(top_srcdir)/module/zpios/Makefile.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
