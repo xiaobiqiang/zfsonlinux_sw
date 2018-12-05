@@ -306,7 +306,7 @@ zfs_multiclus_group_record_t * zfs_multiclus_get_record(uint64_t spa_id, uint64_
 void zfs_multiclus_destroy_reg_record(char *group_name, uint64_t spa_id, uint64_t os_id);
 zfs_multiclus_group_record_t *zfs_multiclus_get_group_master(char *group_name, zfs_multiclus_node_type_t type);
 zfs_multiclus_node_type_t zmc_get_node_type(objset_t* os);
-int zfs_multiclus_get_group_record_num(char *group_name, uint64_t group_name_len);
+int zfs_multiclus_get_group_record_num(char *group_name);
 int zfs_multiclus_get_info_from_group(zfs_migrate_cmd_t *zmc, char *gname, int num_zmc);
 #endif
 #ifdef	__cplusplus
