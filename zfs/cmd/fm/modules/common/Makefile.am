@@ -1,1 +1,1 @@
-SUBDIRS = zfs-retire zfs-diagnosis eversholt link-transport disk-transport
+SUBDIRS = zfs-retire zfs-diagnosis eversholt link-transport disk-transport pool-transport
