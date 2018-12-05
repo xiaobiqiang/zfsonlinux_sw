@@ -1406,8 +1406,6 @@ out :
  */
 
 /* ARGSUSED */
-
-int update_old_zsize = 1;
 int
 zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 {
@@ -1455,8 +1453,6 @@ zfs_write(struct inode *ip, uio_t *uio, int ioflag, cred_t *cr)
 	uint64_t used = 0;
 	int64_t update_size = 0;
 	uint64_t total_update_size = 0 ;
-	uint64_t nblks = 0;
-	uint32_t blksz = 0;
 
 	ASSERTV(iovcnt);
 
@@ -1933,28 +1929,29 @@ tx_again:
 
 	if (zsb->z_os->os_is_group && NOTIFY_FILE_SIZE) {
 		zfs_group_notify_para_t *notify_para = NULL;
-		
-		sa_object_size(zp->z_sa_hdl, (uint32_t *)&blksz, (u_longlong_t *)&nblks);	
-		
 		/*
 		 * in cluster, the old_zp may be different from the zp
 		 * when the old_zp is a virtual node, update it here
 		 */
-		 if (update_old_zsize) {
-			uint64_t end_size = old_zp->z_size;
-			uint_t end_blksz = old_zp->z_blksz;
+		if (old_zp != zp) {
+			uint64_t datazp_size = 0;
+			uint64_t nblks = 0;
+			uint32_t blksz = 0;
+			uint64_t end_size = 0;
+			uint_t end_blksz = 0;
 			
-			while (old_zp->z_size < zp->z_size) {
-				atomic_cas_64(&old_zp->z_size, end_size, zp->z_size);
-			}
+			sa_object_size(zp->z_sa_hdl, (uint32_t *)&blksz, (u_longlong_t *)&nblks);
+			datazp_size = zp->z_size;
 
-			end_size = (uint64_t)old_zp->z_nblks;
-			while ((uint64_t)old_zp->z_nblks < nblks) {
-				atomic_cas_64((uint64_t *)&old_zp->z_nblks, end_size, nblks);
+			while ((end_size = old_zp->z_size) < datazp_size) {
+				atomic_cas_64(&old_zp->z_size, end_size, datazp_size);
 			}
-
+			while ((end_size = old_zp->z_nblks) < nblks) {
+				atomic_cas_64(&old_zp->z_nblks, end_size, nblks);
+			}
+			end_blksz = old_zp->z_blksz;
 			if (old_zp->z_blksz != blksz) {
-				atomic_cas_32((uint64_t *)&old_zp->z_blksz, end_blksz, blksz);
+				atomic_cas_32(&old_zp->z_blksz, end_blksz, blksz);
 			}
 		}
 
@@ -3220,7 +3217,7 @@ top:
 		}
 
 		/* TODO: should we reset data1 info in the master file ? */
-		if (TO_DOUBLE_DATA_FILE) {
+		if (zp->z_group_id.data2_spa != 0 && zp->z_group_id.data2_objset != 0 && zp->z_group_id.data2_object != 0) {
 			err = zfs_remove_data2_file(dip, zp, name, cr, flags);
 			if (err != 0)
 			{

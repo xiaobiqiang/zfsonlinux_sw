@@ -45,7 +45,7 @@
 int debug_zgroup_dtl = 0;
 int debug_zgroup_dtl2 = 0;
 int debug_nas_group_dtl = 0;
-int ZFS_GROUP_DTL_ENABLE = 1;
+int ZFS_GROUP_DTL_ENABLE = 0;
 
 
 int avl_num = 20;
@@ -351,6 +351,8 @@ txg_retry:
 	
 			kmem_free(ss, sizeof (zfs_group_dtl_node_t));
 			mutex_enter(ptree_mutex);
+			if (avl_is_empty(ptree))
+				break;
 		}
 		mutex_exit(ptree_mutex);
 		if (entry != entry_map) {
