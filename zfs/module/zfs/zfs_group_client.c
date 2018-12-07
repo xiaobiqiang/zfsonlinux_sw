@@ -1760,7 +1760,7 @@ zfs_group_proc_znode(
 		    msg);
 
 	} else {
-		cmn_err(CE_WARN, "%s %d  op=%d, error=%d\n", __func__, __LINE__, op, error);
+		cmn_err(CE_WARN, "[%s %d] z_id=%"PRIu64", op=%d, error=%d\n", __func__, __LINE__, zp->z_id, op, error);
 	}
 out:
 	kmem_free(msg_header, sizeof(zfs_group_header_t));

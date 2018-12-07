@@ -2647,7 +2647,7 @@ zfs_group_process_znode_request(zfs_group_server_para_t *server_para)
 	if (error) {
 		crfree(cred);
 		zfs_sb_group_rele(zsb, FTAG);
-		cmn_err(CE_WARN, "[%s %d] err=%d", __func__, __LINE__, error);
+		cmn_err(CE_WARN, "[%s %d] object=%"PRIu64", err=%d", __func__, __LINE__, object, error);
 		return (error);
 	}
 	switch (msg_header->operation) {
