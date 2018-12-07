@@ -257,11 +257,13 @@ void
 _fmd_init(fmd_hdl_t *hdl)
 {
 	fmd_case_t *casep = NULL;
-	int count;
-	char *fname;
+	int count = 0;
+	char *fname = NULL;
 	
 	syslog(LOG_ERR, "eft begins.\n");
-	(void) fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info);
+	if(fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info) |= 0) {
+        return;
+	}
 
 	/* keep handle for routines like out() which need it */
 	Hdl = hdl;
