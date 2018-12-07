@@ -2226,10 +2226,12 @@ reget:
 	} else {
 		err = zfs_group_zget(zsb, object, &zp, m_spa, m_objset, fid_gen, B_FALSE);
 		if (err) {
-			if (retry < remote_vget_repeat_times) {
-				zfs_group_wait(ZFS_MULTICLUS_SECOND/10);
-				retry++;
-				goto reget;
+			if (err == EOFFLINE) {
+				if (retry < remote_vget_repeat_times) {
+					zfs_group_wait(ZFS_MULTICLUS_SECOND/10);
+					retry++;
+					goto reget;
+				}
 			}
 			cmn_err(CE_WARN, "long fid return error4, object=%lld, err: %d", (longlong_t)object, err);
 			ZFS_EXIT(zsb);
@@ -2254,7 +2256,7 @@ reget:
 			ZFS_EXIT(zsb);
 			filp = filp_open(fullpath, O_DIRECTORY, 0);
 			if (IS_ERR(filp)){
-				filp = filp_open(fullpath, O_RDONLY, 0444);
+				filp = filp_open(fullpath, O_RDONLY | O_LARGEFILE, 0444);
 				if (IS_ERR(filp)){
 					cmn_err(CE_WARN, "[%s %d], the fullpath %s is error", __func__, __LINE__, fullpath);
 					vmem_free(fullpath, MAXPATHLEN);
