@@ -15,11 +15,13 @@ subdir-m += stmf_sbd
 subdir-m += pppt
 subdir-m += fmd_transport
 
+CODE_PARENT_DIR := $$(dirname `pwd` | awk -F'/' '{$NF="";print}')
 INSTALL_MOD_DIR ?= extra
 
 ZFS_MODULE_CFLAGS += -include @SPL_OBJ@/spl_config.h -DUNIQUE_FW_NAME
 ZFS_MODULE_CFLAGS += -include @abs_top_builddir@/zfs_config.h
 ZFS_MODULE_CFLAGS += -I@abs_top_srcdir@/include -I@SPL@/include -I@SPL@
+ZFS_MODULE_CFLAGS += -I$(CODE_PARENT_DIR)/linux/drivers/scsi -I$(CODE_PARENT_DIR)/linux/include 
 export ZFS_MODULE_CFLAGS
 
 modules:
