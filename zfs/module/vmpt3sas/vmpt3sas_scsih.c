@@ -282,17 +282,7 @@ static void vmpt3sas_direct_queue_cmd(struct Scsi_Host *host,vmpt3sas_req_scmd_t
 	return;
 }
 
-static void vmpt3sas_listall_scsitarget(struct Scsi_Host *shost)
-{
-	struct scsi_target *starget;
-	/*
-	 * Search for an existing target for this sdev.
-	 */
-	list_for_each_entry(starget, &shost->__targets, siblings) {
-		printk(KERN_WARNING " %s host: %p host_no =%u chanl:%u id:%u \n", 
-			__func__, shost, shost->host_no, starget->channel, starget->id);
-	}
-}
+
 
 static struct scsi_target *vmpt3sas_get_scsitarget(struct Scsi_Host *shost,int channel)
 {
@@ -1071,27 +1061,6 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	}
 }
 
-static void vmpt3sas_cts_link_evt_cb(void *private,
-	cts_link_evt_t link_evt, void *arg)
-{
-	vmpt3sas_cts_link_stata_evt_t*link_state;
-
-	link_state = kmem_zalloc(sizeof(vmpt3sas_cts_link_stata_evt_t), KM_SLEEP);
-	link_state->sess = private;
-	link_state->link_evt = link_evt;
-	link_state->arg = arg;
-
-	/*TODO*/
-	#if 0
-	ret = ddi_taskq_dispatch(gimptsas->tq_asyn,
-		(void (*)(void *))imptsas_cts_link_evt_handler, (void *)link_state, DDI_SLEEP);
-	if (DDI_SUCCESS != ret) {
-		printk("imptsas link state change handler taskq failed");
-		imptsas_cts_link_evt_handler(link_state);
-	}
-	#endif
-}
-
 void
 vmpt3sas_qcmd_handler(void *inputpara)
 {
@@ -1215,7 +1184,7 @@ int vmpt3sas_slave_configure(struct scsi_device *sdev)
 void vmpt3sas_slave_destroy(struct scsi_device *sdev)
 {
 	printk(KERN_WARNING "%s id:%d lun:%d channel:%d \n", 
-		__func__, sdev->id, sdev->lun, sdev->channel);
+		__func__, sdev->id, (int)sdev->lun, (int)sdev->channel);
 	dump_stack();
 }
 
@@ -1224,7 +1193,6 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 {
 	vmptsas_quecmd_t *cmd;
 	vmpt3sas_t *ioc = shost_priv(shost);
-	req_proxy_t *proxy = &(gvmpt3sas_instance.qcmdproxy);
 
 	cmd = vmpt3sas_get_cmd(&gvmpt3sas_instance);
 	if (cmd == NULL){
@@ -1243,6 +1211,7 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 	cmd->shost = shost;
 
 	#if 0
+	req_proxy_t *proxy = &(gvmpt3sas_instance.qcmdproxy);
 	spin_lock_irq(&proxy->queue_lock);
 	list_add_tail(&cmd->donelist, &proxy->done_queue);
 	spin_unlock_irq(&proxy->queue_lock);
