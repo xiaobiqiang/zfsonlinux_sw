@@ -78,6 +78,7 @@ int vmpt3sas_send_msg(void *, void *, u64 );
 int vmpt3sas_proxy_done_thread(void *);
 int vmpt3sas_slave_alloc(struct scsi_device *);
 int vmpt3sas_slave_configure(struct scsi_device *);
+void vmpt3sas_slave_destroy(struct scsi_device *);
 long vmpt3sas_unlocked_ioctl(struct file *, unsigned int , unsigned long );
 int vmpt3sas_open (struct inode *, struct file *);
 void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *);
@@ -94,7 +95,7 @@ static struct scsi_host_template vmpt3sas_driver_template = {
 	.slave_alloc			= vmpt3sas_slave_alloc,
 	.slave_configure		= vmpt3sas_slave_configure,
 	.target_destroy			= NULL,
-	.slave_destroy			= NULL,
+	.slave_destroy			= vmpt3sas_slave_destroy,
 	.scan_finished			= NULL,
 	.scan_start			= NULL,
 	.change_queue_depth		= NULL,
@@ -479,8 +480,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 	shost->max_id = 128;
 	shost->max_lun = 16;
 	shost->max_channel = 0;
-	shost->max_sectors = 256*8;
-	/* shost->max_sectors = 256; */
+	shost->max_sectors = 256;
 	
 	ioc = shost_priv(shost);
 	ioc->session = session;
@@ -1055,7 +1055,7 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	remote_cmd = VMPT_CMD_REQUEST;
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 
-	index = ioc->req_index++;
+	index = ioc->req_index;
 	xdr_u_longlong_t(xdrs, (u64 *)&index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (uint64_t *)&shost);/* 8bytes */
 
@@ -1153,10 +1153,18 @@ int vmpt3sas_slave_configure(struct scsi_device *sdev)
 	return 0;
 }
 
+void vmpt3sas_slave_destroy(struct scsi_device *sdev)
+{
+	printk(KERN_WARNING "%s id:%d lun:%d channel:%d \n", 
+		__func__, sdev->id, sdev->lun, sdev->channel);
+	dump_stack();
+}
+
 int
 vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 {
 	vmptsas_quecmd_t *cmd;
+	vmpt3sas_t *ioc = shost_priv(shost);
 	req_proxy_t *proxy = &(gvmpt3sas_instance.qcmdproxy);
 
 	cmd = vmpt3sas_get_cmd(&gvmpt3sas_instance);
@@ -1168,6 +1176,8 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		return 0;
 	}
 
+	
+	ioc->req_index++;
 	cmd->scmd = scmd;
 	cmd->shost = shost;
 

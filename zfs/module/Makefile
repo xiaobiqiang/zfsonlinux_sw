@@ -17,9 +17,9 @@ subdir-m += fmd_transport
 
 INSTALL_MOD_DIR ?= extra
 
-ZFS_MODULE_CFLAGS += -include /home/zywang/zfsonlinux/spl//spl_config.h -DUNIQUE_FW_NAME
-ZFS_MODULE_CFLAGS += -include /home/zywang/zfsonlinux/zfs/zfs_config.h
-ZFS_MODULE_CFLAGS += -I/home/zywang/zfsonlinux/zfs/include -I/home/zywang/zfsonlinux/spl//include -I/home/zywang/zfsonlinux/spl/
+ZFS_MODULE_CFLAGS += -include /usr/local/src/spl-0.6.5.9/4.4.15-aere+/spl_config.h -DUNIQUE_FW_NAME
+ZFS_MODULE_CFLAGS += -include /home/wzy/workspace/zfsonlinux/zfs/zfs_config.h
+ZFS_MODULE_CFLAGS += -I/home/wzy/workspace/zfsonlinux/zfs/include -I/usr/local/src/spl-0.6.5.9/include -I/usr/local/src/spl-0.6.5.9
 export ZFS_MODULE_CFLAGS
 
 modules:
@@ -27,23 +27,23 @@ modules:
 	@# They may be in the root of SPL_OBJ when building against
 	@# installed devel headers, or they may be in the module
 	@# subdirectory when building against the spl source tree.
-	@if [ -f /home/zywang/zfsonlinux/spl//Module.symvers ]; then \
-		/bin/cp /home/zywang/zfsonlinux/spl//Module.symvers .; \
-	elif [ -f /home/zywang/zfsonlinux/spl//module/Module.symvers ]; then \
-		/bin/cp /home/zywang/zfsonlinux/spl//module/Module.symvers .; \
+	@if [ -f /usr/local/src/spl-0.6.5.9/4.4.15-aere+/Module.symvers ]; then \
+		/bin/cp /usr/local/src/spl-0.6.5.9/4.4.15-aere+/Module.symvers .; \
+	elif [ -f /usr/local/src/spl-0.6.5.9/4.4.15-aere+/module/Module.symvers ]; then \
+		/bin/cp /usr/local/src/spl-0.6.5.9/4.4.15-aere+/module/Module.symvers .; \
 	else \
 		echo -e "\n" \
 		"*** Missing spl symbols ensure you have built the spl:\n" \
-		"*** - /home/zywang/zfsonlinux/spl//Module.symvers, or\n" \
-		"*** - /home/zywang/zfsonlinux/spl//module/Module.symvers\n"; \
+		"*** - /usr/local/src/spl-0.6.5.9/4.4.15-aere+/Module.symvers, or\n" \
+		"*** - /usr/local/src/spl-0.6.5.9/4.4.15-aere+/module/Module.symvers\n"; \
 		exit 1; \
 	fi
-	$(MAKE) -C /usr/src/kernels/4.4.15-aere+ SUBDIRS=`pwd`  CONFIG_ZFS=m $@
+	$(MAKE) -C /root/zjn/sw_kernel/4.4.15-aere+ SUBDIRS=`pwd`  CONFIG_ZFS=m $@
 
 clean:
 	@# Only cleanup the kernel build directories when CONFIG_KERNEL
 	@# is defined.  This indicates that kernel modules should be built.
-	$(MAKE) -C /usr/src/kernels/4.4.15-aere+ SUBDIRS=`pwd`  $@
+	$(MAKE) -C /root/zjn/sw_kernel/4.4.15-aere+ SUBDIRS=`pwd`  $@
 
 	if [ -f Module.symvers ]; then $(RM) Module.symvers; fi
 	if [ -f Module.symvers ]; then $(RM) Module.symvers; fi
@@ -51,7 +51,7 @@ clean:
 
 modules_install:
 	@# Install the kernel modules
-	$(MAKE) -C /usr/src/kernels/4.4.15-aere+ SUBDIRS=`pwd` $@ \
+	$(MAKE) -C /root/zjn/sw_kernel/4.4.15-aere+ SUBDIRS=`pwd` $@ \
 		INSTALL_MOD_PATH=$(DESTDIR)$(INSTALL_MOD_PATH) \
 		INSTALL_MOD_DIR=$(INSTALL_MOD_DIR) \
 		KERNELRELEASE=4.4.15-aere+

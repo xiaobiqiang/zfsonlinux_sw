@@ -1,5 +1,5 @@
-src = /home/zywang/zfsonlinux/zfs/module/zfs
-obj = /home/zywang/zfsonlinux/zfs/module/zfs
+src = /home/wzy/workspace/zfsonlinux/zfs/module/zfs
+obj = /home/wzy/workspace/zfsonlinux/zfs/module/zfs
 
 MODULE := zfs
 
