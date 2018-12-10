@@ -1,25 +1,26 @@
-subdir-m += avl
-subdir-m += cn_hbx
-subdir-m += nvpair
-subdir-m += unicode
-subdir-m += zcommon
-subdir-m += zfs
+#subdir-m += avl
+#subdir-m += cn_hbx
+#subdir-m += nvpair
+#subdir-m += unicode
+#subdir-m += zcommon
+#subdir-m += zfs
 subdir-m += vmpt3sas
-subdir-m += zpios
-subdir-m += fct
-subdir-m += stmf
-subdir-m += qlt
-#subdir-m += qlf
-subdir-m += qlf_hengwei
-subdir-m += stmf_sbd
-subdir-m += pppt
-subdir-m += fmd_transport
+#subdir-m += zpios
+#subdir-m += fct
+#subdir-m += stmf
+#subdir-m += qlt
+##subdir-m += qlf
+#subdir-m += qlf_hengwei
+#subdir-m += stmf_sbd
+#subdir-m += pppt
+#subdir-m += fmd_transport
 
 INSTALL_MOD_DIR ?= extra
 
 ZFS_MODULE_CFLAGS += -include /usr/local/src/spl-0.6.5.9/4.4.15-aere+/spl_config.h -DUNIQUE_FW_NAME
 ZFS_MODULE_CFLAGS += -include /home/wzy/workspace/zfsonlinux/zfs/zfs_config.h
 ZFS_MODULE_CFLAGS += -I/home/wzy/workspace/zfsonlinux/zfs/include -I/usr/local/src/spl-0.6.5.9/include -I/usr/local/src/spl-0.6.5.9
+ZFS_MODULE_CFLAGS += -I/home/wzy/workspace/zfsonlinux/linux/drivers/scsi -I/home/wzy/workspace/zfsonlinux/linux/include
 export ZFS_MODULE_CFLAGS
 
 modules:

@@ -23,6 +23,7 @@
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_dbg.h>
+#include <sd.h>
 #undef VERIFY
 #include <sys/zfs_context.h>
 #include <sys/modhash.h>
@@ -88,7 +89,7 @@ void vmpt3sas_proxy_response(void *req);
 /* shost template for SAS 3.0 HBA devices */
 static struct scsi_host_template vmpt3sas_driver_template = {
 	.module				= THIS_MODULE,
-	.name				= "Fusion MPT SAS Host",
+	.name				= "vmpt3sas",
 	.proc_name			= VMPT3SAS_DRIVER_NAME,
 	.queuecommand			= vmpt3sas_scsih_qcmd,
 	.target_alloc			= NULL,
@@ -182,7 +183,7 @@ static void vmpt3sas_proxy_req_done(struct request *req, int error)
 	spin_unlock_irq(&proxy->queue_lock);
 	wake_up(&proxy->waiting_wq);
 	#else
-	taskq_dispatch(gvmpt3sas_instance.tq_pexec,
+	taskq_dispatch(gvmpt3sas_instance.tq_pexecproxy,
 				vmpt3sas_proxy_response, (void *)req, TQ_SLEEP);
 	#endif
 }
@@ -308,16 +309,63 @@ static struct scsi_target *vmpt3sas_get_scsitarget(struct Scsi_Host *shost,int c
 	return NULL;
 }
 
+char *vmpt3sas_get_diskname_byscsidev(struct scsi_device *sdev)
+{
+	struct device *dev;
+	struct scsi_disk *sdkp;
+	struct gendisk *gd;
+
+	if(sdev==NULL){
+		printk(KERN_WARNING " %s scsidev is NULL\n", __func__);
+		return NULL;
+	}
+	dev = &sdev->sdev_gendev;
+	
+	if(dev!=NULL){
+		sdkp = (struct scsi_disk *)dev_get_drvdata(dev);
+		if(sdkp != NULL){
+			gd = sdkp->disk;
+			if(gd!=NULL)
+			return gd->disk_name;
+		}
+		printk(KERN_WARNING " %s scsidisk is NULL\n", __func__);
+	}
+	printk(KERN_WARNING " %s dev is NULL\n", __func__);
+	return NULL;
+}
+
 static void vmpt3sas_listall_scsidev(struct Scsi_Host *shost)
 {
+	/*
 	struct scsi_device *sdev;
-	
+	struct device *dev;
+	struct scsi_disk *sdkp;
+	struct gendisk *gd;
+	int i=0;
 	shost_for_each_device(sdev, shost) {
-		printk(KERN_WARNING " %s host: %p host_no =%d chanl:%d id:%d lun:%d inquiry_len=%x type=%x scsi_level=%x\n", 
-			__func__, shost, shost->host_no, sdev->channel, sdev->id, (int)sdev->lun,
-			sdev->inquiry_len, sdev->type, sdev->scsi_level );
-			
+		dev = &sdev->sdev_gendev;
+		if(dev!=NULL){
+			sdkp = (struct scsi_disk *)dev_get_drvdata(dev);
+			if(sdkp != NULL){
+				gd = sdkp->disk;
+				printk(KERN_WARNING " %s %s %d disk:%s %d:%d:%d:%d\n", 
+					__func__,shost->hostt->proc_name, i, gd->disk_name, 
+					shost->host_no, sdev->channel, sdev->id, (int)sdev->lun );
+			}
+		}
+		i++;
+	}*/
+	struct scsi_device *sdev;
+	char *name;
+	int i=0;
+	shost_for_each_device(sdev, shost) {
+		name = vmpt3sas_get_diskname_byscsidev(sdev);
+		printk(KERN_WARNING " %s %s %d disk:%s %d:%d:%d:%d\n", 
+			__func__,shost->hostt->proc_name, i, name, 
+			shost->host_no, sdev->channel, sdev->id, (int)sdev->lun );
+		i++;
 	}
+	
 }
 
 static void vmpt3sas_brd_selfup(void)
@@ -386,8 +434,8 @@ static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
 		xdr_u_int(xdrs,&sdev->id);
 		xdr_u_int(xdrs,(unsigned int *)&sdev->lun);
 		
-		printk(KERN_WARNING " %s (%d)pack chanel:%u id:%u lun:%u \n", __func__, 
-			i, sdev->channel, sdev->id, (unsigned int)sdev->lun);
+		printk(KERN_WARNING " %s (%d)pack hostno:%d chanel:%u id:%u lun:%u \n", __func__, 
+			i, shost->host_no,sdev->channel, sdev->id, (unsigned int)sdev->lun);
 	}
 		
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
@@ -489,6 +537,8 @@ static void vmpt3sas_addvhost_handler(void *data)
 	ioc->logging_level = logging_level;
 	ioc->shost = shost;
 	ioc->id = g_vmptsas_hostmap_total++;
+	spin_lock_init(&ioc->reqindex_lock);
+	ioc->req_index = 0;
 	ioc->vmpt_cmd_wait_hash = mod_hash_create_ptrhash(
 							"vmpt_cmd_wait_hash", 1024,
 							mod_hash_null_valdtor, 0);
@@ -512,8 +562,8 @@ static void vmpt3sas_addvhost_handler(void *data)
 		xdr_u_int(xdrs, &id);
 		xdr_u_int(xdrs, &lun);
 		
-		printk(KERN_WARNING " %s scsi_add_device chanel:%u id:%u lun:%u \n", 
-			__func__, chanel, id, lun);
+		printk(KERN_WARNING " %s scsi_add_device host_no:%d chanel:%u id:%u lun:%u \n", 
+			__func__,shost->host_no, chanel, id, lun);
 		scsi_add_device(shost, chanel, id, lun);
 	}
 
@@ -655,7 +705,6 @@ void vmpt3sas_proxy_response( void *data )
 	int i;
 
 	scmd = req->special;
-	
 	/* encode message */
 	len = XDR_EN_FIXED_SIZE + reqcmd->datalen;
 	buff = cs_kmem_alloc(len);
@@ -664,19 +713,29 @@ void vmpt3sas_proxy_response( void *data )
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->req_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->shost);/* 8bytes */
-	/*
-	printk(KERN_WARNING " %s index=%llu shost=%p scmd0=%x result=%d scmd tranfsersize=%d sdblen=%d datalen=%d\n", 
-		__func__, (u_longlong_t)reqcmd->req_index, reqcmd->shost,scmd->cmnd[0], scmd->result,
-		scmd->transfersize, scmd->sdb.length, reqcmd->datalen);
-	*/	
-	xdr_int(xdrs, (int *)&scmd->result);
-	xdr_int(xdrs, (int *)&scmd->sdb.resid);
+		
+	xdr_int(xdrs, (int *)&req->errors);/*xdr_int(xdrs, (int *)&scmd->result);*/
+	xdr_int(xdrs, (int *)&req->resid_len); /*xdr_int(xdrs, (int *)&scmd->sdb.resid);*/
 	
-	senselen = 18;
-	xdr_int(xdrs, (int *)&senselen);
-	VERIFY(scmd->sense_buffer != NULL);
-	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
+	if (req->sense!=NULL){
+		senselen = 18;
+		xdr_int(xdrs, (int *)&senselen);
+		xdr_opaque(xdrs, (caddr_t)req->sense, senselen);
+		printk(KERN_WARNING " %s req_sense_len=%d\n",
+                                        __func__,req->sense_len);	
+	}else{
+		senselen = 0;
+		xdr_int(xdrs, (int *)&senselen);
+		printk(KERN_WARNING " %s sense_buffer is NULL",
+                                        __func__);
+	}
 
+	if (req->errors!=0 ){
+		printk(KERN_WARNING " %s %d:%d:%d:%d cdb=%#x scmd result=%x \n",
+			__func__, reqcmd->host, reqcmd->channel, reqcmd->id, reqcmd->lun,
+			(unsigned char)scmd->cmnd[0],req->errors);
+	}
+	
 	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
 		/*
 		char cmd ;
@@ -712,8 +771,14 @@ void vmpt3sas_proxy_response( void *data )
 		{
 			xdr_u_int(xdrs, &(reqcmd->datalen));/* 4bytes */
 			for(i=0; i<reqcmd->ndata; i++){
-				VERIFY(reqcmd->dataarr[i] != NULL);
-				xdr_opaque(xdrs, reqcmd->dataarr[i], reqcmd->lendataarr[i]);
+				
+				if(reqcmd->dataarr[i] != NULL)
+					xdr_opaque(xdrs, reqcmd->dataarr[i], reqcmd->lendataarr[i]);
+				else{
+					printk(KERN_WARNING " %s i=%d ndata=%d",
+					__func__, i, reqcmd->ndata);
+					dump_stack();
+				}
 			}
 		}
 		/*
@@ -812,6 +877,23 @@ static struct Scsi_Host *vmpt3sas_lookup_shost(void)
 	printk(KERN_WARNING "mptsas shost is not found\n");
 	return NULL; 
 }
+
+
+static struct Scsi_Host *vmpt3sas_print_shostdevs(void)
+{
+	int i=0;
+	struct Scsi_Host *shost = NULL;
+
+	for (i=0; i<128; i++) {
+		shost = scsi_host_lookup(i);
+		if (shost) 
+			vmpt3sas_listall_scsidev(shost);
+	}
+
+	printk(KERN_WARNING "mptsas shost is not found\n");
+	return NULL; 
+}
+
 
 static vmptsas_quecmd_t *vmpt3sas_get_cmd(vmptsas_instance_t *instance)
 {
@@ -914,8 +996,10 @@ void vmpt3sas_rsp_handler(void *data)
 	xdr_int(xdrs, (int *)&scmd->sdb.resid);
 
 	xdr_int(xdrs, (int *)&senselen);
-	VERIFY(scmd->sense_buffer != NULL);
-	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
+	if (senselen){
+		VERIFY(scmd->sense_buffer != NULL);
+		xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
+	}
 	/*
 	printk(KERN_WARNING " %s repindex=%ld shost=[%p] senselen=%d direction=%d sdb.len=%d\n", __func__, 
 		(unsigned long)rsp_index, shost, senselen, scmd->sc_data_direction ,scmd->sdb.length);
@@ -1076,7 +1160,6 @@ vmpt3sas_qcmd_handler(void *inputpara)
 		vmpt3sas_return_cmd(&gvmpt3sas_instance, (vmptsas_quecmd_t *)inputpara);
 	}
 	
-	VERIFY(scmd->cmnd != NULL);
 	xdr_opaque(xdrs, (caddr_t)scmd->cmnd, scmd->cmd_len);
 
 	if (ioc->logging_level)
@@ -1175,9 +1258,11 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		scmd->scsi_done(scmd);
 		return 0;
 	}
-
 	
-	ioc->req_index++;
+	spin_lock_irq(&ioc->reqindex_lock);
+	ioc->req_index++;	
+	spin_unlock_irq(&ioc->reqindex_lock);
+	
 	cmd->scmd = scmd;
 	cmd->shost = shost;
 
@@ -1328,14 +1413,10 @@ long
 vmpt3sas_unlocked_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
-	struct Scsi_Host *shost;
-	
-	shost = vmpt3sas_lookup_shost();
-	if (shost){
-		vmpt3sas_brdlocal_shost(VMPT3SAS_BROADCAST_SESS, shost);
-	}
-
 	printk(KERN_WARNING "%s runing cmd=%d \n", __func__, cmd);
+	
+	vmpt3sas_print_shostdevs();
+
 	return ret;
 }
 
@@ -1403,6 +1484,16 @@ _vmpt3sas_init(void)
 		printk(KERN_WARNING " %s taskq_create qdone_taskq failed:", __func__);
 		return 0;
 	}
+
+	/* qcmd multi_threads and  done multi_threads */
+	gvmpt3sas_instance.tq_pexecproxy=
+	 	taskq_create("qproxy_taskq", 8, minclsyspri,
+    		8, INT_MAX, TASKQ_PREPOPULATE);
+	if (gvmpt3sas_instance.tq_pexec == NULL) {
+		printk(KERN_WARNING " %s taskq_create qproxy_taskq failed:", __func__);
+		return 0;
+	}
+	
 	/* msg receive thread */
 	gvmpt3sas_instance.tq_common =
 	 	taskq_create("request_taskq", 8, minclsyspri,
