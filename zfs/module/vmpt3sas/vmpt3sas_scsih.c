@@ -336,25 +336,6 @@ char *vmpt3sas_get_diskname_byscsidev(struct scsi_device *sdev)
 
 static void vmpt3sas_listall_scsidev(struct Scsi_Host *shost)
 {
-	/*
-	struct scsi_device *sdev;
-	struct device *dev;
-	struct scsi_disk *sdkp;
-	struct gendisk *gd;
-	int i=0;
-	shost_for_each_device(sdev, shost) {
-		dev = &sdev->sdev_gendev;
-		if(dev!=NULL){
-			sdkp = (struct scsi_disk *)dev_get_drvdata(dev);
-			if(sdkp != NULL){
-				gd = sdkp->disk;
-				printk(KERN_WARNING " %s %s %d disk:%s %d:%d:%d:%d\n", 
-					__func__,shost->hostt->proc_name, i, gd->disk_name, 
-					shost->host_no, sdev->channel, sdev->id, (int)sdev->lun );
-			}
-		}
-		i++;
-	}*/
 	struct scsi_device *sdev;
 	char *name;
 	int i=0;
@@ -714,27 +695,22 @@ void vmpt3sas_proxy_response( void *data )
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->req_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&reqcmd->shost);/* 8bytes */
 		
-	xdr_int(xdrs, (int *)&req->errors);/*xdr_int(xdrs, (int *)&scmd->result);*/
-	xdr_int(xdrs, (int *)&req->resid_len); /*xdr_int(xdrs, (int *)&scmd->sdb.resid);*/
+	xdr_int(xdrs, (int *)&req->errors);
+	xdr_int(xdrs, (int *)&req->resid_len);
 	
 	if (req->sense!=NULL){
-		senselen = 18;
-		xdr_int(xdrs, (int *)&senselen);
-		xdr_opaque(xdrs, (caddr_t)req->sense, senselen);
-		printk(KERN_WARNING " %s req_sense_len=%d\n",
-                                        __func__,req->sense_len);	
+		xdr_int(xdrs, (int *)&req->sense_len);
+		xdr_opaque(xdrs, (caddr_t)req->sense, req->sense_len);
 	}else{
 		senselen = 0;
 		xdr_int(xdrs, (int *)&senselen);
-		printk(KERN_WARNING " %s sense_buffer is NULL",
-                                        __func__);
 	}
-
+	/*
 	if (req->errors!=0 ){
 		printk(KERN_WARNING " %s %d:%d:%d:%d cdb=%#x scmd result=%x \n",
 			__func__, reqcmd->host, reqcmd->channel, reqcmd->id, reqcmd->lun,
 			(unsigned char)scmd->cmnd[0],req->errors);
-	}
+	}*/
 	
 	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
 		/*
