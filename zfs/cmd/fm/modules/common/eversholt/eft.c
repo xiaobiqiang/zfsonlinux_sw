@@ -261,7 +261,7 @@ _fmd_init(fmd_hdl_t *hdl)
 	char *fname = NULL;
 	
 	syslog(LOG_ERR, "eft begins.\n");
-	if(fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info) |= 0) {
+	if(fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info) != 0) {
         return;
 	}
 
