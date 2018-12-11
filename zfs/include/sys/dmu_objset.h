@@ -185,6 +185,7 @@ typedef struct wrc_data {
 	uint64_t		wrc_total_migrated;	/* bytes */
 	uint64_t		wrc_max_task_queue_depth;
 	boolean_t		traverse_finished;
+	timestruc_t 	migrate_time;
 } wrc_data_t;
 
 struct objset {
