@@ -872,7 +872,7 @@ platform_get_files_stddirs(char *fname, int nodups)
 	eftplatdir = MALLOC(MAXPATHLEN);
 
 	/* Generic files that apply to any machine */
-	(void) snprintf(eftgendir, MAXPATHLEN, "%s/usr/lib/fm/eft", Root);
+	(void) snprintf(eftgendir, MAXPATHLEN, "%s/usr/local/lib/fmd/eft", Root);
 
 	(void) snprintf(eftmachdir,
 	    MAXPATHLEN, "%s/usr/platform/%s/lib/fm/eft", Root, Mach);
