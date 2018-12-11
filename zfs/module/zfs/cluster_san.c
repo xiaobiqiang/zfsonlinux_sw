@@ -32,6 +32,12 @@ void cluster_target_socket_port_fini(cluster_target_port_t *ctp);
 
 #define	CLUSTER_SAN_ASYNC_THREAD_MAX			1024
 
+
+typedef struct cts_vsas_rx_hook_node {
+	cs_vsas_rx_cb_t rx_cb;
+	void *arg;
+}cts_vsas_rx_hook_node_t;
+
 typedef struct cts_rx_hook_node {
 	cs_rx_cb_t rx_cb;
 	void *arg;
@@ -82,6 +88,7 @@ static mod_hash_t *csh_rx_cb_hash = NULL;
 uint32_t cluster_failover_ipmi_switch = 0;
 
 uint32_t self_hostid = 0;
+cts_vsas_rx_hook_node_t cluster_vsas_event_callback={NULL,NULL};
 
 static void cts_remove(cluster_target_session_t *cts);
 static void cluster_target_port_destroy(cluster_target_port_t *ctp);
@@ -932,6 +939,7 @@ csh_link_evt_handle_ext(cluster_san_hostinfo_t *cshi, cts_link_evt_t link_evt)
 	}
 	mutex_exit(&csh_link_evt_list->evt_lock);
 
+	cmn_err(CE_WARN, "%s %d ",__func__, link_evt);
 	switch(link_evt) {
 		case LINK_EVT_UP_TO_DOWN:
 			/* spa failover */
@@ -939,12 +947,20 @@ csh_link_evt_handle_ext(cluster_san_hostinfo_t *cshi, cts_link_evt_t link_evt)
 			*hostid = cshi->hostid;
 			zfs_notify_clusterd(EVT_REMOTE_HOST_DOWN,
 				(char *)hostid, (uint64_t)sizeof(uint32_t));
+			cmn_err(CE_WARN, "%s %d is notified ",__func__, link_evt);
+			if(cluster_vsas_event_callback.rx_cb)
+				cluster_vsas_event_callback.rx_cb(EVT_REMOTE_HOST_DOWN,
+				cshi->hostid);
 			break;
 		case LINK_EVT_DOWN_TO_UP:
 			hostid = kmem_zalloc(sizeof(uint32_t), KM_SLEEP);
 			*hostid = cshi->hostid;
 			zfs_notify_clusterd(EVT_REMOTE_HOST_UP,
 				(char *)hostid, (uint64_t)sizeof(uint32_t));
+			cmn_err(CE_WARN, "%s %d is notified ",__func__, link_evt);
+			if(cluster_vsas_event_callback.rx_cb)
+				cluster_vsas_event_callback.rx_cb(EVT_REMOTE_HOST_UP,
+				cshi->hostid);
 			break;
 		default:
 			break;
@@ -5571,6 +5587,15 @@ clustersan_get_ipmi_switch(void)
 	return (cluster_failover_ipmi_switch);
 }
 
+int 
+clustersan_vsas_set_levent_callback(cs_vsas_rx_cb_t rx_cb, void *arg)
+{
+	cmn_err(CE_WARN, "%s set callback func", __func__);
+	cluster_vsas_event_callback.rx_cb = rx_cb;
+	cluster_vsas_event_callback.arg = arg;
+}
+
+EXPORT_SYMBOL(clustersan_vsas_set_levent_callback);
 EXPORT_SYMBOL(cluster_san_hostinfo_rele);
 EXPORT_SYMBOL(cts_link_up_to_down_handle);
 EXPORT_SYMBOL(cluster_san_hostinfo_hold);
