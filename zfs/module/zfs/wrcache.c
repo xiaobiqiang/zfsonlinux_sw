@@ -127,6 +127,7 @@ spa_wrc_thread(objset_t *os)
 					//mutex_exit(&os->os_spa->spa_wrc_status.status_lock);
 				}
 			} else {
+				wrc_data->wrc_total_migrated = wrc_data->wrc_total_to_migrate;
 				break;
 			}
 			count--;
@@ -322,8 +323,6 @@ static boolean_t dsl_wrc_move_block(wrc_data_t *wrc_data, wrc_block_t *block)
 	uint64_t dirlowdata_obj = 0;
 	rl_t		*rl;
 	
-	timestruc_t now;
-	timestruc_t lowdatatime;
 	time_t diff_seconds;
 	time_t period;
 
@@ -419,7 +418,6 @@ static boolean_t dsl_wrc_move_block(wrc_data_t *wrc_data, wrc_block_t *block)
 		goto skip;
 	}
 
-	gethrestime(&now);
 
 	if(lowdata_criteria == ZFS_LOWDATA_CRITERIA_CTIME){
 		/*uint64_t crtime[2];
@@ -427,7 +425,7 @@ static boolean_t dsl_wrc_move_block(wrc_data_t *wrc_data, wrc_block_t *block)
 			crtime, sizeof (crtime));
 		ZFS_TIME_DECODE(&lowdatatime, crtime);
 		*/
-		diff_seconds = now.tv_sec - ZTOI(zpp)->i_ctime.tv_sec;
+		diff_seconds = wrc_data->migrate_time.tv_sec - ZTOI(zpp)->i_ctime.tv_sec;
 	}else{
 		uint64_t atime[2];
 		if (os->os_is_group == B_TRUE && os->os_is_master == B_FALSE) {
@@ -439,14 +437,13 @@ static boolean_t dsl_wrc_move_block(wrc_data_t *wrc_data, wrc_block_t *block)
 				goto skip;
 			}
 			//ZFS_TIME_DECODE(&lowdatatime, atime);
-			diff_seconds = now.tv_sec - atime[0];
+			diff_seconds = wrc_data->migrate_time.tv_sec - atime[0];
 		} else {
 			//ZFS_TIME_DECODE(&lowdatatime, zpp->z_atime);
-			diff_seconds = now.tv_sec - ZTOI(zpp)->i_atime.tv_sec;
+			diff_seconds = wrc_data->migrate_time.tv_sec - ZTOI(zpp)->i_atime.tv_sec;
 		}
 	}
 	
-	diff_seconds = now.tv_sec - lowdatatime.tv_sec;
 	if(diff_seconds > 0){
 		switch(lowdata_period_unit){
 			
@@ -1117,6 +1114,9 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 	uint64_t root_obj = 0;
 	uint64_t object = 0;
 	objset_t *os = NULL;
+	timestruc_t now; 
+	
+	gethrestime(&now);
 
 	err = dmu_objset_hold(fsname, FTAG, &os);
 	if (err != 0) {
@@ -1135,6 +1135,7 @@ void start_travese_migrate_thread(char *fsname, uint64_t flags, uint64_t start_o
 	if (os->os_wrc.traverse_finished && os->os_wrc.wrc_total_migrated == os->os_wrc.wrc_total_to_migrate) {
 		os->os_wrc.wrc_total_migrated = 0;
 		os->os_wrc.wrc_total_to_migrate = 0;
+		os->os_wrc.migrate_time = now;
 		if (os->os_is_group && cmd_type == APP_USER)
 			err = zfs_client_migrate_cmd(os, ZFS_MIGRATE_START, flags, object);
 	} else {

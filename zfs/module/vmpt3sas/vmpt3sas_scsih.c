@@ -1,4 +1,3 @@
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -17,8 +16,6 @@
 #include <linux/cdev.h>
 #include <linux/miscdevice.h>
 #include <asm/unaligned.h>
-#include <sys/zfs_context.h>
-#include <sys/cluster_san.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
@@ -26,6 +23,12 @@
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_dbg.h>
+#undef VERIFY
+#include <sys/zfs_context.h>
+#include <sys/modhash.h>
+#include <sys/fs/zfs_hbx.h>
+#include <sys/cluster_san.h>
+
 #include <rpc/xdr.h>
 #include "vmpt3sas.h"
 
@@ -79,7 +82,7 @@ long vmpt3sas_unlocked_ioctl(struct file *, unsigned int , unsigned long );
 int vmpt3sas_open (struct inode *, struct file *);
 void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *);
 void vmpt3sas_lookup_report_shost(void *);
-
+void vmpt3sas_proxy_response(void *req);
 
 /* shost template for SAS 3.0 HBA devices */
 static struct scsi_host_template vmpt3sas_driver_template = {
@@ -162,19 +165,25 @@ void vmpt3sad_print(char *data, int len)
 
 static void vmpt3sas_proxy_req_done(struct request *req, int error)
 {
+	#if 0
 	req_list_t *reqlist;
 	req_proxy_t *proxy = &(gvmpt3sas_instance.dcmdproxy);
 	/*
 	printk(KERN_WARNING " %s is run error=[%d] sense=%p err=%x resid=%d \n", 
 		__func__, error, req->sense, req->errors, req->resid_len);
 	*/
+	
 	reqlist = kmalloc(sizeof(req_list_t),GFP_KERNEL);
 	reqlist->req = req;
-	
+
 	spin_lock_irq(&proxy->queue_lock);
 	list_add_tail(&reqlist->queuelist, &proxy->done_queue);
 	spin_unlock_irq(&proxy->queue_lock);
 	wake_up(&proxy->waiting_wq);
+	#else
+	taskq_dispatch(gvmpt3sas_instance.tq_pexec,
+				vmpt3sas_proxy_response, (void *)req, TQ_SLEEP);
+	#endif
 }
 
 static int init_remote_shost_list(void)
@@ -266,7 +275,6 @@ static void vmpt3sas_direct_queue_cmd(struct Scsi_Host *host,vmpt3sas_req_scmd_t
 	}
 
 	scmd->scsi_done = NULL;
-
 	host->hostt->queuecommand(host, scmd);
 	
 	return;
@@ -471,7 +479,8 @@ static void vmpt3sas_addvhost_handler(void *data)
 	shost->max_id = 128;
 	shost->max_lun = 16;
 	shost->max_channel = 0;
-	shost->max_sectors = 256;
+	shost->max_sectors = 256*8;
+	/* shost->max_sectors = 256; */
 	
 	ioc = shost_priv(shost);
 	ioc->session = session;
@@ -521,7 +530,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 	return;
 		
 out_add_shost_fail:
-	scsi_host_put(shost);   /* shost not released */
+	scsi_host_put(shost);
 	return ;
 }
 
@@ -557,6 +566,8 @@ void vmpt3sas_proxy_handler(void *data)
 	xdr_int(xdrs, (int *)(&req_scmd->data_direction));/* 4bytes */
 	
 	xdr_u_int(xdrs, &req_scmd->cmd_len);/* 4bytes */
+	
+	VERIFY(req_scmd->cmnd != NULL);
 	xdr_opaque(xdrs, (caddr_t)req_scmd->cmnd, req_scmd->cmd_len);
 	
 	xdr_int(xdrs, &have_sdb);
@@ -568,7 +579,8 @@ void vmpt3sas_proxy_handler(void *data)
 		}
 		reslen = req_scmd->datalen;
 		for(i=0; i<32; ){
-			aloclen = min(128*1024,reslen);
+			/*aloclen = min(128*1024,reslen);*/
+			aloclen = min(1*1024*1024,reslen);
 			req_scmd->dataarr[i] = kmalloc(aloclen, GFP_KERNEL);
 			req_scmd->lendataarr[i] = aloclen;
 			i++;
@@ -579,6 +591,7 @@ void vmpt3sas_proxy_handler(void *data)
 		req_scmd->ndata = i;
 		if (req_scmd->data_direction == DMA_TO_DEVICE){
 			for(i=0; i<req_scmd->ndata; i++){
+				VERIFY(req_scmd->dataarr[i] != NULL);
 				xdr_opaque(xdrs, (caddr_t)req_scmd->dataarr[i], req_scmd->lendataarr[i]);
 			}
 		}
@@ -626,8 +639,9 @@ void vmpt3sas_proxy_handler(void *data)
 	}
 }
 
-static void vmpt3sas_proxy_response(void *private, struct request *req)
+void vmpt3sas_proxy_response( void *data )
 {
+	struct request *req = (struct request *)data;
 	vmpt3sas_remote_cmd_t remote_cmd;
 	
 	XDR xdr_temp;
@@ -657,8 +671,10 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 	*/	
 	xdr_int(xdrs, (int *)&scmd->result);
 	xdr_int(xdrs, (int *)&scmd->sdb.resid);
+	
 	senselen = 18;
 	xdr_int(xdrs, (int *)&senselen);
+	VERIFY(scmd->sense_buffer != NULL);
 	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
 
 	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
@@ -695,8 +711,10 @@ static void vmpt3sas_proxy_response(void *private, struct request *req)
 		if(reqcmd->datalen!=0)
 		{
 			xdr_u_int(xdrs, &(reqcmd->datalen));/* 4bytes */
-			for(i=0; i<reqcmd->ndata; i++)
+			for(i=0; i<reqcmd->ndata; i++){
+				VERIFY(reqcmd->dataarr[i] != NULL);
 				xdr_opaque(xdrs, reqcmd->dataarr[i], reqcmd->lendataarr[i]);
+			}
 		}
 		/*
 		if (scmd->sdb.length != 0) {
@@ -768,9 +786,6 @@ void vmpt3sas_lookup_report_shost(void *sess )
 			ndevs = nndevs;
 		}
 	}
-
-	
-	
 	
 	return ; 
 }
@@ -853,7 +868,7 @@ int vmpt3sas_proxy_done_thread(void *data)
 		req = reqlist->req;
 		kfree(reqlist);
 
-		vmpt3sas_proxy_response(NULL, req);
+		vmpt3sas_proxy_response(req);
 	}
 	return 0;
 }
@@ -899,6 +914,7 @@ void vmpt3sas_rsp_handler(void *data)
 	xdr_int(xdrs, (int *)&scmd->sdb.resid);
 
 	xdr_int(xdrs, (int *)&senselen);
+	VERIFY(scmd->sense_buffer != NULL);
 	xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
 	/*
 	printk(KERN_WARNING " %s repindex=%ld shost=[%p] senselen=%d direction=%d sdb.len=%d\n", __func__, 
@@ -1048,20 +1064,23 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	xdr_u_int(xdrs, &(scmd->device->channel));/* 4bytes */
 	xdr_u_int(xdrs, &(scmd->device->id));/* 4bytes */
 	xdr_u_int(xdrs, (uint_t *)&(scmd->device->lun));/* 4bytes */
-
 	xdr_int(xdrs, (int *)&(scmd->sc_data_direction));/* 4bytes */
 
 	/*encode CDB*/
 	xdr_u_int(xdrs, (uint_t *)&(scmd->cmd_len));/* 4bytes */
+	if (scmd->cmnd == NULL || scmd->cmd_len>16 || scmd->cmd_len<=0){
+		printk(KERN_WARNING "scmd error cmdaddr:%p len:%d\n", scmd->cmnd, scmd->cmd_len);
+		cs_kmem_free(buff, len);
+		scmd->result = DID_ERROR << 16;
+		scmd->scsi_done(scmd);
+		vmpt3sas_return_cmd(&gvmpt3sas_instance, (vmptsas_quecmd_t *)inputpara);
+	}
+	
+	VERIFY(scmd->cmnd != NULL);
 	xdr_opaque(xdrs, (caddr_t)scmd->cmnd, scmd->cmd_len);
 
-	/*
-	printk(KERN_WARNING "%s: index:%llu shost=%p remotehostno= %d cmd0=%x id=%d max_cmd_len=%d\n", 
-		__func__, (u_longlong_t)index, shost, ioc->remotehostno,scmd->cmnd[0],scmd->device->id,
-		scmd->device->host->max_cmd_len);
-	*/
 	if (ioc->logging_level)
-			scsi_print_command(scmd);
+		scsi_print_command(scmd);
 	
 	/*have scsi data*/
 	if (scmd->sdb.length != 0) {
@@ -1094,20 +1113,13 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	
 	err = vmpt3sas_send_msg(ioc->session, (void *)buff, tx_len);
 	cs_kmem_free(buff, len);
-
 	if (err != 0) {
-		/*
-		struct scsi_cmnd *tmp_scmd;
-		mod_hash_remove(ioc->vmpt_cmd_wait_hash,
-		(mod_hash_key_t)(uintptr_t)index, (mod_hash_val_t *)&tmp_scmd);
-		*/
 		printk(KERN_WARNING "index %llu message failed!\n", index);
 		scmd->result = DID_NO_CONNECT << 16;
 		scmd->scsi_done(scmd);
 	}
-
+	vmpt3sas_return_cmd(&gvmpt3sas_instance, (vmptsas_quecmd_t *)inputpara);
 	return ;
-	
 }
 
 int vmpt3sas_slave_alloc(struct scsi_device *sdev)
@@ -1153,15 +1165,22 @@ vmpt3sas_scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		printk(KERN_WARNING "can not get cmd  \n");
 		scmd->result = DID_NO_CONNECT << 16;
 		scmd->scsi_done(scmd);
+		return 0;
 	}
 
 	cmd->scmd = scmd;
 	cmd->shost = shost;
 
+	#if 0
 	spin_lock_irq(&proxy->queue_lock);
 	list_add_tail(&cmd->donelist, &proxy->done_queue);
 	spin_unlock_irq(&proxy->queue_lock);
 	wake_up(&proxy->waiting_wq);
+	#else
+	taskq_dispatch(gvmpt3sas_instance.tq_pexec,
+				vmpt3sas_qcmd_handler, (void *)cmd, TQ_SLEEP);
+	#endif
+	
 	
 	return 0;
 }
@@ -1189,9 +1208,45 @@ int vmpt3sas_qcmd_done_thread(void *data)
 		spin_unlock_irq(&proxy->queue_lock);
 		
 		vmpt3sas_qcmd_handler(quecmd);
-		vmpt3sas_return_cmd(&gvmpt3sas_instance, quecmd);
 	}
 	return 0;
+}
+
+void vmpt3sas_lenvent_callback(int event, int hostid)
+{
+	remote_shost_t  *iter;
+	
+	printk(KERN_WARNING "%s: event:%d hostid:%d", __func__, event, hostid);
+	switch(event)
+	{
+	case EVT_REMOTE_HOST_DOWN:
+		spin_lock(&rshost_list.lock);
+	    list_for_each_entry(iter, &rshost_list.head, entry) {
+	        if(hostid == iter->host_id ) {
+				list_del(&iter->entry);
+	            spin_unlock(&rshost_list.lock);
+	            printk(KERN_WARNING " scsi_host[%u] was deleted", hostid);
+	            return;
+			}
+		}
+    	spin_unlock(&rshost_list.lock);
+		
+		break;
+	case EVT_REMOTE_HOST_UP:		
+		spin_lock(&rshost_list.lock);
+	    list_for_each_entry(iter, &rshost_list.head, entry) {
+	        if(hostid == iter->host_id ) {
+				list_del(&iter->entry);
+	            spin_unlock(&rshost_list.lock);
+	            printk(KERN_WARNING " scsi_host[%u] was deleted", hostid);
+	            return;
+			}
+		}
+    	spin_unlock(&rshost_list.lock);
+		break;
+	default:
+		break;
+	}
 }
 
 static void vmpt3sas_init_instance(vmptsas_instance_t *instance)
@@ -1330,18 +1385,27 @@ _vmpt3sas_init(void)
 
 	(void)init_remote_shost_list();
 
+	/* qcmd multi_threads and  done multi_threads */
+	gvmpt3sas_instance.tq_pexec=
+	 	taskq_create("qdone_taskq", 8, minclsyspri,
+    		8, INT_MAX, TASKQ_PREPOPULATE);
+	if (gvmpt3sas_instance.tq_pexec == NULL) {
+		printk(KERN_WARNING " %s taskq_create qdone_taskq failed:", __func__);
+		return 0;
+	}
 	/* msg receive thread */
 	gvmpt3sas_instance.tq_common =
 	 	taskq_create("request_taskq", 8, minclsyspri,
     		8, INT_MAX, TASKQ_PREPOPULATE);
-	if (gvmpt3sas_instance.tq_common 	== NULL) {
-		printk(KERN_WARNING " %s taskq_create failed:", __func__);
+	if (gvmpt3sas_instance.tq_common == NULL) {
+		printk(KERN_WARNING " %s taskq_create request_taskq failed:", __func__);
 		return 0;
 	}
 	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, gvmpt3sas_instance.tq_common);
 
 	vmpt3sas_init_instance(&gvmpt3sas_instance);
-
+	clustersan_vsas_set_levent_callback(vmpt3sas_lenvent_callback, NULL);
+	
 	err = misc_register(&vmpt3sas_mm_dev);
 	if (err < 0) {
 		printk(KERN_WARNING "%s: cannot register misc device\n", __func__);

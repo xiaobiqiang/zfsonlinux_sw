@@ -101,6 +101,8 @@ typedef struct vmptsas_instance {
 	req_proxy_t dcmdproxy;
 	
 	taskq_t *tq_common;
+	taskq_t *tq_pexec;
+	
 }vmptsas_instance_t;
 
 

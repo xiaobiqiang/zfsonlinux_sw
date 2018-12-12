@@ -446,6 +446,7 @@ typedef struct cluster_san {
 
 extern cluster_san_t *clustersan;
 
+typedef void (*cs_vsas_rx_cb_t)(int, int);
 typedef void (*cs_rx_cb_t)(cs_rx_data_t *cs_data, void *arg);
 typedef void (*cs_link_evt_cb_t)(void *private,
 	cts_link_evt_t link_evt, void *arg);
@@ -481,6 +482,7 @@ int cluster_san_set_prop(const char *prop, const char *value);
 nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str, int timeout, int remote_hostid);
 void cluster_san_hostinfo_hold(cluster_san_hostinfo_t *cshi);
 void cluster_san_hostinfo_rele(cluster_san_hostinfo_t *cshi);
+int clustersan_vsas_set_levent_callback(cs_vsas_rx_cb_t rx_cb, void *arg);
 cluster_san_hostinfo_t *cluster_remote_hostinfo_hold(uint32_t hostid);
 int cluster_target_session_hold(cluster_target_session_t *cts, void *tag);
 void cluster_target_session_rele(cluster_target_session_t *cts, void *tag);

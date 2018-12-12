@@ -405,6 +405,16 @@ zfs_register_callbacks(zfs_sb_t *zsb)
 	    zfs_prop_to_name(ZFS_PROP_VSCAN), vscan_changed_cb, zsb);
 	error = error ? error : dsl_prop_register(ds,
 	    zfs_prop_to_name(ZFS_PROP_NBMAND), nbmand_changed_cb, zsb);
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_LOWDATA), lowdata_changed_cb, zsb);
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_LOWDATA_PERIOD), lowdata_period_changed_cb, zsb);
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_LOWDATA_PERIOD_UNIT), lowdata_period_unit_changed_cb, zsb);
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_LOWDATA_DELETE_PERIOD), lowdata_delete_period_changed_cb, zsb);
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_LOWDATA_CRITERIA), lowdata_criteria_changed_cb, zsb);
 	dsl_pool_config_exit(dmu_objset_pool(os), FTAG);
 	if (error)
 		goto unregister;
@@ -463,6 +473,16 @@ unregister:
 	    vscan_changed_cb, zsb);
 	(void) dsl_prop_unregister(ds, zfs_prop_to_name(ZFS_PROP_NBMAND),
 	    nbmand_changed_cb, zsb);
+	(void) dsl_prop_unregister(ds, zfs_prop_to_name(ZFS_PROP_LOWDATA),
+	    lowdata_changed_cb, zsb);
+	(void) dsl_prop_unregister(ds, zfs_prop_to_name(ZFS_PROP_LOWDATA_PERIOD),
+	    lowdata_period_changed_cb, zsb);
+	(void) dsl_prop_unregister(ds, zfs_prop_to_name(ZFS_PROP_LOWDATA_PERIOD_UNIT),
+	    lowdata_period_unit_changed_cb, zsb);
+	(void) dsl_prop_unregister(ds, zfs_prop_to_name(ZFS_PROP_LOWDATA_DELETE_PERIOD),
+	    lowdata_delete_period_changed_cb, zsb);
+	(void) dsl_prop_unregister(ds, zfs_prop_to_name(ZFS_PROP_LOWDATA_CRITERIA),
+	    lowdata_criteria_changed_cb, zsb);
 
 	return (error);
 }
