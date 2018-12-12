@@ -189,8 +189,8 @@ spl_kmem_alloc_impl(size_t size, int flags, int node)
 			} else {
 				printk(KERN_WARNING
 			    	"%s %d: alloc mem null "
-			    	"size=%lu lflags=0x%x",
-			    	__func__, __LINE__, (unsigned long)size, lflags);
+			    	"size=%lu flags=0x%x lflags=0x%x",
+			    	__func__, __LINE__, (unsigned long)size, flags, lflags);
 				return (NULL);
 			}
 		} else {
@@ -201,8 +201,8 @@ spl_kmem_alloc_impl(size_t size, int flags, int node)
 			if(ptr == NULL) {
 				printk(KERN_WARNING
 			    	"%s %d: alloc mem null "
-			    	"size=%lu lflags=0x%x",
-			    	__func__, __LINE__, (unsigned long)size, lflags);
+			    	"size=%lu flags=0x%x lflags=0x%x",
+			    	__func__, __LINE__, (unsigned long)size, flags, lflags);
 			}
 			return (ptr);
 		}	
@@ -219,8 +219,8 @@ spl_kmem_alloc_impl(size_t size, int flags, int node)
 		if (unlikely(__ratelimit(&kmem_alloc_ratelimit_state))) {
 			printk(KERN_WARNING
 			    "Possible memory allocation deadlock: "
-			    "size=%lu lflags=0x%x",
-			    (unsigned long)size, lflags);
+			    "size=%lu flags=0x%x lflags=0x%x",
+			    (unsigned long)size, flags, lflags);
 			dump_stack();
 		}
 
@@ -233,8 +233,8 @@ spl_kmem_alloc_impl(size_t size, int flags, int node)
 
 	printk(KERN_WARNING
 			    "%s %d: alloc mem null "
-			    "size=%lu lflags=0x%x",
-			    __func__, __LINE__, (unsigned long)size, lflags);
+			    "size=%lu flags=0x%x lflags=0x%x",
+			    __func__, __LINE__, (unsigned long)size, flags, lflags);
 	return (NULL);
 }
 

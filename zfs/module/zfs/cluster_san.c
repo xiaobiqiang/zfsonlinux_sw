@@ -633,7 +633,7 @@ static void cts_rx_data_free(cs_rx_data_t *cs_data, boolean_t cts_hold)
 #endif
 	}
 	if ((cs_data->ex_head != NULL) && (cs_data->ex_len != 0)) {
-		vmem_free(cs_data->ex_head, cs_data->ex_len);
+		kmem_free(cs_data->ex_head, cs_data->ex_len);
 	}
 	if (cts_hold) {
 		cluster_target_session_rele(cs_data->cs_private, "cts_data");
@@ -657,7 +657,7 @@ void csh_rx_data_free(cs_rx_data_t *cs_data, boolean_t csh_hold)
 #endif
 	}
 	if ((cs_data->ex_head != NULL) && (cs_data->ex_len != 0)) {
-		vmem_free(cs_data->ex_head, cs_data->ex_len);
+		kmem_free(cs_data->ex_head, cs_data->ex_len);
 	}
 	if (csh_hold) {
 		cluster_san_hostinfo_rele(cs_data->cs_private);
@@ -2731,7 +2731,7 @@ static cs_rx_data_t *cluster_san_host_rxfragment_handle(
 	}
 	if (fragment->ex_len != 0) {
 		if (ctsfs->cs_data->ex_head == NULL) {
-			ctsfs->cs_data->ex_head = vmem_zalloc(fragment->ex_len, KM_SLEEP);
+			ctsfs->cs_data->ex_head = kmem_zalloc(fragment->ex_len, KM_SLEEP);
 			bcopy(fragment->ex_head, ctsfs->cs_data->ex_head, fragment->ex_len);
 			ctsfs->cs_data->ex_len = fragment->ex_len;
 		}
@@ -2805,7 +2805,7 @@ static cs_rx_data_t *cluster_san_host_fragment_handle(cluster_san_hostinfo_t *cs
 	}
 	if (fragment->ex_len != 0) {
 		if (ctsfs->cs_data->ex_head == NULL) {
-			ctsfs->cs_data->ex_head = vmem_zalloc(fragment->ex_len, KM_SLEEP);
+			ctsfs->cs_data->ex_head = kmem_zalloc(fragment->ex_len, KM_SLEEP);
 			bcopy(fragment->ex_head, ctsfs->cs_data->ex_head, fragment->ex_len);
 			ctsfs->cs_data->ex_len = fragment->ex_len;
 		}
@@ -5593,6 +5593,7 @@ clustersan_vsas_set_levent_callback(cs_vsas_rx_cb_t rx_cb, void *arg)
 	cmn_err(CE_WARN, "%s set callback func", __func__);
 	cluster_vsas_event_callback.rx_cb = rx_cb;
 	cluster_vsas_event_callback.arg = arg;
+    return 0;
 }
 
 EXPORT_SYMBOL(clustersan_vsas_set_levent_callback);
