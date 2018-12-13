@@ -180,8 +180,8 @@ dmu_tx_check_ioerr(zio_t *zio, dnode_t *dn, int level, uint64_t blkid)
 	if (db == NULL)
 		return (SET_ERROR(EIO));
 #ifdef _KERNEL
-	/*b_woptimize = dmu_write_optimize(&db->db);*/
-	b_woptimize = B_FALSE;
+	b_woptimize = dmu_write_optimize(&db->db);
+	//b_woptimize = B_FALSE;
 	if (b_woptimize) {
 		dbuf_rele(db, FTAG);
 		return (0);
