@@ -674,7 +674,7 @@ pt_status_change(fmd_hdl_t *hdl, topo_hdl_t *thp)
 		pt_walk_zfs_dataset(hdl, ptp);
 		pt_close_fsxml_file();
 		pt_close_luxml_file();
-		system("/usr/sbin/zpool status -x");
+//		system("/usr/local/sbin/zpool status -x");
 	}
 
 	if (ptp->pt_status_changed)
@@ -998,7 +998,7 @@ pt_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 
 	pt_pool_check(hdl);
 	
-	system("/usr/sbin/zpool status -x");
+//	system("/usr/local/sbin/zpool status -x");
 }
 
 static const fmd_prop_t fmd_props[] = {
