@@ -1087,8 +1087,6 @@ pppt_xfer_read_complete(pppt_task_t *pppt_task, stmf_status_t status)
 
 #if 1
 	if (dbuf->db_flags & DB_SEND_STATUS_GOOD) {
-		printk("zjn %s task=%p STMF_IOF_LPORT_DONE\n", __func__, 
-			pppt_task->pt_stmf_task);
 		iof = STMF_IOF_LPORT_DONE;
 	}
 	stmf_data_xfer_done(pppt_task->pt_stmf_task, dbuf, iof);
