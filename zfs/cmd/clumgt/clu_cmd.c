@@ -858,7 +858,7 @@ clu_cmd_process(char *args[])
 	int ret = 0;
 	int node_num;
 	boolean_t to_single_node = B_FALSE;
-	char master[HOSTNAMELEN];
+	char master[HOSTNAMELEN] = {0};
 
 	pargs = args;
 	if(clu_cmd_is_hostname(pargs[0])){
@@ -942,7 +942,7 @@ clu_cmd_process(char *args[])
 			if (resp == NULL || resp[0] == NULL) {
 				clumgt_errprint("send msg to master node (%s) failed.\n", master);
 			} else {
-				free(resp[0]);
+				nn_freemsg(resp[0]);
 				printf("send msg to master node (%s) success.\n", master);
 			}
 			break;

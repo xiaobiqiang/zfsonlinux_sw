@@ -103,6 +103,7 @@ int sync_send_msg_to_master_node(void);
 int sync_deal_msg_from_master_node(char *msg, clumgt_response_t **presp);
 int sync_receive_msg_form_agent(char *msg, clumgt_response_t **presp);
 void *sync_send_msg_to_agent (void *arg);
+void sync_get_default_master(char *master_node, const int len);
 void sync_init_master(void);
 void *sync_choose_master(void *args);
 

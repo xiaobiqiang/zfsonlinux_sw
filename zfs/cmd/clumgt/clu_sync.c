@@ -556,12 +556,56 @@ sync_probe_mster_node(char *msg, clumgt_response_t **presp)
 }
 
 void
+sync_get_default_master(char* master_node, const int len)
+{
+	int host_num = 0;
+	clumgt_host_t c_host[MAXWORKERS];
+	memset(c_host, 0, sizeof(c_host));
+	if(clumgt_get_hostnode(c_host, &host_num, NULL) != 0){
+		clumgt_errprint("[clu_sync] get host node failed, "
+			"please check config.\n");
+		return;
+	}
+
+	/*no cluster node in clumgt.config, use this host as the default master*/
+	if(host_num <= 0){
+		if (gethostname(master_node, len) < 0) {
+			clumgt_errprint("[clu_sync] get hostname failed\n");
+			memset(master_node, 0, len);
+		}
+		return;
+	}
+
+	/*find the min node as the default master*/
+	int i;
+	int min_host_id = (unsigned int)(-1)>>1;
+	int tmp_host_id = 0;
+	int default_host_num = MAXWORKERS;
+	for(i = 0; i < host_num && i < MAXWORKERS; ++i){
+		if(strlen("dfa") == strlen(c_host[i].hostname)
+			&& !strncmp(c_host[i].hostname, "df", strlen("df"))){
+			tmp_host_id = c_host[i].hostname[2] - 'a';
+			if(tmp_host_id < min_host_id){
+				min_host_id = tmp_host_id;
+				default_host_num = i;
+			}
+		}
+	}
+	if(default_host_num != MAXWORKERS){
+		strncpy(master_node, c_host[default_host_num].hostname, len);
+	}
+}
+
+void
 sync_init_master()
 {
 	sync_master_info_t *smi = &sync_master_info;
 	
 	memset(smi->master_node, 0x0, HOSTNAMELEN);
 	smi->sync_master_node_flag = B_FALSE;
+	sync_get_default_master(smi->master_node, HOSTNAMELEN);
+	if(strlen(smi->master_node) != 0)
+		smi->sync_master_node_flag = B_TRUE;
 	(void)pthread_mutex_init(&smi->sync_master_node_lock, NULL);
 	(void)pthread_cond_init(&smi->sync_master_node_cv, NULL); 
 }
