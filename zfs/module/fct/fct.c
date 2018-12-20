@@ -1197,7 +1197,8 @@ fct_register_local_port(fct_local_port_t *port)
 		slot->slot_next = (uint16_t)(++i);
 		slot->slot_cmd =NULL;
 	}
-	slot->slot_next = FCT_SLOT_EOL;
+	if (i != 0)
+		slot->slot_next = FCT_SLOT_EOL;
 	iport->iport_nslots_free = port->port_max_xchges;
 
 	iport->iport_task_green_limit =

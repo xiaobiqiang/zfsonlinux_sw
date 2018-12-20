@@ -1421,7 +1421,7 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
 
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	printk(KERN_INFO "zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1738,7 +1738,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	char			 info[FCT_INFO_LEN];
 	clock_t			 end_time;
 
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	printk(KERN_INFO "zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -2016,7 +2016,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	disc_action_t	ret = DISC_ACTION_NO_WORK;
 	uint8_t		op;
 
-	printk("zjn %s iport=%p irp=%p\n", __func__, iport, irp);
+	printk(KERN_INFO "zjn %s iport=%p irp=%p\n", __func__, iport, irp);
 	mutex_exit(&iport->iport_worker_lock);
 
 	/*

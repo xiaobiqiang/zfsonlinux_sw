@@ -2980,7 +2980,7 @@ void qla24xx_process_response_queue(struct scsi_qla_host *vha,
 			continue;
 		}
 process_err:
-		printk("pkt->entry_type:%x\n", pkt->entry_type);
+		ql_dbg(ql_dbg_misc, vha, 0x5042, "pkt->entry_type:%x\n", pkt->entry_type);
 
 		switch (pkt->entry_type) {
 		case STATUS_TYPE:

@@ -2296,7 +2296,7 @@ sbd_handle_read_capacity(struct scsi_task *task,
 	uint8_t *p;
 	uint64_t s;
 	uint16_t blksize;
-	stmf_data_buf_t *dbuf;
+	stmf_data_buf_t *dbuf = NULL;
 
 	s = sl->sl_lu_size >> sl->sl_data_blocksize_shift;
 	s--;
