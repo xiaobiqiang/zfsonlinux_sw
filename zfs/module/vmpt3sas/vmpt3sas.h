@@ -23,6 +23,7 @@ typedef struct vmpt3sas {
 	u32 remotehostno;
 	u32 remotehostid;
 	u64 req_index;
+	spinlock_t reqindex_lock;
 	
 }vmpt3sas_t;
 
@@ -102,7 +103,7 @@ typedef struct vmptsas_instance {
 	
 	taskq_t *tq_common;
 	taskq_t *tq_pexec;
-	
+	taskq_t *tq_pexecproxy;
 }vmptsas_instance_t;
 
 
@@ -113,5 +114,6 @@ typedef struct vmptsas_hostmap {
 	int hostid;
 }vmptsas_hostmap_t;
 
+#define ISRWCDB(cdb) ((cdb & 0x1F)==0x08 || (cdb & 0x1F)==0x0a)
 
 #endif
