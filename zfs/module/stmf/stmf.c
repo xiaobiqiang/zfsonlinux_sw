@@ -5441,7 +5441,7 @@ stmf_setup_itl_kstats(stmf_itl_data_t *itl)
 	ss = itl->itl_session->iss_ss;
 	iss = ss->ss_stmf_private;
 	ilport = ss->ss_lport->lport_stmf_private;
-	(void) snprintf(ks_itl_id, 32, "%d.%d.%d",
+	(void) snprintf(ks_itl_id, 32, "%lu.%lu.%d",
 	    iss->iss_irport->irport_instance, ilport->ilport_instance,
 	    itl->itl_lun);
 
@@ -7813,8 +7813,8 @@ stmf_status_t
 stmf_ctl(int cmd, void *obj, void *arg)
 {
 	stmf_status_t			ret;
-	stmf_i_lu_t			*ilu;
-	stmf_i_local_port_t		*ilport;
+	stmf_i_lu_t			*ilu = NULL;
+	stmf_i_local_port_t		*ilport = NULL;
 	stmf_state_change_info_t	*ssci = (stmf_state_change_info_t *)arg;
 
 	mutex_enter(&stmf_state.stmf_lock);
@@ -8929,7 +8929,7 @@ stmf_worker_task(void *arg)
 	clock_t wait_timer = 0;
 	clock_t wait_ticks, wait_delta = 0;
 	uint32_t old, new;
-	uint8_t curcmd;
+	uint8_t curcmd = 0;
 	uint8_t abort_free;
 	uint8_t wait_queue;
 	uint8_t dec_qdepth;
@@ -9545,12 +9545,12 @@ stmf_proxy_task_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 	stmf_status_t ic_ret = STMF_FAILURE;
 	boolean_t free_it = B_FALSE;
 
-	printk("zjn %s task=%p, aflags=%x, db_flags=%x\n", __func__,
+	printk(KERN_INFO "zjn %s task=%p, aflags=%x, db_flags=%x\n", __func__,
 		task, task->task_additional_flags, dbuf->db_flags);
 
 	if ((dbuf->db_flags & DB_DIRECTION_TO_RPORT) &&
 		(dbuf->db_flags & DB_SEND_STATUS_GOOD)) {
-		printk("zjn %s task=%p, free task\n", __func__, task);
+		printk(KERN_INFO "zjn %s task=%p, free task\n", __func__, task);
 		free_it = B_TRUE;
 	}
 	
@@ -9578,7 +9578,7 @@ stmf_proxy_task_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 
 	if (free_it) {
 		uint32_t new, old;
-		printk("zjn %s task=%p, itask_flags=%x\n", __func__, task, itask->itask_flags);
+		printk(KERN_INFO "zjn %s task=%p, itask_flags=%x\n", __func__, task, itask->itask_flags);
 		
 		do {
 			new = old = itask->itask_flags;
@@ -9590,7 +9590,7 @@ stmf_proxy_task_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 		    ITASK_BEING_ABORTED)) == 0) {
 			stmf_task_free(task);
 		} else {
-			printk("zjn %s task=%p, itask_flags=%x, unexpected!\n", 
+			printk(KERN_WARNING "zjn %s task=%p, itask_flags=%x, unexpected!\n", 
 				__func__, task, itask->itask_flags);
 		}
 	}
@@ -9970,7 +9970,7 @@ stmf_fini_task_checker()
 			break;
 	}
 	if (i == 500)
-		return (STMF_BUSY);
+		return (int)(STMF_BUSY);
 
 	taskq_destroy(stmf_state.stmf_task_checker_tq);
 	cv_destroy(&stmf_state.stmf_task_checker_cv);
@@ -11394,8 +11394,8 @@ out:
 void stmf_redo_read_xfer_done_intransition(struct scsi_task *task)
 {
 	
-	uint64_t lba, laddr;
-	uint32_t len;
+	uint64_t lba = 0, laddr;
+	uint32_t len = 0;
 	uint8_t op = task->task_cdb[0];
 	sbd_lu_t *sl = (sbd_lu_t *)task->task_lu->lu_provider_private;
 	sbd_cmd_t *scmd;
@@ -11463,8 +11463,8 @@ void stmf_redo_read_xfer_done_intransition(struct scsi_task *task)
 */
 void stmf_redo_write_xfer_done_intransition(struct scsi_task *task)
 {
-	uint64_t lba, laddr;
-	uint32_t len;
+	uint64_t lba = 0, laddr;
+	uint32_t len = 0;
 	sbd_cmd_t *scmd;
 	stmf_data_buf_t *dbuf;
 	uint8_t op = task->task_cdb[0];

@@ -1422,7 +1422,7 @@ static void abort_cmds_for_lun(struct scsi_qla_host *vha,
 
 		op_key = sid_to_key(op->atio.u.isp24.fcp_hdr.s_id);
 		op_lun = scsilun_to_int(
-			(struct scsi_lun *)&cmd->atio->u.isp24.fcp_cmnd.lun);
+			(struct scsi_lun *)&op->atio.u.isp24.fcp_cmnd.lun);
 		if (op_key == key && op_lun == lun)
 			op->aborted = true;
 	}
@@ -2096,7 +2096,7 @@ static int qlt_pre_xmit_response(struct qla_tgt_cmd *cmd,
 		(cmd->dma_data_direction != DMA_FROM_DEVICE)) {
 		prm->residual = cmd->data_length - cmd->bufflen;
 		prm->rq_result |= SS_RESIDUAL_UNDER;
-		printk("%s prm->rq_result = 0x%x, prm->residual = 0x%x, "
+		ql_dbg(ql_dbg_misc, vha, 0xe013, "%s prm->rq_result = 0x%x, prm->residual = 0x%x, "
 			"cmd->data_length = 0x%x, cmd->bufflen = 0x%x\n",
 			__func__,
 			prm->rq_result,
@@ -2803,17 +2803,17 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	    "Xmitting CTIO7 response pkt for 24xx: %p scsi_status: 0x%02x\n",
 	    pkt, scsi_status);
 	cdbptr = cmd->atio->u.isp24.fcp_cmnd.cdb;
-    printk("zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbptr[0], cdbptr[1], cdbptr[2]);
+	ql_dbg(ql_dbg_misc, vha, 0xe01a, "zjn %s 0x%x 0x%x 0x%x\n", __func__, cdbptr[0], cdbptr[1], cdbptr[2]);
 	ptr = (uint8_t *)pkt;
 	for (i = 0; i < sizeof(struct ctio7_to_24xx); i++) {
-		printk("zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
+		ql_dbg(ql_dbg_misc, vha, 0xe01a, "zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
 			xmit_type, i, ptr[i]);
 	}
 
 	if (pkt2) {
 		ptr =  (uint8_t *)pkt2;
 		for (i = 0; i < sizeof(struct ctio7_to_24xx); i++) {
-			printk("zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
+			ql_dbg(ql_dbg_misc, vha, 0xe01a, "zjn %s xmit_type = %d, pkt[%d] = 0x%x\n", __func__,
 				xmit_type, i, ptr[i]);
 		}
 	}
@@ -7140,12 +7140,12 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 
 /*********************************************************************************/
 
-#define	BUF_COUNT_2K		16	
-#define	BUF_COUNT_8K		16	
-#define	BUF_COUNT_64K		16	
-#define	BUF_COUNT_128K		2
+#define	BUF_COUNT_2K		2048	
+#define	BUF_COUNT_8K		512	
+#define	BUF_COUNT_64K		256	
+#define	BUF_COUNT_128K		1024	
 /* merge alua_2w code to stable modified by zywang begin */
-#define	BUF_COUNT_256K		2
+#define	BUF_COUNT_256K		512	
 /* merge alua_2w code to stable modified by zywang end */
 
 #define	QLT_DMEM_MAX_BUF_SIZE	(4 * 65536)

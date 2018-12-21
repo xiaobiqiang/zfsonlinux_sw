@@ -2980,7 +2980,7 @@ void qla24xx_process_response_queue(struct scsi_qla_host *vha,
 			continue;
 		}
 process_err:
-		printk("pkt->entry_type:%x\n", pkt->entry_type);
+		ql_dbg(ql_dbg_misc, vha, 0x5042, "pkt->entry_type:%x\n", pkt->entry_type);
 
 		switch (pkt->entry_type) {
 		case STATUS_TYPE:
@@ -3165,7 +3165,7 @@ qla24xx_intr_handler(int irq, void *dev_id)
 			break;
 		} else if ((stat & HSRX_RISC_INT) == 0)
 			break;
-		printk("intr status:%x\n", stat);
+		ql_dbg(ql_dbg_misc, vha, 0x504f, "intr status:%x\n", stat);
 
 		switch (stat & 0xff) {
 		case INTR_ROM_MB_SUCCESS:

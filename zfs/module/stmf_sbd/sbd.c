@@ -918,7 +918,7 @@ sbd_read_meta(sbd_lu_t *sl, uint64_t offset, uint64_t size, uint8_t *buf)
 	uint64_t	ending_off;
 	uint64_t	io_size;
 	uint8_t		*io_buf;
-	vnode_t		*vp;
+	vnode_t		*vp = NULL;
 	sbd_status_t	ret;
 	ssize_t		resid;
 	int		vret;
@@ -1003,7 +1003,7 @@ sbd_write_meta(sbd_lu_t *sl, uint64_t offset, uint64_t size, uint8_t *buf)
 	uint64_t	ending_off;
 	uint64_t	io_size;
 	uint8_t		*io_buf;
-	vnode_t		*vp;
+	vnode_t		*vp = NULL;
 	sbd_status_t	ret;
 	ssize_t		resid;
 	int		vret;
@@ -2605,11 +2605,11 @@ sbd_open_data_file(sbd_lu_t *sl, uint32_t *err_ret, int lu_size_valid,
     int vp_valid, int keep_open)
 {
 	int ret;
-	int flag;
+	int flag = 0;
 	ulong_t	nbits;
 	uint64_t supported_size;
 	vattr_t vattr;
-	enum vtype vt;
+	enum vtype vt = 0;
 	stmf_lu_t *lu;
 	struct kstat stat;
 	char *zvol_name = NULL;
@@ -5034,7 +5034,7 @@ sbd_open_zfs_meta(sbd_lu_t *sl)
 	int		i;
 	char		*tmp, *ptr;
 	uint64_t	rc = SBD_SUCCESS;
-	int		len;
+	int		len = 0;
 	char		*file;
 
 	if (sl->sl_zfs_meta == NULL) {

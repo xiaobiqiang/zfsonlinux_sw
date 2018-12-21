@@ -2128,6 +2128,7 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	db->db_pending_evict = FALSE;
 
 	db->db_has_segments = 0;
+	list_link_init(&db->db_segs_link);
 	
 	for (i = 0; i < TXG_SIZE; i++) {
 		db->db_ctrl_data[i] = 0;
@@ -3654,7 +3655,6 @@ dbuf_handle_segs(dmu_buf_impl_t *db, boolean_t b_write, uint64_t txg) {
     db->db_segs_len = 0;
     db->db_first_segment_txg = 0;
     dmu_objset_remove_record(os, db);
-    dbuf_rele(db, (void *)dbuf_seg_in_os_tag);
     mutex_exit(&db->db_seg_mtx);
     mutex_enter(&db->db_mtx);
     holds = refcount_count(&db->db_holds);
