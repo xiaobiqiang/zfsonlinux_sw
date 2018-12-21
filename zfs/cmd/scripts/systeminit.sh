@@ -715,6 +715,19 @@ function get_osversion
 	fi
 }
 
+function add_prepare_gui
+{
+	RCLOCALPATH=/etc/rc.d/rc.local
+	if [ -f  $RCLOCALPATH ];then
+		cat $RCLOCALPATH | grep "/gui/prepare.sh" > /dev/null
+		if [ $? != 0 ];then
+			echo "/gui/prepare.sh &" >> $RCLOCALPATH
+		fi
+	else
+		echo "add_prepare_gui, $RCLOCALPATH is not exist."
+	fi
+}
+
 #main
 
 get_osversion
@@ -829,6 +842,11 @@ else
 	echo "Init cluster failed and exit!"
 	exit 
 fi
+
+echo ""
+echo ""
+add_prepare_gui
+
 
 echo Complete. Now please reboot your machine.
 
