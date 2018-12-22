@@ -894,7 +894,7 @@ sbd_status_t
 sbd_find_and_lock_lu_ex(uint8_t *guid, uint8_t *meta_name, uint8_t op,
     sbd_lu_t **ppsl)
 {
-	int try = 5;
+	int try = 20;
 	sbd_status_t ret;
 
 	do {
@@ -902,7 +902,7 @@ sbd_find_and_lock_lu_ex(uint8_t *guid, uint8_t *meta_name, uint8_t op,
 		if (ret != SBD_BUSY)
 			break;
 
-		delay(1);
+		delay(10);
 		try--;
 	} while (try > 0);
 
@@ -3071,6 +3071,7 @@ sbd_create_register_lu(sbd_create_and_reg_lu_t *slu, int struct_sz,
 				__func__, sl->sl_name, sl->sl_access_state);
 		} else {
 			*err_ret = SBD_RET_FILE_ALREADY_REGISTERED;
+			sl->sl_trans_op = SL_OP_NONE;
 			bcopy(sl->sl_device_id + 4, slu->slu_guid, 16);
 			kmem_free(namebuf, sz);
 			cmn_err(CE_WARN, "%s: already registered data_filename = %s",
@@ -3815,7 +3816,7 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 			*err_ret = SBD_RET_FILE_ALREADY_REGISTERED;
 			bcopy(sl->sl_device_id + 4, ilu->ilu_ret_guid, 16);
 			sl->sl_trans_op = SL_OP_NONE;
-			cmn_err(CE_PANIC, "%s: lu already active, ilu_meta_fname= %s",
+			cmn_err(CE_WARN, "%s: lu already active, ilu_meta_fname= %s",
 				__func__, ilu->ilu_meta_fname);
 			return (EALREADY);
 		}

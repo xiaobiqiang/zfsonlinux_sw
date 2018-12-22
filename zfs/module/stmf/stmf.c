@@ -2780,14 +2780,12 @@ stmf_pppt_cb_registerd(void)
 #if (PPPT_TRAN_WAY == PPPT_TRAN_USE_CLUSTERSAN)
 static void stmf_asyn_lu_reg_compl(void *private, uint32_t hostid, int ret)
 {
-	stmf_lu_t *lu = private;
-	stmf_i_lu_t *ilu = lu->lu_stmf_private;
 	if (ret == 0) {
-		cmn_err(CE_NOTE, "%s: host(%d) success reg lun: %s-%s", __func__,
-			hostid, lu->lu_alias, ilu->ilu_ascii_hex_guid);
+		cmn_err(CE_NOTE, "%s: host(%d) success reg lun", __func__,
+			hostid);
 	} else {
-		cmn_err(CE_WARN, "%s: host(%d) failed(ret: %d) reg lun: %s-%s",
-			__func__, hostid, ret, lu->lu_alias, ilu->ilu_ascii_hex_guid);
+		cmn_err(CE_WARN, "%s: host(%d) failed(ret: %d) reg lun",
+			__func__, hostid, ret);
 	}
 }
 
