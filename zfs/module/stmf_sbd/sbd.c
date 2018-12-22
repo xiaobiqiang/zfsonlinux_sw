@@ -2500,14 +2500,7 @@ sbd_populate_and_register_lu(sbd_lu_t *sl, uint32_t *err_ret, boolean_t proxy_re
 	} else {
 		lu->lu_alias = sl->sl_alias;
 	}
-	if (sl->sl_access_state != SBD_LU_ACTIVE) {
-		/* call set access state */
-		ret = stmf_set_lu_access(lu, STMF_LU_STANDBY, proxy_reg);
-		if (ret != STMF_SUCCESS) {
-			*err_ret = SBD_RET_ACCESS_STATE_FAILED;
-			return (EIO);
-		}
-	}
+
 	/* set proxy_reg_cb_arg to meta filename */
 	if (sl->sl_meta_filename) {
 		len = strlen(sl->sl_meta_filename) + 1;
@@ -2586,6 +2579,15 @@ sbd_populate_and_register_lu(sbd_lu_t *sl, uint32_t *err_ret, boolean_t proxy_re
 	lu->lu_ctl = sbd_ctl;
 	lu->lu_info = sbd_info;
 	sl->sl_state = STMF_STATE_OFFLINE;
+
+	if (sl->sl_access_state != SBD_LU_ACTIVE) {
+		/* call set access state */
+		ret = stmf_set_lu_access(lu, STMF_LU_STANDBY, proxy_reg);
+		if (ret != STMF_SUCCESS) {
+			*err_ret = SBD_RET_ACCESS_STATE_FAILED;
+			return (EIO);
+		}
+	}
 
 	if ((ret = stmf_register_lu(lu, proxy_reg)) != STMF_SUCCESS) {
 		stmf_trace(0, "Failed to register with framework, ret=%llx",
