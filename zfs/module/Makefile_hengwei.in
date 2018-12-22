@@ -15,7 +15,8 @@ subdir-m += stmf_sbd
 subdir-m += pppt
 subdir-m += fmd_transport
 
-CODE_PARENT_DIR := $$(dirname `pwd` | awk -F'/' '{$NF="";print}')
+LINUX_SRC_LINK := /lib/modules/$(shell uname -r)/source
+LINUX_SRC_DIR := $(shell readlink -f $(LINUX_SRC_LINK))
 INSTALL_MOD_DIR ?= extra
 
 ZFS_MODULE_CFLAGS += -include @SPL_OBJ@/spl_config.h -DUNIQUE_FW_NAME -Wframe-larger-than=8192
@@ -23,7 +24,7 @@ ZFS_MODULE_CFLAGS += -Wno-unknown-pragmas -Wno-unused-function -Wno-unused-varia
 ZFS_MODULE_CFLAGS += -Wno-parentheses -Wno-switch -Wno-unused-label
 ZFS_MODULE_CFLAGS += -include @abs_top_builddir@/zfs_config.h
 ZFS_MODULE_CFLAGS += -I@abs_top_srcdir@/include -I@SPL@/include -I@SPL@
-ZFS_MODULE_CFLAGS += -I$(CODE_PARENT_DIR)/linux/drivers/scsi -I$(CODE_PARENT_DIR)/linux/include 
+ZFS_MODULE_CFLAGS += -I$(LINUX_SRC_DIR)/drivers/scsi -I$(LINUX_SRC_DIR)/linux/include 
 export ZFS_MODULE_CFLAGS
 
 modules:
