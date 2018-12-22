@@ -5034,11 +5034,35 @@ out:
 	csh_asyn_tx_msg_rele(asyn_msg);
 }
 
+static int csh_asyn_send_empty(cluster_san_hostinfo_t *cshi,
+	uint32_t type, void *private)
+{
+	csh_asyn_tx_task_node_t *asyn_tx;
+	csh_asyn_tx_task_node_t *asyn_tx_next;
+	int is_empty = 1;
+
+	mutex_enter(&cshi->host_asyn_tx_mtx);
+	asyn_tx = list_head(&cshi->host_asyn_tx_tasks);
+	while (asyn_tx != NULL) {
+		asyn_tx_next = list_next(&cshi->host_asyn_tx_tasks, asyn_tx);
+		if ((type == asyn_tx->msg->asyn_type) &&
+			(asyn_tx->msg->comp(private, asyn_tx->msg->private) == 0)) {
+			is_empty = 0;
+			break;
+		}
+		asyn_tx = asyn_tx_next;
+	}
+	mutex_exit(&cshi->host_asyn_tx_mtx);
+
+	return (is_empty);
+}
+
 static void csh_asyn_send_clean_impl(cluster_san_hostinfo_t *cshi,
 	uint32_t type, void *private)
 {
 	csh_asyn_tx_task_node_t *asyn_tx;
 	csh_asyn_tx_task_node_t *asyn_tx_next;
+	int clean_cnt = 0;
 
 	mutex_enter(&cshi->host_asyn_tx_mtx);
 	asyn_tx = list_head(&cshi->host_asyn_tx_tasks);
@@ -5048,15 +5072,20 @@ static void csh_asyn_send_clean_impl(cluster_san_hostinfo_t *cshi,
 			(type == asyn_tx->msg->asyn_type) &&
 			(asyn_tx->msg->comp(private, asyn_tx->msg->private) == 0)) {
 			asyn_tx->is_clean = B_TRUE;
+			clean_cnt++;
 		}
 		asyn_tx = asyn_tx_next;
+	}
+	if (clean_cnt != 0) {
+		cv_broadcast(&cshi->host_asyn_tx_cv);
 	}
 	mutex_exit(&cshi->host_asyn_tx_mtx);
 }
 
-void cluster_san_host_asyn_send_clean(uint32_t type, void *private)
+void cluster_san_host_asyn_send_clean(uint32_t type, void *private, int wait)
 {
 	cluster_san_hostinfo_t *cshi;
+	int is_empty = 1;
 
 	rw_enter(&clustersan_rwlock, RW_READER);
 	cshi = list_head(&clustersan->cs_hostlist);
@@ -5065,6 +5094,25 @@ void cluster_san_host_asyn_send_clean(uint32_t type, void *private)
 		cshi = list_next(&clustersan->cs_hostlist, cshi);
 	}
 	rw_exit(&clustersan_rwlock);
+
+	while (wait != 0) {
+		is_empty = 1;
+		rw_enter(&clustersan_rwlock, RW_READER);
+		cshi = list_head(&clustersan->cs_hostlist);
+		while (cshi != NULL) {
+			if (csh_asyn_send_empty(cshi, type, private) == 0) {
+				is_empty = 0;
+				break;
+			}
+			cshi = list_next(&clustersan->cs_hostlist, cshi);
+		}		
+		rw_exit(&clustersan_rwlock);
+		if (is_empty == 0) {
+			delay(drv_usectohz((clock_t)1000000));
+		} else {
+			wait = 0;
+		}
+	}
 }
 
 static void cshi_sync_tx_msg_init(cluster_san_hostinfo_t *cshi)
@@ -5423,7 +5471,7 @@ nvlist_t *cluster_san_sync_cmd(uint64_t cmd_id, char *cmd_str,
 	mutex_exit(&sync_cmd->lock);
 
 	cluster_san_host_asyn_send_clean(CLUSTER_SAN_ASYN_TX_SYNC_CMD,
-		sync_cmd);
+		sync_cmd, 0);
 
 	mutex_enter(&clustersan->cs_sync_cmd.sync_cmd_lock);
 	list_remove(&clustersan->cs_sync_cmd.sync_cmd_list, sync_cmd);

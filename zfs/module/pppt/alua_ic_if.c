@@ -310,7 +310,8 @@ typedef void (*cluster_san_host_asyn_send_t)(cluster_san_hostinfo_t *cshi,
 	uint8_t msg_type, uint32_t type, void *private,
 	csh_asyn_tx_compl_cb_func_t compl_cb, csh_asyn_tx_clean_cb_func_t clean_cb,
 	csh_asyn_tx_node_comp_func_t comp);
-typedef void (*cluster_san_host_asyn_send_clean_t)(uint32_t type, void *private);
+typedef void (*cluster_san_host_asyn_send_clean_t)(uint32_t type,
+	void *private, int wait);
 typedef int (*cluster_san_host_sync_send_msg_t)(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint64_t msg_id, uint8_t msg_type, int timeout);
@@ -835,10 +836,10 @@ stmf_ic_msg_status_t stmf_ic_asyn_tx_msg(stmf_ic_msg_t *msg,
 	return (status);
 }
 
-void stmf_ic_asyn_tx_clean(uint32_t type, void *private)
+void stmf_ic_asyn_tx_clean(uint32_t type, void *private, int wait)
 {
 	if (ic_csh_asyn_send_clean == NULL) {
-		ic_csh_asyn_send_clean(type, private);
+		ic_csh_asyn_send_clean(type, private, wait);
 	}
 }
 

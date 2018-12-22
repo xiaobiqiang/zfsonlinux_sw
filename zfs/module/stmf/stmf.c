@@ -4398,7 +4398,7 @@ stmf_set_lu_access(stmf_lu_t *lu, uint8_t access_state, boolean_t proxy_reg)
 		return (STMF_BUSY);
 
 	if (stmf_state.stmf_alua_state == 1) {
-		ic_asyn_tx_clean(CLUSTER_SAN_ASYN_TX_LU_REG, lu);
+		ic_asyn_tx_clean(CLUSTER_SAN_ASYN_TX_LU_REG, lu, 0);
 	}
 
 	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
@@ -4683,7 +4683,7 @@ stmf_deregister_lu(stmf_lu_t *lu)
 			stmf_ic_msg_t *ic_dereg_lun;
 			if (lu->lu_lp && lu->lu_lp->lp_lpif_rev == LPIF_REV_2 &&
 			    lu->lu_lp->lp_alua_support) {
-			    ic_asyn_tx_clean(CLUSTER_SAN_ASYN_TX_LU_REG, lu);
+			    ic_asyn_tx_clean(CLUSTER_SAN_ASYN_TX_LU_REG, lu, 1);
 				ilu->ilu_alua = 1;
 				/* allocate the de-register message */
 				ic_dereg_lun = ic_dereg_lun_msg_alloc(
@@ -4912,7 +4912,7 @@ stmf_deregister_local_port(stmf_local_port_t *lport)
 	    ilport->ilport_alua == 1) {
 		stmf_ic_msg_t *ic_dereg_port;
 		stmf_ic_msg_status_t ic_ret;
-		ic_asyn_tx_clean(CLUSTER_SAN_ASYN_TX_LPORT_REG, lport);
+		ic_asyn_tx_clean(CLUSTER_SAN_ASYN_TX_LPORT_REG, lport, 1);
 		ic_dereg_port = ic_dereg_port_msg_alloc(
 		    lport->lport_id, 0, NULL, stmf_proxy_msg_id);
 		if (ic_dereg_port) {
