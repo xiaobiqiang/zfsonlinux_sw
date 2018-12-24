@@ -1617,6 +1617,67 @@ stmf_get_service_state(void)
 	return (STMF_STATE_OFFLINE);
 }
 
+static void stmf_online_lport()
+{
+	stmf_i_local_port_t *ilport;
+	stmf_state_change_info_t ssi;
+	
+	for (ilport = stmf_state.stmf_ilportlist; ilport != NULL;
+		ilport = ilport->ilport_next) {
+		cmn_err(CE_WARN, " %s lport online is enabled here ilport=%p name=%s",
+			__func__,ilport,ilport->ilport_kstat_tgt_name);
+		(void) stmf_ctl(STMF_CMD_LPORT_ONLINE, ilport->ilport_lport, &ssi);
+	}
+}
+
+void display_guid(uint8_t *guid)
+{
+	int i;
+	const char *dis_str = "";
+	char *tmp_str = (char *)dis_str;
+	
+	for (i = 0; i < 16; i ++) {
+		sprintf(tmp_str, "%02X", guid[i]);
+		tmp_str += 1;
+	}
+	cmn_err(CE_WARN, "GUID__%s", dis_str);
+}
+
+static boolean_t stmf_all_ilu_online()
+{
+	stmf_id_data_t *id;
+	stmf_i_lu_t *ilu;
+	boolean_t all_online = B_TRUE;
+
+	mutex_enter(&stmf_state.stmf_lock);
+	for (id = stmf_state.stmf_luid_list.idl_head;
+	    id != NULL; id = id->id_next){
+			ilu = stmf_luident_to_ilu(id->id_data);
+			if (ilu == NULL || ilu->ilu_state != STMF_STATE_ONLINE){
+				all_online = B_FALSE;
+				break;
+			}
+	}
+	mutex_exit(&stmf_state.stmf_lock);
+	return (all_online);
+}
+
+static void stmf_online_lport_task(void *arg)
+{
+	while(1){
+		if(stmf_all_ilu_online()){
+			cmn_err(CE_WARN,"%s to exec online local port",__func__);
+			stmf_online_lport();
+			break;
+		}else{
+			mutex_enter(&stmf_state.stmf_lock);
+			(void) cv_timedwait(&stmf_state.stmf_cv, &(stmf_state.stmf_lock),
+					ddi_get_lbolt() + 500);
+			mutex_exit(&stmf_state.stmf_lock);
+		}
+	}
+}
+
 static int
 stmf_set_stmf_state(stmf_state_desc_t *std)
 {
@@ -1684,24 +1745,17 @@ stmf_set_stmf_state(stmf_state_desc_t *std)
 		stmf_state.stmf_inventory_locked = 1;
 		stmf_state.stmf_service_running = 1;
 		mutex_exit(&stmf_state.stmf_lock);
-
-		for (ilport = stmf_state.stmf_ilportlist; ilport != NULL;
-		    ilport = ilport->ilport_next) {
-			if (stmf_state.stmf_default_lport_state !=
-			    STMF_STATE_ONLINE)
-				continue;
-
-			(void) stmf_ctl(STMF_CMD_LPORT_ONLINE,
-			    ilport->ilport_lport, &ssi);
-		}
-
 		for (ilu = stmf_state.stmf_ilulist; ilu != NULL;
 		    ilu = ilu->ilu_next) {
+			
 			if (stmf_state.stmf_default_lu_state !=
 			    STMF_STATE_ONLINE)
 				continue;
 			(void) stmf_ctl(STMF_CMD_LU_ONLINE, ilu->ilu_lu, &ssi);
 		}
+
+		taskq_dispatch(stmf_state.stmf_online_lport, stmf_online_lport_task, NULL, TQ_SLEEP);
+
 		mutex_enter(&stmf_state.stmf_lock);
 		stmf_state.stmf_inventory_locked = 0;
 		mutex_exit(&stmf_state.stmf_lock);
@@ -1739,20 +1793,8 @@ stmf_set_stmf_state(stmf_state_desc_t *std)
 	return (0);
 }
 
-void stmf_online_localport()
-{
-	stmf_i_local_port_t *ilport;
-	stmf_state_change_info_t ssi;
-	
-	for (ilport = stmf_state.stmf_ilportlist; ilport != NULL;
-		ilport = ilport->ilport_next) {
-	
-		cmn_err(CE_WARN, " %s lport online is enabled here ilport=%p name=%s", __func__,ilport,ilport->ilport_kstat_tgt_name);
-		(void) stmf_ctl(STMF_CMD_LPORT_ONLINE,
-				ilport->ilport_lport, &ssi);
-	}
 
-}
+
 
 static boolean_t  stmf_all_lport_offline(void)
 {
@@ -10637,6 +10679,8 @@ stmf_svc_init()
 	stmf_state.stmf_svc_tailp = &stmf_state.stmf_svc_active;
 	stmf_state.stmf_svc_taskq = taskq_create("STMF_SVC_TASKQ", 1,
 	    minclsyspri, 1, 1, TASKQ_PREPOPULATE);
+	stmf_state.stmf_online_lport = taskq_create("STMF_ONLINE_PORT", 1,
+	    minclsyspri, 1, 1, TASKQ_PREPOPULATE);
 	taskq_dispatch(stmf_state.stmf_svc_taskq, stmf_svc, NULL, TQ_SLEEP);
 }
 
@@ -10663,6 +10707,7 @@ stmf_svc_fini()
 		return (STMF_BUSY);
 
 	taskq_destroy(stmf_state.stmf_svc_taskq);
+	taskq_destroy(stmf_state.stmf_online_lport);
 
 	return (STMF_SUCCESS);
 }
@@ -11690,7 +11735,6 @@ EXPORT_SYMBOL(stmf_scsilib_prepare_vpd_page83);
 EXPORT_SYMBOL(stmf_proxy_scsi_data_res);
 EXPORT_SYMBOL(stmf_deregister_lu_provider);
 EXPORT_SYMBOL(stmf_set_lu_access);
-EXPORT_SYMBOL(stmf_online_localport);
 EXPORT_SYMBOL(stmf_alloc_dbuf);
 EXPORT_SYMBOL(stmf_scsilib_devid_to_remote_port);
 EXPORT_SYMBOL(stmf_setup_dbuf);
