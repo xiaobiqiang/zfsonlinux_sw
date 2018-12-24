@@ -1621,6 +1621,8 @@ static void stmf_online_lport()
 {
 	stmf_i_local_port_t *ilport;
 	stmf_state_change_info_t ssi;
+	ssi.st_rflags = STMF_RFLAG_USER_REQUEST;
+	ssi.st_additional_info = NULL;
 	
 	for (ilport = stmf_state.stmf_ilportlist; ilport != NULL;
 		ilport = ilport->ilport_next) {
@@ -10931,12 +10933,13 @@ void
 stmf_svc_queue(int cmd, void *obj, stmf_state_change_info_t *info)
 {
 	stmf_svc_req_t *req;
-	int s;
+	int s, extralen = 0;
 
 	ASSERT(!mutex_owned(&stmf_state.stmf_lock));
 	s = sizeof (stmf_svc_req_t);
 	if (info->st_additional_info) {
-		s += strlen(info->st_additional_info) + 1;
+		extralen = strlen(info->st_additional_info) + 1;
+		s += extralen;
 	}
 	req = kmem_zalloc(s, KM_SLEEP);
 
@@ -10946,8 +10949,8 @@ stmf_svc_queue(int cmd, void *obj, stmf_state_change_info_t *info)
 	if (info->st_additional_info) {
 		req->svc_info.st_additional_info = (char *)(GET_BYTE_OFFSET(req,
 		    sizeof (stmf_svc_req_t)));
-		(void) strcpy(req->svc_info.st_additional_info,
-		    info->st_additional_info);
+		(void) strncpy(req->svc_info.st_additional_info,
+		    info->st_additional_info, extralen - 1);
 	}
 	req->svc_req_alloc_size = s;
 	req->svc_next = NULL;
