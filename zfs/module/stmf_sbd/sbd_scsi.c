@@ -3771,6 +3771,7 @@ sbd_new_task(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 		    cdb0 != SCMD_WRITE_G1 &&
 		    cdb0 != SCMD_WRITE_G4 &&
 		    cdb0 != SCMD_WRITE_G5 &&
+			cdb0 != SCMD_UNMAP &&
 			cdb0 != SCMD_SYNCHRONIZE_CACHE &&		
 		    !(cdb0 == SCMD_SVC_ACTION_IN_G4 &&
 		    cdb1 == SSVC_ACTION_READ_CAPACITY_G4) &&

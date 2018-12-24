@@ -3531,6 +3531,8 @@ sbd_create_standby_lu(sbd_create_standby_lu_t *slu, uint32_t *err_ret, uint32_t 
 	ret = sbd_populate_and_register_lu(sl, err_ret, B_TRUE);
 	if (ret) {
 		goto scs_err_out;
+	} else {
+		sl->sl_flags |= SL_UNMAP_ENABLED;
 	}
 	
 	do {
@@ -3938,6 +3940,8 @@ sim_sli_loaded:
 			goto sim_err_out;
 		}
 		atomic_add_32(&sbd_lu_count, 1);
+	} else {
+		sl->sl_flags |= SL_UNMAP_ENABLED;
 	}
 
 	bcopy(sl->sl_device_id + 4, ilu->ilu_ret_guid, 16);
