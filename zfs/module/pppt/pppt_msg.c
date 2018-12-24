@@ -353,6 +353,7 @@ pppt_msg_scsi_cmd(stmf_ic_msg_t *msg)
 
 	ptask->pt_sess = pppt_sess;
 	ptask->pt_task_id = scmd->icsc_task_msgid;
+	ptask->pt_task_proxy_seq_no = 0;
 	stmf_sess = pppt_sess->ps_stmf_sess;
 	lport = stmf_sess->ss_lport;
 
@@ -450,6 +451,7 @@ pppt_msg_data_xfer_done(stmf_ic_msg_t *msg)
 		pppt_task = task->task_port_private;
 		/* If we found one, complete the transfer */
 		if (pppt_task != NULL) {
+			pppt_task->pt_task_proxy_seq_no = data_xfer_done->icsx_proxy_seq_no;
 			pppt_xfer_read_complete(pppt_task, data_xfer_done->icsx_status);
 		}
 	}
@@ -475,6 +477,7 @@ pppt_msg_data_res(stmf_ic_msg_t *msg)
 	}
 	
 	ptask = task->task_port_private;
+	ptask->pt_task_proxy_seq_no = data_res->icds_proxy_seq_no;
 	pbuf = ptask->pt_write_buf;
 	if(pbuf==NULL){
 		cmn_err(CE_WARN, "%s: Wrong data from peer. pbuf is null", 	__func__);

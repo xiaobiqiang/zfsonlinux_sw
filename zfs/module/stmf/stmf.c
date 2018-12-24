@@ -53,6 +53,7 @@ static uint64_t stmf_proxy_msg_id = 0x1;
 /* general zvol path */
 #define	ZVOL_FULL_DIR	"/dev/zvol/"
 
+#define ITASK_CONFLIC_STAT ITASK_BEING_ABORTED|ITASK_IN_TRANSITION|ITASK_IN_FREE_LIST
 #define ARRAYSIZE(X)  (sizeof(X) / sizeof(X[0]))
 
 struct
@@ -1617,7 +1618,7 @@ stmf_get_service_state(void)
 	return (STMF_STATE_OFFLINE);
 }
 
-static void stmf_online_lport()
+static void stmf_online_lport(void)
 {
 	stmf_i_local_port_t *ilport;
 	stmf_state_change_info_t ssi;
@@ -1645,7 +1646,7 @@ void display_guid(uint8_t *guid)
 	cmn_err(CE_WARN, "GUID__%s", dis_str);
 }
 
-static boolean_t stmf_all_ilu_online()
+static boolean_t stmf_all_ilu_online(void)
 {
 	stmf_id_data_t *id;
 	stmf_i_lu_t *ilu;
@@ -2097,11 +2098,16 @@ stmf_ic_set_remote_sync_flag(stmf_ic_set_remote_sync_flag_msg_t *msg)
  * helper function to find a task that matches a task_msgid
  */
 scsi_task_t *
-find_task_from_msgid(uint8_t *lu_id, stmf_ic_msgid_t task_msgid)
+stmf_find_and_flag_msgid(uint8_t *lu_id, 
+	stmf_ic_msgid_t task_msgid,
+	uint32_t task_proxy_seq_no,
+	uint32_t conflict_flag,
+	uint32_t new_flag)
 {
 	stmf_i_lu_t *ilu;
 	stmf_i_scsi_task_t *itask;
-
+	uint32_t old, new;
+	
 	mutex_enter(&stmf_state.stmf_lock);
 	for (ilu = stmf_state.stmf_ilulist; ilu != NULL; ilu = ilu->ilu_next) {
 		if (bcmp(lu_id, ilu->ilu_lu->lu_id->ident, 16) == 0) {
@@ -2121,19 +2127,29 @@ find_task_from_msgid(uint8_t *lu_id, stmf_ic_msgid_t task_msgid)
 		    ITASK_BEING_ABORTED)) {
 			continue;
 		}
-		if (itask->itask_proxy_msg_id == task_msgid) {
+		if ((itask->itask_proxy_msg_id == task_msgid) &&
+			(itask->itask_proxy_seq_no == task_proxy_seq_no)) {
 			break;
 		}
 	}
 	mutex_exit(&ilu->ilu_task_lock);
 	mutex_exit(&stmf_state.stmf_lock);
 
-	if (itask != NULL) {
-		return (itask->itask_task);
-	} else {
-		/* task not found. Likely already aborted. */
+	if (itask == NULL )
 		return (NULL);
-	}
+		
+	do {
+		old = new = itask->itask_flags;
+		if (old & (conflict_flag | new_flag)) {
+			cmn_err(CE_WARN, "%s: task confict, itask_flags old=%x new=%x", 
+				__func__,old,itask->itask_flags);
+			return NULL; /* task conflicting */
+		}
+		new |= new_flag;
+	} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
+
+	return (itask->itask_task);
+	
 }
 
 /*
@@ -2391,30 +2407,29 @@ stmf_status_t
 stmf_ic_rx_scsi_status(stmf_ic_scsi_status_msg_t *msg)
 {
 	scsi_task_t *task;
+	sbd_cmd_t *scmd;
 	uint8_t	*plun = NULL;
 	stmf_i_scsi_task_t *itask =NULL;
 	uint32_t ioflags=0;
 	uint8_t idiscard=0;
+	stmf_status_t ret = STMF_SUCCESS;
 
 	/* is this a task management command */
 	if (msg->icss_task_msgid & MSG_ID_TM_BIT) {
 		return (STMF_SUCCESS);
 	}
 	
-	task = find_task_from_msgid(msg->icss_lun_id, msg->icss_task_msgid);
+	task = stmf_find_and_flag_msgid(msg->icss_lun_id, msg->icss_task_msgid,
+		msg->icss_proxy_seq_no, ITASK_CONFLIC_STAT|ITASK_CHECKER_PROCESS, ITASK_BEING_PPPT);
 	if (task == NULL) {
 		plun = msg->icss_lun_id;
-		cmn_err(CE_WARN, "%s: task=%p  ",__func__,task);
+		cmn_err(CE_WARN, "%s task not find, msgid = %ld, seqno = %d", 
+			__func__, (long)msg->icss_task_msgid, msg->icss_proxy_seq_no);
 		return (STMF_SUCCESS);
 	}
 
 	itask = (stmf_i_scsi_task_t *)task->task_stmf_private;
-	ioflags=msg->icss_resid <<24;
-	ioflags |= msg->icss_status<<16;
-	ioflags |=	msg->icss_flags<<8;		/* TASK_SCTRL_OVER, TASK_SCTRL_UNDER */
-	ioflags |= msg->icss_sense_len;
-	
-	stmf_task_audit(itask, TE_GET_SEND_STATUS, ioflags, NULL);
+	itask->itask_proxy_seq_no++;
 
 	task->task_scsi_status = msg->icss_status;
 	if(msg->icss_sense_len!=0){
@@ -2451,11 +2466,22 @@ stmf_ic_rx_scsi_status(stmf_ic_scsi_status_msg_t *msg)
 
 	if(idiscard==1){
 		cmn_err(CE_WARN,   "%s  task=%p discard response data",__func__,task); 
-		return STMF_SUCCESS;
+		ret = STMF_SUCCESS;
+		goto out;
 	}
+
+	itask = (stmf_i_scsi_task_t *)task->task_stmf_private;
+	ioflags=msg->icss_resid <<24;
+	ioflags |= msg->icss_status<<16;
+	ioflags |=	msg->icss_flags<<8;		/* TASK_SCTRL_OVER, TASK_SCTRL_UNDER */
+	ioflags |= msg->icss_sense_len;
+	stmf_task_audit(itask, TE_GET_SEND_STATUS, ioflags, NULL);
 	
 	stmf_queue_sendstatus_to_task( task);
-	
+	return (STMF_SUCCESS);
+out:
+	if (itask != NULL)
+	 	itask->itask_flags &= ~ITASK_BEING_PPPT;
 	return (STMF_SUCCESS);
 }
 
@@ -2465,24 +2491,28 @@ stmf_ic_rx_scsi_status(stmf_ic_scsi_status_msg_t *msg)
 stmf_status_t
 stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 {
-	stmf_i_scsi_task_t *itask;
+	stmf_i_scsi_task_t *itask = NULL ;
 	scsi_task_t *task;
 	stmf_xfer_data_t *xd = NULL;
 	stmf_data_buf_t *dbuf;
 	uint32_t sz, minsz, xd_sz, asz;
 	int idiscard =0 ;
+	stmf_status_t ret = STMF_SUCCESS; 
 
 	/* is this a task management command */
 	if (msg->icsd_task_msgid & MSG_ID_TM_BIT) {
 		return (STMF_SUCCESS);
 	}
 
-	task = find_task_from_msgid(msg->icsd_lun_id, msg->icsd_task_msgid);
+	task = stmf_find_and_flag_msgid(msg->icsd_lun_id, msg->icsd_task_msgid,
+		msg->icsd_proxy_seq_no, ITASK_CONFLIC_STAT, ITASK_BEING_PPPT);
+	
 	if (task == NULL) {
 		stmf_ic_msg_t *ic_xfer_done_msg = NULL;
 		stmf_status_t ic_ret = STMF_FAILURE;
 
-		cmn_err(CE_WARN,   "%s  task not find,msgid =%ld" ,__func__,(long) msg->icsd_task_msgid);
+		cmn_err(CE_WARN, "%s task not find, msgid = %ld, seqno = %d", 
+			__func__, (long)msg->icsd_task_msgid, msg->icsd_proxy_seq_no);
 		
 		/*
 		 * send xfer done status to pppt
@@ -2490,18 +2520,20 @@ stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 		 * ascertain it since we cannot find the task
 		 */
 		ic_xfer_done_msg = ic_scsi_data_xfer_done_msg_alloc(
-		    msg->icsd_task_msgid, 0, STMF_FAILURE, msg->icsd_task_msgid);
+		    msg->icsd_task_msgid, 0, 0, 
+		    STMF_FAILURE, msg->icsd_task_msgid);
 		if (ic_xfer_done_msg) {
 			ic_xfer_done_msg->icm_sess = sess;
 			ic_ret = ic_tx_msg(ic_xfer_done_msg);
 			if (ic_ret != STMF_IC_MSG_SUCCESS) {
-				cmn_err(CE_WARN, "unable to xmit proxy msg");
+				cmn_err(CE_WARN, "%s: unable to xmit proxy msg",__func__);
 			}
 		}
 		return (STMF_FAILURE);
 	}
 
 	itask = (stmf_i_scsi_task_t *)task->task_stmf_private;
+	itask->itask_proxy_seq_no++;
 	mutex_enter(&itask->itask_transition_mutex);
 	if(itask->itask_transition_state == ITASK_TRANSITION_WAIT)
 	{
@@ -2515,7 +2547,8 @@ stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 	mutex_exit(&itask->itask_transition_mutex);
 	if(idiscard==1){
 		cmn_err(CE_WARN,   "%s  task=%p discard response data",__func__,task); 
-		return STMF_SUCCESS;
+		ret = STMF_SUCCESS;
+		goto out;
 	}
 	
 	dbuf = itask->itask_proxy_dbuf;
@@ -2540,10 +2573,9 @@ stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 #endif
 
 	if (xd == NULL) {
-		cmn_err(CE_WARN,   "%s  do_stmf_abort task = %p",__func__, (void *)task);
-		stmf_abort(STMF_QUEUE_TASK_ABORT, task,
-		    STMF_ALLOC_FAILURE, NULL, STMF_IC_RX_SCSI_DATA);
-		return (STMF_FAILURE);
+		cmn_err(CE_WARN,   "%s  task=%p discard response data because memalloc failure",__func__,task); 
+		ret = STMF_FAILURE;
+		goto out;
 	}
 
 	xd->is_ic_alloc = 1;
@@ -2567,9 +2599,9 @@ stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 #else
 		kmem_free(xd, xd->alloc_size);
 #endif
-		stmf_abort(STMF_QUEUE_TASK_ABORT, task,
-		    STMF_ALLOC_FAILURE, NULL, STMF_IC_RX_SCSI_DATA);
-		return (STMF_FAILURE);
+		cmn_err(CE_WARN,   "%s  task=%p discard response data because dbuf failure",__func__,task); 
+		ret = STMF_FAILURE;
+		goto out;
 	}
 	dbuf->db_lu_private = xd;
 	dbuf->db_relative_offset = task->task_nbytes_transferred;
@@ -2581,33 +2613,44 @@ stmf_ic_rx_scsi_data(stmf_ic_scsi_data_msg_t *msg, void *sess)
 		dbuf->db_flags |= DB_SEND_STATUS_GOOD;
 	
 	(void) stmf_xfer_data(task, dbuf, 0);
-	return (STMF_SUCCESS);
+
+out:
+	if(itask != NULL)
+	 	itask->itask_flags &= ~ITASK_BEING_PPPT;
+	return (ret);
+
 }
 
 /* FIXME: Miranda: I'm leaving from here. */
 stmf_status_t
 stmf_ic_rx_scsi_data_req(stmf_ic_scsi_data_req_msg_t *msg)
 {
-	scsi_task_t *task;
-	stmf_i_scsi_task_t *itask;
+	scsi_task_t *task = NULL;
+	stmf_i_scsi_task_t *itask = NULL;
 	stmf_lu_t *lu;
+	stmf_data_buf_t *dbuf;
 	int idiscard =0 ;
+	stmf_status_t ret = STMF_SUCCESS; 
 
 	if (msg->icsq_task_msgid & MSG_ID_TM_BIT) {
 		return (STMF_SUCCESS);
 	}
 
-	task = find_task_from_msgid(msg->icsq_lun_id, msg->icsq_task_msgid);
+	task = stmf_find_and_flag_msgid(msg->icsq_lun_id, msg->icsq_task_msgid,
+		msg->icsq_proxy_seq_no, ITASK_CONFLIC_STAT, ITASK_BEING_PPPT);
+	
 	if (task == NULL) {
 		/* 
 		 * If we can't find the task, don't do anything.
 		 * Just let the task to timeout in peer's pppt.
 		 */
-		cmn_err(CE_WARN,   "%s  task not found msgid=%ld ",__func__, (long)msg->icsq_task_msgid); 
+		cmn_err(CE_WARN, "%s task not found, msgid = %ld, seqno = %d",
+			__func__, (long)msg->icsq_task_msgid, msg->icsq_proxy_seq_no); 
 		return (STMF_FAILURE);
 	}
 
 	itask = (stmf_i_scsi_task_t *)task->task_stmf_private;
+	itask->itask_proxy_seq_no++;
 	mutex_enter(&itask->itask_transition_mutex);
 	if(itask->itask_transition_state == ITASK_TRANSITION_WAIT)
 	{
@@ -2621,7 +2664,8 @@ stmf_ic_rx_scsi_data_req(stmf_ic_scsi_data_req_msg_t *msg)
 	mutex_exit(&itask->itask_transition_mutex);
 	if(idiscard==1){
 		cmn_err(CE_WARN,   "%s  task=%p discard response data",__func__,task); 
-		return STMF_SUCCESS;
+		ret = STMF_SUCCESS;
+		goto out;
 	}	
 	
 	if ((itask->itask_flags & ITASK_DEFAULT_HANDLING) == 0)
@@ -2630,12 +2674,15 @@ stmf_ic_rx_scsi_data_req(stmf_ic_scsi_data_req_msg_t *msg)
 		lu = dlun0;
 	}
 
-	if (!lu->lu_dbuf_xfer)
-		return (STMF_FAILURE);
-
+	if (!lu->lu_dbuf_xfer){
+		ret = STMF_FAILURE;
+		goto out;
+	}
 	lu->lu_dbuf_xfer(task, msg->icsq_offset, msg->icsq_len);
-
-	return (STMF_SUCCESS);
+out:	
+	if(itask != NULL)
+	 	itask->itask_flags &= ~ITASK_BEING_PPPT;
+	return (ret);
 }
 
 stmf_status_t
@@ -2692,10 +2739,12 @@ stmf_proxy_scsi_cmd(scsi_task_t *task, stmf_data_buf_t *dbuf,
 	}
 	if (dbuf) {
 		ic_cmd_msg = ic_scsi_cmd_msg_alloc(itask->itask_proxy_msg_id,
+			itask->itask_proxy_seq_no,
 		    task, dbuf->db_relative_offset, dbuf->db_data_size,
 		    dbuf->db_sglist[0].seg_addr, itask->itask_proxy_msg_id);
 	} else {
 		ic_cmd_msg = ic_scsi_cmd_msg_alloc(itask->itask_proxy_msg_id,
+			itask->itask_proxy_seq_no,
 		    task, 0, 0, NULL, itask->itask_proxy_msg_id);
 	}
 
@@ -2729,6 +2778,7 @@ stmf_proxy_scsi_data_res(scsi_task_t *task, stmf_data_buf_t *dbuf)
 	//stmf_ic_msgid_t msgid = stmf_proxy_msg_id++;
 	stmf_status_t ret = STMF_FAILURE;
 	msg = ic_scsi_data_res_msg_alloc(itask->itask_proxy_msg_id,
+		itask->itask_proxy_seq_no,
 		dbuf->db_sglist[0].seg_addr, dbuf->db_relative_offset,
 		dbuf->db_data_size, itask->itask_proxy_msg_id);
 	if (!msg)
@@ -6250,6 +6300,7 @@ stmf_task_alloc(struct stmf_local_port *lport, stmf_scsi_session_t *ss,
 	itask->itask_read_xfer = itask->itask_write_xfer = 0;
 	itask->itask_audit_index = 0;
 	itask->itask_proxy_msg_id = ext_id;
+	itask->itask_proxy_seq_no = 0;
 	itask->itask_transition_state = ITASK_TRANSITION_NORMAL;
 	/* mantis-2532 */
 	mutex_init(&itask->itask_transition_mutex, NULL, MUTEX_DRIVER, NULL);
@@ -6442,6 +6493,23 @@ get_scsi_cmd_code(scsi_task_t *task)
     return cmd;
 }
 
+void stmf_print_task_audit(stmf_i_scsi_task_t *itask)
+{
+	stmf_task_audit_rec_t *ar;
+	int index, i;
+	
+	mutex_enter(&itask->itask_audit_mutex);
+	index = itask->itask_audit_index & (ITASK_TASK_AUDIT_DEPTH - 1); 
+	for(i=0; i < index; i++)
+	{
+		ar = &itask->itask_audit_records[i];
+		cmn_err(CE_WARN, "%s task = %p audit[%d]: flags=0x%x event=%d cmdiof=0x%x ta_itask_flags=0x%x", __func__, 
+			(void *)itask->itask_task, i, itask->itask_flags, ar->ta_event, ar->ta_cmd_or_iof, ar->ta_itask_flags);
+	}
+	
+	mutex_exit(&itask->itask_audit_mutex);
+}
+
 void
 stmf_do_ilu_timeouts(stmf_i_lu_t *ilu)
 {
@@ -6486,7 +6554,11 @@ stmf_do_ilu_timeouts(stmf_i_lu_t *ilu)
 		{
 			cmn_err(CE_NOTE, "%s (task=%p itask_flags=%x) to abort, starttime = %ld, curtime = %ld, to = %d",
 				__func__, task, itask->itask_flags, itask->itask_start_time, l, to);
-	    	stmf_abort(STMF_QUEUE_TASK_ABORT, task,
+			if (itask->itask_flags & ITASK_BEING_PPPT){
+				stmf_print_task_audit(itask);
+				itask->itask_flags &= ~ITASK_BEING_PPPT;
+			}
+			stmf_abort(STMF_QUEUE_TASK_ABORT, task,
 	        	STMF_TIMEOUT, NULL, STMF_DO_ILU_TIMEOUTS);
 		}
 		
@@ -7014,6 +7086,9 @@ stmf_redo_queue_new_task(scsi_task_t *task,stmf_data_buf_t *dbuf)
 		new &= ~ITASK_IN_TRANSITION;
 	} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
 
+	itask->itask_proxy_msg_id = 0;
+	itask->itask_proxy_seq_no = 0;
+	
 	stmf_itl_task_start(itask);
 
 	itask->itask_worker_next = NULL;
@@ -7285,6 +7360,7 @@ void stmf_queue_sendstatus_to_task(scsi_task_t *task){
 	do {
 		new = old = itask->itask_flags;
 		if (old & ITASK_BEING_ABORTED) {
+			itask->itask_flags &= ~ITASK_BEING_PPPT;
 			mutex_exit(&w->worker_lock);
 			return;
 		}
@@ -7322,6 +7398,7 @@ void stmf_queue_sendstatus_to_task(scsi_task_t *task){
 		}
 		
 	}
+	itask->itask_flags &= ~ITASK_BEING_PPPT;
 	mutex_exit(&w->worker_lock);
 	
 }
@@ -7523,9 +7600,8 @@ stmf_queue_task_for_abort(scsi_task_t *task, stmf_status_t s, uint32_t abort_typ
 	stmf_task_audit(itask, TE_TASK_ABORT, CMD_OR_IOF_NA, NULL);
 	do {
 		old = new = itask->itask_flags;
-		if ((old & ITASK_BEING_ABORTED) ||
-		    ((old & (ITASK_KNOWN_TO_TGT_PORT |
-		    ITASK_KNOWN_TO_LU)) == 0)) {
+		if ((old & (ITASK_BEING_ABORTED | ITASK_CHECKER_PROCESS | ITASK_BEING_PPPT)) ||
+		    ((old & (ITASK_KNOWN_TO_TGT_PORT | ITASK_KNOWN_TO_LU)) == 0)) {
 		    mutex_exit(&w->worker_lock);
 			return;
 		}
@@ -7533,8 +7609,13 @@ stmf_queue_task_for_abort(scsi_task_t *task, stmf_status_t s, uint32_t abort_typ
 	} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
 
 	cur_time = ddi_get_lbolt();
-	cmn_err(CE_WARN, "%s: task = %p, abort_type = %d, itask_flags = 0x%x, cdb0 = %02x, iotime = %ld curtime = %ld", 
+	if (abort_type > FCT_RESET_FLAG_ABORT_CALLED) {
+		cmn_err(CE_WARN, "%s: task = %p, abort_type = %d, itask_flags = 0x%x, cdb0 = %02x, iotime = %ld curtime = %ld", 
 			__func__, (void *)task, abort_type, itask->itask_flags, task->task_cdb[0], itask->itask_start_time, (long)cur_time);
+	} else {
+		stmf_trace("abort", "%s: task = %p, abort_type = %d, itask_flags = 0x%x, cdb0 = %02x, iotime = %ld curtime = %ld", 
+			__func__, (void *)task, abort_type, itask->itask_flags, task->task_cdb[0], itask->itask_start_time, (long)cur_time);
+	}
 	STMF_TASK_KSTAT_UPDATE_ABORT(&stmf_state, abort_type); 
 
 	task->task_completion_status = s;
@@ -9600,6 +9681,7 @@ stmf_proxy_task_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 	ic_xfer_done_msg = ic_scsi_data_xfer_done_msg_alloc(
 	    itask->itask_proxy_msg_id,
 	    task->task_session->ss_session_id,
+	    itask->itask_proxy_seq_no,
 	    STMF_SUCCESS, itask->itask_proxy_msg_id);
 
 	if (!free_it) {
@@ -11594,7 +11676,7 @@ void stmf_transition_redo_worker(void *arg)
 	    		itask = itask->itask_lu_next) {
 				task = itask->itask_task;
 				cmn_err(CE_WARN, "%s: task %p flags=%x",__func__,task,itask->itask_flags);	
-				if (itask->itask_flags & (ITASK_IN_FREE_LIST | ITASK_BEING_ABORTED | ITASK_HOLD_INSTOP)) {
+				if (itask->itask_flags & (ITASK_IN_FREE_LIST | ITASK_BEING_ABORTED | ITASK_HOLD_INSTOP | ITASK_BEING_PPPT)) {
 					continue;
 				}
 

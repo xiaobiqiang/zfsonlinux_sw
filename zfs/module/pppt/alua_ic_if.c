@@ -2217,6 +2217,7 @@ stmf_ic_reg_dereg_lun_msg_alloc(
 stmf_ic_msg_t *
 stmf_ic_scsi_cmd_msg_alloc(
     stmf_ic_msgid_t task_msgid,
+    uint32_t task_proxy_seq_no,
     scsi_task_t *task,
     uint32_t db_relative_offset,
     uint32_t immed_data_len,
@@ -2234,6 +2235,7 @@ stmf_ic_scsi_cmd_msg_alloc(
 	icm->icm_msg = (void *)icsc;
 
 	icsc->icsc_task_msgid = task_msgid;
+	icsc->icsc_proxy_seq_no = task_proxy_seq_no;
 	icsc->icsc_ini_devid = scsi_devid_desc_dup(ini_devid);
 	icsc->icsc_tgt_devid = scsi_devid_desc_dup(tgt_devid);
 	icsc->icsc_rport = remote_port_dup(rport);
@@ -2271,6 +2273,7 @@ stmf_ic_msg_t *
 stmf_ic_scsi_data_msg_alloc(
     stmf_ic_msgid_t task_msgid,
     uint64_t session_id,
+    uint32_t task_proxy_seq_no,
     uint8_t *lun_id,
     uint64_t data_len,
     uint8_t *data,
@@ -2288,6 +2291,7 @@ stmf_ic_scsi_data_msg_alloc(
 #endif
 	icsd->icsd_task_msgid = task_msgid;
 	icsd->icsd_session_id = session_id;
+	icsd->icsd_proxy_seq_no = task_proxy_seq_no;
 	bcopy(lun_id, icsd->icsd_lun_id, sizeof (icsd->icsd_lun_id));
 	icsd->icsd_data_len = data_len;
 	icsd->icsd_data = data;
@@ -2300,6 +2304,7 @@ stmf_ic_msg_t *
 stmf_ic_scsi_data_xfer_done_msg_alloc(
     stmf_ic_msgid_t task_msgid,
     uint64_t session_id,
+    uint32_t task_proxy_seq_no,
     stmf_status_t status,
     stmf_ic_msgid_t msgid)
 {
@@ -2313,6 +2318,7 @@ stmf_ic_scsi_data_xfer_done_msg_alloc(
 
 	icsx->icsx_task_msgid = task_msgid;
 	icsx->icsx_session_id = session_id;
+	icsx->icsx_proxy_seq_no = task_proxy_seq_no;
 	icsx->icsx_status = status;
 
 	return (icm);
@@ -2322,6 +2328,7 @@ stmf_ic_msg_t *
 stmf_ic_scsi_data_req_msg_alloc(
     stmf_ic_msgid_t task_msgid,
     uint64_t session_id,
+    uint32_t task_proxy_seq_no,
     uint8_t *lun_id,
     uint32_t offset,
     uint32_t len,
@@ -2337,6 +2344,7 @@ stmf_ic_scsi_data_req_msg_alloc(
 
 	icsq->icsq_task_msgid = task_msgid;
 	icsq->icsq_session_id = session_id;
+	icsq->icsq_proxy_seq_no = task_proxy_seq_no;
 	bcopy(lun_id, icsq->icsq_lun_id, sizeof(icsq->icsq_lun_id));
 	icsq->icsq_offset = offset;
 	icsq->icsq_len = len;
@@ -2347,6 +2355,7 @@ stmf_ic_scsi_data_req_msg_alloc(
 stmf_ic_msg_t *
 stmf_ic_scsi_data_res_msg_alloc(
     stmf_ic_msgid_t task_msgid,
+    uint32_t task_proxy_seq_no,
     uint8_t *data,
     uint32_t offset,
     uint32_t len,
@@ -2361,6 +2370,7 @@ stmf_ic_scsi_data_res_msg_alloc(
 	icm->icm_msg = icds;
 
 	icds->icds_task_msgid = task_msgid;
+	icds->icds_proxy_seq_no = task_proxy_seq_no;
 	icds->icds_data_offset = offset;
 	icds->icds_data_len = len;
 	icds->icds_data = data;
@@ -2372,6 +2382,7 @@ stmf_ic_msg_t *
 stmf_ic_scsi_status_msg_alloc(
     stmf_ic_msgid_t task_msgid,
     uint64_t session_id,
+    uint32_t task_proxy_seq_no,
     uint8_t *lun_id,
     uint8_t response,
     uint8_t status,
@@ -2391,6 +2402,7 @@ stmf_ic_scsi_status_msg_alloc(
 
 	icss->icss_task_msgid = task_msgid;
 	icss->icss_session_id = session_id;
+	icss->icss_proxy_seq_no = task_proxy_seq_no;
 	bcopy(lun_id, icss->icss_lun_id, sizeof (icss->icss_lun_id));
 	icss->icss_response = response;
 	icss->icss_status = status;

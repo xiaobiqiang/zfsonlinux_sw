@@ -147,6 +147,7 @@ typedef struct {
  */
 typedef struct {
 	stmf_ic_msgid_t		icsc_task_msgid;
+	uint32_t			icsc_proxy_seq_no;
 	scsi_devid_desc_t	*icsc_ini_devid;
 	scsi_devid_desc_t	*icsc_tgt_devid;
 	stmf_remote_port_t	*icsc_rport;
@@ -173,6 +174,7 @@ typedef struct {
 typedef struct {
 	stmf_ic_msgid_t icsd_task_msgid;	/* matches msgid of cmd */
 	uint64_t icsd_session_id;
+	uint32_t icsd_proxy_seq_no;
 	uint8_t icsd_lun_id[16];
 	uint64_t icsd_data_len;
 	uint8_t final_xfer;
@@ -185,12 +187,14 @@ typedef struct {
 typedef struct {
 	stmf_ic_msgid_t icsx_task_msgid;	/* matches msgid of cmd */
 	uint64_t icsx_session_id;
+	uint32_t icsx_proxy_seq_no;
 	stmf_status_t	icsx_status;
 } stmf_ic_scsi_data_xfer_done_msg_t;
 
 typedef struct {
 	stmf_ic_msgid_t	icsq_task_msgid;
 	uint64_t	icsq_session_id;
+	uint32_t	icsq_proxy_seq_no;
 	uint8_t		icsq_lun_id[16];
 	uint32_t	icsq_offset;
 	uint32_t	icsq_len;
@@ -199,6 +203,7 @@ typedef struct {
 typedef struct {
 	stmf_ic_msgid_t	icds_task_msgid;
 	uint64_t 	icds_session_id;
+	uint32_t	icds_proxy_seq_no;	
 	uint32_t	icds_data_offset;
 	uint32_t	icds_data_len;
 	uint8_t		*icds_data;
@@ -211,6 +216,7 @@ typedef struct {
 typedef struct {
 	stmf_ic_msgid_t icss_task_msgid;	/* matches msgid of cmd */
 	uint64_t icss_session_id;
+	uint32_t icss_proxy_seq_no;
 	uint8_t icss_lun_id[16];
 	uint8_t icss_response;		/* was command processed? */
 	uint8_t icss_status;
@@ -383,6 +389,7 @@ stmf_ic_msg_t *stmf_ic_dereg_lun_msg_alloc(
 typedef
 stmf_ic_msg_t *(*stmf_ic_scsi_cmd_msg_alloc_func_t)(
     stmf_ic_msgid_t 	task_msgid,
+    uint32_t 		task_proxy_seq_no,
     scsi_task_t 	*scsi_task,
     uint32_t		db_relative_offset,
     uint32_t		immed_data_len,
@@ -391,6 +398,7 @@ stmf_ic_msg_t *(*stmf_ic_scsi_cmd_msg_alloc_func_t)(
 
 stmf_ic_msg_t *stmf_ic_scsi_cmd_msg_alloc(
     stmf_ic_msgid_t 	task_msgid,
+    uint32_t 		task_proxy_seq_no,
     scsi_task_t 	*scsi_task,
     uint32_t		db_relative_offset,
     uint32_t		immed_data_len,
@@ -402,6 +410,7 @@ typedef
 stmf_ic_msg_t *(*stmf_ic_scsi_data_msg_alloc_func_t)(
     stmf_ic_msgid_t 	task_msgid,
     uint64_t		session_id,
+    uint32_t 		task_proxy_seq_no,
     uint8_t		*lun_id,
     uint64_t		data_len,
     uint8_t		*data,
@@ -410,6 +419,7 @@ stmf_ic_msg_t *(*stmf_ic_scsi_data_msg_alloc_func_t)(
 stmf_ic_msg_t *stmf_ic_scsi_data_msg_alloc(
     stmf_ic_msgid_t 	task_msgid,
     uint64_t		session_id,
+    uint32_t 		task_proxy_seq_no,
     uint8_t		*lun_id,
     uint64_t		data_len,
     uint8_t		*data,
@@ -421,12 +431,14 @@ typedef
 stmf_ic_msg_t *(*stmf_ic_scsi_data_xfer_done_msg_alloc_func_t)(
     stmf_ic_msgid_t 	task_msgid,
     uint64_t		session_id,
+    uint32_t 		task_proxy_seq_no,
     stmf_status_t	status,
     stmf_ic_msgid_t	msgid);
 
 stmf_ic_msg_t *stmf_ic_scsi_data_xfer_done_msg_alloc(
     stmf_ic_msgid_t 	task_msgid,
     uint64_t		session_id,
+    uint32_t 		task_proxy_seq_no,
     stmf_status_t	status,
     stmf_ic_msgid_t	msgid);
 
@@ -434,6 +446,7 @@ typedef
 stmf_ic_msg_t *(*stmf_ic_scsi_data_req_msg_alloc_func_t)(
     stmf_ic_msgid_t	task_msgid,
     uint64_t		session_id,
+    uint32_t 		task_proxy_seq_no,
     uint8_t		*lun_id,
     uint32_t		offset,
     uint32_t		len,
@@ -442,6 +455,7 @@ stmf_ic_msg_t *(*stmf_ic_scsi_data_req_msg_alloc_func_t)(
 stmf_ic_msg_t *stmf_ic_scsi_data_req_msg_alloc(
     stmf_ic_msgid_t	task_msgid,
     uint64_t		session_id,
+    uint32_t 		task_proxy_seq_no,
     uint8_t		*lun_id,
     uint32_t		offset,
     uint32_t		len,
@@ -450,14 +464,16 @@ stmf_ic_msg_t *stmf_ic_scsi_data_req_msg_alloc(
 typedef
 stmf_ic_msg_t *(*stmf_ic_scsi_data_res_msg_alloc_func_t)(
     stmf_ic_msgid_t	task_msgid,
-    uint8_t		*data,
+    uint32_t		task_proxy_seq_no,
+    uint8_t			*data,
     uint32_t		offset,
     uint32_t		len,
     stmf_ic_msgid_t	msgid);
 
 stmf_ic_msg_t *stmf_ic_scsi_data_res_msg_alloc(
     stmf_ic_msgid_t	task_msgid,
-    uint8_t		*data,
+    uint32_t 		task_proxy_seq_no,
+    uint8_t			*data,
     uint32_t		offset,
     uint32_t		len,
     stmf_ic_msgid_t	msgid);
@@ -465,7 +481,8 @@ stmf_ic_msg_t *stmf_ic_scsi_data_res_msg_alloc(
 /* Allocate a scsi status message */
 stmf_ic_msg_t *stmf_ic_scsi_status_msg_alloc(
     stmf_ic_msgid_t 	task_msgid,
-    uint64_t		session_id,
+    uint64_t	session_id,
+    uint32_t 	task_proxy_seq_no,
     uint8_t		*lun_id,
     uint8_t		response,		/* was command processed? */
     uint8_t		status,

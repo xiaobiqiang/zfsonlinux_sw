@@ -183,6 +183,7 @@ typedef struct {
 	int			pt_refcnt;
 	kmutex_t		pt_mutex;
 	stmf_ic_msgid_t		pt_task_id;
+	uint32_t		pt_task_proxy_seq_no;
 	uint8_t			pt_lun_id[16];
 	pppt_task_state_t	pt_state;
 	scsi_task_t		*pt_stmf_task;

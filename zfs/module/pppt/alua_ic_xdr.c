@@ -343,6 +343,9 @@ xdr_ic_scsi_cmd_msg(XDR *xdrs, void *msg)
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsc_task_msgid))
 		return (B_FALSE);
 
+	if (!xdr_u_int(xdrs, &m->icsc_proxy_seq_no))
+		return (B_FALSE);
+
 	if (xdrs->x_op == XDR_ENCODE) {
 		if (!xdr_ic_scsi_devid_marshal(xdrs, m->icsc_ini_devid))
 			return (B_FALSE);
@@ -417,6 +420,7 @@ xdr_ic_scsi_data_msg(XDR *xdrs, void *msg)
 		
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_task_msgid) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_session_id) ||
+	    !xdr_u_int(xdrs, &m->icsd_proxy_seq_no) ||
 	    !xdr_opaque(xdrs, (char *)m->icsd_lun_id, 16) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsd_data_len) ||
 	    !xdr_u_char(xdrs, (uchar_t *)&m->final_xfer))
@@ -447,6 +451,7 @@ xdr_ic_scsi_data_req_msg(XDR *xdrs, void *msg)
 
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsq_task_msgid) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsq_session_id) ||
+	    !xdr_u_int(xdrs, &m->icsq_proxy_seq_no) ||
 	    !xdr_opaque(xdrs, (char *)m->icsq_lun_id, 16) ||
 	    !xdr_u_int(xdrs, &m->icsq_offset) ||
 	    !xdr_u_int(xdrs, &m->icsq_len))
@@ -465,6 +470,7 @@ xdr_ic_scsi_data_res_msg(XDR *xdrs, void *msg)
 
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icds_task_msgid) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icds_session_id) ||
+	    !xdr_u_int(xdrs, &m->icds_proxy_seq_no) ||
 	    !xdr_u_int(xdrs, &m->icds_data_offset) ||
 	    !xdr_u_int(xdrs, &m->icds_data_len))
 		return (B_FALSE);
@@ -491,6 +497,7 @@ xdr_ic_scsi_data_xfer_done_msg(XDR *xdrs, void *msg)
 
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsx_task_msgid) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsx_session_id) ||
+	    !xdr_u_int(xdrs, &m->icsx_proxy_seq_no) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icsx_status))
 	    	return (B_FALSE);
 	
@@ -508,6 +515,7 @@ xdr_ic_scsi_status_msg(XDR *xdrs, void *msg)
 
 	if (!xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icss_task_msgid) ||
 	    !xdr_u_longlong_t(xdrs, (u_longlong_t *)&m->icss_session_id) ||
+	    !xdr_u_int(xdrs, &m->icss_proxy_seq_no) ||
 	    !xdr_opaque(xdrs, (char *)m->icss_lun_id, 16) ||
 	    !xdr_u_char(xdrs, &m->icss_response) ||
 	    !xdr_u_char(xdrs, &m->icss_status) ||
