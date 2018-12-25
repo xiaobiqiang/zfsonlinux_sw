@@ -191,7 +191,7 @@ void raidz_aggre_map_close(spa_t *spa);
 
 void raidz_aggre_elem_init(spa_t *spa, aggre_io_t *aio, 
 	aggre_map_elem_t **pelem);
-
+void raidz_aggre_check(spa_t *spa);
 
 void start_space_reclaim_thread(spa_t *spa);
 void stop_space_reclaim_thread(spa_t *spa);

@@ -98,6 +98,9 @@ int zio_buf_debug_limit = 0;
 #endif
 
 static inline void __zio_execute(zio_t *zio);
+extern void raidz_aggre_zio_create(zio_t *pio, zio_t *zio);
+extern void raidz_aggre_zio_done(zio_t *zio);
+
 
 void
 zio_init(void)

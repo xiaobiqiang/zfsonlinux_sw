@@ -7317,7 +7317,6 @@ spa_sync(spa_t *spa, uint64_t txg)
 	dmu_tx_t *tx;
 	int error;
 	int c;
-	bplist_t *free_bpl = &spa->spa_free_bplist[txg & TXG_MASK];
 	clist_t *aggre_map_list = &spa->spa_aggre_maplist[txg & TXG_MASK];
 	uint64_t process_pos = 0;
 	boolean_t pos_valid = B_FALSE;

@@ -35,6 +35,7 @@
 #include <sys/avl.h>
 #include <sys/fs/zfs.h>
 #include <sys/zio_impl.h>
+#include <sys/raidz_aggre.h>
 
 #ifdef	__cplusplus
 extern "C" {

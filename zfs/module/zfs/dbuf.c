@@ -3101,12 +3101,11 @@ dbuf_sync_list(list_t *list, int level, dmu_tx_t *tx)
 	if (spa->spa_raidz_aggre == B_TRUE)
 		ntogether = spa->spa_raidz_aggre_num;
 
-	if (ntogether > 0) {
-		dr = list_head(list);
-		dn = DB_DNODE(dr->dr_dbuf);
-		if(dn->dn_type != DMU_OT_PLAIN_FILE_CONTENTS && dn->dn_type != DMU_OT_ZVOL)
-			ntogether = 0;
-	}
+	dr = list_head(list);
+	dn = DB_DNODE(dr->dr_dbuf);
+	
+	if (dn->dn_type != DMU_OT_PLAIN_FILE_CONTENTS && dn->dn_type != DMU_OT_ZVOL)
+		ntogether = 0;
 
 	num = 0;
 	for (i = 0; i < TG_MAX_DISK_NUM + 1; i++)

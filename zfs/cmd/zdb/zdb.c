@@ -1664,7 +1664,7 @@ dump_raidz_aggre_map(objset_t *os, uint64_t object, void *data, size_t size)
 		BP_ZERO(&bp);
 		memcpy(&bp.blk_dva[0], &elem->dva, sizeof (dva_t));
 		BP_SET_BIRTH(&bp, elem->txg, elem->txg);
-		sprintf_blkptr(blkbuf, &bp);
+		snprintf_blkptr(blkbuf, sizeof(blkbuf), &bp);
 		printf("\t\t      bp: %s\n", blkbuf);
 		printf("\t\t      blkid: ");
 

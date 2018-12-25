@@ -131,6 +131,9 @@ typedef struct raidz_map {
 } raidz_map_t;
 #endif
 
+int vdev_raidz_aggre = 1;
+int debug_raidz_rechecksum = 1;
+
 #define	VDEV_RAIDZ_P		0
 #define	VDEV_RAIDZ_Q		1
 #define	VDEV_RAIDZ_R		2
@@ -234,7 +237,12 @@ static const uint8_t vdev_raidz_log2[256] = {
 	0x74, 0xd6, 0xf4, 0xea, 0xa8, 0x50, 0x58, 0xaf,
 };
 
-static void vdev_raidz_generate_parity(raidz_map_t *rm);
+void vdev_raidz_generate_parity(raidz_map_t *rm);
+extern void raidz_aggre_raidz_done(zio_t *zio, raidz_map_t ** rmp_old);
+extern raidz_map_t *raidz_aggre_map_alloc(zio_t *zio, uint64_t unit_shift, uint64_t dcols,
+    uint64_t nparity);
+extern void raidz_aggre_generate_parity(zio_t *zio, raidz_map_t *rm_old);
+
 
 /*
  * Multiply a given number by 2 raised to the given power.
@@ -439,7 +447,7 @@ vdev_raidz_cksum_report(zio_t *zio, zio_cksum_report_t *zcr, void *arg)
 	ASSERT3P(buf - (caddr_t)rm->rm_datacopy, ==, size);
 }
 
-static const zio_vsd_ops_t vdev_raidz_vsd_ops = {
+const zio_vsd_ops_t vdev_raidz_vsd_ops = {
 	vdev_raidz_map_free_vsd,
 	vdev_raidz_cksum_report
 };
@@ -741,7 +749,7 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
  * Generate RAID parity in the first virtual columns according to the number of
  * parity columns available.
  */
-static void
+void
 vdev_raidz_generate_parity(raidz_map_t *rm)
 {
 	switch (rm->rm_firstdatacol) {
@@ -1565,8 +1573,6 @@ vdev_raidz_child_done(zio_t *zio)
 	rc->rc_skipped = 0;
 }
 
-int vdev_raidz_aggre = 1;
-
 /*
  * Start an IO operation on a RAIDZ VDev
  *
@@ -1941,8 +1947,6 @@ done:
 	return (ret);
 }
 
-int debug_raidz_rechecksum = 1;
-
 /*
  * Complete an IO operation on a RAIDZ VDev
  *
@@ -2310,8 +2314,10 @@ vdev_ops_t vdev_raidz_ops = {
 	B_FALSE			/* not a leaf vdev */
 };
 
+#if defined(_KERNEL) && defined(HAVE_SPL)
 module_param(vdev_raidz_aggre, int, 0644);
 MODULE_PARM_DESC(vdev_raidz_aggre, "vdev raidz aggre control switch");
 
 module_param(debug_raidz_rechecksum, int, 0644);
-MODULE_PARM_DESC(debug_raidz_rechecksum, "debug raidz rechecksum control switch");
+MODULE_PARM_DESC(debug_raidz_rechecksum, "raidz rechecksum debug switch");
+#endif

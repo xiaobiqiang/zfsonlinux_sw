@@ -43,6 +43,7 @@
 #include <sys/zfeature.h>
 #include <zfeature_common.h>
 #include <sys/kstat.h>
+#include <sys/clist.h>
 
 #ifdef	__cplusplus
 extern "C" {

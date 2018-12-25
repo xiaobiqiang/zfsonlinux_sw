@@ -291,9 +291,13 @@ zio_checksum_error(zio_t *zio, zio_bad_cksum_t *info)
 		unsigned char *d;
 		int ce_type = CE_WARN;
 		zio_checksum_errs++;
-		if ((zio->io_bookmark.zb_type == DMU_OT_PLAIN_FILE_CONTENTS ||
-			    zio->io_bookmark.zb_type == DMU_OT_ZVOL) && zio->io_bookmark.zb_level == 0 && zio_checksum_errs >= zio_checksum_errs_count)
+		if ((zio->io_prop.zp_type == DMU_OT_PLAIN_FILE_CONTENTS ||
+			    zio->io_prop.zp_type == DMU_OT_ZVOL) && 
+			    zio->io_bookmark.zb_level == 0 && 
+			    zio_checksum_errs >= zio_checksum_errs_count) {
 			ce_type = CE_WARN;
+		}
+
 		d = (unsigned char*)zio->io_data;
 		cmn_err(CE_WARN,"%s [%d] .obj=%lx.%lx blkid=%lx data=[%x %x %x %x] zio=%p iodata=%p",
 			__func__, zio_checksum_errs, (long)zio->io_bookmark.zb_objset, (long)zio->io_bookmark.zb_object,
