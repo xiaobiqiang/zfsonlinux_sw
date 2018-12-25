@@ -40,6 +40,7 @@
 #include <sys/blkptr.h>
 #include <sys/zfeature.h>
 #include <sys/metaslab_impl.h>
+#include <sys/raidz_aggre.h>
 
 /*
  * ==========================================================================
@@ -55,6 +56,8 @@ const char *zio_type_name[ZIO_TYPES] = {
  * I/O kmem caches
  * ==========================================================================
  */
+int zio_checksum_panic = 0;
+
 kmem_cache_t *zio_cache;
 kmem_cache_t *zio_link_cache;
 kmem_cache_t *zio_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
@@ -592,6 +595,7 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 		zio_add_child(pio, zio);
 	}
 
+	raidz_aggre_zio_create(pio, zio);
 	taskq_init_ent(&zio->io_tqent);
 
 	return (zio);
@@ -862,6 +866,8 @@ zio_write_override(zio_t *zio, blkptr_t *bp, int copies, boolean_t nopwrite)
 void
 zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 {
+	if (BP_IS_TOGTHER(bp))
+		return;
 
 	/*
 	 * The check for EMBEDDED is a performance optimization.  We
@@ -1189,6 +1195,8 @@ zio_write_bp_init(zio_t *zio)
 	if (zio->io_bp_override) {
 		ASSERT(bp->blk_birth != zio->io_txg);
 		ASSERT(BP_GET_DEDUP(zio->io_bp_override) == 0);
+		if (BP_IS_TOGTHER(bp))
+			cmn_err(CE_WARN, "bp %p not known", bp);
 
 		*bp = *zio->io_bp_override;
 		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
@@ -1345,6 +1353,11 @@ zio_write_bp_init(zio_t *zio)
 		}
 	}
 
+	if (zio->io_aggre_io && zio->io_aggre_root) {
+		BP_SET_BLKID(zio->io_bp, zio->io_aggre_order);
+		BP_SET_TOGTHER(zio->io_bp);
+	}
+	
 	return (ZIO_PIPELINE_CONTINUE);
 }
 
@@ -1641,7 +1654,7 @@ zio_reexecute(zio_t *pio)
 		pio->io_child_error[c] = 0;
 
 	if (IO_IS_ALLOCATING(pio))
-		BP_ZERO(pio->io_bp);
+		BP_ZERO_TG(pio->io_bp);
 
 	/*
 	 * As we reexecute pio's children, new children could be created.
@@ -2589,6 +2602,7 @@ zio_dva_allocate(zio_t *zio)
 	zio_prop_t *prop_p = &zio->io_prop;
 	int error;
 	int flags = 0;
+	int aggre_num = 1;
 
 	if (zio->io_gang_leader == NULL) {
 		ASSERT(zio->io_child_type > ZIO_CHILD_GANG);
@@ -2627,8 +2641,27 @@ zio_dva_allocate(zio_t *zio)
 		mc = spa->spa_normal_class;
 	}
 
+	if (zio->io_aggre_io) {
+		mutex_enter(&zio->io_aggre_io->ai_lock);
+						
+		if (zio->io_aggre_io->ai_dvaalloc_stat == TGDVA_ALLOC_SUCC) {
+			memcpy(&bp->blk_dva[0], &zio->io_aggre_io->ai_dva[0], sizeof(dva_t));
+			BP_SET_BIRTH(bp, zio->io_txg, zio->io_txg);
+			BP_SET_APPMETA(bp, prop_p->zp_app_meta);
+			mutex_exit(&zio->io_aggre_io->ai_lock);
+			return (ZIO_PIPELINE_CONTINUE);
+		} else if (zio->io_aggre_io->ai_dvaalloc_stat == TGDVA_ALLOC_FAIL) {
+			zio->io_error = zio->io_aggre_io->ai_ioerror;
+			mutex_exit(&zio->io_aggre_io->ai_lock);
+			return (ZIO_PIPELINE_CONTINUE);
+		}
+		aggre_num = zio->io_spa->spa_raidz_aggre_num;
+		ASSERT(aggre_num > 1);
+		ASSERT(zio->io_aggre_io->ai_dvaalloc_stat == TGDVA_ALLOC_WAITSTART);
+	}
+
 space_alloc:    
-	error = metaslab_alloc(spa, mc, zio->io_size, bp,
+	error = metaslab_alloc(spa, mc, zio->io_size * aggre_num, bp,
 	    zio->io_prop.zp_copies, zio->io_txg, NULL, flags);
 
 	if (error) {
@@ -2650,11 +2683,33 @@ space_alloc:
 		spa_dbgmsg(spa, "%s: metaslab allocation failure: zio %p, "
 		    "size %llu, error %d", spa_name(spa), zio, zio->io_size,
 		    error);
-		if (error == ENOSPC && zio->io_size > SPA_MINBLOCKSIZE && mc != spa->spa_low_class)
+		if (error == ENOSPC && zio->io_size > SPA_MINBLOCKSIZE && mc != spa->spa_low_class && aggre_num == 1)
 			return (zio_write_gang_block(zio));
 		zio->io_error = error;
 	}
+	BP_SET_APPMETA(bp, prop_p->zp_app_meta);
 	BP_SET_APPLOW(bp, prop_p->zp_app_low);
+
+	if (zio->io_aggre_io) {
+		if (!error) {
+			/*
+			if (DVA_GET_OFFSET(&bp->blk_dva[0]) % (2048*dcols)) {
+				cmn_err(CE_WARN,"%s the tgdva is not divided", __func__);
+				metaslab_free_dva(spa, &bp->blk_dva[0], zio->io_txg, B_TRUE);
+				goto space_alloc;
+			}*/
+			zio->io_aggre_io->ai_dvaalloc_stat = TGDVA_ALLOC_SUCC;
+			/*DVA_SET_ASIZE(&bp->blk_dva[0], zio->io_size);*/
+			memcpy(&zio->io_aggre_io->ai_dva[0], &bp->blk_dva[0], sizeof(dva_t));
+			memcpy(&zio->io_aggre_io->ai_map.tgm_dva ,&bp->blk_dva[0], sizeof(dva_t));
+		} else {
+			zio->io_error = error;
+			zio->io_aggre_io->ai_ioerror = error;
+			zio->io_aggre_io->ai_dvaalloc_stat = TGDVA_ALLOC_FAIL;
+			cmn_err(CE_WARN,"%s not mutex_exit zio io_error= %d zio=%p", __func__, error, zio);
+		}
+		mutex_exit(&zio->io_aggre_io->ai_lock);
+	}
 
 	return (ZIO_PIPELINE_CONTINUE);
 }
@@ -3113,6 +3168,9 @@ zio_checksum_verify(zio_t *zio)
 	}
 
 	if ((error = zio_checksum_error(zio, &info)) != 0) {
+		cmn_err(CE_WARN,"%s checksum error obj=%lx.%lx blkid=%lx",
+			__func__, (long)zio->io_bookmark.zb_objset, (long)zio->io_bookmark.zb_object,
+			(long)zio->io_bookmark.zb_blkid);
 		zio->io_error = error;
 		if (error == ECKSUM &&
 		    !(zio->io_flags & ZIO_FLAG_SPECULATIVE)) {
@@ -3121,6 +3179,9 @@ zio_checksum_verify(zio_t *zio)
 			    zio->io_size, NULL, &info);
 		}
 	}
+
+	if(zio_checksum_panic && zio->io_type == ZIO_TYPE_WRITE)
+		cmn_err(CE_PANIC,"%s force panic", __func__);
 
 	return (ZIO_PIPELINE_CONTINUE);
 }
@@ -3244,8 +3305,8 @@ zio_done(zio_t *zio)
 			ASSERT(zio->io_children[c][w] == 0);
 
 	if (zio->io_bp != NULL && !BP_IS_EMBEDDED(zio->io_bp)) {
-		ASSERT(zio->io_bp->blk_pad[0] == 0);
-		ASSERT(zio->io_bp->blk_pad[1] == 0);
+		/* ASSERT(zio->io_bp->blk_pad[0] == 0); */
+		/* ASSERT(zio->io_bp->blk_pad[1] == 0); */
 		ASSERT(bcmp(zio->io_bp, &zio->io_bp_copy,
 		    sizeof (blkptr_t)) == 0 ||
 		    (zio->io_bp == zio_unique_parent(zio)->io_bp));
@@ -3383,8 +3444,19 @@ zio_done(zio_t *zio)
 
 	if ((zio->io_error || zio->io_reexecute) &&
 	    IO_IS_ALLOCATING(zio) && zio->io_gang_leader == zio &&
-	    !(zio->io_flags & (ZIO_FLAG_IO_REWRITE | ZIO_FLAG_NOPWRITE)))
-		zio_dva_unallocate(zio, zio->io_gang_tree, zio->io_bp);
+	    !(zio->io_flags & (ZIO_FLAG_IO_REWRITE | ZIO_FLAG_NOPWRITE))) {
+		if (BP_IS_TOGTHER(zio->io_bp)) {
+			cmn_err(CE_WARN, "%s failed tg zio:%p is to be reececuted alone",
+				__func__, zio);
+			raidz_aggre_zio_done(zio);
+			zio->io_aggre_io = NULL;
+			zio->io_aggre_root = B_FALSE;
+			zio->io_bp->blk_pad[0] = 0;
+			zio->io_bp->blk_pad[1] = 0;
+		} else {
+			zio_dva_unallocate(zio, zio->io_gang_tree, zio->io_bp);
+		}	
+	}
 
 	zio_gang_tree_free(&zio->io_gang_tree);
 
@@ -3485,6 +3557,17 @@ zio_done(zio_t *zio)
 		metaslab_fastwrite_unmark(zio->io_spa, zio->io_bp);
 	}
 
+	if (zio->io_bp != NULL && zio->io_aggre_io != NULL && zio->io_aggre_root) {
+		if (zio->io_type == ZIO_TYPE_WRITE && BP_IS_TOGTHER(zio->io_bp) 
+			 && zio->io_aggre_io->ai_syncdone == 0) {
+			mutex_enter(&zio->io_aggre_io->ai_synclock);
+			while (!zio->io_aggre_io->ai_syncdone){
+				cv_timedwait(&zio->io_aggre_io->ai_synccv, &zio->io_aggre_io->ai_synclock, ddi_get_lbolt64() + 10);
+			}
+			mutex_exit(&zio->io_aggre_io->ai_synclock);
+		}
+	}
+	
 	/*
 	 * It is the responsibility of the done callback to ensure that this
 	 * particular zio is no longer discoverable for adoption, and as
@@ -3504,6 +3587,7 @@ zio_done(zio_t *zio)
 		zio_notify_parent(pio, zio, ZIO_WAIT_DONE);
 	}
 
+	raidz_aggre_zio_done(zio);
 	if (zio->io_waiter != NULL) {
 		mutex_enter(&zio->io_lock);
 		zio->io_executor = NULL;

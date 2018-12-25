@@ -31,6 +31,7 @@
 #include <sys/zio_checksum.h>
 #include <sys/fs/zfs.h>
 #include <sys/fm/fs/zfs.h>
+#include <sys/raidz_aggre.h>
 
 /*
  * Virtual device vector for RAID-Z.
@@ -99,6 +100,8 @@
  * or in concert to recover missing data columns.
  */
 
+/* include in raidz_aggre.h */
+#if 0
 typedef struct raidz_col {
 	uint64_t rc_devidx;		/* child device index for I/O */
 	uint64_t rc_offset;		/* device offset */
@@ -126,6 +129,7 @@ typedef struct raidz_map {
 	uint8_t	rm_ecksuminjected;	/* checksum error was injected */
 	raidz_col_t rm_col[1];		/* Flexible array of I/O columns */
 } raidz_map_t;
+#endif
 
 #define	VDEV_RAIDZ_P		0
 #define	VDEV_RAIDZ_Q		1
@@ -266,8 +270,11 @@ vdev_raidz_map_free(raidz_map_t *rm)
 	}
 
 	size = 0;
-	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++)
+	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
 		size += rm->rm_col[c].rc_size;
+		if (rm->rm_aggre_col && rm->rm_aggre_col != c)
+        	zio_buf_free(rm->rm_col[c].rc_data, rm->rm_col[c].rc_size);
+	}
 
 	if (rm->rm_datacopy != NULL)
 		zio_buf_free(rm->rm_datacopy, size);
@@ -386,6 +393,7 @@ vdev_raidz_cksum_report(zio_t *zio, zio_cksum_report_t *zcr, void *arg)
 
 	raidz_map_t *rm = zio->io_vsd;
 	size_t size;
+	size_t totcpy;
 
 	/* set up the report and bump the refcount  */
 	zcr->zcr_cbdata = rm;
@@ -412,8 +420,11 @@ vdev_raidz_cksum_report(zio_t *zio, zio_cksum_report_t *zcr, void *arg)
 	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++)
 		size += rm->rm_col[c].rc_size;
 
+	size = size > SPA_MAXBLOCKSIZE ? SPA_MAXBLOCKSIZE : size;
+
 	buf = rm->rm_datacopy = zio_buf_alloc(size);
 
+	totcpy = 0;
 	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
 		raidz_col_t *col = &rm->rm_col[c];
 
@@ -421,6 +432,9 @@ vdev_raidz_cksum_report(zio_t *zio, zio_cksum_report_t *zcr, void *arg)
 		col->rc_data = buf;
 
 		buf += col->rc_size;
+		totcpy += col->rc_size;
+		if (totcpy >= size)
+			break;
 	}
 	ASSERT3P(buf - (caddr_t)rm->rm_datacopy, ==, size);
 }
@@ -499,6 +513,7 @@ vdev_raidz_map_alloc(zio_t *zio, uint64_t unit_shift, uint64_t dcols,
 	rm->rm_reports = 0;
 	rm->rm_freed = 0;
 	rm->rm_ecksuminjected = 0;
+	rm->rm_aggre_col = 0;
 
 	asize = 0;
 
@@ -1550,6 +1565,8 @@ vdev_raidz_child_done(zio_t *zio)
 	rc->rc_skipped = 0;
 }
 
+int vdev_raidz_aggre = 1;
+
 /*
  * Start an IO operation on a RAIDZ VDev
  *
@@ -1577,13 +1594,26 @@ vdev_raidz_io_start(zio_t *zio)
 	raidz_col_t *rc;
 	int c, i;
 
-	rm = vdev_raidz_map_alloc(zio, tvd->vdev_ashift, vd->vdev_children,
-	    vd->vdev_nparity);
-
+    if (((BP_IS_TOGTHER(zio->io_bp) && zio->io_type == ZIO_TYPE_READ) 
+		|| (zio->io_aggre_io && zio->io_type == ZIO_TYPE_WRITE)) && vdev_raidz_aggre) {
+		rm = raidz_aggre_map_alloc(zio, tvd->vdev_ashift, vd->vdev_children,
+    	    vd->vdev_nparity);
+    } else {
+    	rm = vdev_raidz_map_alloc(zio, tvd->vdev_ashift, vd->vdev_children,
+    	    vd->vdev_nparity);
+    }
+	
 	ASSERT3U(rm->rm_asize, ==, vdev_psize_to_asize(vd, zio->io_size));
 
 	if (zio->io_type == ZIO_TYPE_WRITE) {
-		vdev_raidz_generate_parity(rm);
+		if (zio->io_aggre_io && vdev_raidz_aggre) {
+			if (BP_GET_BLKID(zio->io_bp) == 0) {
+				raidz_aggre_generate_parity(zio, rm);
+				zio->io_aggre_io->ai_syncdone = 1;
+			}	
+        } else {
+        	vdev_raidz_generate_parity(rm);
+        }
 
 		for (c = 0; c < rm->rm_cols; c++) {
 			rc = &rm->rm_col[c];
@@ -1911,6 +1941,8 @@ done:
 	return (ret);
 }
 
+int debug_raidz_rechecksum = 1;
+
 /*
  * Complete an IO operation on a RAIDZ VDev
  *
@@ -1985,9 +2017,14 @@ vdev_raidz_io_done(zio_t *zio)
 		 * if we intend to reallocate.
 		 */
 		/* XXPOLICY */
-		if (total_errors > rm->rm_firstdatacol)
+		if (BP_IS_TOGTHER(zio->io_bp) && total_errors > 0) {
+			atomic_add_32(&zio->io_aggre_io->ai_wtoterr, total_errors);
+			if (zio->io_aggre_io->ai_wtoterr > zio->io_vd->vdev_nparity)
+				zio->io_error = vdev_raidz_worst_error(rm);
+		} else if (total_errors > rm->rm_firstdatacol) {
 			zio->io_error = vdev_raidz_worst_error(rm);
-
+		}
+		
 		return;
 	}
 
@@ -2020,15 +2057,20 @@ vdev_raidz_io_done(zio_t *zio)
 				 * so we can write it out to the failed device
 				 * later.
 				 */
-				if (parity_errors + parity_untried <
-				    rm->rm_firstdatacol ||
-				    (zio->io_flags & ZIO_FLAG_RESILVER)) {
+				if ((parity_errors + parity_untried < rm->rm_firstdatacol || zio->io_flags & ZIO_FLAG_RESILVER)
+					&& (!BP_IS_TOGTHER(zio->io_bp) || (BP_IS_TOGTHER(zio->io_bp) && (rm->rm_cols == zio->io_vd->vdev_children)))) {
 					n = raidz_parity_verify(zio, rm);
 					unexpected_errors += n;
 					ASSERT(parity_errors + n <=
-					    rm->rm_firstdatacol);
+						rm->rm_firstdatacol);
+				} else if ((zio->io_flags & ZIO_FLAG_RESILVER) && (BP_IS_TOGTHER(zio->io_bp))) {
+					if (BP_GET_BLKID(zio->io_bp) == 0) {
+						goto redo;
+					}
 				}
 				goto done;
+			} else {
+				cmn_err(CE_WARN,"%s %p raidz_checksum_verify failed ", __func__ , zio);
 			}
 		} else {
 			/*
@@ -2073,8 +2115,10 @@ vdev_raidz_io_done(zio_t *zio)
 				 * parity when resilvering so we can write it
 				 * out to failed devices later.
 				 */
-				if (parity_errors < rm->rm_firstdatacol - n ||
-				    (zio->io_flags & ZIO_FLAG_RESILVER)) {
+				if ((parity_errors < rm->rm_firstdatacol - n ||
+				    (zio->io_flags & ZIO_FLAG_RESILVER)) &&
+				    (!BP_IS_TOGTHER(zio->io_bp) || (BP_IS_TOGTHER(zio->io_bp) && (rm->rm_cols == zio->io_vd->vdev_children)))
+					) {
 					n = raidz_parity_verify(zio, rm);
 					unexpected_errors += n;
 					ASSERT(parity_errors + n <=
@@ -2093,9 +2137,14 @@ vdev_raidz_io_done(zio_t *zio)
 	 * we've already been through once before, all children will be marked
 	 * as tried so we'll proceed to combinatorial reconstruction.
 	 */
+redo:
 	unexpected_errors = 1;
 	rm->rm_missingdata = 0;
 	rm->rm_missingparity = 0;
+
+	if (BP_IS_TOGTHER(zio->io_bp)) {
+    	raidz_aggre_raidz_done(zio, &rm);
+	}
 
 	for (c = 0; c < rm->rm_cols; c++) {
 		if (rm->rm_col[c].rc_tried)
@@ -2177,6 +2226,46 @@ done:
 
 	if (zio->io_error == 0 && spa_writeable(zio->io_spa) &&
 	    (unexpected_errors || (zio->io_flags & ZIO_FLAG_RESILVER))) {
+
+		n = raidz_checksum_verify(zio);
+		if (n != 0) {
+			cmn_err(CE_WARN, "%s zio:%p blkpad=%lx io_flags=%x Raidz re-checksum Fail:%d",
+				__func__, zio, (long)zio->io_bp->blk_pad[1], zio->io_flags, n);
+
+			zio->io_error = ECKSUM;
+
+			if (!(zio->io_flags & ZIO_FLAG_SPECULATIVE)) {
+				for (c = 0; c < rm->rm_cols; c++) {
+					rc = &rm->rm_col[c];
+					if (rc->rc_error == 0) {
+						zio_bad_cksum_t zbc;
+						zbc.zbc_has_cksum = 0;
+						zbc.zbc_injected = rm->rm_ecksuminjected;
+
+						if(debug_raidz_rechecksum) {
+							cmn_err(CE_WARN,
+							    "Raidz report child checksum:%lld,%llx,%llx",
+							    (u_longlong_t)rc->rc_devidx,
+							    (u_longlong_t)rc->rc_offset,
+							    (u_longlong_t)rc->rc_size);
+						}
+						
+						zfs_ereport_start_checksum(
+						    zio->io_spa,
+						    vd->vdev_child[rc->rc_devidx],
+						    zio, rc->rc_offset, rc->rc_size,
+						    (void *)(uintptr_t)c, &zbc);
+					}
+				}
+			}
+			
+			return;
+		}
+
+		if (BP_IS_TOGTHER(zio->io_bp) && rm->rm_cols == 1) {
+			return;
+		}
+		
 		/*
 		 * Use the good data we have in hand to repair damaged children.
 		 */
@@ -2220,3 +2309,9 @@ vdev_ops_t vdev_raidz_ops = {
 	VDEV_TYPE_RAIDZ,	/* name of this vdev type */
 	B_FALSE			/* not a leaf vdev */
 };
+
+module_param(vdev_raidz_aggre, int, 0644);
+MODULE_PARM_DESC(vdev_raidz_aggre, "vdev raidz aggre control switch");
+
+module_param(debug_raidz_rechecksum, int, 0644);
+MODULE_PARM_DESC(debug_raidz_rechecksum, "debug raidz rechecksum control switch");

@@ -70,6 +70,7 @@
 #include <sys/zfeature.h>
 #include <sys/dsl_destroy.h>
 #include <sys/zvol.h>
+#include <sys/raidz_aggre.h>
 
 #ifdef	_KERNEL
 #include <sys/bootprops.h>
@@ -1330,6 +1331,7 @@ spa_unload(spa_t *spa)
 	}
 
 	bpobj_close(&spa->spa_deferred_bpobj);
+	raidz_aggre_map_close(spa);
 
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 
@@ -2929,6 +2931,12 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	if (error != 0)
 		return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
 
+	if (spa_dir_prop(spa, DMU_POOL_RAIDZ_AGGRE_MAP, &spa->spa_map_obj) != 0)
+		return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
+	error = raidz_aggre_map_open(spa);
+	if (error != 0)
+		return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
+
 	if (!mosconfig) {
 		uint64_t hostid;
 		nvlist_t *policy = NULL, *nvconfig;
@@ -4481,6 +4489,9 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	if (version >= SPA_VERSION_ZPOOL_HISTORY)
 		spa_history_create_obj(spa, tx);
 
+	raidz_aggre_check(spa);
+	raidz_aggre_create_map_obj(spa, tx, spa->spa_raidz_aggre_num);
+
 	/*
 	 * Set pool properties.
 	 */
@@ -4515,9 +4526,11 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	 */
 	spa_evicting_os_wait(spa);
 	spa->spa_minref = refcount_count(&spa->spa_refcount);
+	raidz_aggre_map_open(spa);
 
 	mutex_exit(&spa_namespace_lock);
-
+	start_space_reclaim_thread(spa);
+	
 	return (0);
 }
 
@@ -4760,6 +4773,8 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 	 * We kick off an async task to handle this for us.
 	 */
 	spa_async_request(spa, SPA_ASYNC_AUTOEXPAND);
+	raidz_aggre_check(spa);
+	start_space_reclaim_thread(spa);
 
 	mutex_exit(&spa_namespace_lock);
 	spa_history_log_version(spa, "import");
@@ -4900,6 +4915,8 @@ spa_export_common(char *pool, int new_state, nvlist_t **oldconfig,
 	 */
 	spa_open_ref(spa, FTAG);
 	mutex_exit(&spa_namespace_lock);
+	stop_space_reclaim_thread(spa);
+	
 	spa_async_suspend(spa);
 	if (spa->spa_zvol_taskq) {
 		zvol_remove_minors(spa, spa_name(spa), B_TRUE);
@@ -4930,6 +4947,7 @@ spa_export_common(char *pool, int new_state, nvlist_t **oldconfig,
 	    new_state != POOL_STATE_UNINITIALIZED)) {
 		spa_async_resume(spa);
 		mutex_exit(&spa_namespace_lock);
+		start_space_reclaim_thread(spa);
 		return (SET_ERROR(EBUSY));
 	}
 
@@ -4944,6 +4962,7 @@ spa_export_common(char *pool, int new_state, nvlist_t **oldconfig,
 		    spa_has_active_shared_spare(spa)) {
 			spa_async_resume(spa);
 			mutex_exit(&spa_namespace_lock);
+			start_space_reclaim_thread(spa);
 			return (SET_ERROR(EXDEV));
 		}
 
@@ -7298,7 +7317,11 @@ spa_sync(spa_t *spa, uint64_t txg)
 	dmu_tx_t *tx;
 	int error;
 	int c;
-
+	bplist_t *free_bpl = &spa->spa_free_bplist[txg & TXG_MASK];
+	clist_t *aggre_map_list = &spa->spa_aggre_maplist[txg & TXG_MASK];
+	uint64_t process_pos = 0;
+	boolean_t pos_valid = B_FALSE;
+	
 	VERIFY(spa_writeable(spa));
 
 	/*
@@ -7392,6 +7415,14 @@ spa_sync(spa_t *spa, uint64_t txg)
 			ASSERT3U(pass, >, 1);
 			bplist_iterate(free_bpl, bpobj_enqueue_cb,
 			    &spa->spa_deferred_bpobj, tx);
+		}
+
+		clist_iterate(aggre_map_list, raidz_aggre_elem_enqueue_cb, 
+			spa->spa_aggre_map, tx);
+		pos_valid = get_and_clear_aggre_map_process_pos(spa, txg, &process_pos);
+		if (pos_valid) {
+			/* update map meta data */
+			update_aggre_map_process_pos(spa, process_pos, tx);
 		}
 
 		ddt_sync(spa, txg);

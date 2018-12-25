@@ -42,7 +42,6 @@ extern void zvol_rename_minors(spa_t *spa, const char *oldname,
     const char *newname, boolean_t async);
 
 #ifdef _KERNEL
-extern int zvol_create_minor(const char *name);
 extern int zvol_check_volsize(uint64_t volsize, uint64_t blocksize);
 extern int zvol_check_volblocksize(const char *name, uint64_t volblocksize);
 extern int zvol_get_stats(objset_t *os, nvlist_t *nv);

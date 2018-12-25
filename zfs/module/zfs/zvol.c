@@ -1835,32 +1835,6 @@ out:
 	return (SET_ERROR(error));
 }
 
-int
-zvol_create_minor(const char *name)
-{
-	return zvol_create_minor(name);
-/*
-	spa_t *spa;
-	int error;
-	char poolname[64] = {0};
-	char *delim;
-
-	delim = strchr(name, '/');
-	if (!delim)
-		return (EINVAL);
-	
-	strncpy(poolname, name, delim - name);
-
-	if ((error = spa_open(poolname, &spa, FTAG)) != 0)
-		return (error);
-
-	error = zvol_create_minors(spa, name, B_TRUE);
-	spa_close(spa, FTAG);
-	return (error);
-*/
-}
-EXPORT_SYMBOL(zvol_create_minor);
-
 /*
  * Rename a block device minor mode for the specified volume.
  */

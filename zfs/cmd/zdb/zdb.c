@@ -1609,6 +1609,80 @@ dump_gdtl_header(objset_t *os, uint64_t object, void *data, size_t size)
 	printf("\tlast_rewrite:%"PRIx64"\n", gdtl->last_rewrite);
 }
 
+static void
+dump_raidz_aggre_map(objset_t *os, uint64_t object, void *data, size_t size)
+{
+	dmu_buf_t *db;
+	aggre_map_hdr_t header;
+	aggre_map_elem_t *elem;
+ 	int err, j, blk_per_record;
+	uint64_t i, offset;
+	blkptr_t bp;
+	char blkbuf[BP_SPRINTF_LEN];
+
+	err = dmu_bonus_hold(os, object, FTAG, &db);
+	if (err) {
+		printf("%s bonus hold err=%d\n", __func__, err);
+		return;
+	}
+
+	memcpy(&header, db->db_data, sizeof(aggre_map_hdr_t));
+	dmu_buf_rele(db, FTAG);
+	db = NULL;
+	printf("\t map header:\n");
+	printf("\t\t aggre_num %d\n", header.aggre_num);
+	printf("\t\t record size %d\n", header.recsize);
+	printf("\t\t blksize 0x%x\n", header.blksize);
+	printf("\t\t total_count %llu\n", header.total_count);
+	printf("\t\t avail_count %llu\n", header.avail_count);
+	printf("\t\t process_index %llu\n", header.process_index);
+
+	blk_per_record = header.blksize / header.recsize;
+	printf("\t map elem:\n");
+
+	/* for debug, start print from (header.process_index - 10) */
+	i = (header.process_index > 10) ? (header.process_index - 10) : i;
+	
+	for (; i < header.total_count; i++) {
+		if (db && (i % blk_per_record == 0))
+			dmu_buf_rele(db, FTAG);
+
+		if (db == NULL || (i % blk_per_record == 0)) {
+			offset = i / blk_per_record * header.blksize;
+			err = dmu_buf_hold(os, object, offset, FTAG, &db, 0);
+			if (err) {
+				printf("\t\t %s buf hold err=%d i=%d blk_per_record=%d\n",
+					__func__, err, i, blk_per_record);
+				break;
+			}
+			
+			elem = (aggre_map_elem_t *)((char *)db->db_data + (i % blk_per_record) * header.recsize);
+		}
+		
+		printf("\t\t [%d] txg %llu timestamp %llu objsetid %llu objectid %llu\n",
+			i, elem->txg, elem->timestamp, elem->objsetid, elem->objectid);
+		BP_ZERO(&bp);
+		memcpy(&bp.blk_dva[0], &elem->dva, sizeof (dva_t));
+		BP_SET_BIRTH(&bp, elem->txg, elem->txg);
+		sprintf_blkptr(blkbuf, &bp);
+		printf("\t\t      bp: %s\n", blkbuf);
+		printf("\t\t      blkid: ");
+
+		for (j = 0; j < header.aggre_num; j++) {
+			printf("%llu ", elem->blkid[j]);
+		}
+
+		printf("\n");
+		elem = (aggre_map_elem_t *)((char *)elem + header.recsize);
+	}
+
+	if (db) {
+		dmu_buf_rele(db, FTAG);
+		db = NULL;
+	}
+}
+
+
 static avl_tree_t idx_tree;
 static avl_tree_t domain_tree;
 static boolean_t fuid_table_loaded;
@@ -1902,6 +1976,8 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES + 1] = {
 	dump_gdtl_header,	/* DMU_OT_GROUP_DTL_HEADER*/
 	dump_zap,		/* DMU_OT_GROUP_MAP*/
 	dump_zap,		/* DMU_OT_NAS_GROUP_MASTER_NODE*/
+	dump_raidz_aggre_map,		/* dmu raidz aggre map	*/
+	dump_none,		/* dmu raidz aggre map header */
 	dump_unknown,		/* Unknown type, must be last	*/
 };
 

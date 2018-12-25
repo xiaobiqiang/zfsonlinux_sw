@@ -182,6 +182,8 @@ int metaslab_lba_weighting_enabled = B_TRUE;
 int metaslab_bias_enabled = B_TRUE;
 
 static uint64_t metaslab_fragmentation(metaslab_t *);
+extern void raidz_aggre_metaslab_align(vdev_t *vd, uint64_t *start, uint64_t *size);
+
 
 /*
  * ==========================================================================
@@ -1253,6 +1255,8 @@ metaslab_init(metaslab_group_t *mg, uint64_t id, uint64_t object, uint64_t txg,
 	ms->ms_id = id;
 	ms->ms_start = id << vd->vdev_ms_shift;
 	ms->ms_size = 1ULL << vd->vdev_ms_shift;
+	/* TODO: */
+	raidz_aggre_metaslab_align(vd, &ms->ms_start, &ms->ms_size);
 
 	/*
 	 * We only open space map objects that already exist. All others
@@ -2177,6 +2181,19 @@ metaslab_group_alloc(metaslab_group_t *mg, uint64_t psize, uint64_t asize,
 		mutex_exit(&msp->ms_lock);
 	}
 
+	if (mg->mg_class == spa->spa_normal_class && spa->spa_raidz_aggre) {
+		uint64_t dcols = spa->spa_raidz_aggre_nparity + spa->spa_raidz_aggre_num;
+		uint64_t b = offset >> spa->spa_raidz_ashift;
+		uint64_t x = offset % (1 << spa->spa_raidz_ashift);
+		uint64_t f = b % dcols;
+
+		if (x != 0 || f != 0) {
+			cmn_err(CE_PANIC, "offset=%lx dcols=%lx b=%lx x=%lx f=%lx shift=%d %x", 
+				(long)offset, (long)dcols, (long)b, (long)x, (long)f, 
+				spa->spa_raidz_ashift, 1 << spa->spa_raidz_ashift);	
+		}
+	}
+	
 	if (range_tree_space(msp->ms_alloctree[txg & TXG_MASK]) == 0)
 		vdev_dirty(mg->mg_vd, VDD_METASLAB, msp, txg);
 
@@ -2210,7 +2227,7 @@ metaslab_alloc_dva(spa_t *spa, metaslab_class_t *mc, uint64_t psize,
 	/*
 	 * For testing, make some blocks above a certain size be gang blocks.
 	 */
-	if (psize >= metaslab_gang_bang && (ddi_get_lbolt() & 3) == 0)
+	if (!spa->spa_raidz_aggre && psize >= metaslab_gang_bang && (ddi_get_lbolt() & 3) == 0)
 		return (SET_ERROR(ENOSPC));
 
 	if (flags & METASLAB_FASTWRITE)
@@ -2334,7 +2351,16 @@ top:
 			all_zero = B_FALSE;
 
 		asize = vdev_psize_to_asize(vd, psize);
-		ASSERT(P2PHASE(asize, 1ULL << vd->vdev_ashift) == 0);
+		if (mc == spa->spa_normal_class && spa->spa_raidz_aggre) {
+			int alignsize;
+			alignsize = (spa->spa_raidz_aggre_num + spa->spa_raidz_aggre_nparity) << spa->spa_raidz_ashift;
+		
+			if (asize % alignsize) {
+				asize = psize + psize * spa->spa_raidz_aggre_nparity / spa->spa_raidz_aggre_num;	
+			}
+		}
+		
+		/* ASSERT(P2PHASE(asize, 1ULL << vd->vdev_ashift) == 0); */
 
 		offset = metaslab_group_alloc(mg, psize, asize, txg, distance,
 		    dva, d);
@@ -2547,6 +2573,7 @@ metaslab_alloc(spa_t *spa, metaslab_class_t *mc, uint64_t psize, blkptr_t *bp,
 	dva_t *dva = bp->blk_dva;
 	dva_t *hintdva = hintbp->blk_dva;
 	int d, error = 0;
+	int alignsize;
 
 	ASSERT(bp->blk_birth == 0);
 	ASSERT(BP_PHYSICAL_BIRTH(bp) == 0);
@@ -2558,6 +2585,17 @@ metaslab_alloc(spa_t *spa, metaslab_class_t *mc, uint64_t psize, blkptr_t *bp,
 		return (SET_ERROR(ENOSPC));
 	}
 
+	if (spa->spa_raidz_aggre && mc == spa->spa_normal_class) {
+		alignsize = spa->spa_raidz_aggre_num << spa->spa_raidz_ashift;
+		if (psize % alignsize) {
+			uint64_t allocsize;
+			VERIFY(psize >= 1);
+			allocsize = (((psize - 1) / alignsize) + 1) * alignsize;
+			/*cmn_err(CE_WARN, "%s size=%lx allocsize=%lx txg=%lx", __func__, (long)psize, (long)allocsize,(long )txg);*/
+			psize = allocsize;
+		}
+	}
+	
 	ASSERT(ndvas > 0 && ndvas <= spa_max_replication(spa));
 	ASSERT(BP_GET_NDVAS(bp) == 0);
 	ASSERT(hintbp == NULL || ndvas <= BP_GET_NDVAS(hintbp));

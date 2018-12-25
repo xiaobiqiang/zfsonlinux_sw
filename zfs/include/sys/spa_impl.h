@@ -308,6 +308,20 @@ struct spa {
 		int spa_active;
 		int spa_queued;
 	} spa_queue_stats[ZIO_PRIORITY_NUM_QUEUEABLE];
+
+	uint64_t	spa_map_obj;
+	aggre_map_t *spa_aggre_map;
+	boolean_t	spa_raidz_aggre;
+	uint32_t	spa_raidz_aggre_num;
+	uint32_t	spa_raidz_aggre_nparity;
+	uint32_t	spa_raidz_ashift;
+	clist_t 	spa_aggre_maplist[TXG_SIZE];
+	map_pos_t	spa_map_process_pos[TXG_SIZE];
+
+	taskq_t 	*spa_space_reclaim_tq;
+	int 		spa_space_reclaim_state;
+	kmutex_t	spa_space_reclaim_lock;
+	kcondvar_t	spa_space_reclaim_cv;	
 };
 
 extern char *spa_config_path;

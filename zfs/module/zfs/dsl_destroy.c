@@ -921,6 +921,11 @@ dsl_destroy_head(const char *name)
 	isenabled = spa_feature_is_enabled(spa, SPA_FEATURE_ASYNC_DESTROY);
 	spa_close(spa, FTAG);
 
+	mutex_enter(&spa->spa_space_reclaim_lock);
+	spa->spa_space_reclaim_state |= SPACE_RECLAIM_PAUSE;
+	cv_signal(&spa->spa_space_reclaim_cv);
+	mutex_exit(&spa->spa_space_reclaim_lock);
+
 	ddha.ddha_name = name;
 
 	if (!isenabled) {
@@ -953,8 +958,13 @@ dsl_destroy_head(const char *name)
 		}
 	}
 
-	return (dsl_sync_task(name, dsl_destroy_head_check,
-	    dsl_destroy_head_sync, &ddha, 0, ZFS_SPACE_CHECK_NONE));
+	error = dsl_sync_task(name, dsl_destroy_head_check,
+	    dsl_destroy_head_sync, &ddha, 0, ZFS_SPACE_CHECK_NONE);
+
+	mutex_enter(&spa->spa_space_reclaim_lock);
+	spa->spa_space_reclaim_state &= ~SPACE_RECLAIM_PAUSE;
+	mutex_exit(&spa->spa_space_reclaim_lock);
+	return (error);
 }
 
 /*

@@ -690,6 +690,8 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_IS_MIRRORSPARE	"is_mirrorspare"
 #define	ZPOOL_CONFIG_METADATA_DEV	"metadev"
 #define	ZPOOL_CONFIG_LOWDATA_DEV	"lowdev"
+#define	ZPOOL_CONFIG_ISAGGRE	"is_aggre"
+
 
 /*
  * The persistent vdev state is stored as separate values rather than a single

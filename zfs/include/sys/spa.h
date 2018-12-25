@@ -489,8 +489,24 @@ _NOTE(CONSTCOND) } while (0)
 	ZIO_SET_CHECKSUM(&(bp)->blk_cksum, 0, 0, 0, 0);	\
 }
 
+#define	BP_ZERO_TG(bp)				\
+{						\
+	(bp)->blk_dva[0].dva_word[0] = 0;	\
+	(bp)->blk_dva[0].dva_word[1] = 0;	\
+	(bp)->blk_dva[1].dva_word[0] = 0;	\
+	(bp)->blk_dva[1].dva_word[1] = 0;	\
+	(bp)->blk_dva[2].dva_word[0] = 0;	\
+	(bp)->blk_dva[2].dva_word[1] = 0;	\
+	(bp)->blk_prop = 0;			\
+	(bp)->blk_pad[0] = 0;			\
+	(bp)->blk_phys_birth = 0;		\
+	(bp)->blk_birth = 0;			\
+	(bp)->blk_fill = 0;			\
+	ZIO_SET_CHECKSUM(&(bp)->blk_cksum, 0, 0, 0, 0);	\
+}
+
 #define	BP_GET_APPMETA(bp)		BF64_GET((bp)->blk_pad[0], 0, 1)
-/*#define	BP_SET_APPMETA(bp, appmeta)		BF64_SET((bp)->blk_pad[0], 0, 1, appmeta)*/
+#define	BP_SET_APPMETA(bp, appmeta)		BF64_SET((bp)->blk_pad[0], 0, 1, appmeta)
 #define BP_IS_APPMETA(bp)               (!!BP_GET_APPMETA(bp))
 
 #define BP_GET_APPLOW(bp)		BF64_GET((bp)->blk_pad[0], 1, 1)
@@ -821,6 +837,7 @@ extern void spa_set_rootblkptr(spa_t *spa, const blkptr_t *bp);
 extern void spa_altroot(spa_t *, char *, size_t);
 extern int spa_sync_pass(spa_t *spa);
 extern char *spa_name(spa_t *spa);
+extern boolean_t spa_isaggre(spa_t *spa);
 extern uint64_t spa_guid(spa_t *spa);
 extern uint64_t spa_load_guid(spa_t *spa);
 extern uint64_t spa_last_synced_txg(spa_t *spa);

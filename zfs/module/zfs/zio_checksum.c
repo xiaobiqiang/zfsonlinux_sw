@@ -30,6 +30,9 @@
 #include <sys/zil.h>
 #include <zfs_fletcher.h>
 
+int zio_checksum_errs = 0;
+int	zio_checksum_errs_count = 100;
+
 /*
  * Checksum vectors.
  *
@@ -156,6 +159,12 @@ zio_checksum_compute(zio_t *zio, enum zio_checksum checksum,
 	uint64_t offset = zio->io_offset;
 	zio_checksum_info_t *ci = &zio_checksum_table[checksum];
 	zio_cksum_t cksum;
+	boolean_t ismark = B_FALSE;
+
+	if ((zio->io_prop.zp_type == DMU_OT_ZVOL || zio->io_prop.zp_type == DMU_OT_PLAIN_FILE_CONTENTS)
+		&& zio->io_bookmark.zb_level == 0) {
+		ismark = B_TRUE;
+	} 
 
 	ASSERT((uint_t)checksum < ZIO_CHECKSUM_FUNCTIONS);
 	ASSERT(ci->ci_func[0] != NULL);
@@ -179,9 +188,24 @@ zio_checksum_compute(zio_t *zio, enum zio_checksum checksum,
 		else
 			bp->blk_cksum = eck->zec_cksum;
 		eck->zec_magic = ZEC_MAGIC;
+
+		if (ismark) {
+			memcpy(&bp->blk_pad[0], data, sizeof(uint64_t));
+			BP_SET_CKSUMID(bp, checksum);
+		}
+		
 		ci->ci_func[0](data, size, &cksum);
 		eck->zec_cksum = cksum;
+		if (ismark) {
+			cmn_err(CE_WARN,"%s obj=%lx.%lx blkid=%lx checksumid=%x checksum is not saved ", __func__, (long)zio->io_bookmark.zb_objset,
+			 (long)zio->io_bookmark.zb_object, (long)zio->io_bookmark.zb_blkid ,checksum);
+		}
 	} else {
+		if (ismark) {
+			memcpy(&bp->blk_pad[0],data,sizeof(uint64_t));
+			BP_SET_CKSUMID(bp, checksum);
+		}
+
 		ci->ci_func[0](data, size, &bp->blk_cksum);
 	}
 }
@@ -261,8 +285,25 @@ zio_checksum_error(zio_t *zio, zio_bad_cksum_t *info)
 	info->zbc_injected = 0;
 	info->zbc_has_cksum = 1;
 
-	if (!ZIO_CHECKSUM_EQUAL(actual_cksum, expected_cksum))
+	if (!ZIO_CHECKSUM_EQUAL(actual_cksum, expected_cksum)) {
+		unsigned  long *p1 = (unsigned long *)actual_cksum.zc_word;
+		unsigned  long *p2 = (unsigned long *)expected_cksum.zc_word;
+		unsigned char *d;
+		int ce_type = CE_WARN;
+		zio_checksum_errs++;
+		if ((zio->io_bookmark.zb_type == DMU_OT_PLAIN_FILE_CONTENTS ||
+			    zio->io_bookmark.zb_type == DMU_OT_ZVOL) && zio->io_bookmark.zb_level == 0 && zio_checksum_errs >= zio_checksum_errs_count)
+			ce_type = CE_WARN;
+		d = (unsigned char*)zio->io_data;
+		cmn_err(CE_WARN,"%s [%d] .obj=%lx.%lx blkid=%lx data=[%x %x %x %x] zio=%p iodata=%p",
+			__func__, zio_checksum_errs, (long)zio->io_bookmark.zb_objset, (long)zio->io_bookmark.zb_object,
+			(long)zio->io_bookmark.zb_blkid, *d,*(d+1), *(d+2), *(d+3), zio, zio->io_data);
+		cmn_err(ce_type,"%s [%d] ..obj=%lx.%lx blkid=%lx [0x%016lx 0x%016lx 0x%016lx 0x%016lx] [0x%016lx 0x%016lx 0x%016lx 0x%016lx]",
+			__func__, zio_checksum_errs, (long)zio->io_bookmark.zb_objset, (long)zio->io_bookmark.zb_object,
+			(long)zio->io_bookmark.zb_blkid, *p1, *(p1+1), *(p1+2), *(p1+3), *p2, *(p2+1), *(p2+2), *(p2+3));
+		
 		return (SET_ERROR(ECKSUM));
+	}
 
 	if (zio_injection_enabled && !zio->io_error &&
 	    (error = zio_handle_fault_injection(zio, ECKSUM)) != 0) {
