@@ -132,7 +132,9 @@ const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	DMU_BSWAP_ZAP,		TRUE,	"group dtl"		},
 	{	DMU_BSWAP_ZAP,		TRUE,	"group dtl header"	},
 	{	DMU_BSWAP_ZAP,		TRUE,	"group map"		},
-	{	DMU_BSWAP_ZAP,		TRUE,	"group master node" }
+	{	DMU_BSWAP_ZAP,		TRUE,	"group master node" },
+	{	DMU_BSWAP_UINT8,	TRUE,	"raidz aggre map" },
+	{	DMU_BSWAP_UINT8,	TRUE,	"raidz aggre map header" }
 };
 
 const dmu_object_byteswap_info_t dmu_ot_byteswap[DMU_BSWAP_NUMFUNCS] = {
