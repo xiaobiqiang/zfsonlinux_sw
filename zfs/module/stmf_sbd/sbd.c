@@ -139,7 +139,6 @@ sbd_status_t sbd_find_and_lock_lu(uint8_t *guid, uint8_t *meta_name, uint8_t op,
     sbd_lu_t **ppsl);
 sbd_status_t sbd_find_and_lock_lu_ex(uint8_t *guid, uint8_t *meta_name, uint8_t op,
     sbd_lu_t **ppsl);
-boolean_t sbd_ifalllun_registered(void);
 
 /*
 extern int zfs_set_prop_nvlist(const char *, zprop_source_t,
@@ -247,139 +246,6 @@ get_file_attr(const char *path, struct kstat *stat)
 	return (rc == 0) ? 0 : -rc;
 }
 
-void sbd_onelineport_task(void *arg)
-{
-	stmf_state_change_info_t ssi;
-	/* int online_times = 0; */
-
-	ssi.st_rflags = STMF_RFLAG_USER_REQUEST;
-	ssi.st_additional_info = NULL;
-
-	cmn_err(CE_WARN,"%s in",__func__);
-	if(!sbd_notonline_port_initiation){
-		cmn_err(CE_WARN,"%s not need to online port ",__func__);
-		return;
-	}
-
-	/*
-	while(online_times < sbd_timeout_onlineport)
-	{
- 		if(sbd_ifalllun_registered())
- 		{
- 			cmn_err(CE_WARN,"%s to exec online local port",__func__);
-			stmf_online_localport();
-			break;
- 		}
-		else
-		{
-			delay(100);
-			online_times++;
-		}
-	}
-
-	if(online_times>=sbd_timeout_onlineport)
-	{
-		cmn_err(CE_WARN,"%s to exec online local port for timeout ",__func__);
-		stmf_online_localport();
-	}
-	*/
-	cmn_err(CE_WARN,"%s out",__func__);
-	
-}
-
-void sbd_onlineport_task_init(void)
-{
-	sbd_onlineport_taskq = taskq_create("STMF_ONLINEPORT_TASKQ", 1,
-	    minclsyspri, 1, 1, TASKQ_PREPOPULATE);
-	taskq_dispatch(sbd_onlineport_taskq,
-		sbd_onelineport_task, NULL, TQ_SLEEP);
-}
-
-/*
-static int
-sbd_rdc_modload(void)
-{
-	int error;
-
-	if (drvrdc_mod == NULL && ((drvrdc_mod =
-	    ddi_modopen("drv/rdc", KRTLD_MODE_FIRST, &error)) == NULL)) {
-		cmn_err(CE_WARN, "Unable to load rdc");
-		return (-1);
-	}
-
-	if (rdc_register_role_notify == NULL && ((rdc_register_role_notify =
-	    (rdc_register_role_notify_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_register_role_notify",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_register_role_notify");
-		return (-1);
-	}
-
-	if (rdc_register_mode_notify == NULL && ((rdc_register_mode_notify =
-	    (rdc_register_mode_notify_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_register_mode_notify",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_register_mode_notify");
-		return (-1);
-	}
-
-	if (rdc_register_stop_notify == NULL && ((rdc_register_stop_notify =
-	    (rdc_register_stop_notify_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_register_stop_notify",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_register_stop_notify");
-		return (-1);
-	}
-
-	if (rdc_reg_set_remote_sync_flag == NULL && ((rdc_reg_set_remote_sync_flag =
-	    (rdc_reg_set_remote_sync_flag_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_register_set_remote_sync_flag",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_register_set_remote_sync_flag");
-		return (-1);
-	}
-
-	if (rdc_reg_transition_to_standby == NULL && ((rdc_reg_transition_to_standby =
-	    (rdc_reg_transition_to_standby_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_register_set_transition_standby",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_register_set_transition_standby");
-		return (-1);
-	}
-	
-	if (rdc_request_role == NULL && ((rdc_request_role =
-	    (rdc_request_role_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_request_role",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_request_role");
-		return (-1);
-	}
-
-	if (rdc_set_sync_flag == NULL && ((rdc_set_sync_flag =
-	    (rdc_set_sync_flag_func_t)
-	    ddi_modsym(drvrdc_mod, "rdc_set_sync_flag",
-	    &error)) == NULL)) {
-		cmn_err(CE_WARN,
-		    "Unable to find symbol - rdc_set_sync_flag");
-		return (-1);
-	}
-
-	rdc_register_role_notify(sbd_rdc_role_notify_cb);
-	rdc_register_mode_notify(sbd_rdc_mode_notify_cb);
-	rdc_register_stop_notify(sbd_rdc_stop_notify_cb);
-	rdc_reg_set_remote_sync_flag(sbd_set_remote_sync_flag);
-	rdc_reg_transition_to_standby(sbd_transition_to_trans_standby_lu);
-	
-	return (0);
-}
-*/
-
 static int __init
 stmf_sbd_init(void)
 {
@@ -408,7 +274,6 @@ stmf_sbd_init(void)
 	}
 	mutex_init(&sbd_lock, NULL, MUTEX_DRIVER, NULL);
 	rw_init(&sbd_global_prop_lock, NULL, RW_DRIVER, NULL);
-	sbd_onlineport_task_init();
 	sbd_product_no = 1;
 	sbd_serial_no = sbd_serial_no + sbd_product_no * 1000;
 	/* sbd_rdc_modload(); */
@@ -894,7 +759,7 @@ sbd_status_t
 sbd_find_and_lock_lu_ex(uint8_t *guid, uint8_t *meta_name, uint8_t op,
     sbd_lu_t **ppsl)
 {
-	int try = 5;
+	int try = 20;
 	sbd_status_t ret;
 
 	do {
@@ -902,7 +767,7 @@ sbd_find_and_lock_lu_ex(uint8_t *guid, uint8_t *meta_name, uint8_t op,
 		if (ret != SBD_BUSY)
 			break;
 
-		delay(1);
+		delay(10);
 		try--;
 	} while (try > 0);
 
@@ -1979,24 +1844,6 @@ int sbd_zfs_ioc_dataset_totalnum(void)
 	return (totalnums);
 }
 
-boolean_t
-sbd_ifalllun_registered()
-{
-	if (syspool_lu_count <= 0)
-		syspool_lu_count = sbd_zfs_ioc_dataset_totalnum();
-	
-	if (syspool_lu_count <= 0)
-		return B_FALSE;
-	
-	cmn_err(CE_WARN, "%s sbd_lu_count=%d total dataset =%d",
-		__func__, sbd_lu_count, syspool_lu_count);
-
-	if (sbd_lu_count == syspool_lu_count)
-		return B_TRUE;
-	else
-		return B_FALSE;
-}
-
 void sbd_list_object(void)
 {
 	zfs_cmd_t zc = { 0 };
@@ -2500,14 +2347,7 @@ sbd_populate_and_register_lu(sbd_lu_t *sl, uint32_t *err_ret, boolean_t proxy_re
 	} else {
 		lu->lu_alias = sl->sl_alias;
 	}
-	if (sl->sl_access_state != SBD_LU_ACTIVE) {
-		/* call set access state */
-		ret = stmf_set_lu_access(lu, STMF_LU_STANDBY, proxy_reg);
-		if (ret != STMF_SUCCESS) {
-			*err_ret = SBD_RET_ACCESS_STATE_FAILED;
-			return (EIO);
-		}
-	}
+
 	/* set proxy_reg_cb_arg to meta filename */
 	if (sl->sl_meta_filename) {
 		len = strlen(sl->sl_meta_filename) + 1;
@@ -2586,6 +2426,15 @@ sbd_populate_and_register_lu(sbd_lu_t *sl, uint32_t *err_ret, boolean_t proxy_re
 	lu->lu_ctl = sbd_ctl;
 	lu->lu_info = sbd_info;
 	sl->sl_state = STMF_STATE_OFFLINE;
+
+	if (sl->sl_access_state != SBD_LU_ACTIVE) {
+		/* call set access state */
+		ret = stmf_set_lu_access(lu, STMF_LU_STANDBY, proxy_reg);
+		if (ret != STMF_SUCCESS) {
+			*err_ret = SBD_RET_ACCESS_STATE_FAILED;
+			return (EIO);
+		}
+	}
 
 	if ((ret = stmf_register_lu(lu, proxy_reg)) != STMF_SUCCESS) {
 		stmf_trace(0, "Failed to register with framework, ret=%llx",
@@ -3069,6 +2918,7 @@ sbd_create_register_lu(sbd_create_and_reg_lu_t *slu, int struct_sz,
 				__func__, sl->sl_name, sl->sl_access_state);
 		} else {
 			*err_ret = SBD_RET_FILE_ALREADY_REGISTERED;
+			sl->sl_trans_op = SL_OP_NONE;
 			bcopy(sl->sl_device_id + 4, slu->slu_guid, 16);
 			kmem_free(namebuf, sz);
 			cmn_err(CE_WARN, "%s: already registered data_filename = %s",
@@ -3681,6 +3531,8 @@ sbd_create_standby_lu(sbd_create_standby_lu_t *slu, uint32_t *err_ret, uint32_t 
 	ret = sbd_populate_and_register_lu(sl, err_ret, B_TRUE);
 	if (ret) {
 		goto scs_err_out;
+	} else {
+		sl->sl_flags |= SL_UNMAP_ENABLED;
 	}
 	
 	do {
@@ -3813,7 +3665,7 @@ sbd_import_lu(sbd_import_lu_t *ilu, int struct_sz, uint32_t *err_ret,
 			*err_ret = SBD_RET_FILE_ALREADY_REGISTERED;
 			bcopy(sl->sl_device_id + 4, ilu->ilu_ret_guid, 16);
 			sl->sl_trans_op = SL_OP_NONE;
-			cmn_err(CE_PANIC, "%s: lu already active, ilu_meta_fname= %s",
+			cmn_err(CE_WARN, "%s: lu already active, ilu_meta_fname= %s",
 				__func__, ilu->ilu_meta_fname);
 			return (EALREADY);
 		}
@@ -4088,6 +3940,8 @@ sim_sli_loaded:
 			goto sim_err_out;
 		}
 		atomic_add_32(&sbd_lu_count, 1);
+	} else {
+		sl->sl_flags |= SL_UNMAP_ENABLED;
 	}
 
 	bcopy(sl->sl_device_id + 4, ilu->ilu_ret_guid, 16);

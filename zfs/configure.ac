@@ -148,6 +148,7 @@ AC_CONFIG_FILES([
 	cmd/vdev_id/Makefile
 	cmd/arcstat/Makefile
 	cmd/dbufstat/Makefile
+    	cmd/iostat/Makefile
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
 	cmd/clusterd/Makefile

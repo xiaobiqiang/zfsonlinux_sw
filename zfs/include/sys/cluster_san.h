@@ -511,7 +511,7 @@ int cluster_san_host_sync_send_msg(cluster_san_hostinfo_t *cshi,
 	uint64_t msg_id, uint8_t msg_type, int timeout);
 void cluster_san_host_sync_msg_ret(cluster_san_hostinfo_t *cshi,
 	uint64_t msg_id, uint8_t msg_type, uint64_t ret);
-void cluster_san_host_asyn_send_clean(uint32_t type, void *private);
+void cluster_san_host_asyn_send_clean(uint32_t type, void *private, int wait);
 void cluster_san_remote_cmd_return(char *buf, uint64_t len);
 
 void cluster_update_spa_config(nvlist_t *nvl, boolean_t sync_remote);

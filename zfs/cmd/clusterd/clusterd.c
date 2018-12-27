@@ -3701,6 +3701,59 @@ cluster_write_stamp(zpool_stamp_t *stamp, nvlist_t *pool_root, char *path)
         return (error);
 }
 
+static libzfs_handle_t *g_zfs;
+static pthread_mutex_t g_zfs_lock;
+static nvlist_t *g_zfs_search_pools = NULL;
+static int g_zfs_search_pools_ref = 0;
+
+static void
+g_zfs_init(void)
+{
+	g_zfs = libzfs_init();
+	assert(g_zfs != NULL);
+	pthread_mutex_init(&g_zfs_lock, NULL);
+}
+
+static nvlist_t *
+cluster_zpool_search(importargs_t *iarg)
+{
+	nvlist_t *pools;
+
+	pthread_mutex_lock(&g_zfs_lock);
+	if (iarg->paths == 0) {
+		if (g_zfs_search_pools != NULL) {
+			pools = g_zfs_search_pools;
+			g_zfs_search_pools_ref++;
+		} else {
+			pools = zpool_search_import(g_zfs, iarg);
+			g_zfs_search_pools = pools;
+			g_zfs_search_pools_ref = 1;
+		}
+		pthread_mutex_unlock(&g_zfs_lock);
+	} else {
+		pthread_mutex_unlock(&g_zfs_lock);
+		pools = zpool_search_import(g_zfs, iarg);
+	}
+
+	return (pools);
+}
+
+static void
+cluster_zpool_search_free(nvlist_t *nvl)
+{
+	if (nvl == g_zfs_search_pools) {
+		pthread_mutex_lock(&g_zfs_lock);
+		g_zfs_search_pools_ref--;
+		if (g_zfs_search_pools_ref == 0) {
+			nvlist_free(g_zfs_search_pools);
+			g_zfs_search_pools = NULL;
+		}
+		pthread_mutex_unlock(&g_zfs_lock);
+	} else {
+		nvlist_free(nvl);
+	}
+}
+
 static nvlist_t *
 zpool_get_all_pools(libzfs_handle_t *hdl, int cluster_switch)
 {
@@ -3715,30 +3768,37 @@ zpool_get_all_pools(libzfs_handle_t *hdl, int cluster_switch)
 /*
  * return 1 the pool can be import, return 0 the pool can't be import,
  * otherwise indicate error or the pool not exists.
+ * update @pool_root if return 1.
  */
 static int
-cluster_check_pool_replicas(uint64_t pool_guid)
+cluster_check_pool_replicas(uint64_t pool_guid, char **search_disks, int nsearch,
+	nvlist_t **pool_root)
 {
 	nvlist_t	*pools, *config, *nvroot;
 	nvpair_t	*elem = NULL;
-	libzfs_handle_t	*hdl;
 	uint64_t	guid;
 	vdev_stat_t	*vs;
 	uint_t	vsc;
 	int	ret = -1;
 	int 	err;
+	importargs_t	iargs;
+	char *name;
 
-	hdl = libzfs_init();
-	if (hdl == NULL) {
-		syslog(LOG_ERR, "libzfs_init() error");
-		return (-1);
-	}
-
-	pools = zpool_get_all_pools(hdl, 0);
+	bzero(&iargs, sizeof(iargs));
+	iargs.path = search_disks;
+	iargs.paths = nsearch;
+	iargs.no_blkid = 1;
+	iargs.cluster_ignore = 1;
+	pools = cluster_zpool_search(&iargs);
 	while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
 		verify(nvpair_value_nvlist(elem, &config) == 0);
 		verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID,
 			&guid) == 0);
+		verify(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
+			&name) == 0);
+		c_log(LOG_WARNING, "%s: search pool_guid=%"PRIu64", guid=%"PRIu64
+			", name=%s",
+			__func__, pool_guid, guid, name);
 		if (guid == pool_guid) {
 			verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 			    &nvroot) == 0);
@@ -3748,18 +3808,19 @@ cluster_check_pool_replicas(uint64_t pool_guid)
 				syslog(LOG_ERR, "nvlist_lookup(ZPOOL_CONFIG_VDEV_STATS) = %d", err);
 				continue;
 			}
-			syslog(LOG_WARNING, "pool %llu state=%llu",
-				(unsigned long long)pool_guid, (unsigned long long)vs->vs_state);
-			if (vs->vs_state > VDEV_STATE_CANT_OPEN)
-				ret = 1;
-			else
-				ret = 0;
+			syslog(LOG_WARNING, "pool %lu state=%lu", pool_guid, vs->vs_state);
+			if (vs->vs_state > VDEV_STATE_CANT_OPEN) {
+				if (pool_root != NULL && nvlist_dup(nvroot, pool_root, 0) != 0)
+					ret = -1;
+				else
+					ret = 1;
+ 			} else
+ 				ret = 0;
 			break;
 		}
 	}
 
-	nvlist_free(pools);
-	libzfs_fini(hdl);
+	cluster_zpool_search_free(pools);
 	return (ret);
 }
 
@@ -3834,14 +3895,29 @@ find_sd(const char *scsi_disk, char *sd_path, size_t sd_path_len)
 {
 	struct stat sb;
 	ssize_t n;
+	char suffix[6] = "-part";
+	char *buf, *p;
 
-	if (lstat(scsi_disk, &sb) != 0)
+	buf = strdup(scsi_disk);
+	if (buf == NULL)
 		return (NULL);
-	if ((sb.st_mode & S_IFMT) != S_IFLNK)
+	if ((p = strstr(buf, suffix)) != NULL)
+		*p = '\0';
+
+	if (lstat(buf, &sb) != 0) {
+		free(buf);
 		return (NULL);
-	if ((n = readlink(scsi_disk, sd_path, sd_path_len-1)) < 0)
+	}
+	if ((sb.st_mode & S_IFMT) != S_IFLNK) {
+		free(buf);
 		return (NULL);
+	}
+	if ((n = readlink(buf, sd_path, sd_path_len-1)) < 0) {
+		free(buf);
+		return (NULL);
+	}
 	sd_path[n] = '\0';
+	free(buf);
 	return (sd_path);
 }
 
@@ -3903,7 +3979,7 @@ disk_is_vdev(const char *scsi_disk)
 }
 
 static void
-cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
+cluster_check_pool_disks_common(nvlist_t *root,
 	int *total, int *active, int *local)
 {
 	nvlist_t **child;
@@ -3917,11 +3993,10 @@ cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
 
 		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
 			&tmp_child, &tmp_children) == 0) {
-			cluster_check_pool_disks_common(child[i], table, total, active, local);
+			cluster_check_pool_disks_common(child[i], total, active, local);
 		} else {
-			disk_info_t *cursor;
-			const char *filename, *name;
 			char *path;
+			struct stat sb;
 
 			if (nvlist_lookup_string(child[i], ZPOOL_CONFIG_PATH, &path) != 0) {
 				syslog(LOG_ERR, "pool get config path failed");
@@ -3929,15 +4004,9 @@ cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
 			}
 			(*total)++;
 
-			filename = path2filename(path);
-			for (cursor = table->next; cursor != NULL; cursor = cursor->next) {
-				name = path2filename(cursor->dk_scsid);
-				if (strncmp(name, filename, strlen(name)) == 0)
-					break;
-			}
-			if (cursor != 0) {
+			if (lstat(path, &sb) == 0) {
 				(*active)++;
-				if (disk_is_vdev(cursor->dk_scsid) == 0)
+				if (disk_is_vdev(path) == 0)
 					(*local)++;
 			}
 		}
@@ -3947,16 +4016,10 @@ cluster_check_pool_disks_common(nvlist_t *root, disk_table_t *table,
 static boolean_t
 cluster_check_pool_disks(nvlist_t *pool_root)
 {
-	disk_table_t table = {0, NULL};
 	int total, active, local;
 
-	if (disk_get_info(&table) != 0) {
-		syslog(LOG_WARNING, "disk_get_info failed");
-		return (B_FALSE);
-	}
-
 	total = active = local = 0;
-	cluster_check_pool_disks_common(pool_root, &table, &total, &active, &local);
+	cluster_check_pool_disks_common(pool_root, &total, &active, &local);
 
 	if (local == 0 || active < total / 2) {
 		syslog(LOG_WARNING, "disks not satisfied: total=%d, active=%d, local=%d",
@@ -4168,7 +4231,7 @@ ready_import:
 	cluster_run_import(cip);
 	pthread_mutex_unlock(&cip->import_lock);
 
-	err = cluster_check_pool_replicas(guid);
+	err = cluster_check_pool_replicas(guid, NULL, 0, NULL);
 	if (err == 0) {
 		syslog(LOG_WARNING, "pool '%s' not satisfy replicas", poolname);
 		if (check_replicas_trytimes >= 3)
@@ -6117,6 +6180,37 @@ unshielding_failover_poollist(struct link_list *list)
 	return (success);
 }
 
+static int
+check_share_service(void)
+{
+	char buf[128];
+	FILE *fp;
+	int active = -1;
+
+top:
+	snprintf(buf, 128, "/usr/bin/systemctl is-active nfs-server");
+	if ((fp = popen(buf, "r")) == NULL)
+		return (-1);
+	while (fgets(buf, 128, fp) != NULL) {
+		if (strncmp(buf, "active", 6) == 0)
+			active = 1;
+		break;
+	}
+	pclose(fp);
+
+	if (active != -1)
+		return (active);
+
+	snprintf(buf, 128, "/usr/bin/systemctl start nfs-server");
+	if ((fp = popen(buf, "r")) == NULL)
+		return (0);
+	pclose(fp);
+	active = 0;
+	goto top;
+
+	return (0);
+}
+
 /*
  * Recv release pools event from remote, 
  * import the pools
@@ -6134,6 +6228,11 @@ handle_release_pools_event(const void *buffer, int bufsiz)
 	/* get the todo import pools */
 	if (unpack_release_pool_param_list(buffer, bufsiz, &pool_list) != 0) {
 		syslog(LOG_ERR, "%s: unpack event message failed", __func__);
+		return (-1);
+	}
+
+	if (check_share_service() != 1) {
+		syslog(LOG_ERR, "%s: share service inactive", __func__);
 		return (-1);
 	}
 
@@ -6648,6 +6747,7 @@ main(int argc, char *argv[])
 	openlog(MyName, LOG_PID | LOG_NDELAY, LOG_DAEMON);
 	(void) signal(SIGHUP, warn_hup);
 
+	g_zfs_init();
 	init_cluster_failover_conf();
 	pthread_mutex_init(&import_thr_conf.import_pools_handler_mtx, NULL);
 

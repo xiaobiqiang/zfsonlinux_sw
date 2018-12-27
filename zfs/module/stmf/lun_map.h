@@ -167,6 +167,9 @@ stmf_id_data_t *stmf_lookup_id(stmf_id_list_t *idlist, uint16_t id_size,
 		uint8_t *data);
 stmf_id_data_t *stmf_lookup_group_for_target(uint8_t *ident,
 		uint16_t ident_size);
+stmf_i_lu_t *
+stmf_luident_to_ilu(uint8_t *lu_ident);
+
 
 #ifdef	__cplusplus
 }

@@ -277,6 +277,7 @@ typedef struct stmf_i_scsi_task {
 	uint32_t		itask_alloc_size;
 	uint32_t		itask_flags;
 	uint64_t		itask_proxy_msg_id;
+	uint32_t		itask_proxy_seq_no;
 	stmf_data_buf_t		*itask_proxy_dbuf;
 	struct stmf_worker	*itask_worker;
 	uint32_t		*itask_ilu_task_cntr;
@@ -338,7 +339,7 @@ typedef struct stmf_i_scsi_task {
 #define	ITASK_PROXY_TASK		0x2000
 #define	ITASK_HOLD_INSTOP		0x4000
 #define	ITASK_CHECKER_PROCESS	0x8000
-
+#define	ITASK_BEING_PPPT		0x10000
 
 /*
  * itask cmds.
