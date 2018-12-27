@@ -144,10 +144,12 @@ typedef struct fct_i_remote_port {
 	 */
 	stmf_scsi_session_t		*irp_session;
 	char				*irp_snn;
+	uint32_t		    irp_snn_len;
 
 	/* items will be filled in ns cmd */
 	uint8_t				irp_fc4types[32]; /* FC-4 types */
 	char				*irp_spn;	/* port symbolic name */
+	uint32_t			irp_spn_len;
 	uint32_t			irp_cos;	/* class of service */
 
 	uint32_t			irp_rscn_counter;

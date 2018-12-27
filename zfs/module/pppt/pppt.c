@@ -1026,6 +1026,7 @@ pppt_lport_xfer_data(scsi_task_t *task, stmf_data_buf_t *dbuf,
 		msg = stmf_ic_scsi_data_msg_alloc(
 		    pppt_task->pt_task_id,
 		    pppt_task->pt_sess->ps_session_id,
+		    pppt_task->pt_task_proxy_seq_no,
 		    pppt_task->pt_lun_id,
 		    dbuf->db_data_size, 
 		    dbuf->db_sglist[0].seg_addr, 0,
@@ -1047,6 +1048,7 @@ pppt_lport_xfer_data(scsi_task_t *task, stmf_data_buf_t *dbuf,
 		msg = stmf_ic_scsi_data_req_msg_alloc(
 		    pppt_task->pt_task_id,
 		    pppt_task->pt_sess->ps_session_id,
+		    pppt_task->pt_task_proxy_seq_no,
 		    pppt_task->pt_lun_id,
 		    dbuf->db_relative_offset,
 		    dbuf->db_data_size, 0);
@@ -1149,6 +1151,7 @@ pppt_lport_send_status(scsi_task_t *task, uint32_t ioflags)
 	msg = stmf_ic_scsi_status_msg_alloc(
 	    ptask->pt_task_id,
 	    ptask->pt_sess->ps_session_id,
+	    ptask->pt_task_proxy_seq_no,
 	    ptask->pt_lun_id,
 	    0,
 	    task->task_scsi_status,

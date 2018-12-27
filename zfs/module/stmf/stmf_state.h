@@ -60,6 +60,7 @@ typedef struct stmf_state {
 	uint8_t			stmf_default_lu_state;
 	uint8_t			stmf_default_lport_state;
 	taskq_t			*stmf_svc_taskq;
+	taskq_t		*stmf_online_lport;
 	uint32_t		stmf_svc_flags;
 	stmf_i_lu_t		*stmf_svc_ilu_draining;
 	stmf_i_lu_t		*stmf_svc_ilu_timing;

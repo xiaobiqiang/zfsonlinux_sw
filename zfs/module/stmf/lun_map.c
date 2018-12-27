@@ -581,8 +581,17 @@ stmf_update_sessions_per_ve(stmf_view_entry_t *ve,
 		rw_enter(&ilport->ilport_lock, RW_WRITER);
 		for (iss = ilport->ilport_ss_list; iss != NULL;
 		    iss = iss->iss_next) {
-			if (!all_hg && iss->iss_hg != ve->ve_hg)
-				continue;
+			if (action == 1) {
+				if (!all_hg && iss->iss_hg && iss->iss_hg != ve->ve_hg)
+					continue;
+			} else {
+				if (!all_hg && iss->iss_hg != ve->ve_hg)
+					continue;
+			}
+			
+			if ((action == 1) && !iss->iss_hg)
+				iss->iss_hg = ve->ve_hg;
+			
 			/* This host belongs to the host group */
 			if (action == 0) { /* to remove */
 				(void) stmf_remove_lu_from_session(ilport, iss,
@@ -1117,9 +1126,8 @@ stmf_add_view_entry(stmf_id_data_t *hg, stmf_id_data_t *tg,
 	ASSERT(ret == STMF_SUCCESS);
 
 	/* we need to update the affected session */
-	if (stmf_state.stmf_service_running) {
-		if (ilu && ilu->ilu_state == STMF_STATE_ONLINE)
-			stmf_update_sessions_per_ve(ve, ilu->ilu_lu, 1);
+	if (ilu && ilu->ilu_state == STMF_STATE_ONLINE) {
+		stmf_update_sessions_per_ve(ve, ilu->ilu_lu, 1);
 	}
 
 	return (STMF_SUCCESS);

@@ -417,7 +417,6 @@ get_usage(zfs_help_t idx)
 		
 	}
 
-	abort();
 	/* NOTREACHED */
 }
 

@@ -1,8 +1,8 @@
 [Unit]
 Description=Start clusterd service
 DefaultDependencies=no
-Requires=NetworkManager.service
-After=zfs.target
+Requires=NetworkManager.service zfs-boot.service
+After=zfs.target zfs-boot.service
 
 [Service]
 ExecStart=@sbindir@/clusterd -d
