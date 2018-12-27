@@ -1941,8 +1941,11 @@ bp_get_dsize_sync(spa_t *spa, const blkptr_t *bp)
 	for (d = 0; d < BP_GET_NDVAS(bp); d++)
 		dsize += dva_get_dsize_sync(spa, &bp->blk_dva[d]);
 
-	if (BP_IS_TOGTHER(bp))
-		dsize /= spa->spa_raidz_aggre_num;
+	if (BP_IS_TOGTHER(bp)) {
+		if (spa->spa_raidz_aggre_num) {
+			dsize /= spa->spa_raidz_aggre_num;
+		}
+	}
 
 	return (dsize);
 }
@@ -1958,8 +1961,11 @@ bp_get_dsize(spa_t *spa, const blkptr_t *bp)
 	for (d = 0; d < BP_GET_NDVAS(bp); d++)
 		dsize += dva_get_dsize_sync(spa, &bp->blk_dva[d]);
 
-	if (BP_IS_TOGTHER(bp))
-		dsize /= spa->spa_raidz_aggre_num;
+	if (BP_IS_TOGTHER(bp)) {
+		if (spa->spa_raidz_aggre_num) {
+			dsize /= spa->spa_raidz_aggre_num;
+		}
+	}
 
 	spa_config_exit(spa, SCL_VDEV, FTAG);
 
