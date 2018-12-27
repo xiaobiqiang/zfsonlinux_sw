@@ -525,9 +525,11 @@ xdr_ic_scsi_status_msg(XDR *xdrs, void *msg)
 	    	return (B_FALSE);
 
 	if (m->icss_sense_len)
+	{
 		if (xdrs->x_op == XDR_DECODE)
 			m->icss_sense = kmem_zalloc(m->icss_sense_len, KM_SLEEP);
 		rc = xdr_opaque(xdrs, (char *)m->icss_sense, m->icss_sense_len);
+	}
 
 	return (rc);
 }
