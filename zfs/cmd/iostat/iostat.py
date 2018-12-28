@@ -3,7 +3,6 @@
 import sys
 import time
 import getopt
-import copy
 import os
 
 from decimal import Decimal
@@ -191,7 +190,7 @@ def kstat_update_tgts():
 def calculate_lun_stats():
     global g_lun_stats_out
 
-    prev_lun_stats = copy.deepcopy(g_lun_stats)    
+    prev_lun_stats = g_lun_stats
     kstat_update_luns()    
     g_lun_stats_out = {}   
     
@@ -199,17 +198,23 @@ def calculate_lun_stats():
         dic = {}
         if key in prev_lun_stats:
             for d in prev_lun_stats[key]:
-                dic[d] = (g_lun_stats[key][d] - prev_lun_stats[key][d]) / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_lun_stats[key][d]
+                else:
+                    dic[d] = (g_lun_stats[key][d] - prev_lun_stats[key][d]) / g_interval
         else:
             for d in g_lun_stats[key]:
-                dic[d] = g_lun_stats[key][d] / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_lun_stats[key][d]
+                else:
+                    dic[d] = g_lun_stats[key][d] / g_interval
         g_lun_stats_out[key] = dic
  
         
 def calculate_tgt_stats():    
     global g_tgt_stats_out
-
-    prev_tgt_stats = copy.deepcopy(g_tgt_stats)    
+  
+    prev_tgt_stats = g_tgt_stats
     kstat_update_tgts()    
     g_tgt_stats_out = {}
     
@@ -217,10 +222,16 @@ def calculate_tgt_stats():
         dic = {}
         if key in prev_tgt_stats:
             for d in prev_tgt_stats[key]:
-                dic[d] = (g_tgt_stats[key][d] - prev_tgt_stats[key][d]) / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_tgt_stats[key][d]
+                else:
+                    dic[d] = (g_tgt_stats[key][d] - prev_tgt_stats[key][d]) / g_interval
         else:
             for d in g_tgt_stats[key]:
-                dic[d] = g_tgt_stats[key][d] / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_tgt_stats[key][d]
+                else:
+                    dic[d] = g_tgt_stats[key][d] / g_interval
         g_tgt_stats_out[key] = dic
 
         
@@ -238,11 +249,7 @@ def prettynum(sz, scale, num=0):
     index = 0
     save = 0
 
-    # Special case for date field
-    if scale == -1:
-        return "%s" % num
-    # Rounding error, return 0
-    elif 0 < num < 1:
+    if 0 < num < 1:
         num = 0
 
     while num > scale and index < 5:
