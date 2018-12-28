@@ -91,11 +91,9 @@ def kstat_get_lun_name(uid):
     for s in k:
         if not s:
             continue
-        name, type, data = s.split()
-        if (name.strip().find("lun-guid") >= 0) and (len(name.strip()) == len("lun-guid")):
-            namedic["lun-guid"] = data.strip()
-        elif (name.strip().find("lun-alias") >= 0) and (len(name.strip()) == len("lun-alias")):
-            namedic["lun-alias"] = data.strip()
+        if (s.find("lun-guid") >= 0) or (s.find("lun-alias") >= 0):
+            name, type, data = s.split()
+            namedic[name.strip()] = data.strip()
     return namedic
         
 def kstat_get_tgt_name(uid):
@@ -107,13 +105,9 @@ def kstat_get_tgt_name(uid):
     for s in k:
         if not s:
             continue
-        name, type, data = s.split()
-        if (name.strip().find("target-name") >= 0) and (len(name.strip()) == len("target-name")):
-            namedic["target-name"] = data.strip()
-        elif (name.strip().find("target-alias") >= 0) and (len(name.strip()) == len("target-alias")):
-            namedic["target-alias"] = data.strip()
-        elif (name.strip().find("protocol") >= 0) and (len(name.strip()) == len("protocol")):
-            namedic["protocol"] = data.strip()
+        if (s.find("target-name") >= 0) or (s.find("target-alias") >= 0):
+            name, type, data = s.split()
+            namedic[name.strip()] = data.strip()
     return namedic
     
 
