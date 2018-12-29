@@ -93,7 +93,7 @@ def kstat_get_lun_name(uid):
             continue
         if (s.find("lun-guid") >= 0) or (s.find("lun-alias") >= 0):
             name, type, data = s.split()
-            namedic[name.strip()] = data.strip()
+            namedic[name] = data
     return namedic
         
 def kstat_get_tgt_name(uid):
@@ -107,7 +107,7 @@ def kstat_get_tgt_name(uid):
             continue
         if (s.find("target-name") >= 0) or (s.find("target-alias") >= 0):
             name, type, data = s.split()
-            namedic[name.strip()] = data.strip()
+            namedic[name] = data
     return namedic
     
 
