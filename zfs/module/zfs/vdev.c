@@ -58,6 +58,7 @@ int metaslabs_per_vdev = 200;
 static vdev_ops_t *vdev_ops_table[] = {
 	&vdev_root_ops,
 	&vdev_raidz_ops,
+	&vdev_raidz_aggre_ops,
 	&vdev_mirror_ops,
 	&vdev_replacing_ops,
 	&vdev_spare_ops,
@@ -131,7 +132,8 @@ vdev_get_min_asize(vdev_t *vd)
 	 * The allocatable space for a raidz vdev is N * sizeof(smallest child),
 	 * so each child must provide at least 1/Nth of its asize.
 	 */
-	if (pvd->vdev_ops == &vdev_raidz_ops)
+	if (pvd->vdev_ops == &vdev_raidz_ops || 
+		pvd->vdev_ops == &vdev_raidz_aggre_ops)
 		return (pvd->vdev_min_asize / pvd->vdev_children);
 
 	return (pvd->vdev_min_asize);
@@ -453,7 +455,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	 * Set the nparity property for RAID-Z vdevs.
 	 */
 	nparity = -1ULL;
-	if (ops == &vdev_raidz_ops) {
+	if (ops == &vdev_raidz_ops ||
+		ops == &vdev_raidz_aggre_ops) {
 		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NPARITY,
 		    &nparity) == 0) {
 			if (nparity == 0 || nparity > VDEV_RAIDZ_MAXPARITY)
@@ -3357,6 +3360,7 @@ vdev_is_bootable(vdev_t *vd)
 		    vd->vdev_children > 1) {
 			return (B_FALSE);
 		} else if (strcmp(vdev_type, VDEV_TYPE_RAIDZ) == 0 ||
+			strcmp(vdev_type, VDEV_TYPE_RAIDZ_AGGRE) == 0 ||
 		    strcmp(vdev_type, VDEV_TYPE_MISSING) == 0) {
 			return (B_FALSE);
 		}

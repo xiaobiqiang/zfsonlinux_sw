@@ -24,7 +24,6 @@
 
 int bptg_reclaim_dva = 0;
 int bptg_store_map = 1;
-int vdev_raidz_optimize = 1;
 kmem_cache_t *aggre_io_cache=NULL;
 uint64_t aggre_io_alloc_n = 0;
 uint64_t aggre_io_free_n=0;
@@ -60,43 +59,29 @@ aggre_io_dest(void *vdb, void *unused)
         mutex_destroy(&io->ai_lock);
         aggre_io_free_n++;
 }
-void raidz_aggre_check(spa_t *spa)
+
+void 
+raidz_aggre_check(spa_t *spa)
 {
-	int i=0;
-	vdev_t *vd, *vd_tmp = NULL;
-	int nchild = spa->spa_root_vdev->vdev_children;
-	int raid_child = 0;
+	vdev_t *root_vdev = spa->spa_root_vdev;
+	vdev_t *vdev;
+	int c = 0;
+	int nchild = root_vdev->vdev_children;
 	
-	if (!spa_has_metas(spa) || 0 == vdev_raidz_optimize)
-		return;
-	for (i=0; i<nchild; i++) {
-		vd = *(spa->spa_root_vdev->vdev_child+i);
-		if (strcmp(vd->vdev_ops->vdev_op_type, 
-		    VDEV_TYPE_RAIDZ) == 0) {
-		    if (512*1024 % (vd->vdev_children - vd->vdev_nparity)) {
-				cmn_err(CE_WARN,"%s %ld %ld can not divided",
-					__func__,(long)vd->vdev_children,
-					(long)vd->vdev_nparity);
-	            return;
-		    }
-			if (raid_child != 0 && raid_child != vd->vdev_children)
-				return;
-			raid_child = vd->vdev_children;
-			vd_tmp = vd;
-		} else if (!vd->vdev_ismeta) {
-			return;
+	for (c = 0; c < nchild; c++) {
+		vdev = spa->spa_root_vdev->vdev_child[c];
+		if (strcmp(vdev->vdev_ops->vdev_op_type, 
+			VDEV_TYPE_RAIDZ_AGGRE) == 0) {
+			spa->spa_raidz_aggre_num = vdev->vdev_children - vdev->vdev_nparity;
+			spa->spa_raidz_aggre_nparity = vdev->vdev_nparity;
+			spa->spa_raidz_ashift = vdev->vdev_ashift;
+			spa->spa_raidz_aggre = B_TRUE;
+			cmn_err(CE_NOTE, "%s %s raidz aggre: aggre_num=%d parity=%d",
+				__func__, spa->spa_name, spa->spa_raidz_aggre_num,
+				spa->spa_raidz_aggre_nparity);
+			break;
 		}
 	}
-	if (vd_tmp != NULL) {
-		spa->spa_raidz_aggre_num = vd_tmp->vdev_children - vd_tmp->vdev_nparity;
-		spa->spa_raidz_aggre_nparity = vd_tmp->vdev_nparity;
-		spa->spa_raidz_ashift = vd->vdev_ashift;
-		spa->spa_raidz_aggre = B_TRUE;
-		cmn_err(CE_WARN,"%s %d %d  divided",
-			__func__,spa->spa_raidz_aggre_num,
-			spa->spa_raidz_aggre_nparity);
-	}
-	return;
 }
 
 int raidz_aggre_init(void)
@@ -439,7 +424,7 @@ void raidz_aggre_raidz_done(zio_t *zio, raidz_map_t ** rmp_old)
 void raidz_aggre_metaslab_align(vdev_t *vd, uint64_t *start, uint64_t *size)
 {
     uint64_t offset = 0;
-    if (strcmp(vd->vdev_ops->vdev_op_type, VDEV_TYPE_RAIDZ) == 0) {
+    if (strcmp(vd->vdev_ops->vdev_op_type, VDEV_TYPE_RAIDZ_AGGRE) == 0) {
         if (512*1024 % (vd->vdev_children - vd->vdev_nparity)) {
         	return;
         }

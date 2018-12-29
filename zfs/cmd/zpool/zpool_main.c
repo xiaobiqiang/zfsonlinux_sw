@@ -713,27 +713,19 @@ zpool_do_add(int argc, char **argv)
 		return (1);
 	}
 
-	if (nvlist_lookup_boolean_value(config, ZPOOL_CONFIG_ISAGGRE,
-	    &isaggre) == 0 && isaggre) {
-
-		if ((newroot = construct_spec(argc, argv)) == NULL) {
-			zpool_close(zhp);
-			return (1);
-		}
-
-		if (!zpool_do_add_check_aggre(config, newroot)) {
-			zpool_close(zhp);
-			nvlist_free(newroot);
-			return (1);
-		}
-		nvlist_free(newroot);
-	}
-
 	/* pass off to get_vdev_spec for processing */
 	nvroot = make_root_vdev(zhp, props, force, !force, B_FALSE, dryrun,
 	    argc, argv);
 	if (nvroot == NULL) {
 		zpool_close(zhp);
+		return (1);
+	}
+
+	if (!zfs_check_raidz_aggre_valid(config, newroot)) {
+		(void) fprintf(stderr, gettext("pool '%s' check raidz aggre failed\n"),
+			poolname);
+		zpool_close(zhp);
+		nvlist_free(newroot);
 		return (1);
 	}
 

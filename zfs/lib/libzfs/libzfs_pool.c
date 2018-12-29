@@ -2164,6 +2164,8 @@ vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
 
 			verify(strncmp(type, VDEV_TYPE_RAIDZ,
 			    strlen(VDEV_TYPE_RAIDZ)) == 0 ||
+				strncmp(type, VDEV_TYPE_RAIDZ_AGGRE,
+				strlen(VDEV_TYPE_RAIDZ_AGGRE)) == 0 ||
 			    strncmp(type, VDEV_TYPE_MIRROR,
 			    strlen(VDEV_TYPE_MIRROR)) == 0);
 			verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_ID,
@@ -2311,6 +2313,7 @@ boolean_t
 zpool_vdev_is_interior(const char *name)
 {
 	if (strncmp(name, VDEV_TYPE_RAIDZ, strlen(VDEV_TYPE_RAIDZ)) == 0 ||
+		strncmp(name, VDEV_TYPE_RAIDZ_AGGRE, strlen(VDEV_TYPE_RAIDZ_AGGRE)) == 0 ||
 	    strncmp(name, VDEV_TYPE_MIRROR, strlen(VDEV_TYPE_MIRROR)) == 0)
 		return (B_TRUE);
 	return (B_FALSE);
@@ -3790,7 +3793,8 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv,
 		/*
 		 * If it's a raidz device, we need to stick in the parity level.
 		 */
-		if (strcmp(path, VDEV_TYPE_RAIDZ) == 0) {
+		if (strcmp(path, VDEV_TYPE_RAIDZ) == 0 ||
+			strcmp(path, VDEV_TYPE_RAIDZ_AGGRE) == 0) {
 
 			verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NPARITY,
 			    &value) == 0);

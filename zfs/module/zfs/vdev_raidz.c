@@ -2314,6 +2314,20 @@ vdev_ops_t vdev_raidz_ops = {
 	B_FALSE			/* not a leaf vdev */
 };
 
+vdev_ops_t vdev_raidz_aggre_ops = {
+	vdev_raidz_open,
+	vdev_raidz_close,
+	vdev_raidz_asize,
+	vdev_raidz_io_start,
+	vdev_raidz_io_done,
+	vdev_raidz_state_change,
+	NULL,
+	NULL,
+	VDEV_TYPE_RAIDZ_AGGRE,	/* name of this vdev type */
+	B_FALSE			/* not a leaf vdev */
+};
+
+
 #if defined(_KERNEL) && defined(HAVE_SPL)
 module_param(vdev_raidz_aggre, int, 0644);
 MODULE_PARM_DESC(vdev_raidz_aggre, "vdev raidz aggre control switch");
