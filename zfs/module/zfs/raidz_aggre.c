@@ -76,12 +76,15 @@ raidz_aggre_check(spa_t *spa)
 			spa->spa_raidz_aggre_nparity = vdev->vdev_nparity;
 			spa->spa_raidz_ashift = vdev->vdev_ashift;
 			spa->spa_raidz_aggre = B_TRUE;
-			cmn_err(CE_NOTE, "%s %s raidz aggre: aggre_num=%d parity=%d",
+			cmn_err(CE_NOTE, "%s %s is raidz aggre: aggre_num=%d parity=%d",
 				__func__, spa->spa_name, spa->spa_raidz_aggre_num,
 				spa->spa_raidz_aggre_nparity);
 			break;
 		}
 	}
+
+	if (!spa->spa_raidz_aggre)
+		cmn_err(CE_NOTE, "%s %s isn't raidz aggre", __func__, spa->spa_name);
 }
 
 int raidz_aggre_init(void)
