@@ -889,13 +889,14 @@ static int cluster_import_pool_thread(cluster_pool_thread_t *pool_node)
 		int try_cnt;
 		
 		if (pool_node->is_updated != B_TRUE) {
-			syslog(LOG_NOTICE, "%s: pool(%s) maybe export or readonly in "
-				"partner, we don't check the quantum",
+			syslog(LOG_NOTICE, "%s: pool(%s) maybe export or readonly in partner",
 				__func__, poolname);
+#if 0
 			pthread_mutex_lock(&cluster_failover_state->mtx);
 			pthread_cond_signal(&cluster_failover_state->cond);
 			pthread_mutex_unlock(&cluster_failover_state->mtx);
 			break;
+#endif
 		}
 		
 		/* check quantum disk is updating or not */

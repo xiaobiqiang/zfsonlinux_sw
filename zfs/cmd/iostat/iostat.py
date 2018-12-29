@@ -3,7 +3,6 @@
 import sys
 import time
 import getopt
-import copy
 import os
 
 from decimal import Decimal
@@ -92,11 +91,9 @@ def kstat_get_lun_name(uid):
     for s in k:
         if not s:
             continue
-        name, type, data = s.split()
-        if (name.strip().find("lun-guid") >= 0) and (len(name.strip()) == len("lun-guid")):
-            namedic["lun-guid"] = data.strip()
-        elif (name.strip().find("lun-alias") >= 0) and (len(name.strip()) == len("lun-alias")):
-            namedic["lun-alias"] = data.strip()
+        if (s.find("lun-guid") >= 0) or (s.find("lun-alias") >= 0):
+            name, type, data = s.split()
+            namedic[name] = data
     return namedic
         
 def kstat_get_tgt_name(uid):
@@ -108,13 +105,9 @@ def kstat_get_tgt_name(uid):
     for s in k:
         if not s:
             continue
-        name, type, data = s.split()
-        if (name.strip().find("target-name") >= 0) and (len(name.strip()) == len("target-name")):
-            namedic["target-name"] = data.strip()
-        elif (name.strip().find("target-alias") >= 0) and (len(name.strip()) == len("target-alias")):
-            namedic["target-alias"] = data.strip()
-        elif (name.strip().find("protocol") >= 0) and (len(name.strip()) == len("protocol")):
-            namedic["protocol"] = data.strip()
+        if (s.find("target-name") >= 0) or (s.find("target-alias") >= 0):
+            name, type, data = s.split()
+            namedic[name] = data
     return namedic
     
 
@@ -191,7 +184,7 @@ def kstat_update_tgts():
 def calculate_lun_stats():
     global g_lun_stats_out
 
-    prev_lun_stats = copy.deepcopy(g_lun_stats)    
+    prev_lun_stats = g_lun_stats
     kstat_update_luns()    
     g_lun_stats_out = {}   
     
@@ -199,17 +192,23 @@ def calculate_lun_stats():
         dic = {}
         if key in prev_lun_stats:
             for d in prev_lun_stats[key]:
-                dic[d] = (g_lun_stats[key][d] - prev_lun_stats[key][d]) / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_lun_stats[key][d]
+                else:
+                    dic[d] = (g_lun_stats[key][d] - prev_lun_stats[key][d]) / g_interval
         else:
             for d in g_lun_stats[key]:
-                dic[d] = g_lun_stats[key][d] / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_lun_stats[key][d]
+                else:
+                    dic[d] = g_lun_stats[key][d] / g_interval
         g_lun_stats_out[key] = dic
  
         
 def calculate_tgt_stats():    
     global g_tgt_stats_out
-
-    prev_tgt_stats = copy.deepcopy(g_tgt_stats)    
+  
+    prev_tgt_stats = g_tgt_stats
     kstat_update_tgts()    
     g_tgt_stats_out = {}
     
@@ -217,10 +216,16 @@ def calculate_tgt_stats():
         dic = {}
         if key in prev_tgt_stats:
             for d in prev_tgt_stats[key]:
-                dic[d] = (g_tgt_stats[key][d] - prev_tgt_stats[key][d]) / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_tgt_stats[key][d]
+                else:
+                    dic[d] = (g_tgt_stats[key][d] - prev_tgt_stats[key][d]) / g_interval
         else:
             for d in g_tgt_stats[key]:
-                dic[d] = g_tgt_stats[key][d] / g_interval
+                if (d.find("wcnt") >= 0) or (d.find("rcnt") >= 0):
+                    dic[d] = g_tgt_stats[key][d]
+                else:
+                    dic[d] = g_tgt_stats[key][d] / g_interval
         g_tgt_stats_out[key] = dic
 
         
@@ -238,11 +243,7 @@ def prettynum(sz, scale, num=0):
     index = 0
     save = 0
 
-    # Special case for date field
-    if scale == -1:
-        return "%s" % num
-    # Rounding error, return 0
-    elif 0 < num < 1:
+    if 0 < num < 1:
         num = 0
 
     while num > scale and index < 5:
