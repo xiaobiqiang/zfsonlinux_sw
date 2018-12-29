@@ -39,8 +39,8 @@ typedef enum {
 } reclaim_mode;
 
 int raidz_reclaim_enable = 1;
-uint32_t raidz_space_reclaim_gap = 120;	/* unit: s */
-uint32_t raidz_avail_map_thresh = 0x40000000;
+unsigned long raidz_space_reclaim_gap = 120;	/* unit: s */
+unsigned long raidz_avail_map_thresh = 0x40000000;
 
 extern const zio_vsd_ops_t vdev_raidz_vsd_ops;
 extern void vdev_raidz_generate_parity(raidz_map_t *rm);
@@ -997,4 +997,15 @@ stop_space_reclaim_thread(spa_t *spa)
 
 }
 
+#endif
+
+#if defined(_KERNEL) && defined(HAVE_SPL)
+module_param(raidz_reclaim_enable, int, 0644);
+MODULE_PARM_DESC(raidz_reclaim_enable, "raidz reclaim switch");
+
+module_param(raidz_space_reclaim_gap, ulong, 0644);
+MODULE_PARM_DESC(raidz_space_reclaim_gap, "raidz reclaim time gap");
+
+module_param(raidz_avail_map_thresh, ulong, 0644);
+MODULE_PARM_DESC(raidz_avail_map_thresh, "raidz avail map threshold");
 #endif
