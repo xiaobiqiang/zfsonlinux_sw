@@ -1248,48 +1248,47 @@ void disk_get_slot_map(slot_map_t *sm)
 	bzero(tmp, sizeof(tmp));
 	bzero(args, sizeof(args));
 
-	for (i = 0; i < 3; i++) {
-		sprintf(cmd, "sas3ircu %d display 2>/dev/null", i);
+	sprintf(cmd, "get_en_slot.sh 2>/dev/null");
+    fd = popen(cmd, "r");
 
-		fd = (is_ubuntu == 1 ? popen(cmd, "r") : popen(SAS2IRCU, "r"));
-		if (fd == NULL)
-			return 0;
+	if (fd == NULL)
+		return 0;
 
-		while (fgets(tmp, sizeof(tmp), fd)) {
-			if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
-				continue;
+	while (fgets(tmp, sizeof(tmp), fd)) {
+		if (tmp[0] == '\n' || tmp[0] == '\r' || tmp[0] == '-')
+			continue;
 
-			sscanf(tmp, "%s", args);
-			if (strcasecmp(args, ENCLOSURE) == 0) {
-				sscanf(tmp, "%*[^:]:%d", &enclosure);
-			} else if (strcasecmp(args, SLOT) == 0) {
-				sscanf(tmp, "%*[^:]:%d", &slot);
-			} else if (strcasecmp(args, SERIALNO) == 0) {
-				sscanf(tmp, "%*[^:]:%s", value_sn);
-			} else if (strcasecmp(args, "GUID") == 0) {
-				sscanf(tmp, "%*[^:]:%s", value_guid);
-				if (value_sn[0] != '\n') {
-					slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
-					sr->sr_enclosure = enclosure;
-					sr->sr_slot = slot;
-					sr->sr_next = NULL;
-					memcpy(sr->sr_serial, value_sn, strlen(value_sn));
-					memcpy(sr->sr_guid, value_guid, strlen(value_guid));
-					slot_map_insert(sm, sr);
-					slot = 0;
-					enclosure = 0;
-					memset(value_sn, '\n', sizeof(value_sn));
-					memset(value_guid, '\n', sizeof(value_guid));
-				}
+		sscanf(tmp, "%s", args);
+		if (strcasecmp(args, ENCLOSURE) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &enclosure);
+		} else if (strcasecmp(args, SLOT) == 0) {
+			sscanf(tmp, "%*[^:]:%d", &slot);
+		} else if (strcasecmp(args, SERIALNO) == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_sn);
+			//sscanf(tmp, "%*[^:]:%s", value_guid);
+			if (value_sn[0] != '\n') {
+				slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
+				sr->sr_enclosure = enclosure;
+				sr->sr_slot = slot;
+				sr->sr_next = NULL;
+				memcpy(sr->sr_serial, value_sn, strlen(value_sn));
+				memcpy(sr->sr_guid, value_sn, strlen(value_sn));
+				slot_map_insert(sm, sr);
+				slot = 0;
+				enclosure = 0;
+				memset(value_sn, '\n', sizeof(value_sn));
+				//memset(value_guid, '\n', sizeof(value_guid));
 			}
 		}
-
-		bzero(cmd, sizeof(cmd));
-		pclose(fd);
 	}
+
+	bzero(cmd, sizeof(cmd));
+	pclose(fd);
+
 	printf("\n");
 }
 
+#if 1
 void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
 {
 	slot_record_t *search = NULL;
@@ -1305,6 +1304,33 @@ void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
 
 	return;
 }
+#else
+void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
+{
+	slot_record_t *search = NULL;
+	char cmd[CMD_TMP_LEN] = {0};
+    FILE *res = NULL;
+    char tmp[CMD_TMP_LEN] = {0};
+    char dk_wwn[32] = {0};
+
+    
+    sprintf(cmd, "get_en_slot.sh %s 2>/dev/null", di->dk_scsid);
+    res = popen(cmd, "r");
+	if (res != NULL) {
+		if (fgets(tmp, sizeof(tmp), res) != NULL) {
+			sscanf(tmp,"%d %d %s",&di->dk_enclosure, &di->dk_slot, dk_wwn);
+            pclose(res);
+            syslog(LOG_WARNING, "disk:%s, wwn:%s, en:%d, slot:%d", di->dk_scsid, dk_wwn, di->dk_enclosure, di->dk_slot);
+            return;
+		}
+	}
+
+     pclose(res);
+    syslog(LOG_WARNING, "disk:%s [en slot] not found",  di->dk_scsid);
+	return;
+}
+
+#endif
 
 void slot_map_find_value_guid(slot_map_t *sm, disk_info_t *di)
 {
