@@ -638,7 +638,7 @@ zpool_do_add(int argc, char **argv)
 	boolean_t dryrun = B_FALSE;
 	int name_flags = 0;
 	int c;
-	nvlist_t *nvroot, *newroot;
+	nvlist_t *nvroot;
 	char *poolname;
 	int ret;
 	zpool_handle_t *zhp;
@@ -721,11 +721,11 @@ zpool_do_add(int argc, char **argv)
 		return (1);
 	}
 
-	if (!zfs_check_raidz_aggre_valid(config, newroot)) {
+	if (!zfs_check_raidz_aggre_valid(config, nvroot)) {
 		(void) fprintf(stderr, gettext("pool '%s' check raidz aggre failed\n"),
 			poolname);
 		zpool_close(zhp);
-		nvlist_free(newroot);
+		nvlist_free(nvroot);
 		return (1);
 	}
 
