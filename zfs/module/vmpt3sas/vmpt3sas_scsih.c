@@ -83,6 +83,9 @@ static int g_vmptsas_hostmap_total = 0;
 static vmptsas_hostmap_list_t hostmap_list;
 
 extern void sd_register_cb_state_changed(sd_state_changed_cb_func_t cbp, void *priv);
+extern int cts_link_evt_hook_add(cs_link_evt_cb_t link_evt_cb, void *arg);
+extern int cts_link_evt_hook_remove(cs_link_evt_cb_t link_evt_cb);
+
 int vmpt3sas_scsih_qcmd(struct Scsi_Host *, struct scsi_cmnd *);
 int vmpt3sas_send_msg(void *, void *, u64, void *, u64 , int);
 int vmpt3sas_proxy_done_thread(void *);
