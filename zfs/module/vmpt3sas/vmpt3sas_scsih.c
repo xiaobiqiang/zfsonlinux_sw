@@ -1288,14 +1288,18 @@ int vmpt3sas_qcmd_done_thread(void *data)
 	return 0;
 }
 
-void vmpt3sas_lenvent_callback(int event, int hostid)
+void 
+vmpt3sas_lenvent_callback(void *private, cts_link_evt_t link_evt, void *arg)
 {
+    cluster_san_hostinfo_t *hostp = private;
+    u32 hostid = hostp->hostid;
 	remote_shost_t  *iter;
 	
-	printk(KERN_WARNING "%s: event:%d hostid:%d", __func__, event, hostid);
-	switch(event)
+	printk(KERN_WARNING "%s: event:%d hostid:%d", 
+	       __func__, link_evt, hostid);
+	switch(link_evt)
 	{
-	case EVT_REMOTE_HOST_DOWN:
+	case LINK_EVT_UP_TO_DOWN:
 		spin_lock(&rshost_list.lock);
 	    list_for_each_entry(iter, &rshost_list.head, entry) {
 	        if(hostid == iter->host_id ) {
@@ -1308,7 +1312,7 @@ void vmpt3sas_lenvent_callback(int event, int hostid)
     	spin_unlock(&rshost_list.lock);
 		
 		break;
-	case EVT_REMOTE_HOST_UP:		
+	case LINK_EVT_DOWN_TO_UP:		
 		spin_lock(&rshost_list.lock);
 	    list_for_each_entry(iter, &rshost_list.head, entry) {
 	        if(hostid == iter->host_id ) {
@@ -1486,8 +1490,8 @@ _vmpt3sas_init(void)
 	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, gvmpt3sas_instance.tq_common);
 
 	vmpt3sas_init_instance(&gvmpt3sas_instance);
-	clustersan_vsas_set_levent_callback(vmpt3sas_lenvent_callback, NULL);
-	
+	//clustersan_vsas_set_levent_callback(vmpt3sas_lenvent_callback, NULL);
+	csh_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
 	err = misc_register(&vmpt3sas_mm_dev);
 	if (err < 0) {
 		printk(KERN_WARNING "%s: cannot register misc device\n", __func__);
@@ -1509,6 +1513,7 @@ _vmpt3sas_exit(void)
 	misc_deregister(&vmpt3sas_mm_dev);
 	kthread_stop(gvmpt3sas_instance.qcmdproxy.thread);
 	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
+	csh_link_evt_hook_remove(vmpt3sas_lenvent_callback);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
 	pr_info("%s exit\n", VMPT3SAS_DRIVER_NAME);
 }
