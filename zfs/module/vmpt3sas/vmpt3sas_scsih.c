@@ -467,6 +467,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 	int chanel, id ,lun;
     unsigned int host_id;
     remote_shost_t *rshost, *iter;
+	vmptsas_hostmap_t *hmp = NULL;
 	
 	XDR *xdrs = rx_data->xdrs;
 	session = rx_data->cs_data->cs_private;

@@ -113,6 +113,7 @@ typedef struct vmptsas_hostmap {
 	int remote_hostno;
 	int index;
 	int hostid;
+	struct list_head entry;
 }vmptsas_hostmap_t;
 
 #define ISRWCDB(cdb) ((cdb & 0x1F)==0x08 || (cdb & 0x1F)==0x0a)
