@@ -237,11 +237,11 @@ int main(int argc, char **argv)
             syslog(LOG_ERR, "Success to fetch info on mpt device %d", cmd->hdr.ioc_number);
             for(i = 0; i < cmd->sas_dev_cnt; i++)
             {
-                printf("Enclosure:0x%llx, Slot:%llu, sas_address:0x%llx, wwid:0x%llx\n",
-                    cmd->buffer[i].enclosure_id, 
-                    cmd->buffer[i].slot, 
-                    cmd->buffer[i].sas_address, 
-                    cmd->buffer[i].wwid);
+                printf("Enclosure:%lld\nSlot:%llu\nwwid:0x%llx\nsas_address:0x%llx\n",
+                    cmd->buffer[i].enclosure_id & 0xffff, 
+                    cmd->buffer[i].slot & 0xffff, 
+                    cmd->buffer[i].wwid,
+                    cmd->buffer[i].sas_address);
             }
         }
 

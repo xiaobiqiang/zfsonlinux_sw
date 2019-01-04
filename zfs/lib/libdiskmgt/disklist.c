@@ -1174,6 +1174,7 @@ typedef struct slot_record {
 	struct slot_record *sr_next;
 	char sr_serial[ARGS_LEN];
 	char sr_guid[ARGS_LEN];
+    char sr_addr[ARGS_LEN];
 } slot_record_t;
 
 typedef struct slot_map {
@@ -1272,14 +1273,32 @@ void disk_get_slot_map(slot_map_t *sm)
 				sr->sr_slot = slot;
 				sr->sr_next = NULL;
 				memcpy(sr->sr_serial, value_sn, strlen(value_sn));
-				memcpy(sr->sr_guid, value_sn, strlen(value_sn));
+				memcpy(sr->sr_guid, value_sn, strlen(value_sn));                
+                memcpy(sr->sr_addr, INVALID_STR, strlen(INVALID_STR));      
 				slot_map_insert(sm, sr);
 				slot = 0;
 				enclosure = 0;
 				memset(value_sn, '\n', sizeof(value_sn));
 				//memset(value_guid, '\n', sizeof(value_guid));
+				//syslog(LOG_WARNING, "en:%d, slot:%d, serial:%s",sr->sr_enclosure, sr->sr_slot, sr->sr_serial);
+			}
+		} else if (strcasecmp(args, SAS_ADDRESS) == 0) {
+			sscanf(tmp, "%*[^:]:%s", value_sn);
+			if (value_sn[0] != '\n') {
+				slot_record_t *sr = (slot_record_t*)malloc(sizeof(slot_record_t));
+				sr->sr_enclosure = enclosure;
+				sr->sr_slot = slot;
+				sr->sr_next = NULL;
+				memcpy(sr->sr_addr, value_sn, strlen(value_sn));
+                memcpy(sr->sr_serial, INVALID_STR, strlen(INVALID_STR)); 
+				slot_map_insert(sm, sr);
+				slot = 0;
+				enclosure = 0;
+				memset(value_sn, '\n', sizeof(value_sn));
+				//syslog(LOG_WARNING, "en:%d, slot:%d, addr:%s",sr->sr_enclosure, sr->sr_slot, sr->sr_addr);
 			}
 		}
+        
 	}
 
 	bzero(cmd, sizeof(cmd));
@@ -1295,7 +1314,11 @@ void slot_map_find_value(slot_map_t *sm, disk_info_t *di)
 
 	for (search = sm->sm_head; search != NULL; search = search->sr_next) {
 		if (strcasestr(di->dk_serial, search->sr_serial) != NULL ||
-				strcasestr(search->sr_serial, di->dk_serial) != NULL) {
+				strcasestr(search->sr_serial, di->dk_serial) != NULL ||
+				strcasestr(search->sr_addr, di->dk_scsid) != NULL ||
+				strcasestr(di->dk_scsid, search->sr_addr) != NULL) {
+		    syslog(LOG_WARNING, "di->dk_serial:%s, di->dk_scsid:%s, search->sr_serial:%s, search->sr_addr:%s",
+                    di->dk_serial, di->dk_scsid, search->sr_serial, search->sr_addr);
 			di->dk_enclosure = search->sr_enclosure;
 			di->dk_slot = search->sr_slot;
 			break;
