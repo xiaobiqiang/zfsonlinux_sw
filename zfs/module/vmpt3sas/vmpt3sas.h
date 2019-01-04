@@ -45,7 +45,8 @@ typedef enum vmpt3sas_remote_cmd {
 	VMPT_CMD_RSP,
 	VMPT_CMD_CTL,
 	VMPT_CMD_ADDHOST,
-	VMPT_CMD_SELFUP
+	VMPT_CMD_SELFUP,
+	VMPT_CMD_STATE_CHANGE
 } vmpt3sas_remote_cmd_t;
 
 typedef enum vmpt3sas_cmd_state {
