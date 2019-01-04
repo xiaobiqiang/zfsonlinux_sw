@@ -562,6 +562,60 @@ add_prop_list_default(const char *propname, char *propval, nvlist_t **props,
 	return (add_prop_list(propname, propval, props, B_TRUE));
 }
 
+int
+zpool_do_add_check_aggre(nvlist_t *config, nvlist_t *nvroot)
+{
+	char *type;
+	nvlist_t **child, **child1;
+	uint_t c, children, newchildren, raidz_children;
+	nvlist_t *pool_nvroot;
+	uint64_t parity1, parity2;
+	uint64_t is_meta;
+
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+		&pool_nvroot) == 0);
+	verify(nvlist_lookup_nvlist_array(pool_nvroot, ZPOOL_CONFIG_CHILDREN,
+		&child, &children) == 0);
+	for (c = 0; c < children; c++) {
+		verify(nvlist_lookup_string(child[c], ZPOOL_CONFIG_TYPE,
+			&type) == 0);
+		if (strncmp(type, "raidz", 5) == 0)
+			break;
+	}
+	verify(c != children);
+
+	verify(nvlist_lookup_nvlist_array(child[c], ZPOOL_CONFIG_CHILDREN,
+		&child1, &raidz_children) == 0);
+	verify(nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_NPARITY,
+		&parity1) == 0);
+	verify(nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN,
+		&child, &children) == 0);
+	for (c = 0; c < children; c++) {
+		verify(nvlist_lookup_string(child[c], ZPOOL_CONFIG_TYPE,
+			&type) == 0);
+		verify(nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_META,
+			&is_meta) == 0);
+		if (is_meta)
+			continue;
+		if (strncmp(type, "raidz", 5) != 0) {
+			printf("invalid vdev specification: "
+				"raidz needed.\n");
+			return (0);
+		}
+		verify(nvlist_lookup_nvlist_array(child[c], ZPOOL_CONFIG_CHILDREN,
+			&child1, &newchildren) == 0);
+		verify(nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_NPARITY,
+			&parity2) == 0);
+		if (raidz_children != newchildren || parity1 != parity2) {
+			printf("invalid vdev specification: "
+				"aggre raidz requires %d devices\n", raidz_children);
+			return (0);
+		}
+	}
+	return (1);
+}
+
+
 /*
  * zpool add [-fgLnP] [-o property=value] <pool> <vdev> ...
  *
@@ -591,6 +645,7 @@ zpool_do_add(int argc, char **argv)
 	nvlist_t *config;
 	nvlist_t *props = NULL;
 	char *propval;
+	boolean_t isaggre = B_FALSE;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "fgLno:P")) != -1) {
@@ -663,6 +718,14 @@ zpool_do_add(int argc, char **argv)
 	    argc, argv);
 	if (nvroot == NULL) {
 		zpool_close(zhp);
+		return (1);
+	}
+
+	if (!zfs_check_raidz_aggre_valid(config, nvroot)) {
+		(void) fprintf(stderr, gettext("pool '%s' check raidz aggre failed\n"),
+			poolname);
+		zpool_close(zhp);
+		nvlist_free(nvroot);
 		return (1);
 	}
 
@@ -5635,6 +5698,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 	uint64_t host_id;
 	vdev_stat_t *vs;
 	zpool_stamp_t *stamp;
+	boolean_t is_aggre = B_FALSE;
 
 	config = zpool_get_config(zhp, NULL);
 	reason = zpool_get_status(zhp, &msgid, &errata);
@@ -5682,6 +5746,11 @@ status_callback(zpool_handle_t *zhp, void *data)
 
 	(void) printf(gettext("  pool: %s\n"), zpool_get_name(zhp));
 	(void) printf(gettext(" state: %s\n"), health);
+
+	if (nvlist_lookup_boolean_value(config, ZPOOL_CONFIG_ISAGGRE,
+		&is_aggre) == 0 && is_aggre) {
+		(void) printf(gettext(" aggre: true\n"));
+	}
 	
 	if (cbp->cb_explain) {
 		node = create_pool_node(zhp, zpool_get_name(zhp), nvroot, health,

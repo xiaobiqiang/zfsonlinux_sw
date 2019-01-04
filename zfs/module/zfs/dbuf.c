@@ -106,8 +106,9 @@ dbuf_cons(void *vdb, void *unused, int kmflag)
 
 	mutex_init(&db->db_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&db->db_changed, NULL, CV_DEFAULT, NULL);
-	refcount_create(&db->db_holds);
-
+	refcount_create(&db->db_holds);	
+	refcount_dbg_create(&db->db_holds_dbg);
+	
     list_create(&db->db_segments_list,  sizeof (dbuf_segs_record_t),
         offsetof(dbuf_segs_record_t, seg_record_node));
     list_create(&db->db_segments_list_order,  sizeof (dbuf_segs_record_t),
@@ -133,6 +134,7 @@ dbuf_dest(void *vdb, void *unused)
 	mutex_destroy(&db->db_mtx);
 	cv_destroy(&db->db_changed);
 	refcount_destroy(&db->db_holds);
+	refcount_dbg_destroy(&db->db_holds_dbg);
 
     list_destroy(&db->db_segments_list);
     list_destroy(&db->db_segments_list_order);
@@ -509,6 +511,7 @@ retry:
 	 * configuration is not required.
 	 */
 	dbu_evict_taskq = taskq_create("dbu_evict", 1, defclsyspri, 0, 0, 0);
+	raidz_aggre_init();
 }
 
 void
@@ -532,6 +535,7 @@ dbuf_fini(void)
 #endif
 	kmem_cache_destroy(dbuf_cache);
 	taskq_destroy(dbu_evict_taskq);
+	raidz_aggre_fini();
 }
 
 /*
@@ -1658,6 +1662,7 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	ASSERT(db->db_dirtycnt > 0);
 	db->db_dirtycnt -= 1;
 
+	refcount_dbg_remove(&db->db_holds_dbg, (void *)(uintptr_t)txg);
 	if (refcount_remove(&db->db_holds, (void *)(uintptr_t)txg) == 0) {
 		arc_buf_t *buf = db->db_buf;
 
@@ -2408,6 +2413,7 @@ top:
 	}
 
 	(void) refcount_add(&dh->dh_db->db_holds, dh->dh_tag);
+	(void) refcount_dbg_add(&dh->dh_db->db_holds_dbg, dh->dh_tag);
 	DBUF_VERIFY(dh->dh_db);
 	mutex_exit(&dh->dh_db->db_mtx);
 
@@ -2521,6 +2527,7 @@ void
 dbuf_add_ref(dmu_buf_impl_t *db, void *tag)
 {
 	VERIFY(refcount_add(&db->db_holds, tag) > 1);
+	refcount_dbg_add(&db->db_holds_dbg, tag);
 }
 
 #pragma weak dmu_buf_try_add_ref = dbuf_try_add_ref
@@ -2540,6 +2547,7 @@ dbuf_try_add_ref(dmu_buf_t *db_fake, objset_t *os, uint64_t obj, uint64_t blkid,
 	if (found_db != NULL) {
 		if (db == found_db && dbuf_refcount(db) > db->db_dirtycnt) {
 			(void) refcount_add(&db->db_holds, tag);
+			refcount_dbg_add(&db->db_holds_dbg, tag);
 			result = B_TRUE;
 		}
 		mutex_exit(&found_db->db_mtx);
@@ -2585,6 +2593,7 @@ dbuf_rele_and_unlock(dmu_buf_impl_t *db, void *tag)
 	 * buffer has a corresponding dnode hold.
 	 */
 	holds = refcount_remove(&db->db_holds, tag);
+	refcount_dbg_remove(&db->db_holds_dbg, tag);
 	ASSERT(holds >= 0);
 
 	/*
@@ -2870,7 +2879,7 @@ dbuf_sync_indirect(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
  * critical the we not allow the compiler to inline this function in to
  * dbuf_sync_list() thereby drastically bloating the stack usage.
  */
-noinline static void
+noinline static boolean_t
 dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 {
 	arc_buf_t **datap = &dr->dt.dl.dr_data;
@@ -2962,7 +2971,7 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 		ASSERT(db->db_dirtycnt > 0);
 		db->db_dirtycnt -= 1;
 		dbuf_rele_and_unlock(db, (void *)(uintptr_t)txg);
-		return;
+		return B_FALSE;
 	}
 
 	os = dn->dn_objset;
@@ -3025,14 +3034,84 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 		 * zio_nowait() invalidates the dbuf.
 		 */
 		DB_DNODE_EXIT(db);
-		zio_nowait(dr->dr_zio);
+		return B_TRUE;
+		/* zio_nowait(dr->dr_zio); */
 	}
+
+	return B_FALSE;
+}
+
+static
+void dbuf_dr_insert_sort_list(list_t *dr_list, dbuf_dirty_record_t *dr)
+{	
+	dbuf_dirty_record_t *next = NULL;
+	dbuf_dirty_record_t *next_next = NULL;
+	dbuf_dirty_record_t *head = list_head(dr_list);
+	
+	if (head == NULL ||
+	    head->dr_dbuf->db_blkid > dr->dr_dbuf->db_blkid) {
+		list_insert_head(dr_list, dr);
+	} else {
+		next = head;
+		next_next = list_next(dr_list, next);
+		while (next_next != NULL  && 
+		  next_next ->dr_dbuf->db_blkid <= dr->dr_dbuf->db_blkid) {
+			next = next_next;
+			next_next = list_next(dr_list, next);
+		}
+		list_insert_after(dr_list, next, dr);
+	}
+}
+
+static
+void  dbuf_dr_sort_list(list_t * dr_list)
+{
+	list_t tmp_dr_list;
+
+	dbuf_dirty_record_t *head;
+	
+	list_create(&tmp_dr_list, sizeof(dbuf_dirty_record_t),
+	    offsetof(dbuf_dirty_record_t, dr_dirty_node));
+	while (head = list_head(dr_list)) {
+		list_remove(dr_list, head);
+		list_insert_tail(&tmp_dr_list, head);
+	}
+
+	while(head = list_head(&tmp_dr_list)) {
+		list_remove(&tmp_dr_list, head);
+		dbuf_dr_insert_sort_list(dr_list, head);
+	}
+
+	list_destroy(&tmp_dr_list);
 }
 
 void
 dbuf_sync_list(list_t *list, int level, dmu_tx_t *tx)
 {
 	dbuf_dirty_record_t *dr;
+	dbuf_dirty_record_t *drarray[TG_MAX_DISK_NUM + 1];
+	dnode_t *dn;
+	spa_t *spa = tx->tx_pool->dp_spa;
+	int i;
+	uint8_t num, ntogether = 0;
+
+	if (list_head(list) == NULL)
+		return;
+
+	if (spa->spa_raidz_aggre == B_TRUE)
+		ntogether = spa->spa_raidz_aggre_num;
+
+	dr = list_head(list);
+	dn = DB_DNODE(dr->dr_dbuf);
+	
+	if (dn->dn_type != DMU_OT_PLAIN_FILE_CONTENTS && dn->dn_type != DMU_OT_ZVOL)
+		ntogether = 0;
+
+	num = 0;
+	for (i = 0; i < TG_MAX_DISK_NUM + 1; i++)
+		drarray[i] = NULL;
+
+	dbuf_dr_sort_list(list);
 
 	while ((dr = list_head(list))) {
 		if (dr->dr_zio != NULL) {
@@ -3052,10 +3131,61 @@ dbuf_sync_list(list_t *list, int level, dmu_tx_t *tx)
 			VERIFY3U(dr->dr_dbuf->db_level, ==, level);
 		}
 		list_remove(list, dr);
-		if (dr->dr_dbuf->db_level > 0)
+
+		if (dr->dr_dbuf->db_level > 0) {
 			dbuf_sync_indirect(dr, tx);
-		else
-			dbuf_sync_leaf(dr, tx);
+			continue;
+		}
+
+		if (dbuf_sync_leaf(dr, tx)) {
+			if (ntogether == 0 ) {
+				zio_nowait(dr->dr_zio);
+				continue;
+			}
+
+			if (dr->dr_dbuf->db_blkid == DMU_BONUS_BLKID ||
+					dr->dr_dbuf->db_blkid == DMU_SPILL_BLKID) {
+				cmn_err(CE_WARN,"%s specical blk ",__func__);
+				zio_nowait(dr->dr_zio);
+				continue;
+			}
+
+			if (dn->dn_datablksz % 4096) {
+				zio_nowait(dr->dr_zio);
+				continue;
+			}
+
+			if (dr->dr_zio->io_data == NULL ||
+					dr->dr_zio->io_size != dn->dn_datablksz ) {
+				cmn_err(CE_WARN,"%s data=%p blkid = %lx iosize = %lx ",__func__,
+					dr->dr_zio->io_data, (unsigned long)dr->dr_zio->io_bookmark.zb_blkid, (unsigned long)dr->dr_zio->io_size);
+				zio_nowait(dr->dr_zio);
+				continue;
+			}
+					
+			/* together wrting zio */
+			if (dr->dr_zio != NULL && dr->dr_zio->io_type == ZIO_TYPE_WRITE) {
+				drarray[num]=dr;
+				num++;
+			} else if (dr->dr_zio != NULL) {
+				zio_nowait(dr->dr_zio);
+				continue;
+			}
+			if (num >= ntogether) {
+				dbuf_aggre_leaf((void **)drarray, ntogether);
+			    for (i = 0; i < TG_MAX_DISK_NUM + 1; i++)
+					drarray[i] = NULL;
+				
+				num = 0;
+			}
+		}
+	}
+
+	for (i=0; i < num; i++) {
+		dr = drarray[i];
+		if (dr->dr_zio != NULL) {
+			zio_nowait(dr->dr_zio);
+		}
 	}
 }
 

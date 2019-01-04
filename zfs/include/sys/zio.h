@@ -35,6 +35,7 @@
 #include <sys/avl.h>
 #include <sys/fs/zfs.h>
 #include <sys/zio_impl.h>
+#include <sys/raidz_aggre.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -460,6 +461,10 @@ struct zio {
 
 	/* Taskq dispatching state */
 	taskq_ent_t	io_tqent;
+
+	aggre_io_t	*io_aggre_io;
+	boolean_t	io_aggre_root;
+	uint32_t	io_aggre_order;	
 };
 
 extern zio_t *zio_null(zio_t *pio, spa_t *spa, vdev_t *vd,

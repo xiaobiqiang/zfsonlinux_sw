@@ -220,6 +220,8 @@ struct arc_buf_hdr {
 	l2arc_buf_hdr_t		b_l2hdr;
 	/* L1ARC fields. Undefined when in l2arc_only state */
 	l1arc_buf_hdr_t		b_l1hdr;
+
+	unsigned char	b_tgindex;
 };
 #ifdef __cplusplus
 }

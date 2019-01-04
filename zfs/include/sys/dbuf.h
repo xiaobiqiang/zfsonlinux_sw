@@ -292,6 +292,7 @@ typedef struct dmu_buf_impl {
     void *db_seg_data;
 	boolean_t db_app_meta[TXG_SIZE];
 	boolean_t db_low_data[TXG_SIZE];
+	refcount_dbg_t	db_holds_dbg;
 } dmu_buf_impl_t;
 
 typedef struct dbuf_mirror_io {

@@ -1041,10 +1041,11 @@ buf_hash(uint64_t spa, const dva_t *dva, uint64_t birth)
 	((buf)->b_dva.dva_word[0] == 0 &&			\
 	(buf)->b_dva.dva_word[1] == 0)
 
-#define	BUF_EQUAL(spa, dva, birth, buf)				\
+#define	BUF_EQUAL(spa, dva, birth, index, buf)				\
 	((buf)->b_dva.dva_word[0] == (dva)->dva_word[0]) &&	\
 	((buf)->b_dva.dva_word[1] == (dva)->dva_word[1]) &&	\
-	((buf)->b_birth == birth) && ((buf)->b_spa == spa)
+	((buf)->b_birth == birth) && ((buf)->b_spa == spa) && \
+	((buf)->b_tgindex == index)
 
 static void
 buf_discard_identity(arc_buf_hdr_t *hdr)
@@ -1060,13 +1061,14 @@ buf_hash_find(uint64_t spa, const blkptr_t *bp, kmutex_t **lockp)
 	const dva_t *dva = BP_IDENTITY(bp);
 	uint64_t birth = BP_PHYSICAL_BIRTH(bp);
 	uint64_t idx = BUF_HASH_INDEX(spa, dva, birth);
+	uint8_t tgindex = BP_GET_BLKID(bp);
 	kmutex_t *hash_lock = BUF_HASH_LOCK(idx);
 	arc_buf_hdr_t *hdr;
 
 	mutex_enter(hash_lock);
 	for (hdr = buf_hash_table.ht_table[idx]; hdr != NULL;
 	    hdr = hdr->b_hash_next) {
-		if (BUF_EQUAL(spa, dva, birth, hdr)) {
+		if (BUF_EQUAL(spa, dva, birth, tgindex, hdr)) {
 			*lockp = hash_lock;
 			return (hdr);
 		}
@@ -1104,7 +1106,7 @@ buf_hash_insert(arc_buf_hdr_t *hdr, kmutex_t **lockp)
 
 	for (fhdr = buf_hash_table.ht_table[idx], i = 0; fhdr != NULL;
 	    fhdr = fhdr->b_hash_next, i++) {
-		if (BUF_EQUAL(hdr->b_spa, &hdr->b_dva, hdr->b_birth, fhdr))
+		if (BUF_EQUAL(hdr->b_spa, &hdr->b_dva, hdr->b_birth, hdr->b_tgindex, fhdr))
 			return (fhdr);
 	}
 
@@ -4549,6 +4551,7 @@ top:
 			arc_buf_contents_t type = BP_GET_BUFC_TYPE(bp);
 			buf = arc_buf_alloc(spa, size, private, type);
 			hdr = buf->b_hdr;
+			hdr->b_tgindex = BP_GET_BLKID(bp);
 			if (!BP_IS_EMBEDDED(bp)) {
 				hdr->b_dva = *BP_IDENTITY(bp);
 				hdr->b_birth = BP_PHYSICAL_BIRTH(bp);
@@ -4712,6 +4715,8 @@ top:
 
 				if (*arc_flags & ARC_FLAG_NOWAIT) {
 					zio_nowait(rzio);
+					cmn_err(CE_WARN, "%s return 4 %lx.%lx blkid=%lx", 
+						__func__, (long)zb->zb_objset, (long)zb->zb_object, (long)zb->zb_blkid);
 					goto out;
 				}
 
@@ -5163,6 +5168,7 @@ arc_write_done(zio_t *zio)
 			hdr->b_dva = *BP_IDENTITY(zio->io_bp);
 			hdr->b_birth = BP_PHYSICAL_BIRTH(zio->io_bp);
 		}
+		hdr->b_tgindex = BP_GET_BLKID(zio->io_bp);
 	} else {
 		ASSERT(BUF_EMPTY(hdr));
 	}

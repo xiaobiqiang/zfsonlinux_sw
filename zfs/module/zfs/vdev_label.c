@@ -238,7 +238,9 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 
 	if (vd->vdev_nparity != 0) {
 		ASSERT(strcmp(vd->vdev_ops->vdev_op_type,
-		    VDEV_TYPE_RAIDZ) == 0);
+		    VDEV_TYPE_RAIDZ) == 0 ||
+		    strcmp(vd->vdev_ops->vdev_op_type,
+		    VDEV_TYPE_RAIDZ_AGGRE) == 0);
 
 		/*
 		 * Make sure someone hasn't managed to sneak a fancy new vdev

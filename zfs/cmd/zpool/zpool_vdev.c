@@ -994,7 +994,8 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 			rep.zprl_type = type;
 			rep.zprl_children = 0;
 
-			if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
+			if (strcmp(type, VDEV_TYPE_RAIDZ) == 0 ||
+				strcmp(type, VDEV_TYPE_RAIDZ_AGGRE) == 0) {
 				verify(nvlist_lookup_uint64(nv,
 				    ZPOOL_CONFIG_NPARITY,
 				    &rep.zprl_parity) == 0);
@@ -1570,8 +1571,20 @@ is_device_in_use(nvlist_t *config, nvlist_t *nv, boolean_t force,
 static const char *
 is_grouping(const char *type, int *mindev, int *maxdev)
 {
-	if (strncmp(type, "raidz", 5) == 0) {
-		const char *p = type + 5;
+	boolean_t raidz = B_FALSE;
+	boolean_t raidz_aggre = B_FALSE;
+	const char *p = NULL;
+
+	/* VDEV_TYPE_RAIDZ_AGGRE str contains VDEV_TYPE_RAIDZ, should before */
+	if (strncmp(type, VDEV_TYPE_RAIDZ_AGGRE, 7) == 0) {
+		raidz_aggre = B_TRUE;
+		p = type + 7;
+	} else if (strncmp(type, VDEV_TYPE_RAIDZ, 5) == 0) {
+		raidz = B_TRUE;
+		p = type + 5;
+	}
+	
+	if (raidz || raidz_aggre) {
 		char *end;
 		long nparity;
 
@@ -1591,7 +1604,11 @@ is_grouping(const char *type, int *mindev, int *maxdev)
 			*mindev = nparity + 1;
 		if (maxdev != NULL)
 			*maxdev = 255;
-		return (VDEV_TYPE_RAIDZ);
+
+		if (raidz)
+			return (VDEV_TYPE_RAIDZ);
+		else
+			return (VDEV_TYPE_RAIDZ_AGGRE);
 	}
 
 	if (maxdev != NULL)
@@ -1913,7 +1930,8 @@ construct_spec(nvlist_t *props, int argc, char **argv)
 				    ZPOOL_CONFIG_IS_LOW, is_low) == 0);
 				verify(nvlist_add_uint64(nv,
 				    ZPOOL_CONFIG_IS_SPARE, is_spare) == 0);
-				if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
+				if (strcmp(type, VDEV_TYPE_RAIDZ) == 0 ||
+					strcmp(type, VDEV_TYPE_RAIDZ_AGGRE) == 0) {
 					verify(nvlist_add_uint64(nv,
 					    ZPOOL_CONFIG_NPARITY,
 					    mindev - 1) == 0);
@@ -2026,6 +2044,12 @@ split_mirror_vdev(zpool_handle_t *zhp, char *newname, nvlist_t *props,
 			return (NULL);
 		}
 
+		if (!zfs_check_raidz_aggre_valid(NULL, newroot)) {
+			(void) fprintf(stderr, gettext("split_mirror_vdev check raidz aggre failed\n"));
+			nvlist_free(newroot);
+			return (NULL);
+		}
+		
 		if (!flags.dryrun && make_disks(zhp, newroot) != 0) {
 			nvlist_free(newroot);
 			return (NULL);
@@ -2086,6 +2110,12 @@ make_root_vdev(zpool_handle_t *zhp, nvlist_t *props, int force, int check_rep,
 		return (NULL);
 
 	if (zhp && ((poolconfig = zpool_get_config(zhp, NULL)) == NULL)) {
+		nvlist_free(newroot);
+		return (NULL);
+	}
+
+	if (!zfs_check_raidz_aggre_valid(NULL, newroot)) {
+		(void) fprintf(stderr, gettext("make_root_vdev check raidz aggre failed\n"));
 		nvlist_free(newroot);
 		return (NULL);
 	}

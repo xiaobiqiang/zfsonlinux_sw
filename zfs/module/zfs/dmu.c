@@ -132,7 +132,9 @@ const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	DMU_BSWAP_ZAP,		TRUE,	"group dtl"		},
 	{	DMU_BSWAP_ZAP,		TRUE,	"group dtl header"	},
 	{	DMU_BSWAP_ZAP,		TRUE,	"group map"		},
-	{	DMU_BSWAP_ZAP,		TRUE,	"group master node" }
+	{	DMU_BSWAP_ZAP,		TRUE,	"group master node" },
+	{	DMU_BSWAP_UINT8,	TRUE,	"raidz aggre map" },
+	{	DMU_BSWAP_UINT8,	TRUE,	"raidz aggre map header" }
 };
 
 const dmu_object_byteswap_info_t dmu_ot_byteswap[DMU_BSWAP_NUMFUNCS] = {
@@ -304,6 +306,7 @@ dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **dbp)
 	db = dn->dn_bonus;
 
 	/* as long as the bonus buf is held, the dnode will be held */
+	refcount_dbg_add(&db->db_holds_dbg, tag);
 	if (refcount_add(&db->db_holds, tag) == 1) {
 		VERIFY(dnode_add_ref(dn, db));
 		atomic_inc_32(&dn->dn_dbufs_count);
