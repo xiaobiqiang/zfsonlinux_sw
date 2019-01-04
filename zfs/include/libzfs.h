@@ -1065,6 +1065,7 @@ extern uint_t num_metas(nvlist_t *nv);
 extern uint_t num_lows(nvlist_t *nv);
 extern void zpool_check_thin_luns(zfs_thinluns_t **statpp);
 extern void zfs_check_thin_luns(zfs_thin_luns_stat_t **statpp);
+extern boolean_t zfs_check_raidz_aggre_valid(nvlist_t *config, nvlist_t *nv);
 
 #ifdef	__cplusplus
 }

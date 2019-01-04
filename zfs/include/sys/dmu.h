@@ -199,6 +199,10 @@ typedef enum dmu_object_type {
 	DMU_OT_GROUP_DTL_HEADER,
 	DMU_OT_GROUP_MAP,
 	DMU_OT_NAS_GROUP_MASTER_NODE,
+
+	DMU_OT_RAIDZ_AGGRE_MAP,		/* UINT64 */
+	DMU_OT_RAIDZ_AGGRE_MAP_HDR,
+	
 	/*
 	 * Do not allocate new object types here. Doing so makes the on-disk
 	 * format incompatible with any other format that uses the same object
@@ -331,6 +335,7 @@ typedef struct dmu_buf {
 #define DMU_POOL_METASPARES		"metaspares"
 #define DMU_POOL_MIRRORSPARES		"mirrorspares"
 #define DMU_POOL_LOWSPARES		"lowspares"
+#define	DMU_POOL_RAIDZ_AGGRE_MAP	"raidz_aggre_map"
 
 
 /*

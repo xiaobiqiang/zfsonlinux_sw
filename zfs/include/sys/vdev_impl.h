@@ -352,6 +352,7 @@ extern vdev_ops_t vdev_root_ops;
 extern vdev_ops_t vdev_mirror_ops;
 extern vdev_ops_t vdev_replacing_ops;
 extern vdev_ops_t vdev_raidz_ops;
+extern vdev_ops_t vdev_raidz_aggre_ops;
 extern vdev_ops_t vdev_disk_ops;
 extern vdev_ops_t vdev_file_ops;
 extern vdev_ops_t vdev_missing_ops;

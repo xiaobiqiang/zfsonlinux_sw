@@ -494,6 +494,7 @@ dmu_objset_insert_data(objset_t *os, dmu_buf_impl_t *db,
 {
     os_seg_worker_t *worker = os->os_seg_data_worker;
     refcount_add(&seg_data->db->db_holds, (void *)dbuf_rewrite_tag);
+	refcount_dbg_add(&db->db_holds_dbg, (void *)dbuf_rewrite_tag);
     // dbuf_add_ref(seg_data->db, (void *)dbuf_rewrite_tag);
     mutex_enter(&worker->worker_mtx);
     list_insert_tail(&worker->worker_list, seg_data);

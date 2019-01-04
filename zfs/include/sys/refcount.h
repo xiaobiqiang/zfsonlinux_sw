@@ -103,6 +103,40 @@ typedef struct refcount {
 
 #endif	/* ZFS_DEBUG */
 
+/* ==================================== */
+
+typedef struct reference_dbg {
+	list_node_t ref_link;
+	void *ref_holder;
+	uint64_t ref_number;
+	uint8_t *ref_removed;
+} reference_dbg_t;
+
+typedef struct refcount_dbg {
+	kmutex_t rc_mtx;
+	list_t rc_list;
+	list_t rc_removed;
+	int64_t rc_count;
+	int64_t rc_removed_count;
+} refcount_dbg_t;
+
+/* Note: refcount_dbg_t must be initialized with refcount_dbg_create() */
+
+void refcount_dbg_create(refcount_dbg_t *rc);
+void refcount_dbg_destroy(refcount_dbg_t *rc);
+void refcount_dbg_destroy_many(refcount_dbg_t *rc, uint64_t number);
+int refcount_dbg_is_zero(refcount_dbg_t *rc);
+int64_t refcount_dbg_count(refcount_dbg_t *rc);
+int64_t refcount_dbg_add(refcount_dbg_t *rc, void *holder_tag);
+int64_t refcount_dbg_remove(refcount_dbg_t *rc, void *holder_tag);
+int64_t refcount_dbg_add_many(refcount_dbg_t *rc, uint64_t number, void *holder_tag);
+int64_t refcount_dbg_remove_many(refcount_dbg_t *rc, uint64_t number, void *holder_tag);
+void refcount_dbg_transfer(refcount_dbg_t *dst, refcount_dbg_t *src);
+
+void refcount_dbg_init(void);
+void refcount_dbg_fini(void);
+
+
 #ifdef	__cplusplus
 }
 #endif
