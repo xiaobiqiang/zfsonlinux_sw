@@ -36,7 +36,7 @@ install-exec-hook:
 	cp -rf /tmp/megacli/lsiraid-2018-03-05/megacli/qemu-x86_64 /usr/local/bin/qemu-x86_64
 	chmod u+x  /usr/local/bin/qemu-x86_64
 	rm -rf /usr/gnemul
-	mkdri /usr/gnemul
+	mkdir /usr/gnemul
 	tar zxvf /tmp/megacli/lsiraid-2018-03-05/megacli/qemu-x86_64.tar.gz -C /usr/gnemul
 	mkdir /usr/gnemul/qemu-x86_64/bin/
 	cp -rf /tmp/megacli/lsiraid-2018-03-05/megacli/MegaCli64 /usr/gnemul/qemu-x86_64/bin/MegaCli64
