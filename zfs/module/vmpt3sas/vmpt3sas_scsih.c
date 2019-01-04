@@ -1512,16 +1512,19 @@ vmpt3sas_hdl_down_to_up(int hostid)
     
 }
 
-void vmpt3sas_lenvent_callback(int event, int hostid)
+void 
+vmpt3sas_lenvent_callback(void *private, cts_link_evt_t link_evt, void *arg)
 {
     int found = 0;
 	remote_shost_t  *iter = NULL;
+	cluster_san_hostinfo_t *hostp = private;
+	u32 hostid = hostp->hostid;
 	
 	printk(KERN_WARNING "%s: event:%d hostid:%d", 
-	       __func__, event, hostid);
-	switch(event)
+	       __func__, link_evt, hostid);
+	switch(link_evt)
 	{
-	case EVT_REMOTE_HOST_DOWN:
+	case LINK_EVT_UP_TO_DOWN:
 		spin_lock(&rshost_list.lock);
 	    list_for_each_entry(iter, &rshost_list.head, entry) {
 	        if(hostid == iter->host_id ) {
@@ -1545,7 +1548,7 @@ void vmpt3sas_lenvent_callback(int event, int hostid)
 	           
 		vmpt3sas_hdl_up_to_down(hostid);
 		break;
-	case EVT_REMOTE_HOST_UP:		
+	case LINK_EVT_DOWN_TO_UP:		
 		spin_lock(&rshost_list.lock);
 	    list_for_each_entry(iter, &rshost_list.head, entry) {
 	        if(hostid == iter->host_id ) {
@@ -1758,8 +1761,11 @@ _vmpt3sas_init(void)
 
 	vmpt3sas_init_instance(&gvmpt3sas_instance);
 	vmpt3sas_init_hostmap_list();
-	
+
+	/*
 	clustersan_vsas_set_levent_callback(vmpt3sas_lenvent_callback, NULL);
+	*/
+	cts_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
 	sd_register_cb_state_changed(vmpt3sas_sd_state_changed_cb, NULL);
 	
 	err = misc_register(&vmpt3sas_mm_dev);
@@ -1784,6 +1790,7 @@ _vmpt3sas_exit(void)
 	kthread_stop(gvmpt3sas_instance.qcmdproxy.thread);
 	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
+	cts_link_evt_hook_remove(vmpt3sas_lenvent_callback);
 	pr_info("%s exit\n", VMPT3SAS_DRIVER_NAME);
 }
 
