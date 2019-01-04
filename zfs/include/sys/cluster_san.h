@@ -385,6 +385,7 @@ typedef struct cluster_target_port {
 	/* tran data */
 	cluster_target_tran_data_free_t f_tran_free;
 	cluster_target_tran_data_fragment_t f_tran_fragment;
+	cluster_target_tran_data_fragment_t f_tran_fragment_sgl;
 	cts_tran_start_t f_session_tran_start;
 	cluster_target_session_init_t f_session_init;
 	cluster_target_session_fini_t f_session_fini;
@@ -467,6 +468,9 @@ int cluster_target_send_wait(cluster_target_port_t *ctp,
 	cluster_target_tran_data_t *data_array, int cnt, int pri);
 int cluster_target_session_send(cluster_target_session_t *cts,
 	cluster_tran_data_origin_t *origin_data, int pri);
+int cluster_target_session_send_sgl(cluster_target_session_t *cts,
+	cluster_tran_data_origin_t *origin_data, int pri);
+
 #ifdef COMM_TEST
 int cluster_comm_test(int hostid, int datalen, int headlen);
 #endif
@@ -501,6 +505,10 @@ void csh_rx_data_free(cs_rx_data_t *cs_data, boolean_t csh_hold);
 int cluster_san_host_send(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, int pri, boolean_t need_reply, int retry_times);
+int cluster_san_host_send_sgl(cluster_san_hostinfo_t *cshi,
+	void *data, uint64_t len, void *header, uint64_t header_len,
+	uint8_t msg_type, int pri, boolean_t need_reply, int retry_times);
+
 void cluster_san_host_asyn_send(cluster_san_hostinfo_t *cshi,
 	void *data, uint64_t len, void *header, uint64_t header_len,
 	uint8_t msg_type, uint32_t type, void *private,

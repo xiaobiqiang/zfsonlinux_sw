@@ -79,7 +79,7 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
-subdir = cmd/dbufstat
+subdir = cmd/iostat
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(dist_bin_SCRIPTS)
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -426,7 +426,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 udevdir = @udevdir@
 udevruledir = @udevruledir@
-dist_bin_SCRIPTS = dbufstat.py
+dist_bin_SCRIPTS = iostat.py
 all: all-am
 
 .SUFFIXES:
@@ -439,9 +439,9 @@ $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__confi
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu cmd/dbufstat/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu cmd/iostat/Makefile'; \
 	$(am__cd) $(top_srcdir) && \
-	  $(AUTOMAKE) --gnu cmd/dbufstat/Makefile
+	  $(AUTOMAKE) --gnu cmd/iostat/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \
