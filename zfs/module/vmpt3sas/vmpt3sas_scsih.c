@@ -1768,7 +1768,7 @@ _vmpt3sas_init(void)
 	/*
 	clustersan_vsas_set_levent_callback(vmpt3sas_lenvent_callback, NULL);
 	*/
-	cts_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
+	csh_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
 	sd_register_cb_state_changed(vmpt3sas_sd_state_changed_cb, NULL);
 	
 	err = misc_register(&vmpt3sas_mm_dev);
@@ -1793,7 +1793,7 @@ _vmpt3sas_exit(void)
 	kthread_stop(gvmpt3sas_instance.qcmdproxy.thread);
 	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
-	cts_link_evt_hook_remove(vmpt3sas_lenvent_callback);
+	csh_link_evt_hook_remove(vmpt3sas_lenvent_callback);
 	pr_info("%s exit\n", VMPT3SAS_DRIVER_NAME);
 }
 
