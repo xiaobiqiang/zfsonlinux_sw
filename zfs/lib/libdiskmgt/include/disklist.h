@@ -34,6 +34,9 @@ extern "C" {
 #define SLOT			"Slot"
 #define ENCLOSURE		"Enclosure"
 #define SERIALNO		"Serial"
+#define SAS_ADDRESS		"Addr"
+#define INVALID_STR   "FFFFFFFF"
+
 #define DEFAULT_PATH	"/dev/"
 #define DEFAULT_SCSI	"/dev/disk/by-id/"
 #define SAS2IRCU		"sas2ircu 0 display 2>/dev/null"

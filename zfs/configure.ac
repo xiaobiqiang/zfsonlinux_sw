@@ -151,6 +151,7 @@ AC_CONFIG_FILES([
     	cmd/iostat/Makefile
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
+	cmd/sas3show/Makefile
 	cmd/clusterd/Makefile
 	cmd/clumgt/Makefile
 	cmd/pmm/Makefile
