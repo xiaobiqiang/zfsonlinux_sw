@@ -166,6 +166,7 @@ cts_mac_mblk_to_fragment (void *target_port, void *rx_msg)
 		freemsg(mp);
 		return (NULL);
 	}
+		
 	fragment = kmem_zalloc(sizeof(cts_fragment_data_t), KM_SLEEP);
 	fragment->target_port = ctp;
 	fragment->rx_msg = mp;
@@ -575,6 +576,126 @@ GET_MBLK_FAILED:
 
 	return (ret);
 }
+
+static int cluster_target_mac_tran_data_fragment_sgl(
+	void *src, void *dst, cluster_tran_data_origin_t *origin_data,
+	cluster_target_tran_data_t **fragmentations, int *cnt)
+{
+	int fragment_cnt = 0;
+	int do_fragment_cnt = 0;
+	uint16_t ex_len;
+	uint64_t fragment_offset = 0;
+	int fragment_len = 0;
+	
+	mblk_t *head_mp = NULL;
+	struct ether_header *eth_head;
+	cluster_target_msg_header_t *ct_head;
+	struct scatterlist *sg = NULL;
+	struct page *page = NULL;
+	struct sg_table *sgtable;
+	
+	size_t head_len = sizeof(struct ether_header) +
+		sizeof(cluster_target_msg_header_t);
+		
+	cluster_target_mac_tran_data_t *mac_tran_data;
+	cluster_target_tran_data_t *data_array = NULL;
+	cluster_target_port_mac_t *port_mac = src;
+	cluster_target_session_mac_t *sess_mac = dst;
+	int remain = origin_data->data_len;
+	
+	sgtable = (struct sg_table *)origin_data->data;
+	if (sgtable){
+		fragment_cnt = sgtable->nents;
+		sg = sgtable->sgl;
+	}
+	else{
+		fragment_cnt = 1;
+		sg = NULL;
+	}
+	data_array = kmem_zalloc((sizeof(cluster_target_tran_data_t) * fragment_cnt),
+		KM_SLEEP);
+	ex_len = origin_data->header_len;
+	 
+	do{		
+		if (ex_len ){ /* first mblk */
+			head_mp = cluster_target_mac_get_mblk(origin_data->header, origin_data->header_len,
+				head_len);
+		} else {
+			head_mp = cluster_target_mac_get_mblk(NULL, 0,
+				head_len);
+		}
+
+		if(head_mp==NULL){
+			fragment_cnt = 0;
+			printk(KERN_WARNING "%s: alloc mblk failed\n",	__func__);
+			goto end_of_count_frarray;
+		}
+
+		head_mp->skb->dev = port_mac->dev;
+		head_mp->skb->priority = 0;
+		
+		ct_head = (cluster_target_msg_header_t*)skb_push(head_mp->skb, sizeof(cluster_target_msg_header_t));
+		memset(ct_head, 0, sizeof(*ct_head));
+		eth_head = (struct ether_header *)skb_push(head_mp->skb, sizeof(struct ether_header));
+		skb_reset_mac_header(head_mp->skb);
+
+		if (sg) {
+			fragment_len = min((size_t)sg->length, remain);
+	
+			page = sg_page(sg);
+			BUG_ON(!page);
+			get_page(page);
+						
+			skb_fill_page_desc(head_mp->skb,
+					   skb_shinfo(head_mp->skb)->nr_frags,
+					   page, sg->offset, fragment_len);
+			
+			head_mp->skb->len += fragment_len;
+			head_mp->skb->data_len += fragment_len;
+			head_mp->skb->truesize += fragment_len;
+			/*
+			printk(KERN_WARNING "%s: sg no[%d]  offset=%d len=%d frlen=%d remain=%d\n",	
+				__func__,do_fragment_cnt,sg->offset,sg->length,fragment_len,remain);
+				*/
+		}	
+		
+		memcpy(eth_head->h_source, port_mac->dev->dev_addr, ETH_ALEN);
+		if (dst == CLUSTER_SAN_BROADCAST_SESS) {
+			memcpy(eth_head->h_dest, mac_broadcast_addr, ETH_ALEN);
+		} else {
+			memcpy(eth_head->h_dest, sess_mac->sess_daddr, ETH_ALEN);
+		}
+		eth_head->h_proto = __constant_htons(ETHERTYPE_CLUSTERSAN);
+
+		ct_head->msg_type = origin_data->msg_type;
+		ct_head->index = origin_data->index;
+		ct_head->len = fragment_len;
+		ct_head->total_len = origin_data->data_len;
+		ct_head->offset = fragment_offset;
+		ct_head->need_reply = (uint8_t)(origin_data->need_reply == B_TRUE);
+		ct_head->ex_len = ex_len;
+		memset(ct_head->reserved, 0x55, 8);
+		
+		mac_tran_data = kmem_zalloc(sizeof(cluster_target_mac_tran_data_t), KM_SLEEP);
+		mac_tran_data->mp = head_mp;
+		mac_tran_data->len = head_len + ex_len + fragment_len;
+		data_array[do_fragment_cnt].fragmentation = mac_tran_data;
+		if(ex_len)
+			ex_len = 0;
+		do_fragment_cnt++;
+		fragment_offset += fragment_len;
+		remain -= fragment_len;
+		if(sg)
+			sg = sg_next(sg);
+	}while(sg!=NULL && remain);
+
+end_of_count_frarray:	
+	*fragmentations = data_array;
+	*cnt = fragment_cnt;
+	
+	return (0);
+}
+
 
 #ifdef SOLARIS
 static void
@@ -1257,6 +1378,7 @@ int cluster_target_mac_port_init(
 	ctp->f_send_msg = cluster_target_mac_send;
 	ctp->f_tran_free = cluster_target_mac_tran_data_free;
 	ctp->f_tran_fragment = cluster_target_mac_tran_data_fragment;
+	ctp->f_tran_fragment_sgl= cluster_target_mac_tran_data_fragment_sgl;
 	ctp->f_session_tran_start = cts_mac_tran_start;
 	ctp->f_session_init = cluster_target_mac_session_init;
 	ctp->f_session_fini = cluster_target_mac_session_fini;

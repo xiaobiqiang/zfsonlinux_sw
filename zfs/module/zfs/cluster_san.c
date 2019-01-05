@@ -4730,6 +4730,43 @@ int cluster_target_session_send(cluster_target_session_t *cts,
 	return (ret);
 }
 
+
+int cluster_target_session_send_sgl(cluster_target_session_t *cts,
+	cluster_tran_data_origin_t *origin_data, int pri)
+{
+	int ret = 0;
+	cluster_target_port_t *ctp;
+	cluster_target_tran_data_t *data_array = NULL;
+	int fragment_cnt = 0;
+	int i;
+
+	if (cts == NULL) {
+		return (-1);
+	}
+	if ((cts->sess_flags & CLUSTER_TARGET_SESS_FLAG_UINIT) != 0) {
+		return (-1);
+	}
+	ctp = cts->sess_port_private;
+
+	ret = ctp->f_tran_fragment_sgl(ctp->target_private, cts->sess_target_private,
+		origin_data, &data_array, &fragment_cnt);	
+
+	if (ret == 0) {
+		ret = cts_send_wait(cts, data_array, fragment_cnt, pri);
+		if (ret != 0) {
+			for (i = 0; i < fragment_cnt; i++) {
+				if (data_array[i].fragmentation != NULL) {
+					ctp->f_tran_free(data_array[i].fragmentation);
+				}
+			}
+		}
+		kmem_free(data_array, sizeof(cluster_target_tran_data_t) * fragment_cnt);
+	}
+
+	return (ret);
+}
+
+
 void cluster_san_hb_stop(void)
 {	
 	cluster_san_hostinfo_t *cshi;
@@ -4847,6 +4884,75 @@ SEND_RETRY:
 
 	return (ret);
 }
+
+
+int cluster_san_host_send_sgl(cluster_san_hostinfo_t *cshi,
+	void *data, uint64_t len, void *header, uint64_t header_len,
+	uint8_t msg_type, int pri, boolean_t need_reply, int retry_times)
+{
+	cluster_target_session_t *cts;
+	uint64_t tx_index;
+	cts_reply_hash_val_t *reply_val;
+	cluster_tran_data_origin_t origin_data;
+	boolean_t is_replyed;
+	int retry_cnt = 0;
+	int ret;
+
+	if (cshi == NULL) {
+		return (-1);
+	}
+	/* retry and reply */
+	tx_index = atomic_inc_64_nv(&cshi->host_tx_index);
+	if (need_reply) {
+		reply_val = csh_create_and_insert_reply(cshi, tx_index);
+	}
+
+	origin_data.msg_type = msg_type;
+	origin_data.need_reply = need_reply;
+	origin_data.index = tx_index;
+	origin_data.data = data;
+	origin_data.data_len = len;
+	origin_data.header = header;
+	origin_data.header_len = header_len;
+	origin_data.retry_times = retry_times;
+
+SEND_RETRY:
+	cts = cts_select_from_host(cshi);
+
+	if (cts == NULL) {
+		if (need_reply) {
+			csh_remove_and_destroy_reply(cshi, reply_val);
+		}
+		return (-1);
+	}
+	ret = cluster_target_session_send_sgl(cts, &origin_data, pri);
+	cluster_target_session_rele(cts, "sel_cts");
+
+	if (need_reply) {
+		if (ret == 0) {
+			is_replyed = cts_reply_wait(reply_val);
+			if (!is_replyed) {
+				printk("%s: %u %u wait reply timed out\n", __func__, cshi->hostid, msg_type);
+				if (retry_cnt < retry_times) {
+					retry_cnt++;
+					goto SEND_RETRY;
+				} else {
+					ret = -2;
+				}
+			}
+		} else {
+			if (retry_cnt < retry_times) {
+				retry_cnt++;
+				goto SEND_RETRY;
+			}
+		}
+		csh_remove_and_destroy_reply(cshi, reply_val);
+	}
+
+	return (ret);
+}
+
+
 
 #define	CLUSTER_SAN_HOST_ASYN_TX_GAP		1000000 /* us */
 
@@ -5658,6 +5764,7 @@ EXPORT_SYMBOL(csh_link_evt_hook_remove);
 EXPORT_SYMBOL(cluster_san_host_asyn_send);
 EXPORT_SYMBOL(cluster_san_broadcast_send);
 EXPORT_SYMBOL(cluster_san_host_send);
+EXPORT_SYMBOL(cluster_san_host_send_sgl);
 EXPORT_SYMBOL(csh_rx_data_free_ext);
 EXPORT_SYMBOL(cs_kmem_alloc);
 EXPORT_SYMBOL(cluster_san_host_sync_send_msg);

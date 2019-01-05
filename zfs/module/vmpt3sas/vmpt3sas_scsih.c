@@ -23,7 +23,7 @@
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_dbg.h>
-#include <sd.h>
+/*#include <sd.h>*/
 #undef VERIFY
 #include <sys/zfs_context.h>
 #include <sys/modhash.h>
@@ -75,7 +75,7 @@ int g_vmptsas_hostmap_total = 0;
 vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
 
 int vmpt3sas_scsih_qcmd(struct Scsi_Host *, struct scsi_cmnd *);
-int vmpt3sas_send_msg(void *, void *, u64 );
+int vmpt3sas_send_msg(void *, void *, u64, void *, u64 , int);
 int vmpt3sas_proxy_done_thread(void *);
 int vmpt3sas_slave_alloc(struct scsi_device *);
 int vmpt3sas_slave_configure(struct scsi_device *);
@@ -233,9 +233,7 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 	blk_rq_set_block_pc(req);
 
 	for(i=0; i<reqcmd->ndata; i++){
-		/*
-		printk(KERN_WARNING " %s to blk_rq_map_kern  %p %d\n", 
-				__func__,reqcmd->dataarr[i], reqcmd->lendataarr[i]);*/
+		
 		ret = blk_rq_map_kern(sdev->request_queue, req,
 			reqcmd->dataarr[i], reqcmd->lendataarr[i], GFP_NOIO);
 
@@ -253,10 +251,7 @@ static void vmpt3sas_proxy_exec_req(struct scsi_device *sdev, vmpt3sas_req_scmd_
 	req->sense_len = 0;
 	req->retries = 3;
 	req->timeout = 30*HZ;
-	/*
-	printk(KERN_WARNING " %s maped cmd0=%x cmdlen=%d data=%p len=%d \n", 
-		__func__,reqcmd->cmnd[0], req->cmd_len, reqcmd->data,reqcmd->datalen );
-		*/
+	
 	blk_execute_rq_nowait(req->q, NULL, req, 0,
 		 vmpt3sas_proxy_req_done);
 	return;
@@ -298,7 +293,7 @@ static struct scsi_target *vmpt3sas_get_scsitarget(struct Scsi_Host *shost,int c
 	}
 	return NULL;
 }
-
+/*
 char *vmpt3sas_get_diskname_byscsidev(struct scsi_device *sdev)
 {
 	struct device *dev;
@@ -323,16 +318,15 @@ char *vmpt3sas_get_diskname_byscsidev(struct scsi_device *sdev)
 	printk(KERN_WARNING " %s dev is NULL\n", __func__);
 	return NULL;
 }
-
+*/
 static void vmpt3sas_listall_scsidev(struct Scsi_Host *shost)
 {
 	struct scsi_device *sdev;
-	char *name;
 	int i=0;
 	shost_for_each_device(sdev, shost) {
-		name = vmpt3sas_get_diskname_byscsidev(sdev);
+		
 		printk(KERN_WARNING " %s %s %d disk:%s %d:%d:%d:%d\n", 
-			__func__,shost->hostt->proc_name, i, name, 
+			__func__,shost->hostt->proc_name, i, "name", 
 			shost->host_no, sdev->channel, sdev->id, (int)sdev->lun );
 		i++;
 	}
@@ -359,7 +353,7 @@ static void vmpt3sas_brd_selfup(void)
 			
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
 	printk(KERN_WARNING " %s brdcast msg len: %d \n", __func__, tx_len);
-	vmpt3sas_send_msg(VMPT3SAS_BROADCAST_SESS, (void *)buff, tx_len);
+	vmpt3sas_send_msg(VMPT3SAS_BROADCAST_SESS, NULL, 0, (void *)buff, tx_len, 1);
 	cs_kmem_free(buff, len);
 }
 
@@ -412,8 +406,7 @@ static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
 	printk(KERN_WARNING " %s brdcast [%p] msg len: %d host_no =%d \n",
 		__func__, sess, tx_len, shost->host_no);
-	vmpt3sas_send_msg(sess, (void *)buff, tx_len);
-	/*vmpt3sas_send_msg(VMPT3SAS_BROADCAST_SESS, (void *)buff, tx_len);*/
+	vmpt3sas_send_msg(sess, NULL, 0, (void *)buff, tx_len, 0);
 	cs_kmem_free(buff, len);
 }
 
@@ -559,10 +552,6 @@ void vmpt3sas_proxy_handler(void *data)
 {
 	vmpt3sas_rx_data_t *prx ;
 	XDR *xdrs ;
-	int have_sdb;
-	int i;
-	int reslen;
-	int aloclen;
 	vmpt3sas_req_scmd_t *req_scmd;
 	struct scsi_device *sdev = NULL;
 	struct Scsi_Host *shost;
@@ -587,46 +576,40 @@ void vmpt3sas_proxy_handler(void *data)
 	xdr_int(xdrs, (int *)(&req_scmd->data_direction));/* 4bytes */
 	
 	xdr_u_int(xdrs, &req_scmd->cmd_len);/* 4bytes */
-	
-	VERIFY(req_scmd->cmnd != NULL);
 	xdr_opaque(xdrs, (caddr_t)req_scmd->cmnd, req_scmd->cmd_len);
+	xdr_u_int(xdrs, &(req_scmd->datalen));
+
 	
-	xdr_int(xdrs, &have_sdb);
-	if (have_sdb) {
-		xdr_u_int(xdrs, &(req_scmd->datalen)); /* 4bytes */
-		if (!(req_scmd->datalen > 0 && req_scmd->datalen <= 4*1024*1024)){
-			printk(KERN_WARNING "%s: data_len = %d error\n", __func__, req_scmd->datalen);
-			return;
-		}
-		reslen = req_scmd->datalen;
-		for(i=0; i<32; ){
-			/*aloclen = min(128*1024,reslen);*/
-			aloclen = min(1*1024*1024,reslen);
-			req_scmd->dataarr[i] = kmalloc(aloclen, GFP_KERNEL);
-			req_scmd->lendataarr[i] = aloclen;
-			i++;
-			reslen -= aloclen;
-			if (reslen<=0)
-				break;
-		}
-		req_scmd->ndata = i;
-		if (req_scmd->data_direction == DMA_TO_DEVICE){
-			for(i=0; i<req_scmd->ndata; i++){
-				VERIFY(req_scmd->dataarr[i] != NULL);
-				xdr_opaque(xdrs, (caddr_t)req_scmd->dataarr[i], req_scmd->lendataarr[i]);
+
+	if (req_scmd->datalen!=0) 
+	{
+		if (req_scmd->data_direction == DMA_TO_DEVICE)
+		{ /* write io , data is in the cs_data->data */
+			if (prx->cs_data->data != NULL && prx->cs_data->data_len!=0)
+			{
+		
+				req_scmd->ndata = 1;
+				req_scmd->dataarr[0] = prx->cs_data->data;
+				req_scmd->lendataarr[0] = prx->cs_data->data_len;
+				prx->cs_data->data = NULL;
+				prx->cs_data->data_len = 0;
+			}
+			else
+			{
+				printk(KERN_WARNING "%s: cs_data error datalen=%ld data=%p\n", 
+					__func__, (long)prx->cs_data->data_len, prx->cs_data->data);
+				return;
 			}
 		}
-	} else {
-		req_scmd->datalen = 0;
-		/*req_scmd->data = NULL;*/
+		else
+		{ /* read io */
+			req_scmd->ndata = 1;
+			req_scmd->dataarr[0] = kmalloc(req_scmd->datalen, GFP_KERNEL);
+			req_scmd->lendataarr[0] = req_scmd->datalen;
+		}
 	}
 	vmpt3sas_rx_data_free(prx);
 	
-	/*
-	printk(KERN_WARNING "%s: session=%p index=[%llu] scmd0=[%x] shost=%p dev=[%d:%d:%d:%d] direction=%d len=%d \n", 
-			__func__, req_scmd->session, (u_longlong_t)req_scmd->req_index, (unsigned char)req_scmd->cmnd[0], shost, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun,
-			req_scmd->data_direction,req_scmd->datalen);
-	*/
 	shost = scsi_host_lookup(req_scmd->host);
 	if (shost == NULL) {
 		printk(KERN_WARNING "%s: hostno=%d scsihost is not found\n", 
@@ -641,30 +624,48 @@ void vmpt3sas_proxy_handler(void *data)
 	else {
 		printk(KERN_WARNING "%s: not find scsidev hostno=%d channel=%d id=%d lun=%d\n", 
 			__func__, req_scmd->host, req_scmd->channel, req_scmd->id, req_scmd->lun);
-		
-		/*
-		struct scsi_target *starget = vmpt3sas_get_scsitarget(shost, 0);
-		printk(KERN_WARNING "%s scsi target is %p  \n",	__func__,starget);
-		if (starget){
-			sdev = scsi_device_lookup_by_target(starget, 0);
-			if (!sdev)
-				sdev = scsi_alloc_sdev(starget, 0, NULL);
-			
-			printk(KERN_WARNING "%s scsi dev is %p  \n", __func__, sdev);
-			if (sdev){
-				
-				vmpt3sas_proxy_exe_cmd(sdev, req_scmd);
-			}
-		}
-		*/
 	}
+}
+
+int vmpt3sas_kmem_2_sgl(void * memaddr,unsigned long size, struct sg_table *sgtable)
+{
+	int ret;
+	int num_pages;
+
+	unsigned int i;
+	struct scatterlist *s;
+	unsigned long off;
+	num_pages =0;
+	
+	for (off = 0; off < size; off += PAGE_SIZE){
+		num_pages++;
+		/*(virt_to_page(memaddr + off));*/
+	}
+
+	ret = sg_alloc_table(sgtable, num_pages, GFP_KERNEL);
+	if (unlikely(ret)){
+		printk(KERN_WARNING " %s sg_alloc_table failed %d",	__func__, ret );
+		return ret;
+	}
+
+	off=0;
+	for_each_sg(sgtable->sgl, s, sgtable->orig_nents, i) {
+		int chunk_size;
+		chunk_size = min((int)PAGE_SIZE,size);
+		/*sg_set_page(s, virt_to_page(memaddr + off), chunk_size, offset_in_page(memaddr + off));*/
+		sg_set_page(s, virt_to_page(memaddr + off), chunk_size, 0);
+		size -= chunk_size;
+		off += PAGE_SIZE;
+	}
+	return 0;
+
 }
 
 void vmpt3sas_proxy_response( void *data )
 {
 	struct request *req = (struct request *)data;
 	vmpt3sas_remote_cmd_t remote_cmd;
-	
+	int err;
 	XDR xdr_temp;
 	XDR *xdrs = &xdr_temp;
 	uint_t len;
@@ -674,6 +675,10 @@ void vmpt3sas_proxy_response( void *data )
 	int senselen;
 	int tx_len;
 	int i;
+	struct sg_table sgtable;
+	void *kmem;
+	int kmemlen;
+	int issgl = 0;
 
 	scmd = req->special;
 	/* encode message */
@@ -688,80 +693,42 @@ void vmpt3sas_proxy_response( void *data )
 	xdr_int(xdrs, (int *)&req->errors);
 	xdr_int(xdrs, (int *)&req->resid_len);
 	
-	if (req->sense!=NULL){
+	if (req->sense!=NULL) {
 		xdr_int(xdrs, (int *)&req->sense_len);
 		xdr_opaque(xdrs, (caddr_t)req->sense, req->sense_len);
-	}else{
+	} else {
 		senselen = 0;
 		xdr_int(xdrs, (int *)&senselen);
 	}
-	/*
-	if (req->errors!=0 ){
-		printk(KERN_WARNING " %s %d:%d:%d:%d cdb=%#x scmd result=%x \n",
-			__func__, reqcmd->host, reqcmd->channel, reqcmd->id, reqcmd->lun,
-			(unsigned char)scmd->cmnd[0],req->errors);
-	}*/
-	
-	if (scmd->sc_data_direction != DMA_TO_DEVICE) {
-		/*
-		char cmd ;
-		cmd = scmd->cmnd[0] & 0x0f;
-		if (scmd->cmnd[0]==0x12 && reqcmd->data > 0) {
-				unsigned char *p;
-				int len;
-				char *buf;
-				int i;
+	xdr_u_int(xdrs, &(reqcmd->datalen));
 
-				len = scmd->cmd_len;
-				p = scmd->cmnd;
-				buf = kmalloc(len*2+1+16, GFP_KERNEL);
-				for(i=0; i<len; i++)
-					sprintf(buf+i*2,"%02x",(unsigned char)*(p++));
-				*p=0;
-				printk(KERN_WARNING " %s cmdlen=%d cmd=[%s]",
-					__func__, len, buf);
-				kfree(buf);
-				
-				len = reqcmd->datalen;
-				p = reqcmd->data;
-				buf = kmalloc(len*2+1+16, GFP_KERNEL);
-				for(i=0; i<len; i++)
-					sprintf(buf+i*2,"%02x",(unsigned char)*(p++));
-				*p=0;
-				printk(KERN_WARNING " %s len=%d data=[%s]",
-					__func__, reqcmd->datalen, buf);
-				kfree(buf);
-		}*/
-		
-		if(reqcmd->datalen!=0)
+	kmem = NULL;
+	kmemlen = 0;
+	if (scmd->sc_data_direction != DMA_TO_DEVICE)
+	{
+		if(reqcmd->datalen>4096)
 		{
-			xdr_u_int(xdrs, &(reqcmd->datalen));/* 4bytes */
-			for(i=0; i<reqcmd->ndata; i++){
-				
-				if(reqcmd->dataarr[i] != NULL)
-					xdr_opaque(xdrs, reqcmd->dataarr[i], reqcmd->lendataarr[i]);
-				else{
-					printk(KERN_WARNING " %s i=%d ndata=%d",
-					__func__, i, reqcmd->ndata);
-					dump_stack();
-				}
-			}
+			err = vmpt3sas_kmem_2_sgl(reqcmd->dataarr[0], reqcmd->lendataarr[0], &sgtable);
+			if(err)				
+				return;
+			kmem = &sgtable;
+			kmemlen = reqcmd->lendataarr[0];
+			issgl = 1;
 		}
-		/*
-		if (scmd->sdb.length != 0) {
-			xdr_u_int(xdrs, &(scmd->sdb.length));
-			scsi_sg_copy_to_buffer(scmd, xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
-			xdrs->x_addr += scmd->sdb.length;
+		else if (reqcmd->datalen>0){
+			kmem = reqcmd->dataarr[0];
+			kmemlen = reqcmd->lendataarr[0];	
+			issgl = 0;
 		}
-		*/
 	}
-
+	
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
-	/*printk(KERN_WARNING " %s tx_len=%d", __func__, tx_len);*/
-	vmpt3sas_send_msg(reqcmd->session, (void *)buff, tx_len);
-	cs_kmem_free(buff, len);
+	vmpt3sas_send_msg(reqcmd->session, kmem, kmemlen, (void *)buff, tx_len, issgl);
+	if (issgl)
+		sg_free_table(&sgtable);
 
-	for(i=0; i<reqcmd->ndata; i++)
+	cs_kmem_free(buff, len);
+	for (i=0; i<reqcmd->ndata; i++)
 		kfree(reqcmd->dataarr[i]);
 	kfree(reqcmd);
 	
@@ -944,10 +911,7 @@ void vmpt3sas_rsp_handler(void *data)
 	
 	xdr_u_longlong_t(xdrs, (u64 *)&rsp_index);/* 8bytes */
 	xdr_u_longlong_t(xdrs, (u64 *)&shost);/* 8bytes */
-	/*
-	printk(KERN_WARNING " %s repindex=%ld shost=[%p] \n", __func__, 
-		(unsigned long)rsp_index, shost);
-	*/
+	
 	ioc = shost_priv(shost);
 	ret= mod_hash_remove(ioc->vmpt_cmd_wait_hash,
 		(mod_hash_key_t)(uintptr_t)rsp_index, (mod_hash_val_t *)&scmd);
@@ -966,31 +930,19 @@ void vmpt3sas_rsp_handler(void *data)
 		VERIFY(scmd->sense_buffer != NULL);
 		xdr_opaque(xdrs, (caddr_t)scmd->sense_buffer, senselen);
 	}
-	/*
-	printk(KERN_WARNING " %s repindex=%ld shost=[%p] senselen=%d direction=%d sdb.len=%d\n", __func__, 
-		(unsigned long)rsp_index, shost, senselen, scmd->sc_data_direction ,scmd->sdb.length);
-	*/
-	/*scsi data*/
+	
 	if (scmd->sc_data_direction == DMA_FROM_DEVICE) {
-		xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
-		/*
-		if((scmd->cmnd[0]&0x0f) !=0x08 && (scmd->cmnd[0]&0x0f) !=0x0a){
-			printk(KERN_WARNING "cmd=%02x%02x%02x retdatalen=%d ", scmd->cmnd[0], scmd->cmnd[1],scmd->cmnd[2], scmd->sdb.length );
-			vmpt3sad_print(xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
-		}*/
+		
+		scmd->sdb.length = rx_data->cs_data->data_len;
+			
 		if (scmd->cmnd[0] == 0x12 && scmd->cmnd[2]==0x83 && (xdrs->x_addr_end - xdrs->x_addr)<=256 ) {
-			memcpy(p80, xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
+			memcpy(p80, rx_data->cs_data->data,rx_data->cs_data->data_len);
 			p80[8+0] = ioc->remotehostid;
 			scsi_sg_copy_from_buffer(scmd, p80, scmd->sdb.length);	
 		}
 		else
-			scsi_sg_copy_from_buffer(scmd, xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
+			scsi_sg_copy_from_buffer(scmd, rx_data->cs_data->data,rx_data->cs_data->data_len);
 		
-		xdrs->x_addr += scmd->sdb.length;
-		/*
-		printk(KERN_WARNING "%s cp2scsicmd repindex=%ld shost=[%p] direction=%d sdb.len=%d\n", __func__, 
-				(unsigned long)rsp_index, shost,  scmd->sc_data_direction ,scmd->sdb.length);
-		*/
 	}
 
 	scmd->scsi_done(scmd);
@@ -1000,14 +952,19 @@ failed:
 	return;
 }
 
-int vmpt3sas_send_msg(void *sess, void *data, u64 len)
+int vmpt3sas_send_msg(void *sess, void *data, u64 len, void *header, u64 headerlen, int issgl)
 {
 	int ret = 0;
 	if (sess == VMPT3SAS_BROADCAST_SESS) {
-		cluster_san_broadcast_send(data, len, NULL, 0, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0);
+		cluster_san_broadcast_send(data, len, header, headerlen, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0);
 	} else {
-		ret = cluster_san_host_send(sess, data, len, NULL, 0, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0,
-			1, 3);
+
+		if(issgl)
+			ret = cluster_san_host_send_sgl(sess, data, len, header, headerlen, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0,
+				1, 3);
+		else
+			ret = cluster_san_host_send(sess, data, len, header, headerlen, CLUSTER_SAN_MSGTYPE_IMPTSAS, 0,
+				1, 3);	
 	}
 	return (ret);
 }
@@ -1019,17 +976,19 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	vmpt3sas_rx_data_t *rx_data;
 	taskq_t *tq_common = (taskq_t *)arg;
 
-	if ((cs_data->data_len == 0) || (cs_data->data == NULL)) {
-		printk(KERN_WARNING "%s: data is null len=%lld data=%p\n",
-			__func__, cs_data->data_len, cs_data->data);
+	if (cs_data->ex_len == 0 || cs_data->ex_head == NULL) {
+		printk(KERN_WARNING "%s: exdata is null ex_len=%lld ex_data=%p\n",
+			__func__, cs_data->ex_len, cs_data->ex_head);
 		return;
-	}
+	}	
 
 	rx_data = kmem_zalloc(sizeof(vmpt3sas_rx_data_t), KM_SLEEP);
 	xdrs = kmem_zalloc(sizeof(XDR), KM_SLEEP);
 	rx_data->xdrs = xdrs;
 	rx_data->cs_data = cs_data;
-	xdrmem_create(xdrs, cs_data->data, cs_data->data_len, XDR_DECODE);
+	/*xdrmem_create(xdrs, cs_data->data, cs_data->data_len, XDR_DECODE);*/
+	
+	xdrmem_create(xdrs, cs_data->ex_head, cs_data->ex_len, XDR_DECODE);
 	xdr_int(xdrs, (int *)&remote_cmd);
 	/*
 	printk(KERN_WARNING "%s: msgtype=[%d] \n", __func__,remote_cmd);
@@ -1061,6 +1020,78 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 	}
 }
 
+void vmpt3sas_debug_print_sg(struct scsi_cmnd *scmd)
+{
+	struct scatterlist * sg = scsi_sglist(scmd);
+	int count = scsi_sg_count(scmd);
+	int i=0;
+	struct page *pg;
+	printk(KERN_WARNING "%s: len=%d count=%d pagesize=%d\n",
+		__func__, scmd->sdb.length, count, (int)PAGE_SIZE);
+	while (sg){
+		int iremain;
+		void *paddress;
+
+		pg = sg_page(sg);
+		iremain = sg->length;
+		paddress = page_address(pg);
+		do {
+			printk(KERN_WARNING "%s: no[%d] off=%d len=%d pageaddr=%p\n",
+			__func__, i, sg->offset, sg->length, paddress);
+			iremain -= PAGE_SIZE;
+			pg++ ;
+			paddress = page_address(pg);
+		} while (iremain>0);
+		
+		i++;
+		sg = sg_next(sg);
+	}
+}
+
+int  vmpt3sas_trans_sg(struct scsi_cmnd *scmd,struct sg_table *sgtable)
+{
+	struct scatterlist * sg = scsi_sglist(scmd);
+	int count = scsi_sg_count(scmd);
+	int num_pages = (scmd->sdb.length + PAGE_SIZE-1)/PAGE_SIZE;
+	int ret;
+	struct page *pg;
+	struct scatterlist *s;
+	int i;
+	int chunk_size;
+	int iremainlen = scmd->sdb.length;
+	int isglen;
+	
+	ret = sg_alloc_table(sgtable, num_pages, GFP_KERNEL);
+	if (unlikely(ret)){
+		printk(KERN_WARNING " %s sg_alloc_table failed %d",	__func__, ret );
+		return 0;
+	}
+
+	chunk_size = 0;
+	isglen = sg->length;
+	pg = sg_page(sg);
+	
+	for_each_sg(sgtable->sgl, s, sgtable->orig_nents, i) {
+		chunk_size = min((int)PAGE_SIZE,iremainlen);
+		
+		sg_set_page(s, pg, chunk_size, 0);
+		iremainlen -= chunk_size;
+		isglen -= chunk_size;
+		
+		if(isglen >0)
+			pg++;
+		else{
+			sg = sg_next(sg);
+			if(sg){
+				isglen = sg->length;
+				pg = sg_page(sg);
+			}
+		}
+	}
+	
+	return num_pages;
+}
+
 void
 vmpt3sas_qcmd_handler(void *inputpara)
 {
@@ -1074,8 +1105,11 @@ vmpt3sas_qcmd_handler(void *inputpara)
 	uint_t tx_len;
 	void *buff = NULL;
 	u64 index;
-	int have_sdb;
 	int err;
+	void *kmem = NULL;
+	int kmemlen = 0;
+	int newsgtable=0;
+	struct sg_table sgtable;
 	
 	/*encode message*/
 	len = XDR_EN_FIXED_SIZE + scmd->cmd_len + scmd->sdb.length;
@@ -1109,37 +1143,39 @@ vmpt3sas_qcmd_handler(void *inputpara)
 
 	if (ioc->logging_level)
 		scsi_print_command(scmd);
-	
-	/*have scsi data*/
+
+	xdr_int(xdrs, &(scmd->sdb.length));
 	if (scmd->sdb.length != 0) {
-		have_sdb = 1;
-		/*
-		printk(KERN_WARNING "%s: to tansfer msg direction %d sdb_len=%d \n",
-			__func__, scmd->sc_data_direction, scmd->sdb.length);
-			*/
+		
 		if (scmd->sc_data_direction != DMA_TO_DEVICE) {
-			xdr_int(xdrs, &have_sdb);/* 4bytes */
-			xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
+			
 		} else {
-			xdr_int(xdrs, &have_sdb);/* 4bytes */
-			xdr_u_int(xdrs, &(scmd->sdb.length));/* 4bytes */
-		
-			/* todo: encode scsi data into xdr */
-			scsi_sg_copy_to_buffer(scmd, xdrs->x_addr, xdrs->x_addr_end - xdrs->x_addr);
-			xdrs->x_addr += scmd->sdb.length;
-			//xdrs->x_handy -= scmd->sdb.length;
+
+			int num_pages = (scmd->sdb.length + PAGE_SIZE-1)/PAGE_SIZE;
+			if (num_pages != scmd->sdb.table.nents) {
+				int ret = vmpt3sas_trans_sg(scmd, &sgtable);
+				if (!ret){
+					return;
+				}
+				kmem=&sgtable;
+				newsgtable = 1;
+			} else {
+				kmem = &(scmd->sdb.table);
+			}
+			
+			kmemlen = scmd->sdb.length; 
+			/*vmpt3sas_debug_print_sg(scmd);*/
 		}
-		
-	} else {
-		have_sdb = 0;
-		xdr_int(xdrs, &have_sdb);/* 4bytes */
 	}
 
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
 	mod_hash_insert(ioc->vmpt_cmd_wait_hash,
 		(mod_hash_key_t)(uintptr_t)index, (mod_hash_val_t)scmd);
 	
-	err = vmpt3sas_send_msg(ioc->session, (void *)buff, tx_len);
+	err = vmpt3sas_send_msg(ioc->session, kmem, kmemlen, (void *)buff, tx_len,1);
+	if(newsgtable)
+		sg_free_table(&sgtable);
+		
 	cs_kmem_free(buff, len);
 	if (err != 0) {
 		printk(KERN_WARNING "index %llu message failed!\n", index);
