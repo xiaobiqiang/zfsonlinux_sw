@@ -598,8 +598,6 @@ static void vmpt3sas_addvhost_handler(void *data)
 	*/
 	switch(cause) {
         case VMPTSAS_BRDLC_SELFUP: 
-            is_loading = B_FALSE;
-            is_loaded = B_TRUE;
             break;
         case VMPTSAS_BRDLC_DOWN_CVT_UP:
             priv.sess = session;
@@ -629,7 +627,8 @@ err_hostmap:
 err_shost:
     shost_entry_free(rshost);
 err_rshost:
-err_exists:   
+err_exists:
+    vmpt3sas_rx_data_free(rx_data);
     return;
 }
 
@@ -870,6 +869,15 @@ vmpt3sas_lookup_report_shost(vmpt3sas_lookup_shost_cb_fn fn, void *priv)
 			ndevs = nndevs;
 		}
 	}
+
+    /*
+     * when we execute at this step, we assume that all Scsi_Host and
+     * scsi_devices havs been detected for sending, so module loading is
+     * completed and if there is a new scsi_device is attached later, we 
+     * think it's the time to execute all steps of vmpt3sas_sd_state_changed_cb.
+     */
+	is_loading = B_FALSE;
+	is_loaded = B_TRUE;
 	
 	return ; 
 }
@@ -1128,6 +1136,7 @@ vmpt3sas_state_change_cb_probe(void *data)
     int tries = 0;
     int max_try = 3;
     int found = 0;
+    uint_t myhostid = zone_get_hostid(NULL);
     vmpt3sas_rx_data_t *prx = data;
     XDR *xdrs = prx->xdrs;
     cs_rx_data_t *rx_data = prx->cs_data;
@@ -1142,6 +1151,10 @@ vmpt3sas_state_change_cb_probe(void *data)
     xdr_u_int(xdrs, &hostid);
     xdr_u_int(xdrs, &shost_no);
 
+    if(myhostid == hostid) {
+        printk(KERN_WARNING "%s: the same hostid[%u]", hostid);
+        return ;
+    }
     /*
      * firstly we check whether rshost_list contains the specified
      * Scsi_Host, if not,we assume that it's a new Scsi_Host. in 
@@ -1159,7 +1172,7 @@ vmpt3sas_state_change_cb_probe(void *data)
 	if( !found ) {
         if( (iter = shost_entry_alloc(hostid, shost_no)) == NULL) {
             spin_unlock(&rshost_list.lock);
-            printk(KERN_WARNING "%s: out of memory");
+            printk(KERN_WARNING "%s: out of memory" __func__);
             goto err_rshost;
         }
         list_add(&iter->entry, &rshost_list.head);
@@ -1247,8 +1260,7 @@ err_rshost:
 void
 vmpt3sas_state_change_handler(void *data)
 {
-
-   vmpt3sas_rx_data_t *prx = data;
+    vmpt3sas_rx_data_t *prx = data;
     XDR *xdrs = prx->xdrs;
     sd_state_change_types type;
     
@@ -1642,7 +1654,9 @@ vmpt3sas_sd_state_changed_cb(struct device *dev,
                __func__);
 	    return ;
 	}
-	
+
+	printk(KERN_WARNING "%s: scsi_disk probe shost:%d, channel:%d, id:%d, lun:%d",
+	       __func__, shp->host_no, sdvp->channel, sdvp->id, sdvp->lun);
 	/*encode message*/
 	len = XDR_EN_FIXED_SIZE + sizeof(uint_t)*6;
 	buff = cs_kmem_alloc(len);
@@ -1651,6 +1665,7 @@ vmpt3sas_sd_state_changed_cb(struct device *dev,
 	remote_cmd = VMPT_CMD_STATE_CHANGE;
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
 	xdr_u_int(xdrs, &type);
+	
 	xdr_u_int(xdrs, &host_id);
     xdr_u_int(xdrs, &shp->host_no);
     xdr_u_int(xdrs, &sdvp->channel);
