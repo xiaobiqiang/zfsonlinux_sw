@@ -117,6 +117,7 @@ int vmpt3sas_open (struct inode *, struct file *);
 void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *);
 void vmpt3sas_lookup_report_shost(vmpt3sas_lookup_shost_cb_fn fn, void *priv);
 void vmpt3sas_proxy_response(void *req);
+void vmpt3sas_lenvent_callback(void *private, cts_link_evt_t link_evt, void *arg);
 
 static vmptsas_hostmap_t *
 vmpt3sas_hostmap_alloc(int hostid, int index, int hostno, struct Scsi_Host *shost);
