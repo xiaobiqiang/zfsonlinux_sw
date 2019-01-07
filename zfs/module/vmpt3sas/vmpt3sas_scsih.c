@@ -66,6 +66,16 @@ typedef struct vmptsas_hostmap_list{
     spinlock_t          lock;
 }vmptsas_hostmap_list_t;
 
+typedef enum {
+    VMPTSAS_BRDLC_SELFUP = 0x0,
+    VMPTSAS_BRDLC_DOWN_CVT_UP = 0x1
+} vmptsas_brdlocal_cause_e;
+
+typedef struct {
+    void *sess;
+    vmptsas_brdlocal_cause_e cause;
+} vmptsas_brdlocal_arg_t;
+
 static remote_shost_list_t rshost_list;
 
 #define	VMPT3SAS_BROADCAST_SESS				((void *)(0-1))
@@ -74,6 +84,8 @@ static remote_shost_list_t rshost_list;
 
 #define VMPT3SAS_DRIVER_NAME		"vmpt3sas"
 
+typedef void (*vmpt3sas_lookup_shost_cb_fn)(void *, struct Scsi_Host *);
+
 vmptsas_instance_t gvmpt3sas_instance;
 
 spinlock_t     hostmap_lock;
@@ -81,6 +93,14 @@ spinlock_t     hostmap_lock;
 //static vmptsas_hostmap_t *gp_vmptsas_hostmap = NULL;
 static int g_vmptsas_hostmap_total = 0;
 static vmptsas_hostmap_list_t hostmap_list;
+
+/*
+ * the purpose of those two var is to avoid adding scsi_host
+ * repeatly when module is being loaded and the event of
+ * LINK_EVT_DOWN_TO_UP happens at the same time.
+ */
+static boolean_t is_loading = B_FALSE;
+static boolean_t is_loaded = B_FALSE;
 
 extern void sd_register_cb_state_changed(sd_state_changed_cb_func_t cbp, void *priv);
 extern int cts_link_evt_hook_add(cs_link_evt_cb_t link_evt_cb, void *arg);
@@ -95,7 +115,7 @@ void vmpt3sas_slave_destroy(struct scsi_device *);
 long vmpt3sas_unlocked_ioctl(struct file *, unsigned int , unsigned long );
 int vmpt3sas_open (struct inode *, struct file *);
 void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *);
-void vmpt3sas_lookup_report_shost(void *);
+void vmpt3sas_lookup_report_shost(vmpt3sas_lookup_shost_cb_fn fn, void *priv);
 void vmpt3sas_proxy_response(void *req);
 
 static vmptsas_hostmap_t *
@@ -375,13 +395,15 @@ static void vmpt3sas_brd_selfup(void)
 	cs_kmem_free(buff, len);
 }
 
-static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
+static void 
+vmpt3sas_brdlocal_shost(void *arg, struct Scsi_Host *shost)
 {
 	int len;
 	void *buff;
 	XDR xdr_temp;
 	XDR *xdrs = &xdr_temp;
 	vmpt3sas_remote_cmd_t remote_cmd;
+	vmptsas_brdlocal_arg_t *priv = arg;
 	int tx_len;
 	int i;
 	struct scsi_device *sdev;
@@ -396,12 +418,13 @@ static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
 	}
 
 	/* encode message */
-    len = XDR_EN_FIXED_SIZE + sizeof(int)*3 + sizeof(int)*3*(i+1);
+    len = XDR_EN_FIXED_SIZE + sizeof(int)*4 + sizeof(int)*3*(i+1);
 	buff = cs_kmem_alloc(len);
 	xdrmem_create(xdrs, buff, len, XDR_ENCODE);
 	remote_cmd = VMPT_CMD_ADDHOST;
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
-
+    xdr_u_int(xdrs, (unsigned *)&priv->cause);
+    
     xdr_u_int(xdrs,&hostid);
 	xdr_u_int(xdrs,&shost->host_no);
 	xdr_u_int(xdrs,&i);
@@ -423,8 +446,8 @@ static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
 		
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
 	printk(KERN_WARNING " %s brdcast [%p] msg len: %d host_no =%d \n",
-		__func__, sess, tx_len, shost->host_no);
-	vmpt3sas_send_msg(sess, NULL, 0, (void *)buff, tx_len, 0);
+		__func__, priv->sess, tx_len, shost->host_no);
+	vmpt3sas_send_msg(priv->sess, NULL, 0, (void *)buff, tx_len, 0);
 	cs_kmem_free(buff, len);
 }
 
@@ -435,11 +458,15 @@ static void vmpt3sas_brdhost_handler(void *data)
 	XDR *xdrs;
 	unsigned int host_id;
 	remote_shost_t *iter;
-	 
+	vmptsas_brdlocal_arg_t priv;
+
 	xdrs = rx_data->xdrs;
 	session = rx_data->cs_data->cs_private;
 	xdr_u_int(xdrs,&host_id);
-	vmpt3sas_lookup_report_shost(session);
+
+	priv.sess = session;
+	priv.cause = VMPTSAS_BRDLC_SELFUP;
+	vmpt3sas_lookup_report_shost(vmpt3sas_brdlocal_shost, &priv);
 	vmpt3sas_rx_data_free(rx_data);
 
 	spin_lock(&rshost_list.lock);
@@ -471,9 +498,13 @@ static void vmpt3sas_addvhost_handler(void *data)
     unsigned int host_id;
     remote_shost_t *rshost, *iter;
 	vmptsas_hostmap_t *hmp = NULL;
-	
+    vmptsas_brdlocal_cause_e cause; 
+    vmptsas_brdlocal_arg_t priv;
 	XDR *xdrs = rx_data->xdrs;
+	
 	session = rx_data->cs_data->cs_private;
+
+    xdr_u_int(xdrs, (unsigned *)&cause);
 
     xdr_u_int(xdrs,&host_id);
 	xdr_u_int(xdrs, &shost_no); /* 8bytes */
@@ -564,6 +595,21 @@ static void vmpt3sas_addvhost_handler(void *data)
 	printk(KERN_WARNING " %s to run scsi_scan_host ", __func__);
 	scsi_scan_host(shost);
 	*/
+	switch(cause) {
+        case VMPTSAS_BRDLC_SELFUP: break;
+        case VMPTSAS_BRDLC_DOWN_CVT_UP:
+            priv.sess = session;
+            priv.cause = VMPTSAS_BRDLC_SELFUP;
+            vmpt3sas_lookup_report_shost(vmpt3sas_brdlocal_shost, &priv);
+            /*
+             * when a new cluster san host is added into cluster,
+             * it's a new-created session. vmpt3sas_lenvent_callback
+             * added ago was discarded when this host disabled from 
+             * cluster.
+             */
+            csh_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
+            break;
+	}
 	vmpt3sas_rx_data_free(rx_data);
 	scsi_host_put(shost);
 	return ;
@@ -785,7 +831,8 @@ int vmpt3sas_shost_ndevs(struct Scsi_Host *shost)
 	return ndevs;
 }
 
-void vmpt3sas_lookup_report_shost(void *sess )
+void 
+vmpt3sas_lookup_report_shost(vmpt3sas_lookup_shost_cb_fn fn, void *priv)
 {
 	int i,j;
 	struct Scsi_Host *shost = NULL;
@@ -810,7 +857,7 @@ void vmpt3sas_lookup_report_shost(void *sess )
 			msleep(2000);
 			nndevs= vmpt3sas_shost_ndevs(shost);
 			if (nndevs>0 && nndevs==ndevs){
-				vmpt3sas_brdlocal_shost(sess, shost);
+				fn(priv, shost);
 				
 				break;
 			}
@@ -1192,7 +1239,7 @@ void vmpt3sas_debug_print_sg(struct scsi_cmnd *scmd)
 	}
 }
 
-int  vmpt3sas_trans_sg(struct scsi_cmnd *scmd,struct sg_table *sgtable)
+int vmpt3sas_trans_sg(struct scsi_cmnd *scmd,struct sg_table *sgtable)
 {
 	struct scatterlist * sg = scsi_sglist(scmd);
 	int count = scsi_sg_count(scmd);
@@ -1510,9 +1557,13 @@ vmpt3sas_hdl_up_to_down(uint_t hostid)
 }
 
 static void 
-vmpt3sas_hdl_down_to_up(int hostid)
+vmpt3sas_hdl_down_to_up(cluster_san_hostinfo_t *hostp)
 {
-    
+    vmptsas_brdlocal_arg_t priv = {
+        .sess = hostp,
+        .cause = VMPTSAS_BRDLC_DOWN_CVT_UP
+    };
+    vmpt3sas_lookup_report_shost(vmpt3sas_brdlocal_shost, &priv);
 }
 
 void 
@@ -1571,7 +1622,7 @@ vmpt3sas_lenvent_callback(void *private, cts_link_evt_t link_evt, void *arg)
         printk(KERN_WARNING "%s: hostid[%u] have not registered yet", 
                __func__, hostid);
 
-        vmpt3sas_hdl_down_to_up(hostid);
+        vmpt3sas_hdl_down_to_up(hostp);
 		break;
 	default:
 		break;
@@ -1731,7 +1782,10 @@ _vmpt3sas_init(void)
 	int err;
 	
 	pr_info("%s loaded\n", VMPT3SAS_DRIVER_NAME);
-
+	
+    is_loading = B_TRUE;
+    is_loaded = B_FALSE;
+    
 	init_remote_shost_list();
 
 	/* qcmd multi_threads and  done multi_threads */
