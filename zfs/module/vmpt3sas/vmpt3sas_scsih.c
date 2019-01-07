@@ -1989,6 +1989,7 @@ _vmpt3sas_exit(void)
 	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
 	csh_link_evt_hook_remove(vmpt3sas_lenvent_callback);
+	sd_deregister_cb_state_changed();
 	pr_info("%s exit\n", VMPT3SAS_DRIVER_NAME);
 }
 
