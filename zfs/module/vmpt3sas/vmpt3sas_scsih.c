@@ -1655,8 +1655,18 @@ vmpt3sas_sd_state_changed_cb(struct device *dev,
 	    return ;
 	}
 
-	printk(KERN_WARNING "%s: scsi_disk probe shost:%d, channel:%d, id:%d, lun:%d",
-	       __func__, shp->host_no, sdvp->channel, sdvp->id, sdvp->lun);
+	printk(KERN_WARNING "%s: scsi_disk probe shost:%d, channel:%d,"
+	       "id:%d, lun:%d, template_name:%s", __func__, shp->host_no, 
+	       sdvp->channel, sdvp->id, sdvp->lun, shp->hostt->name);
+	/*
+	 * we must ignore scsi_device which caused 
+	 * by vmpt3sas's adding scsi_hosts.
+	 */
+	if(strcmp(vmpt3sas_driver_template.name, shp->hostt->name) == 0) {
+        printk(KERN_WARNING "%s: vmpt3sas add scsi_disk");
+        return ;
+	}
+	
 	/*encode message*/
 	len = XDR_EN_FIXED_SIZE + sizeof(uint_t)*6;
 	buff = cs_kmem_alloc(len);
