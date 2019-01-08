@@ -1172,7 +1172,7 @@ vmpt3sas_state_change_cb_probe(void *data)
 	if( !found ) {
         if( (iter = shost_entry_alloc(hostid, shost_no)) == NULL) {
             spin_unlock(&rshost_list.lock);
-            printk(KERN_WARNING "%s: out of memory" __func__);
+            printk(KERN_WARNING "%s: out of memory", __func__);
             goto err_rshost;
         }
         list_add(&iter->entry, &rshost_list.head);
