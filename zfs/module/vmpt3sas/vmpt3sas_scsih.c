@@ -1152,7 +1152,8 @@ vmpt3sas_state_change_cb_probe(void *data)
     xdr_u_int(xdrs, &shost_no);
 
     if(myhostid == hostid) {
-        printk(KERN_WARNING "%s: the same hostid[%u]", hostid);
+        printk(KERN_WARNING "%s: the same hostid[%u]", 
+               __func__, hostid);
         return ;
     }
     /*
@@ -1663,7 +1664,7 @@ vmpt3sas_sd_state_changed_cb(struct device *dev,
 	 * by vmpt3sas's adding scsi_hosts.
 	 */
 	if(strcmp(vmpt3sas_driver_template.name, shp->hostt->name) == 0) {
-        printk(KERN_WARNING "%s: vmpt3sas add scsi_disk");
+        printk(KERN_WARNING "%s: vmpt3sas add scsi_disk", __func__);
         return ;
 	}
 	
