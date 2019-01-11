@@ -23,7 +23,7 @@
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_dbg.h>
-/*#include <sd.h>*/
+#include <sd.h>
 #undef VERIFY
 #include <sys/zfs_context.h>
 #include <sys/modhash.h>
@@ -59,9 +59,24 @@ typedef struct remote_shost{
 typedef struct remote_shost_list{
     struct list_head    head;
     spinlock_t          lock;
-}retmote_shost_list_t;
+}remote_shost_list_t;
 
-static retmote_shost_list_t rshost_list;
+typedef struct vmptsas_hostmap_list{
+    struct list_head    head;
+    spinlock_t          lock;
+}vmptsas_hostmap_list_t;
+
+typedef enum {
+    VMPTSAS_BRDLC_SELFUP = 0x0,
+    VMPTSAS_BRDLC_DOWN_CVT_UP = 0x1
+} vmptsas_brdlocal_cause_e;
+
+typedef struct {
+    void *sess;
+    vmptsas_brdlocal_cause_e cause;
+} vmptsas_brdlocal_arg_t;
+
+static remote_shost_list_t rshost_list;
 
 #define	VMPT3SAS_BROADCAST_SESS				((void *)(0-1))
 #define	XDR_EN_FIXED_SIZE	256/* Leave allowance */
@@ -69,10 +84,27 @@ static retmote_shost_list_t rshost_list;
 
 #define VMPT3SAS_DRIVER_NAME		"vmpt3sas"
 
+typedef void (*vmpt3sas_lookup_shost_cb_fn)(void *, struct Scsi_Host *);
+
 vmptsas_instance_t gvmpt3sas_instance;
 
-int g_vmptsas_hostmap_total = 0;
-vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
+spinlock_t     hostmap_lock;
+//vmptsas_hostmap_t g_vmptsas_hostmap_array[128];
+//static vmptsas_hostmap_t *gp_vmptsas_hostmap = NULL;
+static int g_vmptsas_hostmap_total = 0;
+static vmptsas_hostmap_list_t hostmap_list;
+
+/*
+ * the purpose of those two var is to avoid adding scsi_host
+ * repeatly when module is being loaded and the event of
+ * LINK_EVT_DOWN_TO_UP happens at the same time.
+ */
+static boolean_t is_loading = B_FALSE;
+static boolean_t is_loaded = B_FALSE;
+
+extern void sd_register_cb_state_changed(sd_state_changed_cb_func_t cbp, void *priv);
+extern int cts_link_evt_hook_add(cs_link_evt_cb_t link_evt_cb, void *arg);
+extern int cts_link_evt_hook_remove(cs_link_evt_cb_t link_evt_cb);
 
 int vmpt3sas_scsih_qcmd(struct Scsi_Host *, struct scsi_cmnd *);
 int vmpt3sas_send_msg(void *, void *, u64, void *, u64 , int);
@@ -83,8 +115,13 @@ void vmpt3sas_slave_destroy(struct scsi_device *);
 long vmpt3sas_unlocked_ioctl(struct file *, unsigned int , unsigned long );
 int vmpt3sas_open (struct inode *, struct file *);
 void vmpt3sas_rx_data_free(vmpt3sas_rx_data_t *);
-void vmpt3sas_lookup_report_shost(void *);
+void vmpt3sas_lookup_report_shost(vmpt3sas_lookup_shost_cb_fn fn, void *priv);
 void vmpt3sas_proxy_response(void *req);
+void vmpt3sas_lenvent_callback(void *private, cts_link_evt_t link_evt, void *arg);
+
+static vmptsas_hostmap_t *
+vmpt3sas_hostmap_alloc(int hostid, int index, int hostno, struct Scsi_Host *shost);
+
 
 /* shost template for SAS 3.0 HBA devices */
 static struct scsi_host_template vmpt3sas_driver_template = {
@@ -188,7 +225,7 @@ static void vmpt3sas_proxy_req_done(struct request *req, int error)
 	#endif
 }
 
-static int init_remote_shost_list(void)
+static void init_remote_shost_list(void)
 {
     INIT_LIST_HEAD(&rshost_list.head);
     spin_lock_init(&rshost_list.lock);
@@ -202,13 +239,15 @@ static int deinit_remote_shost_list(void)
     return 0;
 }
 
-static remote_shost_t* shost_entry_alloc(void)
+static remote_shost_t* shost_entry_alloc(int hostid, int shostno)
 {
     remote_shost_t* rshost = kmalloc(sizeof(remote_shost_t), GFP_KERNEL);
     if(NULL == rshost){
         return NULL;
     }
 
+    rshost->host_id = hostid;
+    rshost->shost_no = shostno;
     INIT_LIST_HEAD(&rshost->entry);
     return rshost;
 }
@@ -357,13 +396,15 @@ static void vmpt3sas_brd_selfup(void)
 	cs_kmem_free(buff, len);
 }
 
-static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
+static void 
+vmpt3sas_brdlocal_shost(void *arg, struct Scsi_Host *shost)
 {
 	int len;
 	void *buff;
 	XDR xdr_temp;
 	XDR *xdrs = &xdr_temp;
 	vmpt3sas_remote_cmd_t remote_cmd;
+	vmptsas_brdlocal_arg_t *priv = arg;
 	int tx_len;
 	int i;
 	struct scsi_device *sdev;
@@ -378,12 +419,13 @@ static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
 	}
 
 	/* encode message */
-    len = XDR_EN_FIXED_SIZE + sizeof(int)*3 + sizeof(int)*3*(i+1);
+    len = XDR_EN_FIXED_SIZE + sizeof(int)*4 + sizeof(int)*3*(i+1);
 	buff = cs_kmem_alloc(len);
 	xdrmem_create(xdrs, buff, len, XDR_ENCODE);
 	remote_cmd = VMPT_CMD_ADDHOST;
 	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
-
+    xdr_u_int(xdrs, (unsigned *)&priv->cause);
+    
     xdr_u_int(xdrs,&hostid);
 	xdr_u_int(xdrs,&shost->host_no);
 	xdr_u_int(xdrs,&i);
@@ -405,8 +447,8 @@ static void vmpt3sas_brdlocal_shost(void *sess, struct Scsi_Host *shost)
 		
 	tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
 	printk(KERN_WARNING " %s brdcast [%p] msg len: %d host_no =%d \n",
-		__func__, sess, tx_len, shost->host_no);
-	vmpt3sas_send_msg(sess, NULL, 0, (void *)buff, tx_len, 0);
+		__func__, priv->sess, tx_len, shost->host_no);
+	vmpt3sas_send_msg(priv->sess, NULL, 0, (void *)buff, tx_len, 0);
 	cs_kmem_free(buff, len);
 }
 
@@ -417,18 +459,23 @@ static void vmpt3sas_brdhost_handler(void *data)
 	XDR *xdrs;
 	unsigned int host_id;
 	remote_shost_t *iter;
-	 
+	vmptsas_brdlocal_arg_t priv;
+
 	xdrs = rx_data->xdrs;
 	session = rx_data->cs_data->cs_private;
 	xdr_u_int(xdrs,&host_id);
-	vmpt3sas_lookup_report_shost(session);
+
+	priv.sess = session;
+	priv.cause = VMPTSAS_BRDLC_SELFUP;
+	vmpt3sas_lookup_report_shost(vmpt3sas_brdlocal_shost, &priv);
 	vmpt3sas_rx_data_free(rx_data);
 
 	spin_lock(&rshost_list.lock);
     list_for_each_entry(iter, &rshost_list.head, entry) {
         if(host_id == iter->host_id) {
             spin_unlock(&rshost_list.lock);
-            printk(KERN_WARNING "%s scsi_host[%u] already registered", __func__, host_id);
+            printk(KERN_WARNING "%s scsi_host[%u] already registered", 
+                   __func__, host_id);
             return;
 		}
 	}
@@ -451,41 +498,46 @@ static void vmpt3sas_addvhost_handler(void *data)
 	int chanel, id ,lun;
     unsigned int host_id;
     remote_shost_t *rshost, *iter;
-	
+	vmptsas_hostmap_t *hmp = NULL;
+    vmptsas_brdlocal_cause_e cause; 
+    vmptsas_brdlocal_arg_t priv;
 	XDR *xdrs = rx_data->xdrs;
+	
 	session = rx_data->cs_data->cs_private;
+
+    xdr_u_int(xdrs, (unsigned *)&cause);
 
     xdr_u_int(xdrs,&host_id);
 	xdr_u_int(xdrs, &shost_no); /* 8bytes */
 	xdr_u_int(xdrs, &j);
-	printk(KERN_WARNING " %s host:%u hostno: %u devcount=%d ", __func__, host_id, shost_no, j);
-
-    rshost = shost_entry_alloc();
-    if(NULL == rshost) {
-        printk(KERN_ERR " alloc mem for rshost[%u:%u] failed ", host_id,shost_no );
-        return;
-    }
+	printk(KERN_WARNING " %s host:%u hostno: %u devcount=%d ", 
+	       __func__, host_id, shost_no, j);
 
     spin_lock(&rshost_list.lock);
     list_for_each_entry(iter, &rshost_list.head, entry) {
         if(host_id == iter->host_id && shost_no == iter->shost_no) {
             spin_unlock(&rshost_list.lock);
-            shost_entry_free(rshost);
-            printk(KERN_WARNING " scsi_host[%u:%u] already registered", host_id, shost_no );
-            return;
+            printk(KERN_WARNING " scsi_host[%u:%u] already registered", 
+                   host_id, shost_no);
+            goto err_exists;
 		}
 	}
 
-    rshost->host_id = host_id;
-    rshost->shost_no = shost_no;
+    rshost = shost_entry_alloc(host_id, shost_no);
+    if(NULL == rshost) {
+        spin_unlock(&rshost_list.lock);
+        printk(KERN_ERR "alloc mem for rshost[%u:%u] failed ", 
+               host_id, shost_no);
+        goto err_rshost;
+    }
     list_add(&rshost->entry, &rshost_list.head);
     spin_unlock(&rshost_list.lock);
 	
 	shost = scsi_host_alloc(&vmpt3sas_driver_template, sizeof(struct vmpt3sas));
 	if (!shost){
-		printk(KERN_WARNING " %s scsi_host_alloc failed hostno: %d ", __func__, shost_no );
-        shost_entry_free(rshost);
-		return;
+	    printk(KERN_WARNING " %s scsi_host_alloc failed hostno: %d ", 
+	           __func__, shost_no );
+		goto err_shost;
 	}
 
 	shost->max_cmd_len = 16;
@@ -500,26 +552,30 @@ static void vmpt3sas_addvhost_handler(void *data)
 	ioc->remotehostid = host_id;
 	ioc->logging_level = logging_level;
 	ioc->shost = shost;
-	ioc->id = g_vmptsas_hostmap_total++;
 	spin_lock_init(&ioc->reqindex_lock);
 	ioc->req_index = 0;
 	ioc->vmpt_cmd_wait_hash = mod_hash_create_ptrhash(
 							"vmpt_cmd_wait_hash", 1024,
 							mod_hash_null_valdtor, 0);
 	
-	rv = scsi_add_host(shost, NULL);
-	if (rv) {
-		/*
-		pr_err(MPT3SAS_FMT "failure at %s:%d/%s()!\n",
-			ioc->name, __FILE__, __LINE__, __func__);
-		*/
-		printk(KERN_WARNING " %s scsi_add_host failed ret: %d ", __func__, rv );
-		goto out_add_shost_fail;
+	hmp = vmpt3sas_hostmap_alloc(host_id, g_vmptsas_hostmap_total, shost_no, shost);
+	if(hmp == NULL) {
+	    printk(KERN_WARNING " %s hostmap_alloc failed hostid:%d hostno: %d ", 
+	           __func__, host_id, shost_no );
+        goto err_hostmap;
 	}
 	
-	g_vmptsas_hostmap_array[g_vmptsas_hostmap_total].shost = shost;
-	g_vmptsas_hostmap_array[g_vmptsas_hostmap_total].hostid = host_id;
-	g_vmptsas_hostmap_array[g_vmptsas_hostmap_total].remote_hostno = shost_no;
+	spin_lock(&hostmap_list.lock);
+	ioc->id = g_vmptsas_hostmap_total++;
+	list_add(&hmp->entry, &hostmap_list.head);
+    spin_unlock(&hostmap_list.lock);
+    
+	rv = scsi_add_host(shost, NULL);
+	if (rv) {
+		printk(KERN_WARNING " %s scsi_add_host failed ret: %d ", 
+		       __func__, rv );
+		goto err_add_host;
+	}
 
 	for (i=0; i<j; i++) {
 		xdr_u_int(xdrs, &chanel);
@@ -527,7 +583,7 @@ static void vmpt3sas_addvhost_handler(void *data)
 		xdr_u_int(xdrs, &lun);
 		
 		printk(KERN_WARNING " %s scsi_add_device host_no:%d chanel:%u id:%u lun:%u \n", 
-			__func__,shost->host_no, chanel, id, lun);
+			   __func__,shost->host_no, chanel, id, lun);
 		scsi_add_device(shost, chanel, id, lun);
 	}
 
@@ -540,12 +596,40 @@ static void vmpt3sas_addvhost_handler(void *data)
 	printk(KERN_WARNING " %s to run scsi_scan_host ", __func__);
 	scsi_scan_host(shost);
 	*/
+	switch(cause) {
+        case VMPTSAS_BRDLC_SELFUP: 
+            break;
+        case VMPTSAS_BRDLC_DOWN_CVT_UP:
+            priv.sess = session;
+            priv.cause = VMPTSAS_BRDLC_SELFUP;
+            vmpt3sas_lookup_report_shost(vmpt3sas_brdlocal_shost, &priv);
+            /*
+             * when a new cluster san host is added into cluster,
+             * it's a new-created session. vmpt3sas_lenvent_callback
+             * added ago was discarded when this host disabled from 
+             * cluster.
+             */
+            csh_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
+            break;
+	}
 	vmpt3sas_rx_data_free(rx_data);
-	return;
-		
-out_add_shost_fail:
 	scsi_host_put(shost);
 	return ;
+	
+err_add_host:
+    g_vmptsas_hostmap_total--;
+    list_del(&hmp->entry);
+    kfree(hmp);
+err_hostmap:
+    if(ioc && ioc->vmpt_cmd_wait_hash)
+        mod_hash_destroy_ptrhash(ioc->vmpt_cmd_wait_hash);
+    kfree(shost);
+err_shost:
+    shost_entry_free(rshost);
+err_rshost:
+err_exists:
+    vmpt3sas_rx_data_free(rx_data);
+    return;
 }
 
 void vmpt3sas_proxy_handler(void *data)
@@ -750,7 +834,8 @@ int vmpt3sas_shost_ndevs(struct Scsi_Host *shost)
 	return ndevs;
 }
 
-void vmpt3sas_lookup_report_shost(void *sess )
+void 
+vmpt3sas_lookup_report_shost(vmpt3sas_lookup_shost_cb_fn fn, void *priv)
 {
 	int i,j;
 	struct Scsi_Host *shost = NULL;
@@ -775,7 +860,7 @@ void vmpt3sas_lookup_report_shost(void *sess )
 			msleep(2000);
 			nndevs= vmpt3sas_shost_ndevs(shost);
 			if (nndevs>0 && nndevs==ndevs){
-				vmpt3sas_brdlocal_shost(sess, shost);
+				fn(priv, shost);
 				
 				break;
 			}
@@ -784,6 +869,15 @@ void vmpt3sas_lookup_report_shost(void *sess )
 			ndevs = nndevs;
 		}
 	}
+
+    /*
+     * when we execute at this step, we assume that all Scsi_Host and
+     * scsi_devices havs been detected for sending, so module loading is
+     * completed and if there is a new scsi_device is attached later, we 
+     * think it's the time to execute all steps of vmpt3sas_sd_state_changed_cb.
+     */
+	is_loading = B_FALSE;
+	is_loaded = B_TRUE;
 	
 	return ; 
 }
@@ -952,6 +1046,242 @@ failed:
 	return;
 }
 
+static struct Scsi_Host * 
+vmpt3sas_lookup_vmptsas_shost_by_hostid_and_shostno(uint_t hostid, uint_t shostno)
+{
+    int found = 0;
+	struct Scsi_Host *shost = NULL;
+    vmpt3sas_t *ioc = NULL;
+    vmptsas_hostmap_t *iter = NULL;
+    vmptsas_hostmap_t *vhostmap = NULL;
+
+    /*
+    printk(KERN_WARNING "%s: hostid:%u, shostno:%u, size:%u", 
+           __func__, hostid, shostno, g_vmptsas_hostmap_total);
+    */
+    /*
+     * we only care Scsi_Host whose is added to g_vmptsas_hostmap_array before.
+     */
+    spin_lock(&hostmap_list.lock);
+	list_for_each_entry(iter, &hostmap_list.head, entry) {
+	/*
+        printk(KERN_WARNING "%s: iter hostid:%u, shostno:%u", 
+               __func__, hostid, shostno);
+	*/
+		if ( (iter->hostid == hostid) &&
+		     (iter->remote_hostno == shostno) ) {
+		    found = 1;
+            break;
+		}
+	}
+	spin_unlock(&hostmap_list.lock);
+	shost = (found ? iter->shost : NULL);
+	return shost; 
+}
+
+static void
+vmpt3sas_state_change_cb_removed(void *data)
+{
+    int found = 0;
+    vmpt3sas_rx_data_t *prx = data;
+    XDR *xdrs = prx->xdrs;
+    cs_rx_data_t *rx_data = prx->cs_data;
+    uint_t hostid, shost_no, channel, id, lun;
+    remote_shost_t *iter = NULL;
+    struct Scsi_Host *shost = NULL;
+    struct scsi_device *sdev = NULL;
+    struct scsi_device *sdev2 = NULL;
+    
+    xdr_u_int(xdrs, &hostid);
+    xdr_u_int(xdrs, &shost_no);
+
+    spin_lock(&rshost_list.lock);
+    list_for_each_entry(iter, &rshost_list.head, entry) {
+        if( (hostid == iter->host_id) && 
+            (shost_no == iter->shost_no) ) {
+            found = 1;
+            break;
+    	}
+	}
+    spin_unlock(&rshost_list.lock);
+	if( !found ) {
+        printk(KERN_WARNING "%s: not added scsi_host[%u %u]", 
+               __func__, hostid, shost_no);
+        return ;
+	}
+
+    xdr_u_int(xdrs, &channel);
+    xdr_u_int(xdrs, &id);
+    xdr_u_int(xdrs, &lun);
+    
+    shost = vmpt3sas_lookup_vmptsas_shost_by_hostid_and_shostno(hostid, shost_no);
+    if( (NULL == shost) ||
+        ((sdev = scsi_device_lookup(shost, channel, id, lun)) == NULL) ) {
+        printk(KERN_WARNING "%s: not founded scsi_device[%u %u %u %u %u %p %p]", 
+               __func__, hostid, shost_no, channel, id, lun, shost, sdev);
+    }
+
+    if(sdev != NULL) {
+        scsi_remove_device(sdev);
+        scsi_device_put(sdev);
+    }
+    
+    return ;
+}
+
+static void
+vmpt3sas_state_change_cb_probe(void *data)
+{
+    int rv = 0;
+    int tries = 0;
+    int max_try = 3;
+    int found = 0;
+    uint_t myhostid = zone_get_hostid(NULL);
+    vmpt3sas_rx_data_t *prx = data;
+    XDR *xdrs = prx->xdrs;
+    cs_rx_data_t *rx_data = prx->cs_data;
+    uint_t hostid, shost_no, channel, id, lun;
+    remote_shost_t *iter = NULL;
+    struct Scsi_Host *shost = NULL;
+    struct scsi_device *sdev = NULL;
+    void *session = rx_data->cs_private;
+    vmptsas_hostmap_t *hmp = NULL;
+    vmpt3sas_t *ioc = NULL;
+    
+    xdr_u_int(xdrs, &hostid);
+    xdr_u_int(xdrs, &shost_no);
+
+    if(myhostid == hostid) {
+        printk(KERN_WARNING "%s: the same hostid[%u]", 
+               __func__, hostid);
+        return ;
+    }
+    /*
+     * firstly we check whether rshost_list contains the specified
+     * Scsi_Host, if not,we assume that it's a new Scsi_Host. in 
+     * that case we create a new remote_shost_t and add it into rshost_list.
+     */
+    spin_lock(&rshost_list.lock);
+    list_for_each_entry(iter, &rshost_list.head, entry) {
+        if( (hostid == iter->host_id) && 
+            (shost_no == iter->shost_no) ) {
+            found = 1;
+            break;
+    	}
+	}
+    
+	if( !found ) {
+        if( (iter = shost_entry_alloc(hostid, shost_no)) == NULL) {
+            spin_unlock(&rshost_list.lock);
+            printk(KERN_WARNING "%s: out of memory", __func__);
+            goto err_rshost;
+        }
+        list_add(&iter->entry, &rshost_list.head);
+	}
+    
+    xdr_u_int(xdrs, &channel);
+    xdr_u_int(xdrs, &id);
+    xdr_u_int(xdrs, &lun);
+    
+    shost = vmpt3sas_lookup_vmptsas_shost_by_hostid_and_shostno(hostid, shost_no);
+    if(NULL == shost) {
+        shost = scsi_host_alloc(&vmpt3sas_driver_template, sizeof(struct vmpt3sas));
+    	if (!shost){
+    	    printk(KERN_WARNING " %s scsi_host_alloc failed hostno: %d ", 
+    	           __func__, shost_no );
+    		goto err_shost;
+    	}
+
+    	shost->max_cmd_len = 16;
+    	shost->max_id = 128;
+    	shost->max_lun = 16;
+    	shost->max_channel = 0;
+    	shost->max_sectors = 256;
+    	
+    	ioc = shost_priv(shost);
+    	ioc->session = session;
+    	ioc->remotehostno = shost_no;
+    	ioc->remotehostid = hostid;
+    	ioc->logging_level = logging_level;
+    	ioc->shost = shost;
+    	spin_lock_init(&ioc->reqindex_lock);
+    	ioc->req_index = 0;
+    	ioc->vmpt_cmd_wait_hash = mod_hash_create_ptrhash(
+    							"vmpt_cmd_wait_hash", 1024,
+    							mod_hash_null_valdtor, 0);
+    	
+    	hmp = vmpt3sas_hostmap_alloc(hostid, g_vmptsas_hostmap_total, shost_no, shost);
+    	if(hmp == NULL) {
+    	    printk(KERN_WARNING " %s hostmap_alloc failed hostid:%d hostno: %d ", 
+    	           __func__, hostid, shost_no );
+            goto err_hostmap;
+    	}
+    	
+    	spin_lock(&hostmap_list.lock);
+    	ioc->id = g_vmptsas_hostmap_total++;
+    	list_add(&hmp->entry, &hostmap_list.head);
+        spin_unlock(&hostmap_list.lock);
+        
+    	rv = scsi_add_host(shost, NULL);
+    	if (rv) {
+    		printk(KERN_WARNING " %s scsi_add_host failed ret: %d ", 
+    		       __func__, rv);
+    		goto err_add_host;
+    	}
+    }
+
+    do {
+        if( (rv = scsi_add_device(shost, channel, id, lun)) != 0 ) {
+            printk(KERN_WARNING " %s scsi_add_device failed ret:%d try:%d", 
+        		   __func__, rv, tries);
+            tries++;
+        } else 
+            break;
+    } while(tries < max_try);
+
+    printk(KERN_WARNING " %s scsi_add_device try_times:%d", 
+           __func__, tries);
+    return ;
+    
+err_add_host:
+    kfree(hmp);
+err_hostmap:
+    if(ioc && ioc->vmpt_cmd_wait_hash)
+        mod_hash_destroy_ptrhash(ioc->vmpt_cmd_wait_hash);
+    kfree(shost);
+err_shost:
+    if(!found) {
+        list_del(&iter->entry);
+        shost_entry_free(iter);
+    }
+err_rshost:
+    return ;
+}
+
+void
+vmpt3sas_state_change_handler(void *data)
+{
+    vmpt3sas_rx_data_t *prx = data;
+    XDR *xdrs = prx->xdrs;
+    sd_state_change_types type;
+    
+    xdr_u_int(xdrs, &type);
+    switch(type) {
+        case SD_STATE_REMOVED:
+            vmpt3sas_state_change_cb_removed(data);
+            break;
+        case SD_STATE_PROBE:
+            vmpt3sas_state_change_cb_probe(data);
+            break;
+        default:
+            printk(KERN_WARNING "state_change_handler: unsupported type[%u]", type);
+			break;
+    }
+    
+    vmpt3sas_rx_data_free(prx);
+    return ;
+}
+
 int vmpt3sas_send_msg(void *sess, void *data, u64 len, void *header, u64 headerlen, int issgl)
 {
 	int ret = 0;
@@ -1012,7 +1342,10 @@ static void vmpt3sas_clustersan_rx_cb(cs_rx_data_t *cs_data, void *arg)
 			taskq_dispatch(tq_common,
 				vmpt3sas_brdhost_handler, (void *)rx_data, TQ_SLEEP);
 			break;
-		
+		case VMPT_CMD_STATE_CHANGE:
+			taskq_dispatch(tq_common,
+				vmpt3sas_state_change_handler, (void *)rx_data, TQ_SLEEP);
+			break;
 		default:
 			vmpt3sas_rx_data_free(rx_data);
 			printk(KERN_WARNING "vmptsas_remote_req_handler: Don't support");
@@ -1048,7 +1381,7 @@ void vmpt3sas_debug_print_sg(struct scsi_cmnd *scmd)
 	}
 }
 
-int  vmpt3sas_trans_sg(struct scsi_cmnd *scmd,struct sg_table *sgtable)
+int vmpt3sas_trans_sg(struct scsi_cmnd *scmd,struct sg_table *sgtable)
 {
 	struct scatterlist * sg = scsi_sglist(scmd);
 	int count = scsi_sg_count(scmd);
@@ -1288,37 +1621,175 @@ int vmpt3sas_qcmd_done_thread(void *data)
 	return 0;
 }
 
-void vmpt3sas_lenvent_callback(int event, int hostid)
+static void
+vmpt3sas_sd_state_changed_cb(struct device *dev, 
+                             void *priv, sd_state_change_types type)
 {
-	remote_shost_t  *iter;
+	vmpt3sas_remote_cmd_t remote_cmd;
+	XDR xdr_temp;
+	XDR *xdrs = &xdr_temp;
+	uint_t tx_len;
+	uint_t len;
+	void *buff = NULL;
+	int err = 0;
+	uint_t host_id = zone_get_hostid(NULL);
+	struct scsi_disk *sdkp = NULL;
+    struct scsi_device *sdvp = NULL;
+    struct Scsi_Host *shp = NULL;
+    
+	if( (type > SD_STATE_FAULTY) ||
+	    ((sdkp = dev_get_drvdata(dev)) == NULL) ||
+	    ((sdvp = sdkp->device) == NULL) ||
+	    ((shp = sdvp->host) == NULL) ) {
+	    printk(KERN_WARNING "%s: invalid params",
+	           __func__);
+	    return ;
+	}
+
+	/*
+	 * we ignore all state changed events during module loading
+	 * like that zfs ignore io error during pool importing.
+	 */
+	if(is_loading && !is_loaded) {
+        printk(KERN_WARNING "%s: module loading",
+               __func__);
+	    return ;
+	}
+
+	printk(KERN_WARNING "%s: scsi_disk probe shost:%d, channel:%d,"
+	       "id:%d, lun:%d, template_name:%s", __func__, shp->host_no, 
+	       sdvp->channel, sdvp->id, sdvp->lun, shp->hostt->name);
+	/*
+	 * we must ignore scsi_device which caused 
+	 * by vmpt3sas's adding scsi_hosts.
+	 */
+	if(strcmp(vmpt3sas_driver_template.name, shp->hostt->name) == 0) {
+        printk(KERN_WARNING "%s: vmpt3sas add scsi_disk", __func__);
+        return ;
+	}
 	
-	printk(KERN_WARNING "%s: event:%d hostid:%d", __func__, event, hostid);
-	switch(event)
+	/*encode message*/
+	len = XDR_EN_FIXED_SIZE + sizeof(uint_t)*6;
+	buff = cs_kmem_alloc(len);
+	xdrmem_create(xdrs, buff, len, XDR_ENCODE);
+	
+	remote_cmd = VMPT_CMD_STATE_CHANGE;
+	xdr_int(xdrs, (int *)&remote_cmd);/* 4bytes */
+	xdr_u_int(xdrs, &type);
+	
+	xdr_u_int(xdrs, &host_id);
+    xdr_u_int(xdrs, &shp->host_no);
+    xdr_u_int(xdrs, &sdvp->channel);
+    xdr_u_int(xdrs, &sdvp->id);
+    xdr_u_int(xdrs, &sdvp->lun);
+    tx_len = (uint_t)((uintptr_t)xdrs->x_addr - (uintptr_t)buff);
+    
+    err = vmpt3sas_send_msg(VMPT3SAS_BROADCAST_SESS, 
+                            NULL, 0, buff, (u64)tx_len, 0);
+    if(err != 0)
+        printk(KERN_WARNING "sd_state_change: send state change message fail");
+        
+    cs_kmem_free(buff, len);
+	return ;
+}
+
+static void
+vmpt3sas_hdl_up_to_down(uint_t hostid)
+{
+    int isfind = 0;
+    vmpt3sas_t *ioc = NULL;
+    struct Scsi_Host *shost = NULL;
+    vmptsas_hostmap_t *iter = NULL;
+    vmptsas_hostmap_t *vhostmap = NULL;
+
+    printk(KERN_WARNING "%s hostmap:%u", __func__, g_vmptsas_hostmap_total);
+    spin_lock(&hostmap_list.lock);   
+    list_for_each_entry(iter, &hostmap_list.head, entry) {
+        printk(KERN_WARNING "%s iter hostid:%u", __func__, iter->hostid);
+        if( (iter->hostid == hostid) &&
+            (shost = iter->shost) &&
+            (ioc = shost_priv(shost)) &&
+            (ioc->remotehostid == hostid) ) {
+            isfind = 1;
+            list_del(&iter->entry);
+            break;
+        }
+    }
+    spin_unlock(&hostmap_list.lock);
+    printk(KERN_WARNING "%s isfind:%d shost:%p", __func__, isfind, shost);
+    if(isfind) {
+        scsi_remove_host(shost);
+        kfree(iter);
+    }
+}
+
+static void 
+vmpt3sas_hdl_down_to_up(cluster_san_hostinfo_t *hostp)
+{
+    vmptsas_brdlocal_arg_t priv = {
+        .sess = hostp,
+        .cause = VMPTSAS_BRDLC_DOWN_CVT_UP
+    };
+    vmpt3sas_lookup_report_shost(vmpt3sas_brdlocal_shost, &priv);
+}
+
+void 
+vmpt3sas_lenvent_callback(void *private, cts_link_evt_t link_evt, void *arg)
+{
+    int found = 0;
+	remote_shost_t  *iter = NULL;
+	cluster_san_hostinfo_t *hostp = private;
+	u32 hostid = hostp->hostid;
+	
+	printk(KERN_WARNING "%s: event:%d hostid:%d", 
+	       __func__, link_evt, hostid);
+	switch(link_evt)
 	{
-	case EVT_REMOTE_HOST_DOWN:
+	case LINK_EVT_UP_TO_DOWN:
 		spin_lock(&rshost_list.lock);
 	    list_for_each_entry(iter, &rshost_list.head, entry) {
 	        if(hostid == iter->host_id ) {
-				list_del(&iter->entry);
-	            spin_unlock(&rshost_list.lock);
-	            printk(KERN_WARNING " scsi_host[%u] was deleted", hostid);
-	            return;
+	            found = 1;
+	            break;
 			}
 		}
-    	spin_unlock(&rshost_list.lock);
-		
+
+    	if(!found) {
+            spin_unlock(&rshost_list.lock);
+            printk(KERN_WARNING "%s: hostid[%u] not found", 
+	               __func__, hostid);
+	        return ;
+    	}
+    	
+    	list_del(&iter->entry);
+		spin_unlock(&rshost_list.lock);
+		shost_entry_free(iter);
+		printk(KERN_WARNING "%s: hostid[%u] deleted", 
+	           __func__, hostid);
+	           
+		vmpt3sas_hdl_up_to_down(hostid);
 		break;
-	case EVT_REMOTE_HOST_UP:		
+	case LINK_EVT_DOWN_TO_UP:		
 		spin_lock(&rshost_list.lock);
 	    list_for_each_entry(iter, &rshost_list.head, entry) {
 	        if(hostid == iter->host_id ) {
-				list_del(&iter->entry);
-	            spin_unlock(&rshost_list.lock);
-	            printk(KERN_WARNING " scsi_host[%u] was deleted", hostid);
-	            return;
+	            found = 1;
+	            break;
 			}
 		}
-    	spin_unlock(&rshost_list.lock);
+
+        spin_unlock(&rshost_list.lock);
+		if(found) {
+            
+            printk(KERN_WARNING "%s: hostid[%u] have registered", 
+                   __func__, hostid);
+            return ;
+		}
+		
+        printk(KERN_WARNING "%s: hostid[%u] have not registered yet", 
+               __func__, hostid);
+
+        vmpt3sas_hdl_down_to_up(hostp);
 		break;
 	default:
 		break;
@@ -1390,6 +1861,30 @@ static void vmpt3sas_init_instance(vmptsas_instance_t *instance)
 	wake_up_process(proxy->thread);
 }
 
+static vmptsas_hostmap_t *
+vmpt3sas_hostmap_alloc(int hostid, int index, int hostno, struct Scsi_Host *shost)
+{
+    vmptsas_hostmap_t *outp = NULL;
+    if( (outp = kmalloc(sizeof(*outp), GFP_KERNEL)) == NULL ) {
+        printk(KERN_WARNING "%s kmalloc fail", __func__);
+        goto out;
+    }
+    outp->hostid = hostid;
+    outp->index = index;
+    outp->remote_hostno = hostno;
+    outp->shost = shost;
+    INIT_LIST_HEAD(&outp->entry);
+out:
+    return outp;
+}
+
+static void 
+vmpt3sas_init_hostmap_list(void)
+{
+    INIT_LIST_HEAD(&hostmap_list.head);
+    spin_lock_init(&hostmap_list.lock);
+}
+
 long
 vmpt3sas_unlocked_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
@@ -1454,8 +1949,11 @@ _vmpt3sas_init(void)
 	int err;
 	
 	pr_info("%s loaded\n", VMPT3SAS_DRIVER_NAME);
-
-	(void)init_remote_shost_list();
+	
+    is_loading = B_TRUE;
+    is_loaded = B_FALSE;
+    
+	init_remote_shost_list();
 
 	/* qcmd multi_threads and  done multi_threads */
 	gvmpt3sas_instance.tq_pexec=
@@ -1486,14 +1984,20 @@ _vmpt3sas_init(void)
 	csh_rx_hook_add(CLUSTER_SAN_MSGTYPE_IMPTSAS, vmpt3sas_clustersan_rx_cb, gvmpt3sas_instance.tq_common);
 
 	vmpt3sas_init_instance(&gvmpt3sas_instance);
+	vmpt3sas_init_hostmap_list();
+
+	/*
 	clustersan_vsas_set_levent_callback(vmpt3sas_lenvent_callback, NULL);
+	*/
+	csh_link_evt_hook_add(vmpt3sas_lenvent_callback, NULL);
+	sd_register_cb_state_changed(vmpt3sas_sd_state_changed_cb, NULL);
 	
 	err = misc_register(&vmpt3sas_mm_dev);
 	if (err < 0) {
 		printk(KERN_WARNING "%s: cannot register misc device\n", __func__);
 		return err;
 	}
-
+    
 	vmpt3sas_brd_selfup();
 	return 0;
 
@@ -1510,10 +2014,11 @@ _vmpt3sas_exit(void)
 	kthread_stop(gvmpt3sas_instance.qcmdproxy.thread);
 	kthread_stop(gvmpt3sas_instance.dcmdproxy.thread);
 	csh_rx_hook_remove(CLUSTER_SAN_MSGTYPE_IMPTSAS);
+	csh_link_evt_hook_remove(vmpt3sas_lenvent_callback);
+	sd_deregister_cb_state_changed();
 	pr_info("%s exit\n", VMPT3SAS_DRIVER_NAME);
 }
 
 module_init(_vmpt3sas_init);
 module_exit(_vmpt3sas_exit);
 MODULE_LICENSE("GPL");
-

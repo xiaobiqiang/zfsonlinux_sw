@@ -45,7 +45,8 @@ typedef enum vmpt3sas_remote_cmd {
 	VMPT_CMD_RSP,
 	VMPT_CMD_CTL,
 	VMPT_CMD_ADDHOST,
-	VMPT_CMD_SELFUP
+	VMPT_CMD_SELFUP,
+	VMPT_CMD_STATE_CHANGE
 } vmpt3sas_remote_cmd_t;
 
 typedef enum vmpt3sas_cmd_state {
@@ -112,6 +113,7 @@ typedef struct vmptsas_hostmap {
 	int remote_hostno;
 	int index;
 	int hostid;
+	struct list_head entry;
 }vmptsas_hostmap_t;
 
 #define ISRWCDB(cdb) ((cdb & 0x1F)==0x08 || (cdb & 0x1F)==0x0a)
