@@ -137,8 +137,10 @@ static int find_mpt_host(mpt_ioc_t **ioc_ids, int *ioc_ids_nr)
         snprintf(filename, sizeof(filename), "%s/%s/host_sas_dev_cnt", SCSIHOST_DIR, dirent->d_name);
 
         fd = open(filename, O_RDONLY);
-        if (fd < 0)
+        if (fd < 0) {
+            syslog(LOG_ERR, "open file :%s failed", filename);
             continue;
+        }
 
         ret = read(fd, dev_num, 8);
         if (ret < 0)
