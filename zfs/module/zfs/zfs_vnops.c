@@ -3152,6 +3152,7 @@ zfs_remove(struct inode *dip, char *name, cred_t *cr, int flags)
 	boolean_t	waited = B_FALSE;
 
 	int err = 0;
+	boolean_t bover = B_FALSE;
 	vn_op_type_t optype;
 	zfs_group_dtl_carrier_t* z_carrier = NULL;
 	zfs_group_dtl_data_t*	ss_data = NULL;
@@ -3341,9 +3342,8 @@ top:
 		 */
 		if ( ( ! (zp->z_pflags & ZFS_XATTR ) ) && (zp->z_dirquota > 0 || zp->z_bquota > 0)) {
 			zfs_update_quota_used(zsb, zp, zp->z_size, REDUCE_SPACE, tx);
-			/* I don't think we need to check overquota here. */
-		/*	bover = zfs_write_overquota(zsb, zp);
-			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL); */
+			bover = zfs_write_overquota(zsb, zp);
+			zfs_set_overquota(zsb, zp->z_dirquota, bover, B_FALSE, NULL);
 			zfs_update_quota_used( zsb, zp, 1, REMOVE_FILE, tx ) ;
 		}
 	}
