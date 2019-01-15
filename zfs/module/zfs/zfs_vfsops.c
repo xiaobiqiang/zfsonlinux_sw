@@ -1150,7 +1150,7 @@ zfs_sb_create(const char *osname, zfs_mntopts_t *zmo, zfs_sb_t **zsbp)
 	if (error && error != ENOENT)
 		goto out;
 	zsb->z_overquota = 0;
-
+	mutex_init(&zsb->z_quota_mutex, NULL, MUTEX_DEFAULT, NULL);
 
 	error = zap_lookup(os, MASTER_NODE_OBJ,
 	    zfs_dirquota_prefixex,
@@ -1434,6 +1434,7 @@ zfs_sb_free(zfs_sb_t *zsb)
 		avl_destroy(&zsb->z_hold_trees[i]);
 		mutex_destroy(&zsb->z_hold_locks[i]);
 	}
+	mutex_destroy(&zsb->z_quota_mutex);
 
 	vmem_free(zsb->z_hold_trees, sizeof (avl_tree_t) * size);
 	vmem_free(zsb->z_hold_locks, sizeof (kmutex_t) * size);
@@ -2863,12 +2864,14 @@ void zfs_dir_updatequota(zfs_sb_t *zsb, znode_t *zp, uint64_t update_size,
 		kmem_free(buf, MAXNAMELEN);
 		return;
 	}
-	
+
 	bzero(buf, MAXNAMELEN);
 	sprintf(buf, DIR_QUOTA_USED, zfs_dirused_prefixex, 
 	    (longlong_t)zp->z_dirquota);
+	mutex_enter(&zsb->z_quota_mutex);
 	err = zap_lookup(zsb->z_os, zsb->z_dirquota_obj, buf, 8, 1, &used);
 	if (err != 0 && err != ENOENT){
+		mutex_exit(&zsb->z_quota_mutex);
 		vmem_free(buf, MAXNAMELEN);
 		return;
 	}
@@ -2880,9 +2883,9 @@ void zfs_dir_updatequota(zfs_sb_t *zsb, znode_t *zp, uint64_t update_size,
 	else
 		used = 0;
 	}
-
 	zap_update(zsb->z_os, zsb->z_dirquota_obj, buf, 
 	    sizeof(uint64_t), 1, &used, tx);
+	mutex_exit(&zsb->z_quota_mutex);
 	vmem_free(buf, MAXNAMELEN);
 }
 
@@ -2911,9 +2914,12 @@ zfs_fuid_updatequota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid,
 	if (err )
 		return;
 
+	mutex_enter(&zsb->z_quota_mutex);
 	err = zap_lookup(zsb->z_os, usedobj, buf, 8, 1, &used);
-	if (err && err != ENOENT )
+	if (err && err != ENOENT ) {
+		mutex_exit(&zsb->z_quota_mutex);
 		return ;
+	}
 	if (update_op == EXPAND_SPACE || update_op == ADD_FILE ) {
 		used += update_size;
 	} else {
@@ -2923,7 +2929,7 @@ zfs_fuid_updatequota(zfs_sb_t *zsb, boolean_t isgroup, uint64_t fuid,
 			used = 0;
 	}
 	zap_update(zsb->z_os, usedobj, buf, 8, 1, &used, tx);
-	
+	mutex_exit(&zsb->z_quota_mutex);
 }
 
 
