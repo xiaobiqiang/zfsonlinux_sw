@@ -161,7 +161,7 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 	int old_state;
 
 	old_state = atomic_read(&fcport->state);
-	atomic_set(&fcport->state, state);
+	atomic_set(&fcport->state, state); 
 
 	/* Don't print state transitions during initial allocation of fcport */
 	if (old_state && old_state != state) {
@@ -173,12 +173,11 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 		    fcport->d_id.b.al_pa);
 	}
 
-	if(old_state == FCS_DEVICE_LOST &&
-                state == FCS_DEVICE_DEAD &&
-                fcport->port_type == FCT_INITIATOR) {
-                qla2x00_fct_logout_port(fcport);
-        }
-
+	if(old_state == FCS_ONLINE &&
+       state == FCS_DEVICE_LOST &&
+       fcport->port_type == FCT_INITIATOR) {
+ 	   qla2x00_fct_logout_port(fcport);
+    }
 }
 
 static inline int

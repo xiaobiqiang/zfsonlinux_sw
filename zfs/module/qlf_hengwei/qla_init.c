@@ -449,7 +449,7 @@ void
 qla2x00_async_login_done(struct scsi_qla_host *vha, fc_port_t *fcport,
     uint16_t *data)
 {
-	int rval;
+	int rval; 
 
 	switch (data[0]) {
 	case MBS_COMMAND_COMPLETE:
@@ -475,7 +475,7 @@ qla2x00_async_login_done(struct scsi_qla_host *vha, fc_port_t *fcport,
 		if (fcport->flags & FCF_FCP2_DEVICE) {
 			qla2x00_post_async_adisc_work(vha, fcport, data);
 			break;
-		}
+		} 
 		qla2x00_update_fcport(vha, fcport);
 		break;
 	case MBS_COMMAND_ERROR:
@@ -521,7 +521,7 @@ void
 qla2x00_async_adisc_done(struct scsi_qla_host *vha, fc_port_t *fcport,
     uint16_t *data)
 {
-	if (data[0] == MBS_COMMAND_COMPLETE) {
+	if (data[0] == MBS_COMMAND_COMPLETE) { 
 		qla2x00_update_fcport(vha, fcport);
 
 		return;
@@ -3118,8 +3118,8 @@ qla2x00_configure_local_loop(scsi_qla_host_t *vha)
 
 	found_devs = 0;
 	new_fcport = NULL;
-	entries = MAX_FIBRE_DEVICES_LOOP;
-
+	entries = MAX_FIBRE_DEVICES_LOOP; 
+	
 	/* Get list of logged in devices. */
 	memset(ha->gid_list, 0, qla2x00_gid_list_size(ha));
 	rval = qla2x00_get_id_list(vha, ha->gid_list, ha->gid_list_dma,
@@ -3141,6 +3141,7 @@ qla2x00_configure_local_loop(scsi_qla_host_t *vha)
 		rval = QLA_MEMORY_ALLOC_FAILED;
 		goto cleanup_allocation;
 	}
+	 
 	new_fcport->flags &= ~FCF_FABRIC_DEVICE;
 
 	/*
@@ -3213,7 +3214,7 @@ qla2x00_configure_local_loop(scsi_qla_host_t *vha)
 			if (memcmp(new_fcport->port_name, fcport->port_name,
 			    WWN_SIZE))
 				continue;
-
+			 
 			fcport->flags &= ~FCF_FABRIC_DEVICE;
 			fcport->loop_id = new_fcport->loop_id;
 			fcport->port_type = new_fcport->port_type;
@@ -3237,13 +3238,12 @@ qla2x00_configure_local_loop(scsi_qla_host_t *vha)
 				    "Failed to allocate memory for fcport.\n");
 				rval = QLA_MEMORY_ALLOC_FAILED;
 				goto cleanup_allocation;
-			}
+			} 
 			new_fcport->flags &= ~FCF_FABRIC_DEVICE;
 		}
 
 		/* Base iIDMA settings on HBA port speed. */
-		fcport->fp_speed = ha->link_data_rate;
-
+		fcport->fp_speed = ha->link_data_rate; 
 		qla2x00_update_fcport(vha, fcport);
 
 		found_devs++;
@@ -3296,7 +3296,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 {
 	struct fc_rport_identifiers rport_ids;
 	struct fc_rport *rport;
-	unsigned long flags;
+	unsigned long flags; 
 
 	rport_ids.node_name = wwn_to_u64(fcport->node_name);
 	rport_ids.port_name = wwn_to_u64(fcport->port_name);
@@ -3362,8 +3362,10 @@ qla_register_scsi_session(scsi_qla_host_t *vha, fc_port_t *fcport)
 	
 		rw_enter(&iport->iport_lock, RW_WRITER);
 		/* Make sure nobody created the struct except us */
-		
+		stmf_trace(iport->iport_alias, "%s %d rp_id=%x", 
+			__func__, __LINE__, irp->irp_portid);
 		fct_queue_rp(iport, irp);
+		bcopy(fcport->port_name, irp->irp_port_name, sizeof(irp->irp_port_name));
 		stmf_wwn_to_devid_desc((scsi_devid_desc_t *)irp->irp_id,
 			fcport->port_name, PROTOCOL_FIBRE_CHANNEL);
 		atomic_or_32(&irp->irp_flags, IRP_PLOGI_DONE);
@@ -3429,13 +3431,13 @@ qla_register_scsi_session(scsi_qla_host_t *vha, fc_port_t *fcport)
 void
 qla2x00_update_fcport(scsi_qla_host_t *vha, fc_port_t *fcport)
 {
-	fcport->vha = vha;
+	fcport->vha = vha; 
 
 	if (IS_QLAFX00(vha->hw)) {
 		qla2x00_set_fcport_state(fcport, FCS_ONLINE);
 		goto reg_port;
 	}
-	fcport->login_retry = 0;
+	fcport->login_retry = 0; 
 	fcport->flags &= ~(FCF_LOGIN_NEEDED | FCF_ASYNC_SENT);
 
 	qla2x00_set_fcport_state(fcport, FCS_ONLINE);
@@ -3479,10 +3481,11 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 	int		discovery_gen;
 
 	/* If FL port exists, then SNS is present */
-	if (IS_FWI2_CAPABLE(ha))
+	if (IS_FWI2_CAPABLE(ha)) { 
 		loop_id = NPH_F_PORT;
-	else
+	} else { 
 		loop_id = SNS_FL_PORT;
+	}
 	rval = qla2x00_get_port_name(vha, loop_id, vha->fabric_node_name, 1);
 	if (rval != QLA_SUCCESS) {
 		ql_dbg(ql_dbg_disc, vha, 0x201f,
@@ -3507,7 +3510,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 		rval = ha->isp_ops->fabric_login(vha, loop_id, 0xff, 0xff,
 		    0xfc, mb, BIT_1|BIT_0);
 		if (rval != QLA_SUCCESS) {
-			set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags);
+			set_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags); 
 			dump_stack();
 			return rval;
 		}
@@ -3515,7 +3518,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 			ql_dbg(ql_dbg_disc, vha, 0x2042,
 			    "Failed SNS login: loop_id=%x mb[0]=%x mb[1]=%x mb[2]=%x "
 			    "mb[6]=%x mb[7]=%x.\n", loop_id, mb[0], mb[1],
-			    mb[2], mb[6], mb[7]);
+			    mb[2], mb[6], mb[7]); 
 			return (QLA_SUCCESS);
 		}
 
@@ -3620,14 +3623,20 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 		 * Scan through our port list and login entries that need to be
 		 * logged in.
 		 */
-		list_for_each_entry(fcport, &vha->vp_fcports, list) {
+		list_for_each_entry(fcport, &vha->vp_fcports, list) { 		
 			if (atomic_read(&vha->loop_down_timer) ||
-			    test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags))
+			    test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags)) { 
 				break;
+			}
+
+			if (fcport->port_type == FCT_TARGET) { 
+				continue;
+			}
 
 			if ((fcport->flags & FCF_FABRIC_DEVICE) == 0 ||
-			    (fcport->flags & FCF_LOGIN_NEEDED) == 0)
+			    (fcport->flags & FCF_LOGIN_NEEDED) == 0) { 
 				continue;
+			}
 
 			/*
 			 * If we're not an initiator, skip looking for devices
@@ -3638,6 +3647,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 			 * our login command and log out the initiator, which
 			 * seems to cause havoc).
 			 */
+			 #if 0
 			if (!qla_ini_mode_enabled(base_vha)) {
 				if (fcport->scan_state == QLA_FCPORT_FOUND) {
 					ql_dbg(ql_dbg_tgt_mgt, vha, 0xf078,
@@ -3650,7 +3660,8 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 				}
 				continue;
 			}
-
+			#endif
+ 
 			if (fcport->loop_id == FC_NO_LOOP_ID) {
 				fcport->loop_id = next_loopid;
 				rval = qla2x00_find_new_loop_id(
@@ -3659,7 +3670,8 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 					/* Ran out of IDs to use */
 					break;
 				}
-			}
+			} 
+			
 			/* Login and update database */
 			qla2x00_fabric_dev_login(vha, fcport, &next_loopid);
 		}
@@ -3676,6 +3688,10 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 			if (atomic_read(&vha->loop_down_timer) ||
 			    test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags))
 				break;
+
+			if (fcport->port_type == FCT_TARGET) { 
+				continue;
+			}
 
 			/*
 			 * If we're not an initiator, skip looking for devices
@@ -3696,7 +3712,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 				if (rval != QLA_SUCCESS) {
 					/* Ran out of IDs to use */
 					break;
-				}
+				} 
 
 				/* Login and update database */
 				qla2x00_fabric_dev_login(vha, fcport,
@@ -4059,7 +4075,7 @@ qla2x00_fabric_dev_login(scsi_qla_host_t *vha, fc_port_t *fcport,
 {
 	int	rval;
 	uint8_t opts;
-	struct qla_hw_data *ha = vha->hw;
+	struct qla_hw_data *ha = vha->hw; 
 
 	rval = QLA_SUCCESS;
 
@@ -4085,7 +4101,7 @@ qla2x00_fabric_dev_login(scsi_qla_host_t *vha, fc_port_t *fcport,
 			    fcport->d_id.b.domain, fcport->d_id.b.area,
 			    fcport->d_id.b.al_pa);
 			qla2x00_mark_device_lost(vha, fcport, 1, 0);
-		} else {
+		} else { 
 			qla2x00_update_fcport(vha, fcport);
 		}
 	} else {
@@ -4802,15 +4818,17 @@ qla2x00_abort_isp_cleanup(scsi_qla_host_t *vha)
 	}
 
 	/* Clear all async request states across all VPs. */
-	list_for_each_entry(fcport, &vha->vp_fcports, list)
+	list_for_each_entry(fcport, &vha->vp_fcports, list) { 
 		fcport->flags &= ~(FCF_LOGIN_NEEDED | FCF_ASYNC_SENT);
+	}
 	spin_lock_irqsave(&ha->vport_slock, flags);
 	list_for_each_entry(vp, &ha->vp_list, list) {
 		atomic_inc(&vp->vref_count);
 		spin_unlock_irqrestore(&ha->vport_slock, flags);
 
-		list_for_each_entry(fcport, &vp->vp_fcports, list)
+		list_for_each_entry(fcport, &vp->vp_fcports, list) { 
 			fcport->flags &= ~(FCF_LOGIN_NEEDED | FCF_ASYNC_SENT);
+		}
 
 		spin_lock_irqsave(&ha->vport_slock, flags);
 		atomic_dec(&vp->vref_count);
@@ -6700,35 +6718,30 @@ void
 qla2x00_fct_logout_port(fc_port_t *fcport)
 {
 	int i;
-        uint32_t remote_portid;
-        fct_i_remote_port_t     *irp = NULL;
-        fct_cmd_t               *cmd = NULL;
-        fct_i_local_port_t *iport = (fct_i_local_port_t *)(fcport->vha->qlt_port->port_fct_private);
+    uint32_t remote_portid;
+    fct_i_remote_port_t     *irp = NULL;
+    fct_cmd_t               *cmd = NULL;
+    fct_i_local_port_t *iport = (fct_i_local_port_t *)(fcport->vha->qlt_port->port_fct_private);
+	
+    remote_portid = ((uint32_t)(fcport->d_id.b.area << 8 | fcport->d_id.b.al_pa)) |
+                (((uint32_t)(fcport->d_id.b.domain)) << 16);
+    rw_enter(&iport->iport_lock, RW_WRITER);
+	
+    for (i = 0; i < FCT_HASH_TABLE_SIZE; i++) {
+	    irp = iport->iport_rp_tb[i];
+	    if (irp) {
+	        if (irp->irp_portid != remote_portid)
+				continue;
 
-        remote_portid = ((uint32_t)(fcport->d_id.b.area << 8 | fcport->d_id.b.al_pa)) |
-                    (((uint32_t)(fcport->d_id.b.domain)) << 16);
-
-        printk("suwei test %s logout portid = %x\n", __func__, remote_portid);
-
-        rw_enter(&iport->iport_lock, RW_WRITER);
-        for (i = 0; i < FCT_HASH_TABLE_SIZE; i++) {
-                irp = iport->iport_rp_tb[i];
-                if(irp) {
-                        if(irp->irp_portid != remote_portid)
-                                continue;
-
-                        cmd = fct_create_solels(iport->iport_port, irp->irp_rp,
-                            1, ELS_OP_LOGO, 0, fct_logo_cb);
-                        if (cmd == NULL) {
-                                stmf_trace(iport->iport_alias,
-                                    "fct_implictly_logo: cmd null");
-                                rw_exit(&iport->iport_lock);
-
-
-                        }
-                        printk("suwei test fct_post_implicit_logo!\n");
-                        fct_post_implicit_logo(cmd);
-                }
-        }
-        rw_exit(&iport->iport_lock);
+	        cmd = fct_create_solels(iport->iport_port, irp->irp_rp,
+	            1, ELS_OP_LOGO, 0, fct_logo_cb);
+	        if (cmd == NULL) {
+                stmf_trace(iport->iport_alias,
+                    "fct_implictly_logo: cmd null");
+                rw_exit(&iport->iport_lock);
+	        } 
+	        fct_post_implicit_logo(cmd);
+	    }
+    }
+    rw_exit(&iport->iport_lock);
 }

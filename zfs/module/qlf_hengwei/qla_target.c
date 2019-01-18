@@ -558,10 +558,13 @@ static void qlt_free_session_done(struct work_struct *work)
 /* ha->hardware_lock supposed to be held on entry */
 void qlt_unreg_sess(struct qla_tgt_sess *sess)
 {
-	struct scsi_qla_host *vha = sess->vha;
+	struct scsi_qla_host *vha; 
+	vha = sess->vha;
 
+	#if 0
 	vha->hw->tgt.tgt_ops->clear_nacl_from_fcport_map(sess);
-
+	#endif
+	
 	if (!list_empty(&sess->del_list_entry))
 		list_del_init(&sess->del_list_entry);
 	sess->deleted = QLA_SESS_DELETION_IN_PROGRESS;
@@ -791,7 +794,7 @@ static struct qla_tgt_sess *qlt_create_sess(
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt_sess *sess;
 	unsigned long flags;
-	unsigned char be_sid[3];
+	unsigned char be_sid[3]; 
 
 	/* Check to avoid double sessions */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
@@ -911,7 +914,7 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = vha->vha_tgt.qla_tgt;
 	struct qla_tgt_sess *sess;
-	unsigned long flags;
+	unsigned long flags; 
 
 #if 0
 	if (!vha->hw->tgt.tgt_ops)
@@ -6419,7 +6422,7 @@ static struct qla_tgt_sess *qlt_make_local_sess(struct scsi_qla_host *vha,
 	fc_port_t *fcport = NULL;
 	int rc, global_resets;
 	uint16_t loop_id = 0;
-
+	
 retry:
 	global_resets =
 	    atomic_read(&vha->vha_tgt.qla_tgt->tgt_global_resets_count);
@@ -6969,9 +6972,10 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 			//	(void) qlt_firmware_dump(port, ssci);
 			//}
 			vha->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
+			
 			if (vha->hw->isp_ops!= NULL) {
 				printk("start reset_chip!\n");
-				vha->hw->isp_ops->reset_chip(vha);
+				vha->hw->isp_ops->reset_chip(vha); 
 			}
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
@@ -6992,7 +6996,6 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 		break;
 
 	case FCT_ACK_PORT_OFFLINE_COMPLETE:
-
 		vha->qlt_state_not_acked = 0;
 		if ((vha->qlt_change_state_flags & STMF_RFLAG_RESET) &&
 		    (vha->qlt_stay_offline == 0)) {
@@ -7063,6 +7066,38 @@ qlt_free_atio(void *fca_cmd)
 		kmem_cache_free(atio_cachep, qcmd->atio);
 	}
 }
+
+void
+qlt_logout_session(struct fct_local_port *port, uint8_t *irp_port_name, int size)
+{
+	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
+	struct qla_tgt_sess *sess;
+	unsigned long flags = 0;
+	fc_port_t *fcport, *tfcport;
+	
+	printk("%s port %8phC\n", __func__, irp_port_name);
+
+	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
+	list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list,
+		sess_list_entry) {
+		if (!memcmp(sess->port_name, irp_port_name, size)) {
+			qlt_unreg_sess(sess);
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&vha->hw->hardware_lock, flags);
+
+	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
+		if (fcport->port_type == FCT_INITIATOR &&
+			!memcmp(fcport->port_name, irp_port_name, size)) {
+			list_del(&fcport->list);
+			qla2x00_clear_loop_id(fcport);
+			kfree(fcport);
+			break;
+		}
+	}
+}
+
 
 
 /********************************** basic func ****************************************/
@@ -7140,6 +7175,15 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 
 /*********************************************************************************/
 
+#if 0
+#define	BUF_COUNT_2K		32	
+#define	BUF_COUNT_8K		32	
+#define	BUF_COUNT_64K		16	
+#define	BUF_COUNT_128K		8	
+/* merge alua_2w code to stable modified by zywang begin */
+#define	BUF_COUNT_256K		4	
+/* merge alua_2w code to stable modified by zywang end */
+#else
 #define	BUF_COUNT_2K		2048	
 #define	BUF_COUNT_8K		512	
 #define	BUF_COUNT_64K		256	
@@ -7147,6 +7191,7 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 /* merge alua_2w code to stable modified by zywang begin */
 #define	BUF_COUNT_256K		512	
 /* merge alua_2w code to stable modified by zywang end */
+#endif
 
 #define	QLT_DMEM_MAX_BUF_SIZE	(4 * 65536)
 #define	QLT_DMEM_NBUCKETS	5
@@ -7903,6 +7948,7 @@ qlt_port_start(void* arg)
 	port->port_populate_hba_details = qlt_populate_hba_fru_details;
 	port->port_info = qlt_info;
 	port->port_free_atio = qlt_free_atio;
+ 	port->port_logout_session = qlt_logout_session;
 	port->port_fca_version = FCT_FCA_MODREV_1;
 
 	if ((ret = fct_register_local_port(port)) != FCT_SUCCESS) {

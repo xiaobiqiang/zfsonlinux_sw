@@ -104,6 +104,8 @@ typedef struct fct_i_cmd {
 #define	ICMD_IN_SOLCMD_QUEUE		0x010000
 #define	ICMD_SOLCMD_NEW			0x020000
 
+#define WWN_SIZE 8
+
 typedef struct fct_i_remote_port {
 	fct_remote_port_t		*irp_rp;
 	uint32_t			irp_alloc_size;
@@ -134,6 +136,7 @@ typedef struct fct_i_remote_port {
 	uint32_t			irp_dereg_count;
 
 	uint32_t			irp_portid;
+	uint8_t 			irp_port_name[8];
 	uint8_t				irp_id[24];
 	uint32_t			irp_rcvd_prli_params;
 	uint32_t			irp_sent_prli_params;

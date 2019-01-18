@@ -2369,7 +2369,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->flash_conf_off = ~0;
 		ha->flash_data_off = ~0;
 		ha->nvram_conf_off = ~0;
-		ha->nvram_data_off = ~0;
+		ha->nvram_data_off = ~0; 
 		ha->isp_ops = &qla2100_isp_ops;
 	} else if (IS_QLA2200(ha)) {
 		ha->max_fibre_devices = MAX_FIBRE_DEVICES_2100;
@@ -2381,7 +2381,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->flash_conf_off = ~0;
 		ha->flash_data_off = ~0;
 		ha->nvram_conf_off = ~0;
-		ha->nvram_data_off = ~0;
+		ha->nvram_data_off = ~0; 
 		ha->isp_ops = &qla2100_isp_ops;
 	} else if (IS_QLA23XX(ha)) {
 		ha->max_fibre_devices = MAX_FIBRE_DEVICES_2100;
@@ -2395,7 +2395,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->flash_conf_off = ~0;
 		ha->flash_data_off = ~0;
 		ha->nvram_conf_off = ~0;
-		ha->nvram_data_off = ~0;
+		ha->nvram_data_off = ~0; 
 		ha->isp_ops = &qla2300_isp_ops;
 	} else if (IS_QLA24XX_TYPE(ha)) {
 		ha->max_fibre_devices = MAX_FIBRE_DEVICES_2400;
@@ -2407,7 +2407,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_24xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_24XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA24XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA24XX; 
 		ha->isp_ops = &qla24xx_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA;
@@ -2423,7 +2423,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_24xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_25XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX; 
 		ha->isp_ops = &qla25xx_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA;
@@ -2439,7 +2439,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_81xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_81XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX; 
 		ha->isp_ops = &qla81xx_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF_81XX;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA_81XX;
@@ -2454,7 +2454,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_81xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_82XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX; 
 		ha->isp_ops = &qla82xx_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA;
@@ -2469,7 +2469,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_81xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_83XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX; 
 		ha->isp_ops = &qla8044_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA;
@@ -2486,7 +2486,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_81xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_83XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX; 
 		ha->isp_ops = &qla83xx_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF_81XX;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA_81XX;
@@ -2497,7 +2497,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->mbx_count = MAILBOX_REGISTER_COUNT_FX00;
 		ha->aen_mbx_count = AEN_MAILBOX_REGISTER_COUNT_FX00;
 		req_length = REQUEST_ENTRY_CNT_FX00;
-		rsp_length = RESPONSE_ENTRY_CNT_FX00;
+		rsp_length = RESPONSE_ENTRY_CNT_FX00; 
 		ha->isp_ops = &qlafx00_isp_ops;
 		ha->port_down_retry_count = 30; /* default value */
 		ha->mr.fw_hbt_cnt = QLAFX00_HEARTBEAT_INTERVAL;
@@ -2517,7 +2517,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->init_cb_size = sizeof(struct mid_init_cb_81xx);
 		ha->gid_list_info_size = 8;
 		ha->optrom_size = OPTROM_SIZE_83XX;
-		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX;
+		ha->nvram_npiv_size = QLA_MAX_VPORTS_QLA25XX; 
 		ha->isp_ops = &qla27xx_isp_ops;
 		ha->flash_conf_off = FARX_ACCESS_FLASH_CONF_81XX;
 		ha->flash_data_off = FARX_ACCESS_FLASH_DATA_81XX;
@@ -4022,7 +4022,7 @@ void qla2x00_relogin(struct scsi_qla_host *vha)
 	uint16_t        next_loopid = 0;
 	struct qla_hw_data *ha = vha->hw;
 	uint16_t data[2];
-
+	
 	list_for_each_entry(fcport, &vha->vp_fcports, list) {
 	/*
 	 * If the port is not ONLINE then try to login
@@ -4088,7 +4088,7 @@ void qla2x00_relogin(struct scsi_qla_host *vha)
 				ql_dbg(ql_dbg_disc, vha, 0x2003,
 				    "Port login OK: logged in ID 0x%x.\n",
 				    fcport->loop_id);
-
+				
 				qla2x00_update_fcport(vha, fcport);
 
 			} else if (status == 1) {

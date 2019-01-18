@@ -1434,6 +1434,7 @@ fct_queue_rp(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 {
 	int hash_key =
 	    FCT_PORTID_HASH_FUNC(irp->irp_portid);
+	stmf_trace(iport->iport_alias, "%s rp_id=%x", __func__, irp->irp_portid);
 
 	irp->irp_next = iport->iport_rp_tb[hash_key];
 	iport->iport_rp_tb[hash_key] = irp;
@@ -1451,6 +1452,8 @@ fct_deque_rp(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	fct_i_remote_port_t	*irp_last = NULL;
 	int hash_key			  =
 	    FCT_PORTID_HASH_FUNC(irp->irp_portid);
+
+	stmf_trace(iport->iport_alias, "fct_deque_rp rp_id=%x", irp->irp_portid);
 
 	irp_next = iport->iport_rp_tb[hash_key];
 	irp_last = NULL;
@@ -1539,7 +1542,7 @@ fct_implicitly_logo_all(fct_i_local_port_t *iport, int force_implicit)
 
 	if (!iport->iport_nrps) {
 		return (nports);
-	}
+	} 
 
 	rw_enter(&iport->iport_lock, RW_WRITER);
 	for (i = 0; i < rportid_table_size; i++) {
@@ -1591,6 +1594,8 @@ fct_rehash(fct_i_local_port_t *iport)
 		irp = iport_rp_tb_tmp[i];
 		while (irp) {
 			irp_next = irp->irp_next;
+			stmf_trace(iport->iport_alias, "%s %d rp_id=%x", 
+				__func__, __LINE__, irp->irp_portid);
 			fct_queue_rp(iport, irp);
 			irp = irp_next;
 		}
@@ -1832,7 +1837,7 @@ fct_post_implicit_logo(fct_cmd_t *cmd)
 	    (fct_i_local_port_t *)port->port_fct_private;
 	fct_i_cmd_t *icmd = (fct_i_cmd_t *)cmd->cmd_fct_private;
 	fct_remote_port_t *rp = cmd->cmd_rp;
-	fct_i_remote_port_t *irp = (fct_i_remote_port_t *)rp->rp_fct_private;
+	fct_i_remote_port_t *irp = (fct_i_remote_port_t *)rp->rp_fct_private; 
 
 	icmd->icmd_start_time = ddi_get_lbolt();
 
@@ -2208,7 +2213,7 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 			break;
 		}
 		iport->iport_state_not_acked = 1;
-		iport->iport_state = FCT_STATE_ONLINING;
+		iport->iport_state = FCT_STATE_ONLINING; 
 		port->port_ctl(port, FCT_CMD_PORT_ONLINE, arg);
 		break;
 	case FCT_CMD_PORT_ONLINE_COMPLETE:
@@ -2218,7 +2223,7 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 			iport->iport_state_not_acked = 0;
 		} else {
 			iport->iport_state = FCT_STATE_ONLINE;
-		}
+		} 
 		(void) stmf_ctl(STMF_CMD_LPORT_ONLINE_COMPLETE, lport, arg);
 		break;
 	case STMF_ACK_LPORT_ONLINE_COMPLETE:
@@ -2238,8 +2243,8 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 			break;
 		}
 		iport->iport_state_not_acked = 1;
-		iport->iport_state = FCT_STATE_OFFLINING;
-		port->port_ctl(port, FCT_CMD_PORT_OFFLINE, arg);
+		iport->iport_state = FCT_STATE_OFFLINING; 
+ 		port->port_ctl(port, FCT_CMD_PORT_OFFLINE, arg);
 		break;
 	case FCT_CMD_PORT_OFFLINE_COMPLETE:
 		ASSERT(iport->iport_state == FCT_STATE_OFFLINING);
@@ -2249,7 +2254,7 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 			(void) stmf_ctl(STMF_CMD_LPORT_OFFLINE_COMPLETE, lport,
 			    pst);
 			break;
-		}
+		} 
 
 		/*
 		 * If FCA's offline was successful, we dont tell stmf yet.

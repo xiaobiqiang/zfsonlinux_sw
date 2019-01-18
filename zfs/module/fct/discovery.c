@@ -832,7 +832,7 @@ fct_handle_els(fct_cmd_t *cmd)
 	stmf_trace(iport->iport_alias, "Posting %ssol ELS %x (%s) rp_id=%x"
 	    " lp_id=%x", (cmd->cmd_type == FCT_CMD_RCVD_ELS) ? "un" : "",
 	    op, FCT_ELS_NAME(op), cmd->cmd_rportid,
-	    cmd->cmd_lportid);
+	    cmd->cmd_lportid); 
 
 	rw_enter(&iport->iport_lock, RW_READER);
 start_els_posting:;
@@ -915,7 +915,8 @@ start_els_posting:;
 	 * unreliable at this stage.
 	 */
 	irp = fct_portid_to_portptr(iport, cmd->cmd_rportid);
-	if (els->els_req_payload[0] == ELS_OP_PLOGI) {
+	if (els->els_req_payload[0] == ELS_OP_PLOGI) {		
+		stmf_trace(iport->iport_alias, "%s irp=%p", __func__, irp);
 		if (irp == NULL) {
 			/* drop the lock while we do allocations */
 			rw_exit(&iport->iport_lock);
@@ -943,6 +944,8 @@ start_els_posting:;
 				/* Oh well, free it */
 				fct_free(rp);
 			} else {
+				stmf_trace(iport->iport_alias, "%s %d rp_id=%x", 
+					__func__, __LINE__, irp->irp_portid);
 				fct_queue_rp(iport, irp);
 			}
 			rw_downgrade(&iport->iport_lock);
@@ -1316,6 +1319,8 @@ fct_walk_discovery_queue(fct_i_local_port_t *iport)
 
 					irp->irp_discovery_next = NULL;
 					if (do_deregister) {
+						stmf_trace(iport->iport_alias, "%s %d do_deregister rp_id=%x", 
+							__func__, __LINE__, irp->irp_portid);
 						fct_deque_rp(iport, irp);
 						rw_exit(&irp->irp_lock);
 						/* queue irp for deregister */
@@ -1392,7 +1397,9 @@ fct_walk_discovery_queue(fct_i_local_port_t *iport)
 				    ddi_get_lbolt() +
 				    drv_usectohz(USEC_DEREG_RP_INTERVAL);
 				fct_post_to_discovery_queue(iport,
-				    irp_cur_item, NULL);
+				    irp_cur_item, NULL);				
+				stmf_trace(iport->iport_alias, "%s %d rp_id=%x", 
+					__func__, __LINE__, irp_cur_item->irp_portid);
 				fct_queue_rp(iport, irp_cur_item);
 				rw_exit(&iport->iport_lock);
 				suggested_action |= DISC_ACTION_DELAY_RESCAN;
@@ -1422,8 +1429,7 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 	uint32_t		 icmd_flags = icmd->icmd_flags;
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
-
-	printk(KERN_INFO "zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1582,8 +1588,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 	fct_status_t		 ret;
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
-
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* We dont support solicited PRLIs yet */
 	ASSERT(cmd->cmd_type == FCT_CMD_RCVD_ELS);
 
@@ -1739,8 +1744,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	fct_status_t		 ret;
 	char			 info[FCT_INFO_LEN];
 	clock_t			 end_time;
-
-	printk(KERN_INFO "zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1778,6 +1782,9 @@ fct_process_logo(fct_i_cmd_t *icmd)
 		return (DISC_ACTION_DELAY_RESCAN);
 	}
 	atomic_and_32(&irp->irp_flags, ~IRP_SESSION_CLEANUP);
+	
+	if (port->port_logout_session)
+		port->port_logout_session(port, irp->irp_port_name, sizeof(irp->irp_port_name));
 
 	/* Session can only be terminated after all the I/Os have drained */
 	if (irp->irp_flags & IRP_SCSI_SESSION_STARTED) {
@@ -1838,8 +1845,7 @@ fct_process_prlo(fct_i_cmd_t *icmd)
 	fct_status_t		 ret;
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
-
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* We do not support solicited PRLOs yet */
 	ASSERT(cmd->cmd_type == FCT_CMD_RCVD_ELS);
 
@@ -1915,8 +1921,7 @@ fct_process_rcvd_adisc(fct_i_cmd_t *icmd)
 	uint8_t			*p;
 	uint32_t		*q;
 	fct_status_t		ret;
-
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	fct_dequeue_els(irp);
 	atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 
@@ -1953,8 +1958,7 @@ fct_process_unknown_els(fct_i_cmd_t *icmd)
 	fct_i_local_port_t	*iport = ICMD_TO_IPORT(icmd);
 	fct_status_t		 ret   = FCT_FAILURE;
 	uint8_t			 op    = 0;
-
-	printk("zjn %s iport=%p\n", __func__, iport);
+	
 	ASSERT(icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
 	atomic_add_32_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
@@ -1977,8 +1981,7 @@ fct_process_rscn(fct_i_cmd_t *icmd)
 	uint8_t			 op    = 0;
 	uint8_t			*rscn_req_payload;
 	uint32_t		 rscn_req_size;
-
-	printk("zjn %s icmd=%p iport=%p\n", __func__, icmd, iport);
+	
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
 	atomic_add_32_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	if (icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS) {
@@ -2017,8 +2020,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	int		dq;
 	disc_action_t	ret = DISC_ACTION_NO_WORK;
 	uint8_t		op;
-
-	printk(KERN_INFO "zjn %s iport=%p irp=%p\n", __func__, iport, irp);
+	
 	mutex_exit(&iport->iport_worker_lock);
 
 	/*
@@ -2133,8 +2135,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	} else if (cmd->cmd_type == FCT_CMD_SOL_ELS) {
 		fct_status_t s;
 		fct_local_port_t *port = iport->iport_port;
-
-		printk("zjn %s iport=%p irp=%p FCT_CMD_SOL_ELS\n", __func__, iport, irp);
+		
 		fct_dequeue_els(irp);
 		atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 		atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
