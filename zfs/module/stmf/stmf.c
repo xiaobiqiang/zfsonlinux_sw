@@ -279,8 +279,8 @@ volatile int	stmf_default_task_timeout = 75;
  */
 volatile int	stmf_allow_modunload = 1;
 
-volatile int stmf_max_nworkers = 128;
-volatile int stmf_min_nworkers = 128;
+int stmf_max_nworkers = 128;
+int stmf_min_nworkers = 128;
 volatile int stmf_worker_scale_down_delay = 20;
 
 /* === [ Debugging and fault injection ] === */
@@ -313,13 +313,13 @@ static int stmf_i_min_nworkers;
 static int stmf_nworkers_cur;		/* # of workers currently running */
 static int stmf_nworkers_needed;	/* # of workers need to be running */
 static int stmf_worker_sel_counter = 0;
-static uint32_t stmf_cur_ntasks = 0;
-volatile uint32_t stmf_max_cur_task = 4096;
-volatile uint32_t stmf_io_policy = 0;
-volatile uint32_t stmf_io_delay_time_threshold = 20000; /* unit: ms */
-volatile uint32_t stmf_lu_xfer_time_threshold = 15000; /* unit: ms */
-volatile uint32_t stmf_waitq_time_threshold = 10000;	/* uint: ms */
-volatile uint32_t stmf_checker_time = 2000;	/* uint: ms */
+int stmf_cur_ntasks = 0;
+int stmf_max_cur_task = 4096;
+int stmf_io_policy = 0;
+int stmf_io_delay_time_threshold = 20000; /* unit: ms */
+int stmf_lu_xfer_time_threshold = 15000; /* unit: ms */
+int stmf_waitq_time_threshold = 10000;	/* uint: ms */
+int stmf_checker_time = 2000;	/* uint: ms */
 
 static clock_t stmf_wm_last = 0;
 /*
@@ -344,8 +344,7 @@ int avs_local_host  = 0;
 int stmf_avs_enable_flag = 0;
 int stmf_avs_debug = 0;
 
-static int stmf_client_is_vm = 1;
-module_param(stmf_client_is_vm, int, S_IRUGO|S_IWUSR);
+int stmf_client_is_vm = 1;
 
 #define	STMF_NAME			"COMSTAR STMF"
 #define	STMF_MODULE_NAME	"stmf"
@@ -11867,3 +11866,32 @@ EXPORT_SYMBOL(stmf_register_pppt_cb);
 module_param(stmf_qos_polltime, int, 0644);
 MODULE_PARM_DESC(stmf_qos_polltime, "Stmf QOS poll time");
 
+module_param(stmf_max_nworkers, int, 0644);
+MODULE_PARM_DESC(stmf_max_nworkers, "stmf_max_nworkers");
+
+module_param(stmf_min_nworkers, int, 0644);
+MODULE_PARM_DESC(stmf_min_nworkers, "stmf_min_nworkers");
+
+module_param(stmf_cur_ntasks, int, 0444);
+MODULE_PARM_DESC(stmf_cur_ntasks, "stmf_cur_ntasks");
+
+module_param(stmf_max_cur_task, int, 0644);
+MODULE_PARM_DESC(stmf_max_cur_task, "stmf_max_cur_task");
+
+module_param(stmf_io_policy, int, 0644);
+MODULE_PARM_DESC(stmf_io_policy, "stmf_io_policy");
+
+module_param(stmf_io_delay_time_threshold, int, 0644);
+MODULE_PARM_DESC(stmf_io_delay_time_threshold, "stmf_io_delay_time_threshold");
+
+module_param(stmf_lu_xfer_time_threshold, int, 0644);
+MODULE_PARM_DESC(stmf_lu_xfer_time_threshold, "stmf_lu_xfer_time_threshold");
+
+module_param(stmf_waitq_time_threshold, int, 0644);
+MODULE_PARM_DESC(stmf_waitq_time_threshold, "stmf_waitq_time_threshold");
+
+module_param(stmf_checker_time, int, 0644);
+MODULE_PARM_DESC(stmf_checker_time, "stmf_checker_time");
+
+module_param(stmf_client_is_vm, int, 0644);
+MODULE_PARM_DESC(stmf_client_is_vm, "stmf_client_is_vm");
