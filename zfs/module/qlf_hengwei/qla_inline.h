@@ -163,6 +163,8 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 	old_state = atomic_read(&fcport->state);
 	atomic_set(&fcport->state, state);
 
+	printk("zjn %s port %8phC old_state=%d new_state=%d\n", __func__, fcport->port_name, old_state, state);
+
 	/* Don't print state transitions during initial allocation of fcport */
 	if (old_state && old_state != state) {
 		ql_dbg(ql_dbg_disc, fcport->vha, 0x207d,
@@ -176,6 +178,8 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 	if(old_state == FCS_DEVICE_LOST &&
                 state == FCS_DEVICE_DEAD &&
                 fcport->port_type == FCT_INITIATOR) {
+                printk("zjn %s port %8phC old_state=%d new_state=%d type=%d begin to invoke qla2x00_fct_logout_port\n", 
+					__func__, fcport->port_name, old_state, state, fcport->port_type);
                 qla2x00_fct_logout_port(fcport);
         }
 

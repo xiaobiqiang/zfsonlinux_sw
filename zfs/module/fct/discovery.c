@@ -348,11 +348,13 @@ fct_handle_local_port_event(fct_i_local_port_t *iport)
 	    old_state, new_state);
 
 	if (new_bits & S_PORT_CLEANUP) {
+		printk("zjn %s invoke fct_implicitly_logo_all 1\n", __func__);
 		(void) fct_implicitly_logo_all(iport, 0);
 		fct_handle_event(iport->iport_port,
 		    FCT_I_EVENT_CLEANUP_POLL, 0, 0);
 	}
 	if (retry_implicit_logo) {
+		printk("zjn %s invoke fct_implicitly_logo_all 2\n", __func__);
 		(void) fct_implicitly_logo_all(iport, 1);
 	}
 	if (new_bits & S_INIT_LINK) {
@@ -834,6 +836,8 @@ fct_handle_els(fct_cmd_t *cmd)
 	    op, FCT_ELS_NAME(op), cmd->cmd_rportid,
 	    cmd->cmd_lportid);
 
+	printk(KERN_INFO "zjn %s iport=%p %s\n", __func__, iport, FCT_ELS_NAME(op));
+
 	rw_enter(&iport->iport_lock, RW_READER);
 start_els_posting:;
 	/* Make sure local port is sane */
@@ -915,7 +919,8 @@ start_els_posting:;
 	 * unreliable at this stage.
 	 */
 	irp = fct_portid_to_portptr(iport, cmd->cmd_rportid);
-	if (els->els_req_payload[0] == ELS_OP_PLOGI) {
+	if (els->els_req_payload[0] == ELS_OP_PLOGI) {		
+		stmf_trace(iport->iport_alias, "%s irp=%p", __func__, irp);
 		if (irp == NULL) {
 			/* drop the lock while we do allocations */
 			rw_exit(&iport->iport_lock);
@@ -943,6 +948,8 @@ start_els_posting:;
 				/* Oh well, free it */
 				fct_free(rp);
 			} else {
+				stmf_trace(iport->iport_alias, "%s %d rp_id=%x", 
+					__func__, __LINE__, irp->irp_portid);
 				fct_queue_rp(iport, irp);
 			}
 			rw_downgrade(&iport->iport_lock);
@@ -1316,6 +1323,8 @@ fct_walk_discovery_queue(fct_i_local_port_t *iport)
 
 					irp->irp_discovery_next = NULL;
 					if (do_deregister) {
+						stmf_trace(iport->iport_alias, "%s %d do_deregister rp_id=%x", 
+							__func__, __LINE__, irp->irp_portid);
 						fct_deque_rp(iport, irp);
 						rw_exit(&irp->irp_lock);
 						/* queue irp for deregister */
@@ -1392,7 +1401,9 @@ fct_walk_discovery_queue(fct_i_local_port_t *iport)
 				    ddi_get_lbolt() +
 				    drv_usectohz(USEC_DEREG_RP_INTERVAL);
 				fct_post_to_discovery_queue(iport,
-				    irp_cur_item, NULL);
+				    irp_cur_item, NULL);				
+				stmf_trace(iport->iport_alias, "%s %d rp_id=%x", 
+					__func__, __LINE__, irp_cur_item->irp_portid);
 				fct_queue_rp(iport, irp_cur_item);
 				rw_exit(&iport->iport_lock);
 				suggested_action |= DISC_ACTION_DELAY_RESCAN;

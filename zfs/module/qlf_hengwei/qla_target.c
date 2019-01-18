@@ -558,10 +558,14 @@ static void qlt_free_session_done(struct work_struct *work)
 /* ha->hardware_lock supposed to be held on entry */
 void qlt_unreg_sess(struct qla_tgt_sess *sess)
 {
-	struct scsi_qla_host *vha = sess->vha;
+	struct scsi_qla_host *vha;
+	printk("zjn %s unreg sess %p port %8phC\n", __func__, sess, sess->port_name);
+	vha = sess->vha;
 
+	#if 0
 	vha->hw->tgt.tgt_ops->clear_nacl_from_fcport_map(sess);
-
+	#endif
+	
 	if (!list_empty(&sess->del_list_entry))
 		list_del_init(&sess->del_list_entry);
 	sess->deleted = QLA_SESS_DELETION_IN_PROGRESS;
@@ -793,6 +797,8 @@ static struct qla_tgt_sess *qlt_create_sess(
 	unsigned long flags;
 	unsigned char be_sid[3];
 
+	printk("zjn %s port %8phC\n", __func__, fcport->port_name);
+
 	/* Check to avoid double sessions */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 	list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list,
@@ -912,6 +918,8 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 	struct qla_tgt *tgt = vha->vha_tgt.qla_tgt;
 	struct qla_tgt_sess *sess;
 	unsigned long flags;
+
+	printk("zjn %s port %8phC\n", __func__, fcport->port_name);
 
 #if 0
 	if (!vha->hw->tgt.tgt_ops)
@@ -6420,6 +6428,9 @@ static struct qla_tgt_sess *qlt_make_local_sess(struct scsi_qla_host *vha,
 	int rc, global_resets;
 	uint16_t loop_id = 0;
 
+	printk("zjn %s\n", __func__);
+
+
 retry:
 	global_resets =
 	    atomic_read(&vha->vha_tgt.qla_tgt->tgt_global_resets_count);
@@ -6969,9 +6980,14 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 			//	(void) qlt_firmware_dump(port, ssci);
 			//}
 			vha->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
+			//if (port->port_pre_offline) {
+			//	port->port_pre_offline(port);
+			//}
+			
 			if (vha->hw->isp_ops!= NULL) {
-				printk("start reset_chip!\n");
+				printk("zjn %s start reset_chip!\n", __func__);
 				vha->hw->isp_ops->reset_chip(vha);
+				printk("zjn %s end reset_chip!\n", __func__);
 			}
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
@@ -6992,7 +7008,6 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 		break;
 
 	case FCT_ACK_PORT_OFFLINE_COMPLETE:
-
 		vha->qlt_state_not_acked = 0;
 		if ((vha->qlt_change_state_flags & STMF_RFLAG_RESET) &&
 		    (vha->qlt_stay_offline == 0)) {
@@ -7062,6 +7077,59 @@ qlt_free_atio(void *fca_cmd)
 	if(qcmd->atio != NULL) {
 		kmem_cache_free(atio_cachep, qcmd->atio);
 	}
+}
+
+void
+qlt_pre_offline(struct fct_local_port *port)
+{
+	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
+	struct qla_tgt_sess *sess;
+	unsigned long flags = 0;
+	fc_port_t *fcport, *tfcport;
+	
+	printk("zjn %s start\n", __func__);
+
+	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
+	list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list,
+		sess_list_entry) {
+		qlt_unreg_sess(sess);
+	}
+	spin_unlock_irqrestore(&vha->hw->hardware_lock, flags);
+
+	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
+		if (fcport->port_type == FCT_INITIATOR) {
+			printk("zjn %s port %8phC to del\n", __func__, fcport->port_name);
+			list_del(&fcport->list);
+			qla2x00_clear_loop_id(fcport);
+			kfree(fcport);
+		} else {
+			printk("zjn %s port %8phC not to del\n", __func__, fcport->port_name);
+		}
+	}
+	
+	printk("zjn %s end\n", __func__);
+}
+
+void
+qlt_post_offline(struct fct_local_port *port)
+{
+#if 0
+	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
+	fc_port_t *fcport, *tfcport;
+	
+	printk("zjn %s start\n", __func__);
+	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
+		if (fcport->port_type == FCT_INITIATOR) {
+			printk("zjn %s port %8phC to clear\n", __func__, fcport->port_name);
+			list_del(&fcport->list);
+			qla2x00_clear_loop_id(fcport);
+			kfree(fcport);
+		} else {
+			printk("zjn %s port %8phC not clear\n", __func__, fcport->port_name);
+		}
+	}
+	printk("zjn %s end\n", __func__);
+#endif
 }
 
 
@@ -7140,6 +7208,16 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 
 /*********************************************************************************/
 
+#define	BUF_COUNT_2K		32	
+#define	BUF_COUNT_8K		32	
+#define	BUF_COUNT_64K		16	
+#define	BUF_COUNT_128K		8	
+/* merge alua_2w code to stable modified by zywang begin */
+#define	BUF_COUNT_256K		4	
+/* merge alua_2w code to stable modified by zywang end */
+
+
+#if 0
 #define	BUF_COUNT_2K		2048	
 #define	BUF_COUNT_8K		512	
 #define	BUF_COUNT_64K		256	
@@ -7147,6 +7225,7 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 /* merge alua_2w code to stable modified by zywang begin */
 #define	BUF_COUNT_256K		512	
 /* merge alua_2w code to stable modified by zywang end */
+#endif
 
 #define	QLT_DMEM_MAX_BUF_SIZE	(4 * 65536)
 #define	QLT_DMEM_NBUCKETS	5
@@ -7903,6 +7982,8 @@ qlt_port_start(void* arg)
 	port->port_populate_hba_details = qlt_populate_hba_fru_details;
 	port->port_info = qlt_info;
 	port->port_free_atio = qlt_free_atio;
+	port->port_pre_offline = qlt_pre_offline;
+	port->port_post_offline = qlt_post_offline;
 	port->port_fca_version = FCT_FCA_MODREV_1;
 
 	if ((ret = fct_register_local_port(port)) != FCT_SUCCESS) {

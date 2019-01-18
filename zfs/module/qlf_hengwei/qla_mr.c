@@ -1123,6 +1123,7 @@ qlafx00_find_all_targets(scsi_qla_host_t *vha,
 	struct qla_hw_data *ha = vha->hw;
 
 	rval = QLA_SUCCESS;
+	printk("zjn %s %d\n", __func__, __LINE__);
 
 	if (!test_bit(LOOP_RESYNC_ACTIVE, &vha->dpc_flags))
 		return QLA_FUNCTION_FAILED;
@@ -1201,6 +1202,7 @@ qlafx00_find_all_targets(scsi_qla_host_t *vha,
 				fcport->tgt_id = new_fcport->tgt_id;
 				ql_log(ql_log_info, vha, 0x208d,
 				   "TGT-ID: New fcport Added: %p\n", fcport);
+				printk("zjn %s %d\n", __func__, __LINE__);
 				qla2x00_update_fcport(vha, fcport);
 			} else {
 				ql_log(ql_log_info, vha, 0x208e,
@@ -1249,6 +1251,7 @@ qlafx00_configure_all_targets(scsi_qla_host_t *vha)
 	fc_port_t *fcport, *rmptemp;
 	LIST_HEAD(new_fcports);
 
+	printk("zjn %s %d\n", __func__, __LINE__);
 	rval = qlafx00_fx_disc(vha, &vha->hw->mr.fcport,
 	    FXDISC_GET_TGT_NODE_LIST);
 	if (rval != QLA_SUCCESS) {
@@ -1281,7 +1284,8 @@ qlafx00_configure_all_targets(scsi_qla_host_t *vha)
 	list_for_each_entry_safe(fcport, rmptemp, &new_fcports, list) {
 		if (test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags))
 			break;
-
+		
+		printk("zjn %s %d\n", __func__, __LINE__);
 		qla2x00_update_fcport(vha, fcport);
 		list_move_tail(&fcport->list, &vha->vp_fcports);
 		ql_log(ql_log_info, vha, 0x208f,
