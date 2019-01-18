@@ -263,6 +263,8 @@ typedef struct fct_local_port {
 	void			(*port_free_atio)(void *fca_cmd);
 	void			(*port_pre_offline)(struct fct_local_port *port);
 	void			(*port_post_offline)(struct fct_local_port *port);
+	void			(*port_logout_session)(struct fct_local_port *port,
+		uint8_t *irp_port_name, int size);
 	int		port_fca_version;
 } fct_local_port_t;
 

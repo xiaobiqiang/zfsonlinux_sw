@@ -1789,6 +1789,9 @@ fct_process_logo(fct_i_cmd_t *icmd)
 		return (DISC_ACTION_DELAY_RESCAN);
 	}
 	atomic_and_32(&irp->irp_flags, ~IRP_SESSION_CLEANUP);
+	
+	if (port->port_logout_session)
+		port->port_logout_session(port, irp->irp_port_name, sizeof(irp->irp_port_name));
 
 	/* Session can only be terminated after all the I/Os have drained */
 	if (irp->irp_flags & IRP_SCSI_SESSION_STARTED) {

@@ -175,14 +175,13 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 		    fcport->d_id.b.al_pa);
 	}
 
-	if(old_state == FCS_DEVICE_LOST &&
-                state == FCS_DEVICE_DEAD &&
-                fcport->port_type == FCT_INITIATOR) {
-                printk("zjn %s port %8phC old_state=%d new_state=%d type=%d begin to invoke qla2x00_fct_logout_port\n", 
-					__func__, fcport->port_name, old_state, state, fcport->port_type);
-                qla2x00_fct_logout_port(fcport);
-        }
-
+	if(old_state == FCS_ONLINE &&
+       state == FCS_DEVICE_LOST &&
+       fcport->port_type == FCT_INITIATOR) {
+       printk("zjn %s port %8phC old_state=%d new_state=%d type=%d begin to invoke qla2x00_fct_logout_port\n", 
+			__func__, fcport->port_name, old_state, state, fcport->port_type);
+	   qla2x00_fct_logout_port(fcport);
+    }
 }
 
 static inline int

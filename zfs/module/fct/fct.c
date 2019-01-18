@@ -2251,9 +2251,11 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 		iport->iport_state_not_acked = 1;
 		iport->iport_state = FCT_STATE_OFFLINING;
 		printk("zjn %s STMF_CMD_LPORT_OFFLINE\n", __func__);
+		#if 0
 		if (port->port_pre_offline) {
 			port->port_pre_offline(port);
 		}
+		#endif
 		port->port_ctl(port, FCT_CMD_PORT_OFFLINE, arg);
 		break;
 	case FCT_CMD_PORT_OFFLINE_COMPLETE:
@@ -2267,9 +2269,11 @@ fct_ctl(struct stmf_local_port *lport, int cmd, void *arg)
 		}
 
 		printk("zjn %s FCT_CMD_PORT_OFFLINE_COMPLETE\n", __func__);
+		#if 0
 		if (port->port_post_offline) {
 			port->port_post_offline(port);
 		}
+		#endif
 
 		/*
 		 * If FCA's offline was successful, we dont tell stmf yet.

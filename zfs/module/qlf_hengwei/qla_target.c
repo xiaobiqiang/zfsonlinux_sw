@@ -6980,9 +6980,6 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 			//	(void) qlt_firmware_dump(port, ssci);
 			//}
 			vha->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
-			//if (port->port_pre_offline) {
-			//	port->port_pre_offline(port);
-			//}
 			
 			if (vha->hw->isp_ops!= NULL) {
 				printk("zjn %s start reset_chip!\n", __func__);
@@ -7082,6 +7079,7 @@ qlt_free_atio(void *fca_cmd)
 void
 qlt_pre_offline(struct fct_local_port *port)
 {
+#if 0
 	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
 	struct qla_tgt_sess *sess;
 	unsigned long flags = 0;
@@ -7108,6 +7106,7 @@ qlt_pre_offline(struct fct_local_port *port)
 	}
 	
 	printk("zjn %s end\n", __func__);
+#endif
 }
 
 void
@@ -7131,6 +7130,41 @@ qlt_post_offline(struct fct_local_port *port)
 	printk("zjn %s end\n", __func__);
 #endif
 }
+
+void
+qlt_logout_session(struct fct_local_port *port, uint8_t *irp_port_name, int size)
+{
+	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
+	struct qla_tgt_sess *sess;
+	unsigned long flags = 0;
+	fc_port_t *fcport, *tfcport;
+	
+	printk("zjn %s %8phC start\n", __func__, irp_port_name);
+
+	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
+	list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list,
+		sess_list_entry) {
+		if (!memcmp(sess->port_name, irp_port_name, size)) {
+			qlt_unreg_sess(sess);
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&vha->hw->hardware_lock, flags);
+
+	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
+		if (fcport->port_type == FCT_INITIATOR &&
+			!memcmp(fcport->port_name, irp_port_name, size)) {
+			printk("zjn %s port %8phC to del\n", __func__, fcport->port_name);
+			list_del(&fcport->list);
+			qla2x00_clear_loop_id(fcport);
+			kfree(fcport);
+			break;
+		}
+	}
+	
+	printk("zjn %s %8phC end\n", __func__, irp_port_name);
+}
+
 
 
 /********************************** basic func ****************************************/
@@ -7984,6 +8018,7 @@ qlt_port_start(void* arg)
 	port->port_free_atio = qlt_free_atio;
 	port->port_pre_offline = qlt_pre_offline;
 	port->port_post_offline = qlt_post_offline;
+	port->port_logout_session = qlt_logout_session;
 	port->port_fca_version = FCT_FCA_MODREV_1;
 
 	if ((ret = fct_register_local_port(port)) != FCT_SUCCESS) {
