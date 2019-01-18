@@ -147,18 +147,20 @@ typedef struct zfs_sb {
 	uint64_t	z_version;	/* ZPL version */
 	uint64_t	z_shares_dir;	/* hidden shares dir */
 	kmutex_t	z_lock;
-	uint64_t	z_userquota_obj;
-	uint64_t z_userobjquota_obj ;
-	uint64_t	z_groupquota_obj;
-	uint64_t z_groupobjquota_obj ;
 	uint64_t	z_replay_eof;	/* New end of file - replay only */
 	sa_attr_type_t	*z_attr_table;	/* SA attr mapping->id */
 	uint64_t	z_hold_size;	/* znode hold array size */
 	avl_tree_t	*z_hold_trees;	/* znode hold trees */
 	kmutex_t	*z_hold_locks;	/* znode hold locks */
-
+	
+	uint64_t	z_userquota_obj;
 	uint64_t	z_softuserquota_obj;
+	uint64_t	z_userobjquota_obj ;
+	uint64_t	z_groupquota_obj;
 	uint64_t	z_softgroupquota_obj;
+	uint64_t	z_groupobjquota_obj;
+	kmutex_t	z_quota_mutex;   /*to protect userused, groupused, userobjused, groupobjused, dirquota_used*/
+
 	uint64_t	z_overquota;
 	uint64_t	z_dirquota_obj;
 	uint64_t	z_dirlowdata_obj;
