@@ -807,7 +807,7 @@ clu_resp_xml_process(const char *xml_str, int str_len, int *is_first)
 	
 	while (NULL != cur_node) {
 		copy_node = xmlCopyNode(cur_node, 1);
-		xmlAddChild(g_root_node, cur_node);
+		xmlAddChild(g_root_node, copy_node);
 		
 		cur_node = cur_node->next;
 	}
