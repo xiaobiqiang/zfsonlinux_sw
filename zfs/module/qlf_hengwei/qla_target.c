@@ -558,8 +558,7 @@ static void qlt_free_session_done(struct work_struct *work)
 /* ha->hardware_lock supposed to be held on entry */
 void qlt_unreg_sess(struct qla_tgt_sess *sess)
 {
-	struct scsi_qla_host *vha;
-	printk("zjn %s unreg sess %p port %8phC\n", __func__, sess, sess->port_name);
+	struct scsi_qla_host *vha; 
 	vha = sess->vha;
 
 	#if 0
@@ -795,9 +794,7 @@ static struct qla_tgt_sess *qlt_create_sess(
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt_sess *sess;
 	unsigned long flags;
-	unsigned char be_sid[3];
-
-	printk("zjn %s port %8phC\n", __func__, fcport->port_name);
+	unsigned char be_sid[3]; 
 
 	/* Check to avoid double sessions */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
@@ -917,9 +914,7 @@ void qlt_fc_port_added(struct scsi_qla_host *vha, fc_port_t *fcport)
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = vha->vha_tgt.qla_tgt;
 	struct qla_tgt_sess *sess;
-	unsigned long flags;
-
-	printk("zjn %s port %8phC\n", __func__, fcport->port_name);
+	unsigned long flags; 
 
 #if 0
 	if (!vha->hw->tgt.tgt_ops)
@@ -6427,10 +6422,7 @@ static struct qla_tgt_sess *qlt_make_local_sess(struct scsi_qla_host *vha,
 	fc_port_t *fcport = NULL;
 	int rc, global_resets;
 	uint16_t loop_id = 0;
-
-	printk("zjn %s\n", __func__);
-
-
+	
 retry:
 	global_resets =
 	    atomic_read(&vha->vha_tgt.qla_tgt->tgt_global_resets_count);
@@ -6982,9 +6974,8 @@ qlt_ctl(struct fct_local_port *port, int cmd, void *arg)
 			vha->qlt_change_state_flags = (uint32_t)ssci->st_rflags;
 			
 			if (vha->hw->isp_ops!= NULL) {
-				printk("zjn %s start reset_chip!\n", __func__);
-				vha->hw->isp_ops->reset_chip(vha);
-				printk("zjn %s end reset_chip!\n", __func__);
+				printk("start reset_chip!\n");
+				vha->hw->isp_ops->reset_chip(vha); 
 			}
 			st.st_completion_status = STMF_SUCCESS;
 			if (st.st_completion_status != STMF_SUCCESS) {
@@ -7077,61 +7068,6 @@ qlt_free_atio(void *fca_cmd)
 }
 
 void
-qlt_pre_offline(struct fct_local_port *port)
-{
-#if 0
-	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
-	struct qla_tgt_sess *sess;
-	unsigned long flags = 0;
-	fc_port_t *fcport, *tfcport;
-	
-	printk("zjn %s start\n", __func__);
-
-	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
-	list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list,
-		sess_list_entry) {
-		qlt_unreg_sess(sess);
-	}
-	spin_unlock_irqrestore(&vha->hw->hardware_lock, flags);
-
-	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
-		if (fcport->port_type == FCT_INITIATOR) {
-			printk("zjn %s port %8phC to del\n", __func__, fcport->port_name);
-			list_del(&fcport->list);
-			qla2x00_clear_loop_id(fcport);
-			kfree(fcport);
-		} else {
-			printk("zjn %s port %8phC not to del\n", __func__, fcport->port_name);
-		}
-	}
-	
-	printk("zjn %s end\n", __func__);
-#endif
-}
-
-void
-qlt_post_offline(struct fct_local_port *port)
-{
-#if 0
-	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
-	fc_port_t *fcport, *tfcport;
-	
-	printk("zjn %s start\n", __func__);
-	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
-		if (fcport->port_type == FCT_INITIATOR) {
-			printk("zjn %s port %8phC to clear\n", __func__, fcport->port_name);
-			list_del(&fcport->list);
-			qla2x00_clear_loop_id(fcport);
-			kfree(fcport);
-		} else {
-			printk("zjn %s port %8phC not clear\n", __func__, fcport->port_name);
-		}
-	}
-	printk("zjn %s end\n", __func__);
-#endif
-}
-
-void
 qlt_logout_session(struct fct_local_port *port, uint8_t *irp_port_name, int size)
 {
 	struct scsi_qla_host *vha = (struct scsi_qla_host *)port->port_fca_private;
@@ -7139,7 +7075,7 @@ qlt_logout_session(struct fct_local_port *port, uint8_t *irp_port_name, int size
 	unsigned long flags = 0;
 	fc_port_t *fcport, *tfcport;
 	
-	printk("zjn %s %8phC start\n", __func__, irp_port_name);
+	printk("%s port %8phC\n", __func__, irp_port_name);
 
 	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
 	list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list,
@@ -7154,15 +7090,12 @@ qlt_logout_session(struct fct_local_port *port, uint8_t *irp_port_name, int size
 	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
 		if (fcport->port_type == FCT_INITIATOR &&
 			!memcmp(fcport->port_name, irp_port_name, size)) {
-			printk("zjn %s port %8phC to del\n", __func__, fcport->port_name);
 			list_del(&fcport->list);
 			qla2x00_clear_loop_id(fcport);
 			kfree(fcport);
 			break;
 		}
 	}
-	
-	printk("zjn %s %8phC end\n", __func__, irp_port_name);
 }
 
 
@@ -8015,9 +7948,7 @@ qlt_port_start(void* arg)
 	port->port_populate_hba_details = qlt_populate_hba_fru_details;
 	port->port_info = qlt_info;
 	port->port_free_atio = qlt_free_atio;
-	port->port_pre_offline = qlt_pre_offline;
-	port->port_post_offline = qlt_post_offline;
-	port->port_logout_session = qlt_logout_session;
+ 	port->port_logout_session = qlt_logout_session;
 	port->port_fca_version = FCT_FCA_MODREV_1;
 
 	if ((ret = fct_register_local_port(port)) != FCT_SUCCESS) {

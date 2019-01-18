@@ -348,13 +348,11 @@ fct_handle_local_port_event(fct_i_local_port_t *iport)
 	    old_state, new_state);
 
 	if (new_bits & S_PORT_CLEANUP) {
-		printk("zjn %s invoke fct_implicitly_logo_all 1\n", __func__);
 		(void) fct_implicitly_logo_all(iport, 0);
 		fct_handle_event(iport->iport_port,
 		    FCT_I_EVENT_CLEANUP_POLL, 0, 0);
 	}
 	if (retry_implicit_logo) {
-		printk("zjn %s invoke fct_implicitly_logo_all 2\n", __func__);
 		(void) fct_implicitly_logo_all(iport, 1);
 	}
 	if (new_bits & S_INIT_LINK) {
@@ -834,9 +832,7 @@ fct_handle_els(fct_cmd_t *cmd)
 	stmf_trace(iport->iport_alias, "Posting %ssol ELS %x (%s) rp_id=%x"
 	    " lp_id=%x", (cmd->cmd_type == FCT_CMD_RCVD_ELS) ? "un" : "",
 	    op, FCT_ELS_NAME(op), cmd->cmd_rportid,
-	    cmd->cmd_lportid);
-
-	printk(KERN_INFO "zjn %s iport=%p %s\n", __func__, iport, FCT_ELS_NAME(op));
+	    cmd->cmd_lportid); 
 
 	rw_enter(&iport->iport_lock, RW_READER);
 start_els_posting:;
@@ -1433,8 +1429,7 @@ fct_process_plogi(fct_i_cmd_t *icmd)
 	uint32_t		 icmd_flags = icmd->icmd_flags;
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
-
-	printk(KERN_INFO "zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1593,8 +1588,7 @@ fct_process_prli(fct_i_cmd_t *icmd)
 	fct_status_t		 ret;
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
-
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* We dont support solicited PRLIs yet */
 	ASSERT(cmd->cmd_type == FCT_CMD_RCVD_ELS);
 
@@ -1750,8 +1744,7 @@ fct_process_logo(fct_i_cmd_t *icmd)
 	fct_status_t		 ret;
 	char			 info[FCT_INFO_LEN];
 	clock_t			 end_time;
-
-	printk(KERN_INFO "zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* Drain I/Os */
 	if ((irp->irp_nonfcp_xchg_count + irp->irp_fcp_xchg_count) > 1) {
 		/* Trigger cleanup if necessary */
@@ -1852,8 +1845,7 @@ fct_process_prlo(fct_i_cmd_t *icmd)
 	fct_status_t		 ret;
 	clock_t			 end_time;
 	char			 info[FCT_INFO_LEN];
-
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	/* We do not support solicited PRLOs yet */
 	ASSERT(cmd->cmd_type == FCT_CMD_RCVD_ELS);
 
@@ -1929,8 +1921,7 @@ fct_process_rcvd_adisc(fct_i_cmd_t *icmd)
 	uint8_t			*p;
 	uint32_t		*q;
 	fct_status_t		ret;
-
-	printk("zjn %s cmd=%p port=%p rp=%p\n", __func__, cmd, port, rp);
+	
 	fct_dequeue_els(irp);
 	atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 
@@ -1967,8 +1958,7 @@ fct_process_unknown_els(fct_i_cmd_t *icmd)
 	fct_i_local_port_t	*iport = ICMD_TO_IPORT(icmd);
 	fct_status_t		 ret   = FCT_FAILURE;
 	uint8_t			 op    = 0;
-
-	printk("zjn %s iport=%p\n", __func__, iport);
+	
 	ASSERT(icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS);
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
 	atomic_add_32_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
@@ -1991,8 +1981,7 @@ fct_process_rscn(fct_i_cmd_t *icmd)
 	uint8_t			 op    = 0;
 	uint8_t			*rscn_req_payload;
 	uint32_t		 rscn_req_size;
-
-	printk("zjn %s icmd=%p iport=%p\n", __func__, icmd, iport);
+	
 	fct_dequeue_els(ICMD_TO_IRP(icmd));
 	atomic_add_32_nv(&ICMD_TO_IRP(icmd)->irp_nsa_elses_count, -1);
 	if (icmd->icmd_cmd->cmd_type == FCT_CMD_RCVD_ELS) {
@@ -2031,8 +2020,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	int		dq;
 	disc_action_t	ret = DISC_ACTION_NO_WORK;
 	uint8_t		op;
-
-	printk(KERN_INFO "zjn %s iport=%p irp=%p\n", __func__, iport, irp);
+	
 	mutex_exit(&iport->iport_worker_lock);
 
 	/*
@@ -2147,8 +2135,7 @@ fct_process_els(fct_i_local_port_t *iport, fct_i_remote_port_t *irp)
 	} else if (cmd->cmd_type == FCT_CMD_SOL_ELS) {
 		fct_status_t s;
 		fct_local_port_t *port = iport->iport_port;
-
-		printk("zjn %s iport=%p irp=%p FCT_CMD_SOL_ELS\n", __func__, iport, irp);
+		
 		fct_dequeue_els(irp);
 		atomic_add_32_nv(&irp->irp_nsa_elses_count, -1);
 		atomic_or_32(&icmd->icmd_flags, ICMD_KNOWN_TO_FCA);
