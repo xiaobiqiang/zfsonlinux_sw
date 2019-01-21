@@ -3983,9 +3983,15 @@ static void
 cluster_check_pool_disks_common(nvlist_t *root,
 	int *total, int *active, int *local)
 {
+    int ret;
 	nvlist_t **child;
 	uint_t children, i;
-
+    uint_t try_times = 3;
+    uint_t times = 0;
+    timespec_t ts;
+    pthread_mutex_t	waitmutex;
+	pthread_cond_t	waitcv;
+	
 	verify(nvlist_lookup_nvlist_array(root, ZPOOL_CONFIG_CHILDREN,
 		&child, &children) == 0);
 	for (i = 0; i < children; i ++) {
@@ -4003,13 +4009,25 @@ cluster_check_pool_disks_common(nvlist_t *root,
 				syslog(LOG_ERR, "pool get config path failed");
 				continue;
 			}
+			pthread_mutex_init(&waitmutex, NULL);
+			pthread_cond_init(&waitcv, NULL);
+			syslog(LOG_ERR, "leaf dev path(%s)", path);
 			(*total)++;
 
-			if (lstat(path, &sb) == 0) {
-				(*active)++;
-				if (disk_is_vdev(path) == 0)
-					(*local)++;
-			}
+            while( ((ret = lstat(path, &sb)) != 0) && (++times<waitmutex) ) {
+                syslog(LOG_ERR, "access disk(%s) fail, times(%u)", path, times);
+                clock_gettime(CLOCK_REALTIME, &ts);
+			    ts.tv_sec += 2;
+                pthread_mutex_lock(&waitmutex);
+                pthread_cond_timedwait(&waitcv, &waitmutex, &ts);
+                pthread_mutex_unlock(&waitmutex);
+            }
+            if(ret)
+                return ;
+
+            (*active)++;
+            if (disk_is_vdev(path) == 0)
+				(*local)++;
 		}
 	}
 }
