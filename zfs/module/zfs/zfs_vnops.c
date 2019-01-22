@@ -4379,7 +4379,6 @@ zfs_getattr(struct inode *ip, vattr_t *vap, int flags, cred_t *cr)
 	ZFS_ENTER(zsb);
 
 	if (zp->z_id == zsb->z_root && zsb->z_os->os_is_group &&
-		!spa_get_group_flags(dmu_objset_spa(zsb->z_os)) &&
 		!zsb->z_os->os_is_master) {
 		error = zfs_get_masterroot_attr(ip, &tmp_zp);
 		if (error == 0) {
@@ -4645,7 +4644,6 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 
 	ZFS_ENTER(zsb);
 	if (zp->z_id == zsb->z_root && zsb->z_os->os_is_group &&
-		!spa_get_group_flags(dmu_objset_spa(zsb->z_os)) &&
 		!zsb->z_os->os_is_master) {
 		error = zfs_get_masterroot_attr(ip, &tmp_zp);
 		if (error == 0) {
@@ -4674,7 +4672,6 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 	mutex_enter(&zp->z_lock);
 	generic_fillattr(ip, sp);
 	if (ITOZ(ip)->z_id == zsb->z_root && zsb->z_os->os_is_group &&
-		!spa_get_group_flags(dmu_objset_spa(zsb->z_os)) &&
 		!zsb->z_os->os_is_master){
 		sp->ino = ZTOI(zp)->i_ino;
 		sp->mode = (umode_t)zp->z_mode;
@@ -4691,7 +4688,6 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 		}
 		bcopy(&(ZTOI(zp)->i_ctime), &(sp->ctime), sizeof(struct timespec));
 	}
-	sp->size = (loff_t)zp->z_size;
 	
 	if (zsb->z_os->os_is_group) {
 		if (zp->z_group_role != GROUP_VIRTUAL) {
@@ -4700,20 +4696,22 @@ zfs_getattr_fast(struct inode *ip, struct kstat *sp)
 				sp->blksize = (unsigned long)blksize;
 				sp->blocks = (unsigned long long)nblocks;
 			} else {
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(ZTOZSB(zp)),
-				    &blksize, sizeof (uint64_t));
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(ZTOZSB(zp)),
-				    &nblocks, sizeof (uint64_t));
-				error = sa_lookup(zp->z_sa_hdl, SA_ZPL_SIZE(ZTOZSB(zp)),
-				    &size, sizeof (uint64_t));
-				sp->blksize = (unsigned long)blksize;
-				sp->blocks = (unsigned long long)nblocks;
-				sp->size = (loff_t)size;
+				if (!S_ISDIR(ip->i_mode)) {
+					error = sa_lookup(zp->z_sa_hdl, SA_ZPL_BLKSZ(ZTOZSB(zp)),
+					    &blksize, sizeof (uint64_t));
+					error = sa_lookup(zp->z_sa_hdl, SA_ZPL_NBLKS(ZTOZSB(zp)),
+					    &nblocks, sizeof (uint64_t));
+					error = sa_lookup(zp->z_sa_hdl, SA_ZPL_SIZE(ZTOZSB(zp)),
+					    &size, sizeof (uint64_t));
+					sp->blksize = (unsigned long)blksize;
+					sp->blocks = (unsigned long long)nblocks;
+					sp->size = (loff_t)size;
+				}
 			}
-		
 		} else {
 			sp->blksize = (unsigned long)zp->z_blksz;
 			sp->blocks = (unsigned long long)zp->z_nblks;
+			sp->size = (loff_t)zp->z_size;
 		}
 	} else {
 		sa_object_size(zp->z_sa_hdl, (uint32_t *)&blksize, (u_longlong_t *)&nblocks);
