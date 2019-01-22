@@ -3986,8 +3986,10 @@ cluster_check_pool_disks_common(nvlist_t *root,
     int ret;
 	nvlist_t **child;
 	uint_t children, i;
-    uint_t try_times = 3;
+    uint_t try_times = 20;
     uint_t times = 0;
+    uint_t interval = 100;  /* ms */
+    uint_t remained = 1000 - interval;
     timespec_t ts;
     pthread_mutex_t	waitmutex;
 	pthread_cond_t	waitcv;
@@ -3997,7 +3999,7 @@ cluster_check_pool_disks_common(nvlist_t *root,
 	for (i = 0; i < children; i ++) {
 		nvlist_t **tmp_child;
 		uint_t tmp_children = 0;
-
+        uint_t orig_nsec = 0;
 		if (nvlist_lookup_nvlist_array(child[i], ZPOOL_CONFIG_CHILDREN,
 			&tmp_child, &tmp_children) == 0) {
 			cluster_check_pool_disks_common(child[i], total, active, local);
@@ -4014,14 +4016,26 @@ cluster_check_pool_disks_common(nvlist_t *root,
 			syslog(LOG_ERR, "leaf dev path(%s)", path);
 			(*total)++;
 
-            while( ((ret = lstat(path, &sb)) != 0) && (++times<waitmutex) ) {
+            while( ((ret = lstat(path, &sb)) != 0) && (times<try_times) ) {
                 syslog(LOG_ERR, "access disk(%s) fail, times(%u)", path, times);
-                clock_gettime(CLOCK_REALTIME, &ts);
-			    ts.tv_sec += 2;
+                if(clock_gettime(CLOCK_REALTIME, &ts) != 0)
+                    continue;
+                orig_nsec = ts.tv_nsec;
+			    ts.tv_nsec = (ts.tv_nsec >= (remained * 1000000)) ? 
+			                 (ts.tv_nsec - remained * 1000000) : 
+			                 (ts.tv_nsec + interval * 1000000);
+			    ts.tv_sec = (orig_nsec > ts.tv_nsec) ? 
+			                 ts.tv_sec + 1 : ts.tv_sec;
                 pthread_mutex_lock(&waitmutex);
-                pthread_cond_timedwait(&waitcv, &waitmutex, &ts);
+                if (pthread_cond_timedwait(&waitcv, &waitmutex, &ts) != ETIMEDOUT) {
+                    pthread_mutex_unlock(&waitmutex);
+                    continue;
+                }
                 pthread_mutex_unlock(&waitmutex);
+                times++;
             }
+            pthread_mutex_destroy(&waitmutex);
+            pthread_cond_destroy(&waitcv);
             if(ret)
                 return ;
 
