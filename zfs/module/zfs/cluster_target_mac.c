@@ -248,7 +248,7 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 		return (ret);
 	}
 
-	for (repeat = 0; repeat < CLUSTER_MAC_TX_MAX_REPEAT_COUNT; ) {
+	for (repeat = 0; repeat < 1;repeat++ ) {
 #ifdef SOLARIS
 		ret_cookie = mac_tx(port_mac->mac_cli_handle, mblk, 0,
 			MAC_TX_NO_ENQUEUE | MAC_TX_NO_HOLD, &ret_mblk);
@@ -281,7 +281,7 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 				if (is_print) {
 					cmn_err(CE_WARN, "cluster target port send repeat");
 				}
-				repeat ++;
+				//repeat ++;
 			}
 		} else {
 			atomic_swap_32(&port_mac->tx_failed_times, 0);
@@ -301,7 +301,7 @@ cluster_target_mac_send_mp(void *port, mblk_t *mblk)
 #ifdef SOLARIS
 		freemsg(ret_mblk);
 #else
-		freemsg(mblk);
+		kfree(mblk);
 #endif
 	}
 	return (ret);
