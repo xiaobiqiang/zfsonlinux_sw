@@ -7252,6 +7252,14 @@ zfs_fid(struct inode *ip, fid_t *fidp)
 
 		zlfid = (zfid_long_t *)fidp;
 
+		if (zsb->z_issnap || !zsb->z_os->os_is_group) {
+			objsetid = dmu_objset_id(zsb->z_os);
+			zlfid->zf_loadbalance = 0;
+		} else {
+			objsetid = zsb->z_os->os_master_os;
+			zlfid->zf_loadbalance = 1;
+		}
+
 		for (i = 0; i < sizeof (zlfid->zf_setid); i++)
 			zlfid->zf_setid[i] = (uint8_t)(objsetid >> (8 * i));
 

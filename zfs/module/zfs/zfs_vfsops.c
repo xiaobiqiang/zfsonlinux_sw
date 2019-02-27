@@ -2170,7 +2170,7 @@ zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp)
 			dirlowdata |= ((uint64_t)zlfid->zf_dirlowdata[i] << (8 * i));
 
 		ZFS_EXIT(zsb);
-		if (objsetid != dmu_objset_id(zsb->z_os)) {
+		if (objsetid != dmu_objset_id(zsb->z_os) && !zlfid->zf_loadbalance) {
 			err = zfsctl_lookup_objset(sb, objsetid, &zsb);
 			if (err){
 				cmn_err(CE_WARN, "[%s %d] long fid return", __func__, __LINE__);
