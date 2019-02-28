@@ -2515,6 +2515,10 @@ sbd_open_data_file(sbd_lu_t *sl, uint32_t *err_ret, int lu_size_valid,
 
 odf_over_open:
 	if (sbd_is_zvol(sl->sl_data_filename)) {
+		if (!zvol_name) {
+			zvol_name = sbd_get_zvol_name(sl);
+			VERIFY(zvol_name);
+		}
 		if (zvol_get_volsize(zvol_name, &vattr.va_size)) {
 			cmn_err(CE_WARN, "%s zvol_get_volsize name %s failed", 
 				__func__, zvol_name);
@@ -2590,6 +2594,7 @@ odf_over_open:
 	 * Get the minor device for direct zvol access
 	 */
 	if (sl->sl_flags & SL_ZFS_META) {
+		VERIFY(zvol_name);
 		ret = zvol_get_dev_by_name(zvol_name, &sl->sl_data_vp->v_rdev);
 		if (ret) {
 			*err_ret = SBD_RET_DATA_FILE_OPEN_FAILED;
