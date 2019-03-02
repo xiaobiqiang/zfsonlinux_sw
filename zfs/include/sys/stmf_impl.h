@@ -285,7 +285,6 @@ typedef struct stmf_i_scsi_task {
 	struct stmf_i_scsi_task	*itask_lu_next;
 	struct stmf_i_scsi_task	*itask_lu_prev;
 	struct stmf_i_scsi_task	*itask_lu_free_next;
-	struct stmf_i_scsi_task	*itask_abort_next;
 	struct stmf_itl_data	*itask_itl_datap;
 	clock_t			itask_start_time;	/* abort and normal */
 	/* For now we only support 4 parallel buffers. Should be enough. */

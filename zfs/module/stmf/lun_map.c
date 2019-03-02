@@ -1442,7 +1442,7 @@ int
 stmf_remove_group(uint8_t *grpname, uint16_t grpname_size,
 		stmf_id_type_t group_type, uint32_t *err_detail)
 {
-	stmf_id_data_t *id;
+	stmf_id_data_t *id = NULL;
 	stmf_id_data_t *idmemb;
 	stmf_id_list_t *grp_memblist;
 	stmf_i_scsi_session_t *iss;
