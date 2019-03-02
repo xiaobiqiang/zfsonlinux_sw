@@ -1383,6 +1383,7 @@ static int abort_cmd_for_tag(struct scsi_qla_host *vha, uint32_t tag)
 	struct qla_tgt_sess_op *op;
 	struct qla_tgt_cmd *cmd;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	spin_lock(&vha->cmd_list_lock);
 
 	list_for_each_entry(op, &vha->qla_sess_op_cmd_list, cmd_list) {
@@ -1417,6 +1418,7 @@ static void abort_cmds_for_lun(struct scsi_qla_host *vha,
 	struct qla_tgt_cmd *cmd;
 	uint32_t key;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	key = sid_to_key(s_id);
 	spin_lock(&vha->cmd_list_lock);
 	list_for_each_entry(op, &vha->qla_sess_op_cmd_list, cmd_list) {
@@ -3304,6 +3306,7 @@ void qlt_abort_cmd(struct qla_tgt_cmd *cmd)
 	struct scsi_qla_host *vha = tgt->vha;
 	struct se_cmd *se_cmd = &cmd->se_cmd;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	ql_dbg(ql_dbg_tgt_mgt, vha, 0xf014,
 	    "qla_target(%d): terminating exchange for aborted cmd=%p "
 	    "(se_cmd=%p, tag=%llu)", vha->vp_idx, cmd, &cmd->se_cmd,
@@ -4690,6 +4693,7 @@ static int __qlt_abort_task(struct scsi_qla_host *vha,
 	uint32_t lun, unpacked_lun;
 	int rc;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	mcmd = mempool_alloc(qla_tgt_mgmt_cmd_mempool, GFP_ATOMIC);
 	if (mcmd == NULL) {
 		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf05f,
@@ -4727,6 +4731,8 @@ static int qlt_abort_task(struct scsi_qla_host *vha,
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt_sess *sess;
 	int loop_id;
+
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 
 	loop_id = GET_TARGET_ID(ha, (struct atio_from_isp *)iocb);
 
@@ -4844,6 +4850,7 @@ static int abort_cmds_for_s_id(struct scsi_qla_host *vha, port_id_t *s_id)
 	uint32_t key;
 	int count = 0;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	key = (((u32)s_id->b.domain << 16) |
 	       ((u32)s_id->b.area   <<  8) |
 	       ((u32)s_id->b.al_pa));
@@ -6505,6 +6512,7 @@ static void qlt_abort_work(struct qla_tgt *tgt,
 	uint8_t s_id[3];
 	int rc;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
 	if (tgt->tgt_stop)
@@ -6568,6 +6576,7 @@ static void qlt_tmr_work(struct qla_tgt *tgt,
 	int fn;
 	void *iocb;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
 	if (tgt->tgt_stop)
