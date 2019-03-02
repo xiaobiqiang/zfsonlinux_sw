@@ -4171,7 +4171,8 @@ void
 sbd_send_status_done(struct scsi_task *task)
 {
 	cmn_err(CE_PANIC,
-	    "sbd_send_status_done: this should not have been called");
+	    "sbd_send_status_done: task=%p this should not have been called",
+	    task);
 }
 
 void

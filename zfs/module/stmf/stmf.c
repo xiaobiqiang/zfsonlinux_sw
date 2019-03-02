@@ -6524,14 +6524,12 @@ stmf_do_ilu_timeouts(stmf_i_lu_t *ilu)
 	stmf_i_scsi_task_t *itask;
 	scsi_task_t *task;
 	uint32_t to;
-   	stmf_i_scsi_task_t *itask_abort_list_head=NULL;
-	stmf_i_scsi_task_t *itask_abort_list_end=NULL;
 	
 	mutex_enter(&ilu->ilu_task_lock);
 	for (itask = ilu->ilu_tasks; itask != NULL;
 	    itask = itask->itask_lu_next) {
 		if (itask->itask_flags & (ITASK_IN_FREE_LIST |
-		    ITASK_BEING_ABORTED)) {
+		    ITASK_BEING_ABORTED | ITASK_CHECKER_PROCESS)) {
 			continue;
 		}
 		task = itask->itask_task;
@@ -6542,54 +6540,48 @@ stmf_do_ilu_timeouts(stmf_i_lu_t *ilu)
 		if ((itask->itask_start_time + (to * ps)) > l) {
 			continue;
         }
-		
-		if( ((itask->itask_flags & ITASK_IN_TRANSITION) && (itask->itask_flags & ITASK_HOLD_INSTOP)) ||
-				(!(itask->itask_flags & ITASK_KNOWN_TO_LU) && !(itask->itask_flags & ITASK_KNOWN_TO_TGT_PORT)) )
-		{
-			if (itask_abort_list_head == NULL) {
-				itask_abort_list_head = itask;
-				itask_abort_list_end = itask;
-				itask->itask_abort_next = NULL;
-			} else {
-				itask_abort_list_end->itask_abort_next = itask;
-				itask_abort_list_end = itask;
-				itask->itask_abort_next = NULL;
-			}
-		}
-		else
-		{
-			cmn_err(CE_NOTE, "%s (task=%p itask_flags=%x) to abort, starttime = %ld, curtime = %ld, to = %d",
-				__func__, task, itask->itask_flags, itask->itask_start_time, l, to);
-			if (itask->itask_flags & ITASK_BEING_PPPT){
-				stmf_print_task_audit(itask);
-				itask->itask_flags &= ~ITASK_BEING_PPPT;
-			}
-			stmf_abort(STMF_QUEUE_TASK_ABORT, task,
-	        	STMF_TIMEOUT, NULL, STMF_DO_ILU_TIMEOUTS);
-		}
-		
-	}
-	mutex_exit(&ilu->ilu_task_lock);
 
-	/* matis-2554 */
-	for(itask = itask_abort_list_head;itask != NULL;itask = itask->itask_abort_next)
-	{
-		task = itask->itask_task;
-	 	if( (itask->itask_flags & ITASK_IN_TRANSITION) && (itask->itask_flags & ITASK_HOLD_INSTOP)){
-			cmn_err(CE_NOTE, "%s (task=%p itask_flags=%x) to free, starttime = %ld, curtime = %ld, to = %d",
-				__func__, task, itask->itask_flags, itask->itask_start_time, l, to);
-			STMF_TASK_KSTAT_UPDATE_ABORT(&stmf_state, STMF_DO_ILU_TIMEOUTS);
+		cmn_err(CE_NOTE, "%s (task=%p itask_flags=%x) to abort, starttime=%ld, curtime=%ld, to=%d",
+			__func__, task, itask->itask_flags, itask->itask_start_time, l, to);
+		
+		if ((itask->itask_flags & ITASK_IN_TRANSITION) && (itask->itask_flags & ITASK_HOLD_INSTOP)) {
+			uint32_t new, old;
+			stmf_data_buf_t *dbuf = NULL;
+			stmf_task_audit(itask, TE_TASK_ABORT, CMD_OR_IOF_NA, NULL);
 			
-			stmf_task_free(task);
-		} else if(!(itask->itask_flags & ITASK_KNOWN_TO_LU) &&  !(itask->itask_flags & ITASK_KNOWN_TO_TGT_PORT) ){ 
-			cmn_err(CE_NOTE, "%s (task=%p itask_flags=%x) to free force , starttime = %ld, curtime = %ld, to = %d",
-				__func__, task, itask->itask_flags, itask->itask_start_time, l, to);
+			do {
+				new = old = itask->itask_flags;
+				new &= ~ITASK_HOLD_INSTOP;
+			} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
+			
+			do {
+				new = old = itask->itask_flags;
+				new |= ITASK_BEING_ABORTED;
+			} while (atomic_cas_32(&itask->itask_flags, old, new) != old);
+			
+			if (itask->itask_allocated_buf_map == 1) {
+				dbuf = itask->itask_dbufs[0];
+				dbuf->db_handle = 0;
+			} else if (itask->itask_allocated_buf_map == 0) {
+				dbuf = NULL;
+				itask->itask_allocated_buf_map = 0;
+				itask->itask_dbufs[0] = NULL;
+			} else {
+				cmn_err(CE_PANIC, "%s itask=%p itask_allocated_buf_map=%d", __func__, itask,
+					itask->itask_allocated_buf_map);
+ 			}
+			
 			STMF_TASK_KSTAT_UPDATE_ABORT(&stmf_state, STMF_DO_ILU_TIMEOUTS);
-			stmf_task_free(task);
-		}
-	}	
+			task->task_completion_status = STMF_TIMEOUT;
+			itask->itask_start_time = ddi_get_lbolt();
+			stmf_direct_post_task(task, dbuf);
+		} else {
+ 			stmf_abort(STMF_QUEUE_TASK_ABORT, task,
+				STMF_TIMEOUT, NULL, STMF_DO_ILU_TIMEOUTS);
+		}		
+ 	}
+ 	mutex_exit(&ilu->ilu_task_lock);
 }
-
 
 int stmf_check_task_step(stmf_i_scsi_task_t *itask){
 	stmf_task_audit_rec_t *ar;
