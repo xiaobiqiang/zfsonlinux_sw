@@ -6039,7 +6039,8 @@ stmf_alloc_dbuf(scsi_task_t *task, uint32_t size, uint32_t *pminsize,
 
 	ndx = stmf_first_zero[itask->itask_allocated_buf_map];
 	if (ndx == 0xff) {
-		cmn_err(CE_WARN, "%s: ndx is over %x", __func__,itask->itask_allocated_buf_map);
+		cmn_err(CE_WARN, "%s: task=%p cdb=%02x%02x iflags=0x%x size=%d minsize=%d ndx is over %x", 
+			__func__, task, task->task_cdb[0], task->task_cdb[1], itask->itask_flags, size, *pminsize, itask->itask_allocated_buf_map);
 		return (NULL);
 	}
 	dbuf = itask->itask_dbufs[ndx] = lport->lport_ds->ds_alloc_data_buf(

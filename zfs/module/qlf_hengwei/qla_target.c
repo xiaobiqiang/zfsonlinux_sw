@@ -7268,9 +7268,9 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 #define	BUF_COUNT_2K		2048	
 #define	BUF_COUNT_8K		512	
 #define	BUF_COUNT_64K		256	
-#define	BUF_COUNT_128K		1024	
+#define	BUF_COUNT_128K		1024
 /* merge alua_2w code to stable modified by zywang begin */
-#define	BUF_COUNT_256K		512	
+#define	BUF_COUNT_256K		1024
 /* merge alua_2w code to stable modified by zywang end */
 #endif
 
