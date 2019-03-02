@@ -1766,7 +1766,10 @@ out_err:
 static void qlt_unmap_sg(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 {
 	struct qla_hw_data *ha = vha->hw;
+	cmd->sg_mapped = 0;
+	return;
 
+#if 0
 	if (!cmd->sg_mapped)
 		return;
 
@@ -1782,6 +1785,7 @@ static void qlt_unmap_sg(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 
 	if (cmd->ctx)
 		dma_pool_free(ha->dl_dma_pool, cmd->ctx, cmd->ctx->crc_ctx_dma);
+#endif
 }
 
 static int qlt_check_reserve_free_req(struct scsi_qla_host *vha,
@@ -2831,7 +2835,8 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	return 0;
 
 out_unmap_unlock:
-	qlt_unmap_sg(vha, cmd);
+	if (cmd->sg_mapped)
+		qlt_unmap_sg(vha, cmd);
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	return res;
@@ -2930,7 +2935,8 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 	return res;
 
 out_unlock_free_unmap:
-	qlt_unmap_sg(vha, cmd);
+	if (cmd->sg_mapped)
+		qlt_unmap_sg(vha, cmd);
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	return res;
@@ -3655,7 +3661,10 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	}
 
 	qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
-	
+
+	qcmd->cmd_sent_to_fw = 0;
+	qlt_unmap_sg(vha, qcmd);
+		
 #if 0
 	if (!CMD_HANDLE_VALID(hndl)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe01e,
