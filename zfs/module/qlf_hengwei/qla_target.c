@@ -3517,6 +3517,7 @@ qlt_abort_cmd_on_host_reset(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 	if (cmd->sg_mapped)
 		qlt_unmap_sg(vha, cmd);
 
+#if 0
 	handle = qlt_make_handle(vha);
 
 	/* TODO: fix debug message type and ids. */
@@ -3544,6 +3545,7 @@ qlt_abort_cmd_on_host_reset(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 
 	cmd->cmd_flags |= BIT_17;
 	/* ha->tgt.tgt_ops->free_cmd(cmd); */
+#endif
 }
 
 void
