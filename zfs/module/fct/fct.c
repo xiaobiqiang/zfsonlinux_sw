@@ -1883,6 +1883,21 @@ fct_alloc_cmd_slot(fct_i_local_port_t *iport, fct_cmd_t *cmd)
 		new |= iport->iport_cmd_slots[cmd_slot].slot_next;
 	} while (atomic_cas_32(&iport->iport_next_free_slot, old, new) != old);
 	atomic_dec_32(&iport->iport_nslots_free);
+	if (iport->iport_cmd_slots[cmd_slot].slot_cmd) {
+		uint32_t handle = (uint32_t)cmd_slot | 0x80000000 |
+	    	(((uint32_t)(iport->iport_cmd_slots[cmd_slot].slot_uniq_cntr))
+	    	<< 24);
+		cmn_err(CE_NOTE, "zjn %s slot_cmd isn't null, cmd_slot=%x "
+			"old=%x new=%x new_cmd_handle=%x cmd=%p cur_cmd=%p iport=%p", 
+			__func__, cmd_slot, old, new, handle,
+			iport->iport_cmd_slots[cmd_slot].slot_cmd, cmd, iport);
+
+		cmn_err(CE_PANIC, "zjn %s slot_cmd isn't null, cmd_slot=%x "
+			"old=%x new=%x new_cmd_handle=%x cmd=%p cur_cmd=%p, iport=%p", 
+			__func__, cmd_slot, old, new, handle,
+			iport->iport_cmd_slots[cmd_slot].slot_cmd, cmd, iport);
+	}
+	
 	iport->iport_cmd_slots[cmd_slot].slot_cmd = icmd;
 	cmd->cmd_handle = (uint32_t)cmd_slot | 0x80000000 |
 	    (((uint32_t)(iport->iport_cmd_slots[cmd_slot].slot_uniq_cntr))
@@ -3302,6 +3317,12 @@ fct_cmd_terminator(fct_i_local_port_t *iport)
 			else
 				flags = FCT_IOF_FORCE_FCA_DONE;
 			abort_ret = port->port_abort_cmd(port, cmd, flags);
+			if (cmd->cmd_type != FCT_CMD_FCP_XCHG &&
+				cmd->cmd_type != FCT_CMD_RCVD_ABTS) {
+				cmn_err(CE_NOTE, "zjn %s cmd=%p cmd_type=%d icmd_flags=0x%x abort_ret=0x%llx",
+					__func__, cmd, cmd->cmd_type, icmd->icmd_flags, abort_ret);
+			}
+			
 			if ((abort_ret != FCT_SUCCESS) &&
 			    (abort_ret != FCT_ABORT_SUCCESS) &&
 			    (abort_ret != FCT_NOT_FOUND)) {

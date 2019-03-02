@@ -1498,7 +1498,8 @@ stmf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next)
             n++;
         iocd->stmf_obuf_max_nentries = n;
-        iocd->stmf_obuf_nentries = min(n, iocd->stmf_obuf_size/sizeof (slist_lu_ex_t));
+        iocd->stmf_obuf_nentries = min(n, 
+			(uint32_t)(iocd->stmf_obuf_size/sizeof (slist_lu_ex_t)));
         i = 0;
         luns_list = (slist_lu_ex_t *)obuf;
         for (ilu = stmf_state.stmf_ilulist; ilu; ilu = ilu->ilu_next) {
@@ -6499,12 +6500,17 @@ void stmf_print_task_audit(stmf_i_scsi_task_t *itask)
 	int index, i;
 	
 	mutex_enter(&itask->itask_audit_mutex);
-	index = itask->itask_audit_index & (ITASK_TASK_AUDIT_DEPTH - 1); 
-	for(i=0; i < index; i++)
-	{
+	index = itask->itask_audit_index & (ITASK_TASK_AUDIT_DEPTH - 1);
+	cmn_err(CE_WARN, "%s count=%d itask=%p itask_flags=%x task=%p aflags=%x task_cdb=%02x%02x", 
+		__func__, index, itask, itask->itask_flags, itask->itask_task,
+		itask->itask_task->task_additional_flags,
+		itask->itask_task->task_cdb[0], 
+		itask->itask_task->task_cdb[1]);
+	
+	for (i = 0; i < ITASK_TASK_AUDIT_DEPTH; i++) {
 		ar = &itask->itask_audit_records[i];
-		cmn_err(CE_WARN, "%s task = %p audit[%d]: flags=0x%x event=%d cmdiof=0x%x ta_itask_flags=0x%x", __func__, 
-			(void *)itask->itask_task, i, itask->itask_flags, ar->ta_event, ar->ta_cmd_or_iof, ar->ta_itask_flags);
+		cmn_err(CE_WARN, "%s audit[%d]: event=%d cmdiof=0x%x ta_itask_flags=0x%x ta_dbuf=%p timestamp=%llx", 
+		__func__, i, ar->ta_event, ar->ta_cmd_or_iof, ar->ta_itask_flags, ar->ta_dbuf, ar->ta_timestamp);
 	}
 	
 	mutex_exit(&itask->itask_audit_mutex);
@@ -7265,6 +7271,9 @@ stmf_data_xfer_done(scsi_task_t *task, stmf_data_buf_t *dbuf, uint32_t iof)
 		 */
 		ilport = task->task_lport->lport_stmf_private;
 		ilport->ilport_unexpected_comp++;
+		stmf_print_task_audit(itask);
+		printk(KERN_WARNING "Unexpected xfer completion task %p dbuf %p",
+		    (void *)task, (void *)dbuf);
 		cmn_err(CE_PANIC, "Unexpected xfer completion task %p dbuf %p",
 		    (void *)task, (void *)dbuf);
 		return;
@@ -7493,6 +7502,7 @@ stmf_send_status_done(scsi_task_t *task, stmf_status_t s, uint32_t iof)
 			free_it = 0;
 			queue_it = 1;
 			if (old & ITASK_IN_WORKER_QUEUE) {
+				stmf_print_task_audit(itask);
 				cmn_err(CE_PANIC, "status completion received"
 				    " when task is already in worker queue "
 				    " task = %p", (void *)task);
@@ -7556,6 +7566,7 @@ stmf_task_lu_done(scsi_task_t *task)
 			return;
 		}
 		if (old & ITASK_IN_WORKER_QUEUE) {
+			stmf_print_task_audit(itask);
 			cmn_err(CE_PANIC, "task_lu_done received"
 			    " when task is in worker queue "
 			    " task = %p", (void *)task);
@@ -7570,6 +7581,7 @@ stmf_task_lu_done(scsi_task_t *task)
 	    ITASK_BEING_ABORTED)) == 0) {
 		stmf_task_free(task);
 	} else {
+		stmf_print_task_audit(itask);
 		cmn_err(CE_PANIC, "stmf_lu_done should be the last stage but "
 		    " the task is still not done, task = %p", (void *)task);
 	}
@@ -9667,9 +9679,6 @@ stmf_proxy_task_dbuf_done(scsi_task_t *task, stmf_data_buf_t *dbuf)
 	stmf_ic_msg_t *ic_xfer_done_msg = NULL;
 	stmf_status_t ic_ret = STMF_FAILURE;
 	boolean_t free_it = B_FALSE;
-
-	printk(KERN_INFO "zjn %s task=%p, aflags=%x, db_flags=%x\n", __func__,
-		task, task->task_additional_flags, dbuf->db_flags);
 
 	if ((dbuf->db_flags & DB_DIRECTION_TO_RPORT) &&
 		(dbuf->db_flags & DB_SEND_STATUS_GOOD)) {
