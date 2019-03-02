@@ -1901,7 +1901,8 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	pkt->initiator_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
 	pkt->initiator_id[2] = atio->u.isp24.fcp_hdr.s_id[0];
 	pkt->exchange_addr = atio->u.isp24.exchange_addr;
-	// pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	pkt->u.status0.flags |= prm->cmd->flags;
 	temp = be16_to_cpu(atio->u.isp24.fcp_hdr.ox_id);
 	pkt->u.status0.ox_id = cpu_to_le16(temp);
 	pkt->u.status0.relative_offset = cpu_to_le32(prm->cmd->offset);
@@ -2728,7 +2729,6 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		pkt->u.status0.flags |=
 		    cpu_to_le16(CTIO7_FLAGS_DATA_IN |
 			CTIO7_FLAGS_STATUS_MODE_0);
-		pkt->u.status0.flags |= cmd->flags;
 
 		if (sgl_mode) {
 			qlt_load_data_segments(&prm, vha);
