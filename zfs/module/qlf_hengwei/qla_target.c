@@ -6044,6 +6044,7 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 {
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = vha->vha_tgt.qla_tgt;
+	struct qla_atio_msg *msg;
 
 	if (unlikely(tgt == NULL)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe05d,
@@ -6098,7 +6099,27 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 			    le16_to_cpu(atio->u.isp2x.status));
 			break;
 		}
+		printk("zjn %s ACCEPT_TGT_IO_TYPE\n", __func__);
 
+		msg = kmem_cache_zalloc(atio_msg_cachep, GFP_ATOMIC);
+		if (!msg) {
+			printk("%s alloc atio_msg_cache failed!\n", __func__);
+			break;
+		}
+		
+		msg->atio = kmem_cache_zalloc(atio_cachep, GFP_ATOMIC);
+		if(!msg->atio) {
+			printk("%s alloc atio_cache failed!\n", __func__);
+		}
+		memcpy(msg->atio, atio, sizeof(struct atio_from_isp));
+		msg->vha = vha;
+		
+		INIT_WORK(&msg->atio_work, qlt_do_atio);
+		queue_work(qla_tgt_atio_wq, &msg->atio_work);
+		break;
+	}
+
+#if 0
 		rc = qlt_chk_qfull_thresh_hold(vha, atio);
 		if (rc != 0) {
 			tgt->irq_cmd_count--;
@@ -6132,6 +6153,7 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 		}
 	}
 	break;
+#endif
 
 	case CONTINUE_TGT_IO_TYPE:
 	{
