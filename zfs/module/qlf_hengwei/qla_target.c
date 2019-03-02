@@ -217,17 +217,17 @@ static struct qla_tgt_sess *qlt_find_sess_by_sid(
         struct qla_tgt *tgt,
         uint8_t *s_id)
 {
-        struct qla_tgt_sess *sess;
+    struct qla_tgt_sess *sess;
 
-        list_for_each_entry(sess, &tgt->sess_list, sess_list_entry) {
-                if (sess->s_id.b.domain == s_id[0] &&
-                        sess->s_id.b.area == s_id[1] &&
-                        sess->s_id.b.al_pa == s_id[2]){
-                        return sess;
-                }
+    list_for_each_entry(sess, &tgt->sess_list, sess_list_entry) {
+        if (sess->s_id.b.domain == s_id[0] &&
+            sess->s_id.b.area == s_id[1] &&
+            sess->s_id.b.al_pa == s_id[2]){
+            return sess;
         }
+    }
 
-        return NULL;
+    return NULL;
 }
 
 
@@ -4134,7 +4134,7 @@ qlt_do_atio(struct work_struct *atio_work)
 		    "received with UNKNOWN exchange address, "
 		    "sending QUEUE_FULL\n", vha->vp_idx);
 		qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
-		return;
+		goto atio_end;
 	}
 
 
@@ -4150,7 +4150,7 @@ qlt_do_atio(struct work_struct *atio_work)
 			ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 				"bidirectional I/O not supported\n");
 			/* XXX abort the I/O */
-			return;
+			goto atio_end;
 		}
 		cdb_size = (uint16_t)(cdb_size + (b & 0xfc));
 		/*
@@ -4164,7 +4164,7 @@ qlt_do_atio(struct work_struct *atio_work)
 			ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 				"extended cdb received\n");
 			/* XXX abort the I/O */
-			return;
+			goto atio_end;
 		}
 	}
 	
@@ -4177,13 +4177,17 @@ qlt_do_atio(struct work_struct *atio_work)
 		ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 			"fct_scsi_task_alloc cmd==NULL, send_buzy\n");
 		qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
-
-		return;
+		goto atio_end;
 	}
 
 	task = (scsi_task_t *)cmd->cmd_specific;
 	qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
-	qlt_24xx_fill_cmd(vha, atio, qcmd);
+
+	if (!qlt_24xx_fill_cmd(vha, atio, qcmd)) {
+		fct_cmd_free(cmd);
+		goto atio_end;
+	}
+	
 	cmd->cmd_oxid = atio->u.isp24.fcp_hdr.ox_id;
 	cmd->cmd_rxid = atio->u.isp24.fcp_hdr.rx_id;
 	cmd->cmd_rportid = rportid;
@@ -4251,8 +4255,8 @@ qlt_do_atio(struct work_struct *atio_work)
 	iowrite32(0xdeadbeef, atio_prt + 0x3c);
 	fct_post_rcvd_cmd(cmd, 0);
 
+atio_end:
 	kmem_cache_free(atio_msg_cachep, msg);
-					
 	return;
 }
 
@@ -5859,7 +5863,23 @@ qlt_chk_qfull_thresh_hold(struct scsi_qla_host *vha,
 	return 1;
 }
 
-void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
+void 
+qlt_24xx_print_sess(struct scsi_qla_host *vha)
+{
+	struct qla_tgt_sess *sess;
+
+    list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list, sess_list_entry) {
+		printk("sess=%p sid=%x%x%x loopid=%x port_name=%8phC",
+			sess,
+			sess->s_id.b.domain,
+			sess->s_id.b.area,
+			sess->s_id.b.al_pa,
+			sess->loop_id,
+			sess->port_name);
+    }
+}
+
+boolean_t qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	struct atio_from_isp *atio_from, struct qla_tgt_cmd *cmd)
 {
 	struct qla_hw_data *ha = vha->hw;
@@ -5880,11 +5900,16 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	cmd->reset_count = vha->hw->chip_reset;
 
 	sess = qlt_find_sess_by_sid(vha->vha_tgt.qla_tgt, atio_from->u.isp24.fcp_hdr.s_id);
-        if(sess == NULL) {
-                printk("can not find the session!\n");
-                return;
-        }
-
+    if(sess == NULL) {	
+        printk("zjn %s can not find the session! qla_tgt=%p sid=%x%x%x\n", __func__,
+			vha->vha_tgt.qla_tgt,
+			atio_from->u.isp24.fcp_hdr.s_id[0],
+			atio_from->u.isp24.fcp_hdr.s_id[1],
+			atio_from->u.isp24.fcp_hdr.s_id[2]
+			);
+		qlt_24xx_print_sess(vha);
+        return B_FALSE;
+    }
 
 	/* TODO: */
 	cmd->loop_id = sess->loop_id; 
@@ -5915,6 +5940,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	ql_dbg(ql_dbg_tgt, vha, 0xe022,
 		"qla_target: START qla command: %p lun: 0x%04x (tag %d)\n",
 		cmd, cmd->unpacked_lun, cmd->tag);
+	return B_TRUE;
 }
 
 

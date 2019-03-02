@@ -1375,7 +1375,7 @@ extern void qlt_exit(void);
 extern void qlt_update_vp_map(struct scsi_qla_host *, int);
 //extern void qlt_send_busy(struct scsi_qla_host *vha,
 //	struct atio_from_isp *atio, uint16_t status);
-extern void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
+extern boolean_t qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	struct atio_from_isp *atio_from, struct qla_tgt_cmd *cmd);
 
 /*
