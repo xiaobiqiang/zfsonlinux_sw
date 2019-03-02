@@ -47,6 +47,9 @@ module_param(ql2xtgt_tape_enable, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(ql2xtgt_tape_enable,
 		"Enables Sequence level error recovery (aka FC Tape). Default is 0 - no SLER. 1 - Enable SLER.");
 
+int qla_target_debug = 0;
+module_param(qla_target_debug, int, 0644);
+
 /*
  * CTIO msg allocation cache
  */
@@ -7141,6 +7144,8 @@ qlt_free_atio(void *fca_cmd)
 	if(qcmd->atio != NULL) {
 		kmem_cache_free(atio_cachep, qcmd->atio);
 	}
+		
+	bzero(qcmd, sizeof(struct qla_tgt_cmd));
 }
 
 void
