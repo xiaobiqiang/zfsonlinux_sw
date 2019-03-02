@@ -6940,6 +6940,11 @@ qlt_abort_scsi_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 		struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
 		qcmd->aborted = 1;
 		qlt_send_term_exchange(vha, qcmd, qcmd->atio, 0);
+		if (flags & FCT_IOF_FORCE_FCA_DONE) {
+			printk("zjn %s FCT_CMD_FCP_XCHG flags FCT_IOF_FORCE_FCA_DONE",
+				__func__);
+		}
+		return (STMF_ABORT_SUCCESS);
 	}
 
 	if (flags & FCT_IOF_FORCE_FCA_DONE) {
@@ -6951,7 +6956,10 @@ qlt_abort_scsi_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 		qlt_abts_cmd_t *qcmd = (qlt_abts_cmd_t *)cmd->cmd_fca_private;
 		qlt_24xx_send_abts_resp(vha, (struct abts_recv_from_24xx *)qcmd->buf,
 			FC_TM_SUCCESS, false);
+		return (STMF_ABORT_SUCCESS);
 	}
+
+	printk("zjn %s cmd_type=0x%x", __func__, cmd->cmd_type);
 	
 	return (FCT_ABORT_SUCCESS);
 }
