@@ -254,7 +254,8 @@ typedef struct zfid_long {
 	zfid_short_t	z_fid;
 	uint8_t		zf_setid[6];		/* obj[i] = obj >> (8 * i) */
 	uint8_t		zf_dirquota[4];		  /* gen[i] = gen >> (8 * i) */
-	uint8_t		zf_dirlowdata[4];	
+	uint8_t		zf_dirlowdata[4];
+	uint8_t		zf_loadbalance;
 } zfid_long_t;
 
 #define	SHORT_FID_LEN	(sizeof (zfid_short_t) - sizeof (uint16_t))
