@@ -416,7 +416,6 @@ void fct_q_for_termination_lock_held(fct_i_local_port_t *iport,
     fct_i_cmd_t *icmd, fct_status_t s);
 disc_action_t fct_handle_port_offline(fct_i_local_port_t *iport);
 disc_action_t fct_cmd_terminator(fct_i_local_port_t *iport);
-void fct_cmd_free(fct_cmd_t *cmd);
 void fct_scsi_task_free(scsi_task_t *task);
 stmf_status_t fct_scsi_abort(stmf_local_port_t *lport, int abort_cmd,
     void *arg, uint32_t flags);
