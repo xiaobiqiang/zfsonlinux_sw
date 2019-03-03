@@ -47,6 +47,9 @@ module_param(ql2xtgt_tape_enable, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(ql2xtgt_tape_enable,
 		"Enables Sequence level error recovery (aka FC Tape). Default is 0 - no SLER. 1 - Enable SLER.");
 
+int qla_target_debug = 0;
+module_param(qla_target_debug, int, 0644);
+
 /*
  * CTIO msg allocation cache
  */
@@ -217,17 +220,17 @@ static struct qla_tgt_sess *qlt_find_sess_by_sid(
         struct qla_tgt *tgt,
         uint8_t *s_id)
 {
-        struct qla_tgt_sess *sess;
+    struct qla_tgt_sess *sess;
 
-        list_for_each_entry(sess, &tgt->sess_list, sess_list_entry) {
-                if (sess->s_id.b.domain == s_id[0] &&
-                        sess->s_id.b.area == s_id[1] &&
-                        sess->s_id.b.al_pa == s_id[2]){
-                        return sess;
-                }
+    list_for_each_entry(sess, &tgt->sess_list, sess_list_entry) {
+        if (sess->s_id.b.domain == s_id[0] &&
+            sess->s_id.b.area == s_id[1] &&
+            sess->s_id.b.al_pa == s_id[2]){
+            return sess;
         }
+    }
 
-        return NULL;
+    return NULL;
 }
 
 
@@ -1383,6 +1386,7 @@ static int abort_cmd_for_tag(struct scsi_qla_host *vha, uint32_t tag)
 	struct qla_tgt_sess_op *op;
 	struct qla_tgt_cmd *cmd;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	spin_lock(&vha->cmd_list_lock);
 
 	list_for_each_entry(op, &vha->qla_sess_op_cmd_list, cmd_list) {
@@ -1417,6 +1421,7 @@ static void abort_cmds_for_lun(struct scsi_qla_host *vha,
 	struct qla_tgt_cmd *cmd;
 	uint32_t key;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	key = sid_to_key(s_id);
 	spin_lock(&vha->cmd_list_lock);
 	list_for_each_entry(op, &vha->qla_sess_op_cmd_list, cmd_list) {
@@ -1764,7 +1769,10 @@ out_err:
 static void qlt_unmap_sg(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 {
 	struct qla_hw_data *ha = vha->hw;
+	cmd->sg_mapped = 0;
+	return;
 
+#if 0
 	if (!cmd->sg_mapped)
 		return;
 
@@ -1780,6 +1788,7 @@ static void qlt_unmap_sg(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 
 	if (cmd->ctx)
 		dma_pool_free(ha->dl_dma_pool, cmd->ctx, cmd->ctx->crc_ctx_dma);
+#endif
 }
 
 static int qlt_check_reserve_free_req(struct scsi_qla_host *vha,
@@ -1899,7 +1908,8 @@ static int qlt_24xx_build_ctio_pkt(struct qla_tgt_prm *prm,
 	pkt->initiator_id[1] = atio->u.isp24.fcp_hdr.s_id[1];
 	pkt->initiator_id[2] = atio->u.isp24.fcp_hdr.s_id[0];
 	pkt->exchange_addr = atio->u.isp24.exchange_addr;
-	// pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	pkt->u.status0.flags |= (atio->u.isp24.attr << 9);
+	pkt->u.status0.flags |= prm->cmd->flags;
 	temp = be16_to_cpu(atio->u.isp24.fcp_hdr.ox_id);
 	pkt->u.status0.ox_id = cpu_to_le16(temp);
 	pkt->u.status0.relative_offset = cpu_to_le32(prm->cmd->offset);
@@ -2726,7 +2736,6 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 		pkt->u.status0.flags |=
 		    cpu_to_le16(CTIO7_FLAGS_DATA_IN |
 			CTIO7_FLAGS_STATUS_MODE_0);
-		pkt->u.status0.flags |= cmd->flags;
 
 		if (sgl_mode) {
 			qlt_load_data_segments(&prm, vha);
@@ -2829,7 +2838,8 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 	return 0;
 
 out_unmap_unlock:
-	qlt_unmap_sg(vha, cmd);
+	if (cmd->sg_mapped)
+		qlt_unmap_sg(vha, cmd);
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	return res;
@@ -2928,7 +2938,8 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd, bool sgl_mode)
 	return res;
 
 out_unlock_free_unmap:
-	qlt_unmap_sg(vha, cmd);
+	if (cmd->sg_mapped)
+		qlt_unmap_sg(vha, cmd);
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	return res;
@@ -3304,6 +3315,7 @@ void qlt_abort_cmd(struct qla_tgt_cmd *cmd)
 	struct scsi_qla_host *vha = tgt->vha;
 	struct se_cmd *se_cmd = &cmd->se_cmd;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	ql_dbg(ql_dbg_tgt_mgt, vha, 0xf014,
 	    "qla_target(%d): terminating exchange for aborted cmd=%p "
 	    "(se_cmd=%p, tag=%llu)", vha->vp_idx, cmd, &cmd->se_cmd,
@@ -3514,6 +3526,7 @@ qlt_abort_cmd_on_host_reset(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 	if (cmd->sg_mapped)
 		qlt_unmap_sg(vha, cmd);
 
+#if 0
 	handle = qlt_make_handle(vha);
 
 	/* TODO: fix debug message type and ids. */
@@ -3541,6 +3554,7 @@ qlt_abort_cmd_on_host_reset(struct scsi_qla_host *vha, struct qla_tgt_cmd *cmd)
 
 	cmd->cmd_flags |= BIT_17;
 	/* ha->tgt.tgt_ops->free_cmd(cmd); */
+#endif
 }
 
 void
@@ -3650,7 +3664,10 @@ static void qlt_do_ctio_completion(struct scsi_qla_host *vha, uint32_t handle,
 	}
 
 	qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
-	
+
+	qcmd->cmd_sent_to_fw = 0;
+	qlt_unmap_sg(vha, qcmd);
+		
 #if 0
 	if (!CMD_HANDLE_VALID(hndl)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe01e,
@@ -4134,7 +4151,7 @@ qlt_do_atio(struct work_struct *atio_work)
 		    "received with UNKNOWN exchange address, "
 		    "sending QUEUE_FULL\n", vha->vp_idx);
 		qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
-		return;
+		goto atio_end;
 	}
 
 
@@ -4150,7 +4167,7 @@ qlt_do_atio(struct work_struct *atio_work)
 			ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 				"bidirectional I/O not supported\n");
 			/* XXX abort the I/O */
-			return;
+			goto atio_end;
 		}
 		cdb_size = (uint16_t)(cdb_size + (b & 0xfc));
 		/*
@@ -4164,7 +4181,7 @@ qlt_do_atio(struct work_struct *atio_work)
 			ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 				"extended cdb received\n");
 			/* XXX abort the I/O */
-			return;
+			goto atio_end;
 		}
 	}
 	
@@ -4177,13 +4194,17 @@ qlt_do_atio(struct work_struct *atio_work)
 		ql_dbg(ql_dbg_tgt, vha, 0xe058, 
 			"fct_scsi_task_alloc cmd==NULL, send_buzy\n");
 		qlt_send_busy(vha, atio, SAM_STAT_TASK_SET_FULL);
-
-		return;
+		goto atio_end;
 	}
 
 	task = (scsi_task_t *)cmd->cmd_specific;
 	qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
-	qlt_24xx_fill_cmd(vha, atio, qcmd);
+
+	if (!qlt_24xx_fill_cmd(vha, atio, qcmd)) {
+		fct_cmd_free(cmd);
+		goto atio_end;
+	}
+	
 	cmd->cmd_oxid = atio->u.isp24.fcp_hdr.ox_id;
 	cmd->cmd_rxid = atio->u.isp24.fcp_hdr.rx_id;
 	cmd->cmd_rportid = rportid;
@@ -4251,8 +4272,8 @@ qlt_do_atio(struct work_struct *atio_work)
 	iowrite32(0xdeadbeef, atio_prt + 0x3c);
 	fct_post_rcvd_cmd(cmd, 0);
 
+atio_end:
 	kmem_cache_free(atio_msg_cachep, msg);
-					
 	return;
 }
 
@@ -4686,6 +4707,7 @@ static int __qlt_abort_task(struct scsi_qla_host *vha,
 	uint32_t lun, unpacked_lun;
 	int rc;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	mcmd = mempool_alloc(qla_tgt_mgmt_cmd_mempool, GFP_ATOMIC);
 	if (mcmd == NULL) {
 		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf05f,
@@ -4723,6 +4745,8 @@ static int qlt_abort_task(struct scsi_qla_host *vha,
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt_sess *sess;
 	int loop_id;
+
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 
 	loop_id = GET_TARGET_ID(ha, (struct atio_from_isp *)iocb);
 
@@ -4840,6 +4864,7 @@ static int abort_cmds_for_s_id(struct scsi_qla_host *vha, port_id_t *s_id)
 	uint32_t key;
 	int count = 0;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	key = (((u32)s_id->b.domain << 16) |
 	       ((u32)s_id->b.area   <<  8) |
 	       ((u32)s_id->b.al_pa));
@@ -5859,7 +5884,23 @@ qlt_chk_qfull_thresh_hold(struct scsi_qla_host *vha,
 	return 1;
 }
 
-void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
+void 
+qlt_24xx_print_sess(struct scsi_qla_host *vha)
+{
+	struct qla_tgt_sess *sess;
+
+    list_for_each_entry(sess, &vha->vha_tgt.qla_tgt->sess_list, sess_list_entry) {
+		printk("sess=%p sid=%x%x%x loopid=%x port_name=%8phC",
+			sess,
+			sess->s_id.b.domain,
+			sess->s_id.b.area,
+			sess->s_id.b.al_pa,
+			sess->loop_id,
+			sess->port_name);
+    }
+}
+
+boolean_t qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	struct atio_from_isp *atio_from, struct qla_tgt_cmd *cmd)
 {
 	struct qla_hw_data *ha = vha->hw;
@@ -5880,11 +5921,16 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	cmd->reset_count = vha->hw->chip_reset;
 
 	sess = qlt_find_sess_by_sid(vha->vha_tgt.qla_tgt, atio_from->u.isp24.fcp_hdr.s_id);
-        if(sess == NULL) {
-                printk("can not find the session!\n");
-                return;
-        }
-
+    if(sess == NULL) {	
+        printk("zjn %s can not find the session! qla_tgt=%p sid=%x%x%x\n", __func__,
+			vha->vha_tgt.qla_tgt,
+			atio_from->u.isp24.fcp_hdr.s_id[0],
+			atio_from->u.isp24.fcp_hdr.s_id[1],
+			atio_from->u.isp24.fcp_hdr.s_id[2]
+			);
+		qlt_24xx_print_sess(vha);
+        return B_FALSE;
+    }
 
 	/* TODO: */
 	cmd->loop_id = sess->loop_id; 
@@ -5915,6 +5961,7 @@ void qlt_24xx_fill_cmd(struct scsi_qla_host *vha,
 	ql_dbg(ql_dbg_tgt, vha, 0xe022,
 		"qla_target: START qla command: %p lun: 0x%04x (tag %d)\n",
 		cmd, cmd->unpacked_lun, cmd->tag);
+	return B_TRUE;
 }
 
 
@@ -6011,6 +6058,7 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 {
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_tgt *tgt = vha->vha_tgt.qla_tgt;
+	struct qla_atio_msg *msg;
 
 	if (unlikely(tgt == NULL)) {
 		ql_dbg(ql_dbg_tgt, vha, 0xe05d,
@@ -6065,7 +6113,27 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 			    le16_to_cpu(atio->u.isp2x.status));
 			break;
 		}
+		printk("zjn %s ACCEPT_TGT_IO_TYPE\n", __func__);
 
+		msg = kmem_cache_zalloc(atio_msg_cachep, GFP_ATOMIC);
+		if (!msg) {
+			printk("%s alloc atio_msg_cache failed!\n", __func__);
+			break;
+		}
+		
+		msg->atio = kmem_cache_zalloc(atio_cachep, GFP_ATOMIC);
+		if(!msg->atio) {
+			printk("%s alloc atio_cache failed!\n", __func__);
+		}
+		memcpy(msg->atio, atio, sizeof(struct atio_from_isp));
+		msg->vha = vha;
+		
+		INIT_WORK(&msg->atio_work, qlt_do_atio);
+		queue_work(qla_tgt_atio_wq, &msg->atio_work);
+		break;
+	}
+
+#if 0
 		rc = qlt_chk_qfull_thresh_hold(vha, atio);
 		if (rc != 0) {
 			tgt->irq_cmd_count--;
@@ -6099,6 +6167,7 @@ static void qlt_response_pkt(struct scsi_qla_host *vha, response_t *pkt)
 		}
 	}
 	break;
+#endif
 
 	case CONTINUE_TGT_IO_TYPE:
 	{
@@ -6479,6 +6548,7 @@ static void qlt_abort_work(struct qla_tgt *tgt,
 	uint8_t s_id[3];
 	int rc;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
 	if (tgt->tgt_stop)
@@ -6542,6 +6612,7 @@ static void qlt_tmr_work(struct qla_tgt *tgt,
 	int fn;
 	void *iocb;
 
+	ql_dbg(ql_dbg_ceres, vha, 0xe01e, "zjn %s", __func__);
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
 	if (tgt->tgt_stop)
@@ -6881,6 +6952,11 @@ qlt_abort_scsi_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 		struct qla_tgt_cmd *qcmd = (struct qla_tgt_cmd *)cmd->cmd_fca_private;
 		qcmd->aborted = 1;
 		qlt_send_term_exchange(vha, qcmd, qcmd->atio, 0);
+		if (flags & FCT_IOF_FORCE_FCA_DONE) {
+			printk("zjn %s FCT_CMD_FCP_XCHG flags FCT_IOF_FORCE_FCA_DONE",
+				__func__);
+		}
+		return (STMF_ABORT_SUCCESS);
 	}
 
 	if (flags & FCT_IOF_FORCE_FCA_DONE) {
@@ -6892,7 +6968,10 @@ qlt_abort_scsi_cmd(struct fct_local_port *port, fct_cmd_t *cmd, uint32_t flags)
 		qlt_abts_cmd_t *qcmd = (qlt_abts_cmd_t *)cmd->cmd_fca_private;
 		qlt_24xx_send_abts_resp(vha, (struct abts_recv_from_24xx *)qcmd->buf,
 			FC_TM_SUCCESS, false);
+		return (STMF_ABORT_SUCCESS);
 	}
+
+	printk("zjn %s cmd_type=0x%x", __func__, cmd->cmd_type);
 	
 	return (FCT_ABORT_SUCCESS);
 }
@@ -7065,6 +7144,8 @@ qlt_free_atio(void *fca_cmd)
 	if(qcmd->atio != NULL) {
 		kmem_cache_free(atio_cachep, qcmd->atio);
 	}
+		
+	bzero(qcmd, sizeof(struct qla_tgt_cmd));
 }
 
 void
@@ -7187,9 +7268,9 @@ ddi_dma_sync(ddi_dma_handle_t h, off_t o, size_t l, uint_t whom)
 #define	BUF_COUNT_2K		2048	
 #define	BUF_COUNT_8K		512	
 #define	BUF_COUNT_64K		256	
-#define	BUF_COUNT_128K		1024	
+#define	BUF_COUNT_128K		1024
 /* merge alua_2w code to stable modified by zywang begin */
-#define	BUF_COUNT_256K		512	
+#define	BUF_COUNT_256K		1024
 /* merge alua_2w code to stable modified by zywang end */
 #endif
 

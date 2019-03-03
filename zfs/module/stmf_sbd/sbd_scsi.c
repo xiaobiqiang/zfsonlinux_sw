@@ -1708,6 +1708,7 @@ sbd_handle_standby_write_xfer_completion(struct scsi_task *task, sbd_cmd_t *scmd
 	}
 
 	//sbd_free_proxy_dbuf(task_dbuf);
+	stmf_free_dbuf(task, dbuf);
 	task->task_dbuf = NULL;
 	return;
 }
@@ -3810,6 +3811,7 @@ sbd_new_task(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 					}
 					else{
 						if(sbd_use_hp_host){
+							msleep(1000);
 							stmf_scsilib_send_status(task,STATUS_BUSY, 0);
 							return;
 						}
@@ -4169,7 +4171,8 @@ void
 sbd_send_status_done(struct scsi_task *task)
 {
 	cmn_err(CE_PANIC,
-	    "sbd_send_status_done: this should not have been called");
+	    "sbd_send_status_done: task=%p this should not have been called",
+	    task);
 }
 
 void

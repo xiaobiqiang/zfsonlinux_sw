@@ -418,6 +418,7 @@ fct_status_t fct_handle_rcvd_flogi(fct_local_port_t *port,
 //void fct_log_remote_port_event(fct_local_port_t *port, char *subclass,
 //    uint8_t *rp_pwwn, uint32_t rp_id);
 void fct_wwn_to_str(char *to_ptr, const uint8_t *from_ptr);
+void fct_cmd_free(fct_cmd_t *cmd);
 
 #ifdef	__cplusplus
 }
