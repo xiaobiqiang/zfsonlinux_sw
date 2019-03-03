@@ -2155,6 +2155,7 @@ fct_cmd_free(fct_cmd_t *cmd)
 	}
 
 }
+EXPORT_SYMBOL(fct_cmd_free);
 
 /* ARGSUSED */
 stmf_status_t
