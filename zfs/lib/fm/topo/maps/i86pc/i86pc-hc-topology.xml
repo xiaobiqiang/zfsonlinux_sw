@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!DOCTYPE topology SYSTEM "/usr/share/lib/xml/dtd/topology.dtd.1">
+
+<topology name='i86pc' scheme='hc'>
+	<range name='fanpsu' min='0' max='0'>
+                <node instance='0'>
+                        <set type='product' setlist='default'>
+                                <propgroup name='protocol' version='1' name-stability='Private' data-stability='Private' >
+                                        <propval name='label' type='string' value='FANPSU' />
+                                </propgroup>
+                        </set>
+                </node>
+
+                <dependents grouping='children'>
+		       <range name='fan' min='0' max='24'>
+				<enum-method name='fanpsu' version='1' />
+		       </range>
+		       <range name='psu' min='0' max='24'>
+				<enum-method name='fanpsu' version='1' />
+		       </range>
+                </dependents>
+	</range>
+	<range name='disk' min='0' max='1024'>
+		<enum-method name='disk' version='1' />
+	</range>
+
+	<range name='card_link' min='0' max='0'>
+		<node instance='0'>
+			<set type='product' setlist='default'>
+				<propgroup name='protocol' version='1' name-stability='Private' data-stability='Private' >
+					<propval name='label' type='string' value='LINK' />
+				</propgroup>
+			</set>
+		</node>
+
+		<dependents grouping='children'>
+			<range name='fc_link' min='0' max='24'>
+				<enum-method name='link' version='1' />
+			</range>
+			<range name='ethernet_link' min='0' max='24'>
+				<enum-method name='link' version='1' />
+			</range>
+			<range name='sas_link' min='0' max='24'>
+				<enum-method name='link' version='1' />
+			</range>
+		</dependents>
+	</range>
+</topology>

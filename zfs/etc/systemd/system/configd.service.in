@@ -1,0 +1,11 @@
+[Unit]
+Description=Start configd service
+DefaultDependencies=no
+After=pppt-boot.service
+
+[Service]
+ExecStart=@sbindir@/configd
+Restart=on-failure
+
+[Install]
+WantedBy=zfs.target

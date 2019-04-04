@@ -1,0 +1,10 @@
+src = @abs_top_srcdir@/module/fmd_transport
+obj = @abs_builddir@
+
+MODULE := zfmd_transport
+
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+
+obj-$(CONFIG_ZFS) := $(MODULE).o
+
+$(MODULE)-objs += fmd_transport.o

@@ -1,0 +1,12 @@
+src = @abs_top_srcdir@/module/fct
+obj = @abs_builddir@
+
+MODULE := zfct
+
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+
+obj-$(CONFIG_ZFS) := $(MODULE).o
+
+$(MODULE)-objs += fct.o
+$(MODULE)-objs += discovery.o
+

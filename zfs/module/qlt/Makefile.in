@@ -1,0 +1,17 @@
+src = @abs_top_srcdir@/module/qlt
+obj = @abs_builddir@
+
+MODULE := zqlt
+
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+
+obj-$(CONFIG_ZFS) := $(MODULE).o
+
+$(MODULE)-objs += qlt.o
+$(MODULE)-objs += qlt_dma.o
+$(MODULE)-objs += 2400.o
+$(MODULE)-objs += 2500.o
+$(MODULE)-objs += 2700.o
+$(MODULE)-objs += 8100.o
+$(MODULE)-objs += 8300fc.o
+$(MODULE)-objs += ddi_to_linux.o

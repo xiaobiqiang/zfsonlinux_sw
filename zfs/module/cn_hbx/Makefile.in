@@ -1,0 +1,10 @@
+src = @abs_top_srcdir@/module/cn_hbx
+obj = @abs_builddir@
+
+MODULE := zcn_hbx
+
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+
+obj-$(CONFIG_ZFS) := $(MODULE).o
+
+$(MODULE)-objs += cn_hbx.o

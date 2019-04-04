@@ -1,0 +1,12 @@
+[Unit]
+Description=Start clusterd service
+DefaultDependencies=no
+Requires=NetworkManager.service zfs-boot.service pppt-boot.service
+After=zfs.target zfs-boot.service pppt-boot.service
+
+[Service]
+ExecStart=@sbindir@/clusterd -d
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
