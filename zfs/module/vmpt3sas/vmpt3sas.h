@@ -2,6 +2,11 @@
 #define __VMPT3SAS_H
 
 #define MPT_NAME_LENGTH			32	/* generic length of strings */
+#define VMPT_MIN_SZ_SHIFT       8
+#define VMPT_MIN_SZ             (1<<VMPT_MIN_SZ_SHIFT)
+#define VMPT_MAX_SZ_SHIFT       12
+#define VMPT_MAX_SZ             (1<<VMPT_MAX_SZ_SHIFT)
+#define VMPT_CACHE_NUM          (VMPT_MAX_SZ>>VMPT_MIN_SZ_SHIFT)
 
 typedef struct vmpt3sas {
 	struct Scsi_Host *shost;
@@ -32,6 +37,10 @@ typedef struct vmpt3sas_rx_data {
 	cs_rx_data_t *cs_data;
 }vmpt3sas_rx_data_t;
 
+typedef struct vmpt3sas_commsck_rx_data {
+	XDR *xdrs;
+	commsock_rx_cb_arg_t *cs_data;
+}vmpt3sas_commsock_rx_data_t;
 
 typedef struct vmpt3sas_cts_link_stata_evt {
 	void *sess;
@@ -63,15 +72,14 @@ typedef struct vmpt3sas_req_scmd {
 	unsigned int channel;
 	int data_direction;
 	unsigned int cmd_len;
-	char cmnd[16];
+	unsigned char cmnd[16];
 	unsigned int response; 
-	char sense[24];
+	unsigned char sense[96];
 	unsigned int datalen;
-	char *dataarr[32];
-	int lendataarr[32];
-	int ndata;
+	unsigned int rhost_no;
+	void *data;
 	void *session;
-	void *shost;
+	vmpt3sas_commsock_rx_data_t *rx_data;
 }vmpt3sas_req_scmd_t;
 
 typedef struct req_list {
@@ -101,6 +109,8 @@ typedef struct vmptsas_instance {
 	int max_cmds;
 	req_proxy_t qcmdproxy;
 	req_proxy_t dcmdproxy;
+
+    kmem_cache_t *cache[VMPT_CACHE_NUM];
 	
 	taskq_t *tq_common;
 	taskq_t *tq_pexec;

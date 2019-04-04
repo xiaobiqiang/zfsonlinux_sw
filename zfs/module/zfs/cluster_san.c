@@ -3938,6 +3938,7 @@ static void cluster_target_broadcast_handle(cts_fragment_data_t *fragment)
 	ctp = fragment->target_port;
 	ct_head = fragment->ct_head;
 	ret = nvlist_unpack(fragment->data, fragment->len, &hostinfo, KM_SLEEP);
+	printk(KERN_INFO "%s:data_len:%d,ret:%d", __func__, fragment->len, ret);
 	if (ret != 0) {
 		return;
 	}

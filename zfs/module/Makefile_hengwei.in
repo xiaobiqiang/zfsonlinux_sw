@@ -14,6 +14,7 @@ subdir-m += qlf_hengwei
 subdir-m += stmf_sbd
 subdir-m += pppt
 subdir-m += fmd_transport
+subdir-m += commsock
 
 LINUX_SRC_LINK := /lib/modules/$(shell uname -r)/source
 LINUX_SRC_DIR := $(shell readlink -f $(LINUX_SRC_LINK))

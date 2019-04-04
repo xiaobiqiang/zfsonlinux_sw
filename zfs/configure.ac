@@ -187,6 +187,7 @@ AC_CONFIG_FILES([
 	cmd/lunadm/Makefile
 	cmd/sethostid/Makefile
 	cmd/scripts/Makefile
+	cmd/commsock/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
@@ -209,6 +210,7 @@ AC_CONFIG_FILES([
 	module/stmf/Makefile
 	module/stmf_sbd/Makefile
 	module/pppt/Makefile
+	module/commsock/Makefile
 	include/Makefile
 	include/linux/Makefile
 	include/sys/Makefile

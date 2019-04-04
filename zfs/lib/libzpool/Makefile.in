@@ -234,7 +234,7 @@ am__objects_2 = zfs_comutil.lo zfs_deleg.lo zfs_fletcher.lo \
 	zfeature_common.lo zfs_byteswap.lo zfs_debug.lo zfs_fm.lo \
 	zfs_fuid.lo zfs_sa.lo zfs_znode.lo zil.lo zio.lo \
 	zio_checksum.lo zio_compress.lo zio_inject.lo zle.lo zrlock.lo \
-	lun_migrate.lo
+	lun_migrate.lo clist.lo raidz_aggre.lo
 nodist_libzpool_la_OBJECTS = $(am__objects_1) $(am__objects_2)
 libzpool_la_OBJECTS = $(nodist_libzpool_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -614,7 +614,9 @@ KERNEL_C = \
 	zio_inject.c \
 	zle.c \
 	zrlock.c \
-	lun_migrate.c
+	lun_migrate.c \
+	clist.c \
+	raidz_aggre.c
 
 nodist_libzpool_la_SOURCES = \
 	$(USER_C) \
@@ -710,6 +712,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bplist.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bpobj.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bptree.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/clist.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dbuf.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dbuf_stats.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ddt.Plo@am__quote@
@@ -743,6 +746,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lzjb.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/metaslab.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multilist.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/raidz_aggre.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/range_tree.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/refcount.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rrwlock.Plo@am__quote@
